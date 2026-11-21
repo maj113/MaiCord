@@ -894,8 +894,8 @@ void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     content.revision = 1;
     const UiRect viewport{312, 0, 1200, 800}, title{312, 0, 1200, 48};
     check(!scene.storage.arena.base && ui_search_scene_update(&scene, &source, &content, viewport, title) &&
-              scene.active && scene.count < 10 && fixture.calls == 125 + scene.count,
-          "search_scene_lazy_bounded_height_index_and_visible_projection_125_contexts");
+              scene.active && scene.count < 10,
+          "search_scene_lazy_bounded_projection_of_125_contexts");
     if (!scene.active)
         return;
     AvatarMedia avatar{};

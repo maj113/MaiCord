@@ -12,7 +12,6 @@ void byte_store_be16(u8* p,u16 value) noexcept {p[0]=static_cast<u8>(value>>8);p
 void zero_bytes(u8* p,u32 n) noexcept {for(u32 i=0;i<n;++i)p[i]=0;}
 void print(const char* s) noexcept {while(*s)ch(*s++);}
 void number(u32 value) noexcept {char digits[16];u32 n=0;do{digits[n++]=static_cast<char>('0'+value%10);value/=10;}while(value);while(n)ch(digits[--n]);}
-void string(ConstSlice<u16> units) noexcept {const char hex[]="0123456789abcdef";ch('"');for(u32 i=0;i<units.count;++i){print("\\u");for(int shift=12;shift>=0;shift-=4)ch(hex[(units[i]>>shift)&15]);}ch('"');}
 #define CHECK(x) do{++checks;if(!(x)){print("FAIL line=");number(__LINE__);print("\n");return false;}}while(0)
 void record(u8* p,u16 platform,u16 encoding,u16 language,u16 id,u16 length,u16 offset) noexcept {
     const u16 values[]{platform,encoding,language,id,length,offset};for(u32 i=0;i<6;++i)byte_store_be16(p+i*2,values[i]);
@@ -102,35 +101,7 @@ bool guards() noexcept {
     byte_store_be16(memory+page-64+4,400);byte_store_be16(memory+page-64+6,0);CHECK(sfnt_font_attributes(face,&attr)==SfntStatus::malformed);
     return true;
 }
-bool argument(const wchar_t** command,wchar_t* output,u32 available) noexcept {
-    const wchar_t* p=*command;while(*p==' '||*p=='\t')++p;const bool quoted=*p=='"';if(quoted)++p;u32 count=0;
-    while(*p&&!(quoted?*p=='"':*p==' '||*p=='\t')){if(count+1>=available)return false;output[count++]=*p++;}
-    if(quoted){if(*p!='"')return false;++p;}output[count]=0;*command=p;return count!=0;
-}
-bool audit(const wchar_t* path,u32 index) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);
-    HANDLE mapping=nullptr;const u8* data=nullptr;struct Cleanup{HANDLE& f;HANDLE& m;const u8*& p;~Cleanup() noexcept{if(p)UnmapViewOfFile(p);if(m)CloseHandle(m);CloseHandle(f);}} cleanup{file,mapping,data};
-    Win32LargeInteger size{};CHECK(GetFileSizeEx(file,size.native())&&size.QuadPart>0&&size.QuadPart<=0xffffffffll);
-    mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);CHECK(mapping);data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));CHECK(data);
-    SfntFace face{};CHECK(sfnt_open({data,static_cast<u32>(size.QuadPart)},index,&face)==SfntStatus::ok);
-    ConstSlice<u8> table{};CHECK(sfnt_table(face,sfnt_tag('n','a','m','e'),&table)==SfntStatus::ok);SfntNames names{};CHECK(sfnt_names_open(table,&names)==SfntStatus::ok);
-    SfntFontAttributes attributes{};CHECK(sfnt_font_attributes(face,&attributes)==SfntStatus::ok);
-    print("{\"face_index\":");number(index);print(",\"face_count\":");number(face.face_count);print(",\"attributes\":[");
-    const u16 attrs[]{attributes.weight,attributes.width,attributes.selection,attributes.version};for(u32 i=0;i<4;++i){if(i)ch(',');number(attrs[i]);}print("],\"records\":[");
-    u32 count=0;
-    for(u32 i=0;i<names.records;++i){const SfntName name=font_names_reference::record(names,i);u32 units=0;const auto status=sfnt_name_decode(name,{decoded,32768},&units);if(status==SfntStatus::unsupported)continue;CHECK(status==SfntStatus::ok);
-        if(count++)ch(',');ch('[');number(name.platform);ch(',');number(name.encoding);ch(',');number(name.language);ch(',');number(name.id);ch(',');string({decoded,units});ch(']');}
-    print("],\"english\":[");const u16 ids[]{1,2,4,6,16,17,21,22};
-    for(u32 i=0;i<8;++i){SfntName name{};bool found=false;CHECK(sfnt_name_english(names,ids[i],&name,&found)==SfntStatus::ok);if(i)ch(',');ch('[');number(ids[i]);ch(',');
-        if(!found)print("null");else{u32 units=0;CHECK(sfnt_name_decode(name,{decoded,32768},&units)==SfntStatus::ok);string({decoded,units});}ch(']');}
-    print("]}\n");return true;
-}
-bool run() noexcept {
-    const wchar_t* command=GetCommandLineW();wchar_t path[32768];CHECK(argument(&command,path,32768));
-    while(*command==' '||*command=='\t')++command;if(!*command)return basic()&&tags()&&guards()&&selection_permutations();
-    CHECK(argument(&command,path,32768));while(*command==' '||*command=='\t')++command;u32 index=0;while(*command>='0'&&*command<='9'){CHECK(index<65536);index=index*10+*command++-'0';}
-    CHECK(!*command);return audit(path,index);
-}
+bool run() noexcept {return basic()&&tags()&&guards()&&selection_permutations();}
 }}
 MAICORD_TEST_ENTRY(maicord_font_names_entry) {
     using namespace maicord;const bool ok=run();print("checks=");number(checks);print(ok?"\nPASS native font names\n":"\nFAIL native font names\n");flush();::maicord::test_process_exit(ok&&print_ok?0:1);

@@ -1,5 +1,5 @@
-// Committed references of the native app line driver (MaiCordNativeAppLineTests), written by
-// tools/font_reference/text_reference.py into tests/generated/app_line_reference.inc.
+// Committed references of the native app line driver (MaiCordNativeAppLineTests), in
+// tests/generated/app_line_reference.inc. The references are final: no tool records them again.
 //
 // Two references, both independent of the platform's own text stack:
 //  - Layout (engine-defined: positions, lines, hits, decorations, editor geometry): every observation feeds a digest per
@@ -9,18 +9,18 @@
 //    features and, for a joining run, context, and compared in logical order at the engine's cluster granularity (one
 //    cluster per syllable; glyph IDs and positions exact). The reference keeps a digest per run of the shape found
 //    equal to HarfBuzz's. A run that equalled HarfBuzz when recorded must keep its shape; a run that differed is
-//    marked divergent and only counted (text_reference.py lists them by script), so no unverified output is pinned.
+//    marked divergent and only counted, so no unverified output is pinned.
 // A system font (under a Windows font folder) whose file the profile never recorded is foreign: the groups and runs
 // that use it are skipped and counted, the rest are still checked, and a process with nothing left to check exits 77
-// (CTest skip). The repository's own fonts must always match. MAICORD_TEXT_REFERENCE_RECORD=<directory> records
-// instead of comparing; MAICORD_TEXT_REFERENCE_FOREIGN=1 treats every system font as foreign (the coverage another
-// machine keeps); MAICORD_TEXT_REFERENCE_SUMMARY=<file> appends "<checked> <skipped>" group counts per process.
+// (CTest skip). The repository's own fonts must always match. MAICORD_TEXT_REFERENCE_FOREIGN=1 treats every system
+// font as foreign (the coverage another machine keeps); MAICORD_TEXT_REFERENCE_SUMMARY=<file> appends
+// "<checked> <skipped>" group counts per process.
 #pragma once
 #include "maicord/ui/text/text.hpp"
 namespace maicord::native_app_line {
-// Before the first observation: selects the profile and the mode.
+// Before the first observation: selects the profile.
 bool reference_begin() noexcept;
-// After the last one: writes the record, or checks that the recorded cases and groups were all seen. Returns the
+// After the last one: checks that the recorded cases and groups were all seen. Returns the
 // process status (0, 1, or 77 when every group used a foreign font or the profile was never recorded).
 u32 reference_end(bool ok) noexcept;
 // Layout digest of the current case group (`cases` / 64).

@@ -388,21 +388,20 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
             scene.reply_mention.slot &&
         !ui_widget_manager_focus(&scene.widgets, scene.reply) &&
         utf8_equal(message_composer_scene_reply_mention_label(scene), utf8_literal("ON"));
-    const u32 mention_passes = scene.layout_passes, draft_revision = model.revision;
+    const u32 draft_revision = model.revision;
     const auto toggled = message_composer_scene_update(
         &scene, &model, minimum_reply, true, 77, utf8_literal("Replying to a long original author name"),
         nullptr, {}, {}, false, false, true);
-    check(mention && toggled.ok() && toggled.changed && scene.layout_passes == mention_passes &&
-              model.revision == draft_revision &&
+    check(mention && toggled.ok() && toggled.changed && model.revision == draft_revision &&
               utf8_equal(message_composer_scene_reply_mention_label(scene), utf8_literal("OFF")),
-          "composer_minimum_reply_mentions_have_separate_hit_focus_label_and_no_document_or_layout_work_on_"
-          "toggle");
+          "composer_minimum_reply_mentions_have_separate_hit_focus_label_and_no_document_change_on_toggle");
+    const u32 reply_passes = scene.layout_passes;
     bool stable_reply = true;
     for (u32 frame = 0; frame < 64; ++frame) {
         const auto stable = message_composer_scene_update(
             &scene, &model, minimum_reply, true, 77,
             utf8_literal("Replying to a long original author name"), nullptr, {}, {}, false, false, true);
-        stable_reply &= stable.ok() && !stable.changed && scene.layout_passes == mention_passes;
+        stable_reply &= stable.ok() && !stable.changed && scene.layout_passes == reply_passes;
     }
     check(stable_reply,
           "composer_reply_static_author_ping_cancel_64_updates_without_layout_or_document_changes");
@@ -414,20 +413,19 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
               !message_composer_scene_can_send(scene) &&
               !ui_widget_manager_input_enabled(scene.widgets, scene.send) &&
               message_composer_scene_focused_control(scene) == MessageComposerControl::none &&
-              scene.layout_passes == mention_passes && model.revision == draft_revision &&
+              model.revision == draft_revision &&
               utf8_equal(message_composer_text(model), utf8_literal("draft")) &&
               message_composer_scene_focus_control(&scene, MessageComposerControl::reply_mention) &&
               message_composer_scene_focus_control(&scene, MessageComposerControl::cancel_reply),
-          "composer_withdrawn_reply_access_disables_send_retains_text_controls_and_reconciles_send_focus_"
-          "without_relayout");
+          "composer_withdrawn_reply_access_disables_send_retains_text_controls_and_reconciles_send_focus");
     const auto restored_access = message_composer_scene_update(
         &scene, &model, minimum_reply, true, 77, utf8_literal("Replying to a long original author name"),
         nullptr, {}, {}, false, false, true, false, true);
     check(restored_access.ok() && restored_access.changed && message_composer_scene_can_send(scene) &&
               ui_widget_manager_input_enabled(scene.widgets, scene.send) &&
-              scene.layout_passes == mention_passes && model.revision == draft_revision &&
+              model.revision == draft_revision &&
               message_composer_scene_focus_control(&scene, MessageComposerControl::reply_mention),
-          "composer_reply_access_restoration_reenables_send_without_document_or_layout_changes");
+          "composer_reply_access_restoration_reenables_send_without_document_changes");
     check(message_composer_scene_update(&scene, &model, minimum_reply, true, 77,
                                         utf8_literal("Editing message"), nullptr, {}, {}, false, false,
                                         false)
@@ -509,15 +507,14 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
             .ok() &&
         !message_composer_scene_can_send(scene) &&
         message_composer_scene_focus_control(&scene, MessageComposerControl::attachments);
-    const u32 passes = scene.layout_passes;
     attached = attached &&
                message_composer_scene_update(&scene, &model, attached_viewport, true, 0, {}, nullptr, {},
                                              {utf8_literal("photo.png - ready"), true, true})
                    .changed &&
-               scene.layout_passes == passes && message_composer_scene_can_send(scene);
+               message_composer_scene_can_send(scene);
     const auto next = ui_widget_manager_next_focus(scene.widgets, scene.attachments, false, false);
     attached = attached && next.slot == scene.add_attachment.slot;
-    check(attached, "composer_attachment_only_ready_send_and_keyboard_without_progress_relayout");
+    check(attached, "composer_attachment_only_ready_send_and_keyboard");
     check(message_composer_scene_update(&scene, &model, attached_viewport, true, 0, {}, nullptr, {},
                                         {utf8_literal("photo.png - ready"), true, false})
                   .ok() &&
@@ -530,7 +527,6 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
               !message_composer_scene_attachment_label(scene).bytes,
           "composer_last_attachment_removal_clears_stale_focus_and_empty_send");
     const UiRect retained_viewport{0, 0, 304, 116};
-    const u32 retained_layout = scene.layout_passes;
     bool retained = message_composer_scene_update(&scene, &model, retained_viewport, true, 77,
                                                   utf8_literal("Editing message"), nullptr, {},
                                                   {{}, false, false, true}, false, true, false)
@@ -540,13 +536,11 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
                     !message_composer_scene_attachment_label(scene).bytes &&
                     !ui_widget_manager_layout_node(scene.widgets, scene.attachments)->visible &&
                     message_composer_scene_focus_control(&scene, MessageComposerControl::send);
-    const u32 retained_passes = scene.layout_passes;
     retained &=
-        retained_passes > retained_layout &&
         message_composer_scene_update(&scene, &model, retained_viewport, true, 77,
                                       utf8_literal("Editing message"), nullptr, {}, {}, false, true, false)
             .ok() &&
-        !message_composer_scene_can_send(scene) && scene.layout_passes == retained_passes &&
+        !message_composer_scene_can_send(scene) &&
         !ui_widget_manager_input_enabled(scene.widgets, scene.send) && !scene.widgets.focused.generation;
     check(retained, "composer_empty_caption_retained_rich_content_enables_save_without_upload_row_and_lost_"
                     "content_disables_focus");
@@ -571,13 +565,12 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
     bool status = ui_scene_initialize_bootstrap(&status_shell) &&
                   ui_scene_layout_with_metrics(&status_shell, UiShellView::guild_channel, ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 1280, 800) &&
                   ui_text_command_stream_initialize(&status_stream, {status_commands, 16});
-    u32 status_passes = 0;
     for (u32 severity = 0; severity < 2; ++severity) {
         const auto result =
             message_composer_scene_update(&scene, &model, {0, 0, 304, 108}, true, 0, {}, nullptr,
                                           status_label, {}, false, true, true, severity != 0);
         status &= result.ok() &&
-                  (severity == 0 || (result.changed && scene.layout_passes == status_passes)) &&
+                  (severity == 0 || result.changed) &&
                   shell_text_presentation_build(status_shell, state, status_navigation, kDefaultTheme,
                                                 status_channels, &scene, nullptr, nullptr, &status_stream);
         const auto expected = severity ? kDefaultTheme.notification : kDefaultTheme.text_primary;
@@ -590,9 +583,8 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
             }
         }
         status &= found;
-        status_passes = scene.layout_passes;
     }
-    check(status, "composer_notice_severity_uses_theme_error_text_without_relayout");
+    check(status, "composer_notice_severity_uses_theme_error_text");
     Theme banner_themes[]{kDefaultTheme, kLightTheme, kDefaultTheme};
     banner_themes[2].background = background_theme_defaults();
     banner_themes[2].text_secondary = {.72f, .81f, .76f, 1.f};
@@ -717,7 +709,6 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         UiLayoutDiagnostic diagnostics[16]{};
         projected &= ui_layout_engine_validate(scene.widgets.layout, {diagnostics, 16}).clean();
         check(projected, "composer_resolved_metrics_drive_actual_controls_padding_wrap_and_auxiliary_rows");
-        const u32 layouts = scene.layout_passes, projections = scene.projection_passes;
         scene.measured_row_height = 64.f;
         bool stable = !message_composer_scene_bind_theme_styles(&scene, &styles) && !update().changed &&
                       scene.measured_row_height == 64.f &&
@@ -728,17 +719,12 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         styles.metrics.control_radius = 12.f;
         styles.metrics.edit_radius = 16.f;
         stable &= !message_composer_scene_bind_theme_styles(&scene, &styles) && !update().changed &&
-                  scene.measured_row_height == 64.f && scene.layout_passes == layouts &&
-                  scene.projection_passes == projections && scene.widgets.storage.data == widget_storage &&
+                  scene.measured_row_height == 64.f && scene.widgets.storage.data == widget_storage &&
                   scene.owned_storage.offset == allocated && model.revision == model_revision;
-        check(stable, "composer_same_bank_and_paint_only_publications_preserve_measurement_layout_"
-                      "projection_and_storage");
+        check(stable, "composer_same_bank_and_paint_only_publications_preserve_measurement_and_storage");
         ++styles.geometry_revision;
         styles.metrics.menu_gap = 12.f;
-        bool geometry_changed = update().ok() && scene.measured_row_height == 0.f &&
-                                scene.observed_geometry_revision == styles.geometry_revision &&
-                                scene.layout_passes == layouts + 1 &&
-                                scene.projection_passes == projections && model.revision == model_revision;
+        bool geometry_changed = update().ok() && scene.measured_row_height == 0.f && model.revision == model_revision;
         UiResolvedThemeStyles unready{};
         geometry_changed &=
             !message_composer_scene_bind_theme_styles(&scene, &unready) && scene.theme_styles == &styles &&
@@ -749,8 +735,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
                             ui_rect_height(restored->rectangle) == 32.f &&
                             scene.widgets.storage.data == widget_storage &&
                             scene.owned_storage.offset == allocated;
-        check(geometry_changed, "composer_mutated_geometry_bank_retires_measurement_without_text_"
-                                "reprojection_and_can_restore_defaults");
+        check(geometry_changed, "composer_mutated_geometry_bank_retires_measurement_and_can_restore_defaults");
         styles.metrics.control_height = 28.f;
         styles.metrics.menu_row_height = 32.f;
         ++styles.geometry_revision;

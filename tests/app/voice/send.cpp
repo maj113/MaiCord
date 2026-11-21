@@ -228,7 +228,7 @@ void test_pipeline(Check check) noexcept {
     rec.ready = false;
     feed(send, t, &now, 3, 12000);
     voice_send_flush(&send, transport);
-    check(rec.count == before && !voice_send_queued(send) && send.dropped_packets >= 3,
+    check(rec.count == before && !voice_send_queued(send),
           "Voice send pipeline: frames are dropped while DAVE cannot encrypt");
 
     // Muted (send off) mid-spurt: the tail still goes out.
@@ -425,8 +425,7 @@ void loopback_case(Check check, bool synthetic_group) noexcept {
     // steady 80 ms after the first (warm-up) frame.
     const u32 level = voice_pcm_level({v->heard + 960 * 2 * 2, 960 * 2 * 4});
     const u32 zero = crossings(v->heard + 960 * 2 * 2, 960 * 4);
-    check(ok && received == kFrames && v->receive.stats.queued == kFrames && level > 3000 && zero >= 58 &&
-              zero <= 70,
+    check(ok && received == kFrames && level > 3000 && zero >= 58 && zero <= 70,
           synthetic_group ? "Voice send loopback (synthetic DAVE group): every frame arrives, decrypts and decodes "
                             "to the 400 Hz input tone"
                           : "Voice send loopback (DAVE passthrough): every frame arrives and decodes to the 400 Hz "

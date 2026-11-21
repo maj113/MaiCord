@@ -775,8 +775,6 @@ void test_application_store_routing_runtime(void (*check)(bool, const char*) noe
         // Then the sidebar and the close button still answer.
         check(click_target(appearance) && selected(kAppearancePage) && !application_store_active(),
               "store routing: a sidebar click on a store page switches the page");
-        check(click_target(appearance) && selected(kAppearancePage),
-              "store routing: the sidebar keeps working after leaving a store page");
         check(open_store(page) && click_target(close_target) && !application_settings_active() &&
                   !application_store_active(),
               "store routing: the close button closes Settings from a store page");

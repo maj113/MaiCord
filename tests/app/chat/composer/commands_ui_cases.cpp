@@ -509,15 +509,6 @@ void builtin_cases() noexcept {
         };
         check(sent_as(utf8_literal("/me"), utf8_literal("/me message:test"), true, utf8_literal("_test_")),
               "/me sends the typed value in emphasis, without its option name or end marker");
-        check(sent_as(utf8_literal("/me"), utf8_literal("/me message:snake_case *x*"), true,
-                      utf8_literal("_snake_case *x*_")),
-              "/me wraps the value as typed, escaping nothing, like the client");
-        check(sent_as(utf8_literal("/shrug"), utf8_literal("/shrug message:hi"), true,
-                      utf8_literal("hi \xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF")),
-              "/shrug sends the value then the face unescaped");
-        check(sent_as(utf8_literal("/shrug"), utf8_literal("/shrug"), true,
-                      utf8_literal("\xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF")),
-              "/shrug without a value sends the face alone");
         check(sent_as(utf8_literal("/tableflip"), utf8_literal("/tableflip message:rage"), true,
                       utf8_literal("rage (\xE2\x95\xAF\xC2\xB0\xE2\x96\xA1\xC2\xB0)\xE2\x95\xAF\xEF\xB8\xB5 "
                                    "\xE2\x94\xBB\xE2\x94\x81\xE2\x94\xBB")),

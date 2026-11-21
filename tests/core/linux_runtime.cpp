@@ -1,8 +1,8 @@
-// The Linux runtime: process entry state, the pinned libc imports (dlopen, pthread_create, clock_gettime), the
+// The Linux runtime: process entry state, the pinned libc imports (dlopen, clock_gettime), the
 // shared-library search and the XDG data path. argv[1] selects the case; cmake/test_registry.cmake runs each
 // with the environment it needs.
 #include "../support/test_output.hpp"
-#include "../support/test_thread.hpp"
+#include "maicord/sys/linux/calls.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/shared_library.hpp"
 #include "maicord/core/intrinsics.hpp"
@@ -32,11 +32,6 @@ bool text_equal(const char* left, const char* right) noexcept {
     return *left == *right;
 }
 
-u32 thread_body(void* argument) {
-    *static_cast<volatile u32*>(argument) = 42;
-    return 7;
-}
-
 void test_startup() noexcept {
     const ProcessStartup& startup = process_startup();
     expect(startup.argc >= 1 && startup.argv && startup.argv[0] && !startup.argv[startup.argc],
@@ -61,15 +56,6 @@ void test_clock() noexcept {
     expect(unix_milliseconds > 1'577'836'800'000ull && unix_milliseconds < 4'102'444'800'000ull,
            "clock_unix_milliseconds");
     expect(clock_monotonic_milliseconds() > 0, "clock_boottime_milliseconds");
-}
-
-void test_threads() noexcept {
-    TestThread thread{};
-    volatile u32 value = 0;
-    u32 result = 0;
-    expect(test_thread_start(&thread, thread_body, const_cast<u32*>(&value)) &&
-               test_thread_finish(&thread, 5000, &result) && result == 7 && value == 42,
-           "pthread_create_and_join");
 }
 
 void test_libraries() noexcept {
@@ -273,7 +259,6 @@ MAICORD_TEST_ENTRY(maicord_linux_runtime_entry) {
     } else {
         test_startup();
         test_clock();
-        test_threads();
         test_libraries();
         test_c_library();
     }

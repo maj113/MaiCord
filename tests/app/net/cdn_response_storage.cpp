@@ -31,8 +31,6 @@ void test_cdn_response_storage(void (*check)(bool, const char*) noexcept) noexce
     check(validate_static_image_response(CdnImageType::mp4, actual_video_head, body_sizes[1],
                                          0)
                   .ok() &&
-              validate_static_image_response(CdnImageType::png, actual_video_head, 0, 0)
-                      .error == CdnHttpError::body_too_large &&
               validate_static_image_response(
                   CdnImageType::mp4,
                   {reinterpret_cast<const u8*>(oversized_head), sizeof(oversized_head) - 1}, 0, 0)

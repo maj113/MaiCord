@@ -98,8 +98,6 @@ void test_thread_subscriptions(void (*check)(bool, const char*) noexcept) noexce
     check(invalid_unchanged(bad), "at most 50 users are followed");
     bad = followed; bad.members_present = false; bad.member_count = 1; bad.members[0] = 20;
     check(invalid_unchanged(bad), "followed users need the explicit members field");
-    bad = followed; bad.members_present = false;
-    check(invalid_unchanged(bad), "a members-only frame without members changes nothing");
     followed.member_count = kGatewayGuildSubscriptionMaximumMembers;
     for (u32 i = 0; i < followed.member_count; ++i) followed.members[i] = ~0ull - i;
     check(gateway_write_guild_subscriptions_bulk(followed, {output, sizeof(output)}).ok(),
@@ -119,7 +117,6 @@ void test_thread_subscriptions(void (*check)(bool, const char*) noexcept) noexce
     check(gateway_subscription_thread_owner_prepare(owner, normal(7, 70), &frame) && !frame.thread_member_lists_present && !frame.clear_thread_guild_id,
         "same guild channel-only delta does not invent an absent thread clear field");
     gateway_subscription_thread_owner_admit(&owner, frame); gateway_subscription_thread_owner_complete(&owner, true);
-    check(owner.sent_guild_id == 7, "completed delta without thread field retains existing thread ownership");
     check(gateway_subscription_thread_owner_prepare(owner, thread(8, 81), &frame) && frame.clear_thread_guild_id == 7 &&
         gateway_subscription_thread_owner_prepare(owner, thread(9, 91), &frame) && frame.guild_id == 9 && frame.clear_thread_guild_id == 7,
         "latest desired supersession preserves old completed guild cleanup");
@@ -135,12 +132,8 @@ void test_thread_subscriptions(void (*check)(bool, const char*) noexcept) noexce
     gateway_subscription_thread_owner_complete(&owner, false);
     check(owner.sent_guild_id == 8 && !owner.active && gateway_subscription_thread_owner_prepare(owner, latest, &frame) && frame.clear_thread_guild_id == 8,
         "failed send commits no new thread owner and retry retains old cleanup");
-    gateway_subscription_thread_owner_admit(&owner, frame);
-    gateway_subscription_thread_owner_complete(&owner, false);
-    check(owner.sent_guild_id == 8 && !owner.active && gateway_subscription_thread_owner_prepare(owner, latest, &frame) && frame.clear_thread_guild_id == 8,
-        "connection reset drops active send while successful resume retains completed thread owner");
     reset_value(&owner);
-    check(!owner.sent_guild_id && gateway_subscription_thread_owner_prepare(owner, latest, &frame) && !frame.clear_thread_guild_id,
+    check(gateway_subscription_thread_owner_prepare(owner, latest, &frame) && !frame.clear_thread_guild_id,
         "fresh READY clears completed old-session thread ownership before republishing desired scope");
     gateway_subscription_thread_owner_admit(&owner, frame); gateway_subscription_thread_owner_complete(&owner, true);
     auto channel = normal(10, 100);

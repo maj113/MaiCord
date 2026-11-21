@@ -133,13 +133,6 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
         }
     }return r.at==r.data.count;
 }
-bool file_corpus(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;
-    LARGE_INTEGER size{};if(!GetFileSizeEx(file,&size) || size.QuadPart<12 || size.QuadPart>0xffffffffll){CloseHandle(file);return false;}
-    HANDLE map=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!map){CloseHandle(file);return false;}
-    const auto* data=static_cast<const u8*>(MapViewOfFile(map,FILE_MAP_READ,0,0,0));const bool ok=data && corpus({data,static_cast<u32>(size.QuadPart)});
-    if(data)UnmapViewOfFile(data);CloseHandle(map);CloseHandle(file);return ok;
-}
 // Segments (HarfBuzz per-syllable lookups): ligature 1,2 -> 4 over glyphs 1,2,1,2,1,2 with segment
 // starts 0,2,3 forms in the first and last segments only; the first ligature shortens the run, so the
 // later segment ends must follow the edit.
@@ -207,9 +200,7 @@ int run() noexcept {
     if(!segment_units()){print(utf8_literal("FAIL execution segments\n"));return 5;}
     if(!joiner_units()){print(utf8_literal("FAIL execution joiners\n"));return 6;}
     if(!guards()){print(utf8_literal("FAIL execution guards\n"));return 4;}
-    const wchar_t* command=test_arguments();
-    bool ok=false;if(!*command)ok=corpus({gsub_execution_fixture,sizeof(gsub_execution_fixture)});
-    else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_corpus(path);}
+    const bool ok=corpus({gsub_execution_fixture,sizeof(gsub_execution_fixture)});
     print(utf8_literal("queries="));number(queries);print(utf8_literal("\nglyph_checks="));number(checked);print(utf8_literal("\nedits="));number(edits);print(utf8_literal("\nexplicit_windows_differences="));number(windows_differences);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nguard_observations="));number(guard_observations);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\n"));
     print(utf8_literal("direct_entries="));number(direct_entries);print(utf8_literal("\ndirect_limits="));number(direct_limits);print(utf8_literal("\n"));
     print(utf8_literal("shared_certificates="));number(shared_certificates);print(utf8_literal("\n"));

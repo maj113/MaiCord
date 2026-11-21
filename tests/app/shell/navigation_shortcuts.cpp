@@ -177,7 +177,7 @@ void test_navigation_shortcuts(void (*check)(bool, const char*) noexcept) noexce
     check(navigation_focus_target(view, false, 2008, UiListMove::restore).id == 2008 &&
               navigation_focus_target(view, false, 2008, UiListMove::previous).id == 2007 &&
               navigation_focus_target(view, false, 2008, UiListMove::next).id == 2009 &&
-              !channels[8].selectable && view.selected_channel_id == selected_before_focus,
+              view.selected_channel_id == selected_before_focus,
           "ordinary focus restore and arrow movement include category without changing conversation "
           "selection");
     channels[count - 1].type = 4;

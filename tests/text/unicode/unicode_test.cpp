@@ -43,48 +43,8 @@ bool cases() noexcept {
     return unicode_bidi_mirror('(')==')' && unicode_bidi_mirror(0x2208)==0x220b && bracket.paired==')' && bracket.type==UnicodeBracketType::open &&
            unicode_bidi_bracket('A').type==UnicodeBracketType::none && unicode_bidi_mirror('A')=='A';
 }
-u8 output_buffer[16384];u32 output_used=0;
-bool flush(HANDLE file) noexcept {
-    u32 at=0;
-    while(at<output_used){DWORD written=0;if(!WriteFile(file,output_buffer+at,output_used-at,&written,nullptr) || !written)return false;at+=written;}
-    output_used=0;return true;
-}
-bool append(HANDLE file,const void* bytes,u32 count) noexcept {
-    if(count>sizeof(output_buffer))return false;
-    if(output_used+count>sizeof(output_buffer) && !flush(file))return false;
-    copy_bytes(output_buffer+output_used,bytes,count);output_used+=count;return true;
-}
-bool dump(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
-    if(file==INVALID_HANDLE_VALUE)return false;
-    bool ok=append(file,"MCUCDS2",8);
-    for(u32 cp=0;cp<0x110000 && ok;++cp) {
-        const auto& p=*unicode_properties(cp);const auto bracket=unicode_bidi_bracket(cp);
-        const u8 fields[]{static_cast<u8>(p.bidi_class()),static_cast<u8>(p.general_category()),static_cast<u8>(p.script()),p.combining_class(),
-            static_cast<u8>(p.grapheme_break()),static_cast<u8>(p.line_break()),static_cast<u8>(p.joining_type()),
-            static_cast<u8>(p.indic_conjunct_break()),static_cast<u8>(p.indic_syllabic_category()),
-            static_cast<u8>(p.indic_positional_category()),static_cast<u8>(p.east_asian_wide())};
-        const u32 numbers[]{p.flags(),unicode_bidi_mirror(cp),bracket.paired};
-        const u8 suffix[]{static_cast<u8>(bracket.type)};
-        ok=append(file,fields,sizeof(fields)) && append(file,numbers,sizeof(numbers)) && append(file,suffix,sizeof(suffix));
-    }
-    ok=flush(file) && ok;CloseHandle(file);return ok;
-}
 int run() noexcept {
     if(!cases() || !unicode_grapheme_tests())return 1;
-    // Optional QA dump path. Quoted paths are supported; extra arguments fail.
-    const wchar_t* command=GetCommandLineW();bool quote=false;
-    while(*command){if(*command=='"')quote=!quote;else if(!quote && (*command==' ' || *command=='\t'))break;++command;}
-    while(*command==' ' || *command=='\t')++command;
-    if(*command) {
-        wchar_t path[32768];u32 count=0;quote=*command=='"';if(quote)++command;
-        while(*command && !(quote?*command=='"':(*command==' ' || *command=='\t'))) {
-            if(count+1>=32768)return 2;path[count++]=*command++;
-        }
-        if(quote){if(*command!='"')return 2;++command;}
-        while(*command==' ' || *command=='\t')++command;
-        if(*command || !count)return 2;path[count]=0;if(!dump(path))return 3;
-    }
     test_write_line("PASS Unicode properties and graphemes");
     return 0;
 }

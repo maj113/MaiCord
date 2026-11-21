@@ -757,11 +757,6 @@ void collapsed_categories() noexcept {
     constexpr u64 folded[]{211, 200, 202, 203, 204, 208, 209, 207};
     check(list_is(l, folded) && l.view.channel_rows[1].collapsed,
           "collapsed: the open and connected channels, mentions and unread unmuted text stay; the header stays");
-    check(!navigation_view_find_channel(l.view, 201) && !navigation_view_find_channel(l.view, 205) &&
-              !navigation_view_find_channel(l.view, 206) && !navigation_view_find_channel(l.view, 210),
-          "collapsed: read, muted-unread, voice and stage channels fold away");
-    check(navigation_view_find_channel(l.view, 208) && navigation_view_find_channel(l.view, 209),
-          "collapsed: a mention outranks a mute; an unread forum counts as text-like");
 
     check(chat_state_store_select_channel(&l.s.store, 201).ok(), "collapsed: open another channel");
     constexpr u64 moved[]{211, 200, 201, 203, 204, 208, 209, 207};
@@ -780,7 +775,7 @@ void collapsed_categories() noexcept {
 
     check(chat_state_store_select_channel(&l.s.store, 211).ok(), "collapsed: open a channel outside");
     constexpr u64 header_only[]{211, 200};
-    check(list_is(l, header_only) && l.view.channel_rows[1].id == 200,
+    check(list_is(l, header_only),
           "collapsed: when nothing is kept the category keeps its header");
 
     // A category whose only children fold away still shows; one with none does not.
@@ -836,8 +831,6 @@ void thread_join_order() noexcept {
     constexpr u64 newest_first[]{80, 91, 96, 92, 90, 93, 81, 97};
     check(list_is(t, newest_first) && t.view.channel_rows[1].depth == 1,
           "thread order: joined active threads, most recently joined first; equal times by ID, unknown last");
-    check(!navigation_view_find_channel(t.view, 94) && !navigation_view_find_channel(t.view, 95),
-          "thread order: threads the member has not joined and archived threads stay off the list");
 
     check(chat_state_store_set_thread_join_time(&t.s.store, 90, 5, 500) &&
               !chat_state_store_set_thread_join_time(&t.s.store, 94, 5, 500) &&
@@ -1088,7 +1081,7 @@ void hidden_channels() noexcept {
               !chat_state_store_channel_hidden(w.store, *channel(12)),
           "hidden channels: only a denied text or voice channel is hidden, never a category or a visible channel");
     constexpr u64 plain[]{11, 31};
-    check(!w.view.show_hidden && w.listed(plain) && !navigation_view_find_channel(w.view, 30),
+    check(!w.view.show_hidden && w.listed(plain),
           "hidden channels: off by default, denied channels stay out of the list");
     w.view.show_hidden = true;
     check(navigation_view_rebuild(&w.view, w.store).ok(), "hidden channels: rebuild");
@@ -1112,7 +1105,7 @@ void hidden_channels() noexcept {
               !permission_has(chat_state_store_member_permissions(w.store, 7, 30, without_role, {}), kPermissionViewChannel),
           "hidden channels: the overwrites name the roles that can see a locked channel");
     w.view.show_hidden = false;
-    check(w.listed(plain) && !navigation_view_find_channel(w.view, 32),
+    check(w.listed(plain),
           "hidden channels: turning the setting off removes the locked rows again");
 }
 

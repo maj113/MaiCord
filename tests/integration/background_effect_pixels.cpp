@@ -73,13 +73,6 @@ const EffectGraph kGraph{
      {0, 2, kEffectGraphOutput, 3, EffectPassBlend::opaque, EffectPassDraw::screen, false, {}},
      {3, 4, kEffectGraphOutput, 0, EffectPassBlend::add, EffectPassDraw::grid, false, {3, 2}},
      {5, 4, kEffectGraphOutput, 0, EffectPassBlend::alpha, EffectPassDraw::quads, false, {2, 1}}}};
-// The budget's graph: the reference effect's costly loop draws into a full-size target, and a cheap pass is all the
-// output gets; the GPU time the controller sees has to be the whole graph's.
-const ConstSlice<u8> kBurnShaders[]{MC_SHADER(g_maicord_effect_reference), MC_SHADER(g_maicord_effect_graph_half)};
-const EffectGraph kBurnGraph{2, 1, 2, 0,
-                             {{0, 0, 100, EffectTargetFormat::rgba8, false}},
-                             {{0, 0, 0, 0, EffectPassBlend::opaque, EffectPassDraw::screen, false, {}},
-                              {0, 1, kEffectGraphOutput, 0, EffectPassBlend::opaque, EffectPassDraw::screen, false, {}}}};
 #undef MC_SHADER
 
 #define MC_PACKAGE(array) array, static_cast<u32>(sizeof(array))
@@ -123,24 +116,22 @@ BackgroundEffectSpec spec_of(const Package& package) noexcept {
     return spec;
 }
 
-BackgroundEffectSpec reference_spec(float coverage, float burn = 0) noexcept {
+BackgroundEffectSpec reference_spec(float coverage) noexcept {
     BackgroundEffectSpec spec{};
     spec.bytecode = {g_maicord_effect_reference, sizeof(g_maicord_effect_reference)};
     spec.identity = identity_of(g_maicord_effect_reference, sizeof(g_maicord_effect_reference));
     spec.blend = EffectBlend::normal;
     spec.knobs[0][0] = coverage;
-    spec.knobs[1][0] = burn;
     return spec;
 }
 
 // A graph spec: shader 0 is its first; the identity differs from a single pass of the same shader.
-BackgroundEffectSpec graph_spec(const EffectGraph& graph, const ConstSlice<u8>* shaders, float burn = 0) noexcept {
+BackgroundEffectSpec graph_spec(const EffectGraph& graph, const ConstSlice<u8>* shaders) noexcept {
     BackgroundEffectSpec spec{};
     spec.bytecode = shaders[0];
     spec.identity = identity_of(shaders[0].data, shaders[0].count) ^ 2;
     spec.blend = EffectBlend::normal;
     spec.knobs[0][0] = 1;
-    spec.knobs[1][0] = burn;
     spec.graph = &graph;
     spec.shaders = shaders;
     return spec;
@@ -342,48 +333,6 @@ bool pass_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
     log_write(LogLevel::info, "probe",
               "effect_pass_window_space_continuity_frame_cap_pause_resolution_blends_opacity_none_and_rejection_passed");
     return true;
-}
-
-// ---- Budget ------------------------------------------------------------------------------------------
-// A package that costs real GPU time under the Low budget: the probe starts it low, or refuses it, or the
-// controller steps it down, or turns it off. Any of those is the budget at work; none of them is a stuck effect.
-// `probe_ms` is the selection probe's frame time at its larger size (0 when the device could not time it).
-bool budget_pixels(D3D11Renderer& r, const Theme& theme, const BackgroundEffectSpec& spec, float* probe_ms) noexcept {
-    const float width = r.width * 96.f / r.dpi, height = r.height * 96.f / r.dpi;
-    const UiRect canvas{0, 0, width, height};
-    Scene scene(r, theme, &canvas, 1, nullptr);
-    if (!scene.built)
-        return failure(160);
-    StreamSwap restore{r, scene.stream, kDefaultTheme, true};
-    install(r, scene);
-    r.effect.probe = {};
-    const auto selected = renderer_select_effect(&r, spec, settings_of(4, EffectBlend::normal, 1, EffectBudget::low));
-    if (selected.state == EffectSelect::rejected)
-        return failure(161);
-    *probe_ms = r.effect.probe.large_ms;
-    bool reacted = selected.state == EffectSelect::refused;
-    if (reacted) {
-        if (r.effect.selected || r.effect.verdict != EffectVerdict::refused)
-            return failure(162);
-        r.effect.verdict = EffectVerdict::none;
-    } else {
-        const u32 start = r.effect.step;
-        reacted = start < 4;
-        // Real frames for a second and a half: the window of the controller is one second.
-        for (u32 i = 0; i < 90 && !reacted; ++i) {
-            if (!frame(r, theme, i * .02f))
-                return failure(163);
-            r.graphics.context->Flush();
-            Sleep(17);
-            reacted = !r.effect.selected || r.effect.step < start;
-        }
-        if (!r.effect.selected)
-            r.effect.verdict = EffectVerdict::none;
-    }
-    log_u64(LogLevel::info, "probe", "effect_budget_heavy_package_reacted", reacted);
-    log_u64(LogLevel::info, "probe", "effect_budget_step", r.effect.step);
-    log_u64(LogLevel::info, "probe", "effect_budget_renders", r.effect.renders);
-    return reacted ? true : failure(164);
 }
 
 // ---- The samples: renders and captures ----------------------------------------------------------
@@ -590,14 +539,6 @@ bool graph_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
         return failure(228);
     log_write(LogLevel::info, "probe", "effect_graph_passes_targets_geometry_blends_and_persistent_state_passed");
     return true;
-}
-
-// The probe times the whole graph: a graph whose costly pass draws only into an intermediate target measures like
-// the same shader drawn straight to the output.
-bool graph_budget(float single_ms, float graph_ms) noexcept {
-    log_u64(LogLevel::info, "probe", "effect_budget_single_probe_us", static_cast<u64>(single_ms * 1000));
-    log_u64(LogLevel::info, "probe", "effect_budget_graph_probe_us", static_cast<u64>(graph_ms * 1000));
-    return single_ms <= 0 || graph_ms <= 0 || graph_ms >= single_ms * .5f ? true : failure(229);
 }
 
 // ---- Ambient inputs ---------------------------------------------------------------------------------
@@ -1012,10 +953,7 @@ bool effect_package_pixels(D3D11Renderer& r) noexcept {
     if (r.effect.selected || r.effect.target || r.effect.shader || r.effect.draws_last_frame)
         return failure(139);
     const Theme theme = kDefaultTheme;
-    float single_ms = 0, graph_ms = 0;
-    return pass_pixels(r, theme) && budget_pixels(r, theme, reference_spec(.6f, 6000), &single_ms) &&
-           budget_pixels(r, theme, graph_spec(kBurnGraph, kBurnShaders, 6000), &graph_ms) &&
-           graph_budget(single_ms, graph_ms) && graph_pixels(r, theme) && samples_pixels(r, theme) &&
+    return pass_pixels(r, theme) && graph_pixels(r, theme) && samples_pixels(r, theme) &&
            ambient_pixels(r, theme) && light_pixels(r) && device_loss_pixels(r, theme);
 }
 

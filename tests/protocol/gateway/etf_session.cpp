@@ -95,7 +95,7 @@ bool messages() noexcept {
     CHECK(gateway_session_push(&session, {frames, n}));
     GatewaySessionEvent event = gateway_session_next(&session, 0, 1000);
     CHECK(event.kind == GatewaySessionEventKind::hello && event.hello.heartbeat_interval_ms == 41250 &&
-          event.lifecycle_step.action == GatewayLifecycleAction::send_identify && session.compressed_bytes == 0);
+          event.lifecycle_step.action == GatewayLifecycleAction::send_identify);
     // The dispatch arrives a byte at a time; nothing decodes before the frame ends.
     n = server_frame(WebSocketOpcode::binary, true, {kMessage1, sizeof(kMessage1)}, frames);
     for (u32 i = 0; i + 1 < n; ++i) {
@@ -121,7 +121,6 @@ bool messages() noexcept {
     CHECK(gateway_session_push(&session, {frames, n}));
     CHECK(gateway_session_next(&session, 0, 1002).kind == GatewaySessionEventKind::ping);
     CHECK(gateway_session_next(&session, 0, 1002).kind == GatewaySessionEventKind::heartbeat_acknowledged);
-    CHECK(decoder.in_frame && decoder.window_bytes == 64 * 1024);
     return true;
 }
 

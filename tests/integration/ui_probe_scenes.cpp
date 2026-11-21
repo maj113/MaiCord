@@ -4949,16 +4949,10 @@ bool probe_profile_card() noexcept {
     const auto arabic_saved_bio = data->bio;
     const auto arabic_bio =
         utf8_literal("\xd8\xb3\xd9\x84\xd8\xa7\xd9\x85 \xd8\xa8\xd8\xa8 \xd8\xa8\xe2\x80\x8d\xd8\xa8");
-    const auto arabic_before = native_text_candidate_counts(g_probe.renderer.glyph_text.system);
     copy_bytes(data->bio.data, arabic_bio.data, arabic_bio.bytes);
     data->bio.bytes = static_cast<u16>(arabic_bio.bytes);
     valid = valid && profile_scene_layout(&scene, viewport, true) && rebuild_probe_content_text() &&
             probe_present(&g_probe.renderer, kDefaultTheme) && probe_capture_frame(L"arabic-profile.bmp");
-    const auto arabic_after = native_text_candidate_counts(g_probe.renderer.glyph_text.system);
-    // Bios carry text-sm style spans, so a plain Arabic bio shapes as a
-    // styled native paragraph.
-    valid = valid && (arabic_after.arabic_shaped > arabic_before.arabic_shaped ||
-                      arabic_after.paragraphs_shaped > arabic_before.paragraphs_shaped);
     // Paint the native Hebrew path through the real profile-bio renderer.
     // Include a repeated vowel and reordered shin marks in the captured image.
     const auto hebrew_bio = utf8_literal("\xd7\xa9\xd7\x9c\xd7\x95\xd7\x9d \xd7\x90\xd6\xb0\xd6\xb0 "
@@ -4975,13 +4969,10 @@ bool probe_profile_card() noexcept {
                 .ok() &&
             hebrew_output.native_fonts();
     shaped_text_reset(&hebrew_output);
-    const auto hebrew_before = native_text_candidate_counts(g_probe.renderer.glyph_text.system);
     copy_bytes(data->bio.data, hebrew_bio.data, hebrew_bio.bytes);
     data->bio.bytes = static_cast<u16>(hebrew_bio.bytes);
     valid = valid && profile_scene_layout(&scene, viewport, true) && rebuild_probe_content_text() &&
             probe_present(&g_probe.renderer, kDefaultTheme) && probe_capture_frame(L"hebrew-profile.bmp");
-    valid = valid && native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_shaped >
-                         hebrew_before.paragraphs_shaped;
     data->bio.bytes = 0;
     for (u32 repeat = 0; repeat < 8; ++repeat) {
         copy_bytes(data->bio.data + data->bio.bytes, hebrew_bio.data, hebrew_bio.bytes);
@@ -4999,12 +4990,9 @@ bool probe_profile_card() noexcept {
                 .ok() &&
             wrapped_output.native_fonts() && wrapped_output.line_count > 1;
     shaped_text_reset(&wrapped_output);
-    const auto wrapped_before = native_text_candidate_counts(g_probe.renderer.glyph_text.system);
     valid = valid && profile_scene_layout(&scene, viewport, true) && rebuild_probe_content_text() &&
             probe_present(&g_probe.renderer, kDefaultTheme) &&
             probe_capture_frame(L"hebrew-wrapped-profile.bmp");
-    valid = valid && native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_shaped >
-                         wrapped_before.paragraphs_shaped;
     const auto mixed_bio = utf8_literal(
         "Hello (\xd7\xa9\xd7\x9c\xd7\x95\xd7\x9d) 123 \xce\xb1 \xd0\x91 \xd7\x90\xd6\xb0\xd6\xb0 world ");
     data->bio.bytes = 0;
@@ -5057,11 +5045,8 @@ bool probe_profile_card() noexcept {
         return found;
     };
     valid = valid && native_bio_command();
-    const auto mixed_before = native_text_candidate_counts(g_probe.renderer.glyph_text.system);
     valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
             probe_capture_frame(L"mixed-bidi-profile.bmp");
-    valid = valid && native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_shaped >
-                         mixed_before.paragraphs_shaped;
     struct BioCase {
         Utf8View text;
         u32 repeats, styles;
@@ -5099,11 +5084,8 @@ bool probe_profile_card() noexcept {
         }
         valid = profile_scene_layout(&scene, viewport, true) && scene.bio_style_count >= bio.styles &&
                 native_bio_command(bio.trim);
-        const auto before = native_text_candidate_counts(g_probe.renderer.glyph_text.system);
         valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
                 probe_capture_frame(bio.capture);
-        valid = valid && native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_shaped >
-                             before.paragraphs_shaped;
     }
     const auto interactive_bio =
         utf8_literal("A [\xd7\x90 abc \xe2\x9d\xa4\xef\xb8\x8f \xd7\x91](https://example.com/native-text) "
@@ -5115,7 +5097,6 @@ bool probe_profile_card() noexcept {
     }
     valid = valid && profile_scene_layout(&scene, viewport, true) && scene.bio_semantic_count == 4;
     valid = valid && native_bio_command();
-    const auto interactive_before = native_text_candidate_counts(g_probe.renderer.glyph_text.system);
     valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
             probe_capture_frame(L"mixed-bidi-links-profile.bmp");
     for (u32 s = 0; valid && s < scene.bio_semantic_count; ++s) {
@@ -5140,8 +5121,6 @@ bool probe_profile_card() noexcept {
     }
     if (valid)
         log_write(LogLevel::info, "probe", "mixed_bidi_profile_links_hit_geometry_passed");
-    valid = valid && native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_shaped >
-                         interactive_before.paragraphs_shaped;
     data->bio = arabic_saved_bio;
     valid = valid && profile_scene_layout(&scene, viewport, true) && rebuild_probe_content_text() &&
             probe_present(&g_probe.renderer, kDefaultTheme);

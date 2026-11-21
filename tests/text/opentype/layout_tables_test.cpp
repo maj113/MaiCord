@@ -5,7 +5,6 @@
 #include "../../support/test_output.hpp"
 
 namespace maicord {namespace {
-u32 expected[65536];u8 seen[65536];
 void put(u8* bytes,u32 at,u16 value) noexcept {bytes[at]=static_cast<u8>(value>>8);bytes[at+1]=static_cast<u8>(value);}
 bool units() noexcept {
     u8 data[40]{};SfntCoverage coverage{};SfntClassDef classes{};SfntDevice device{};u16 glyph=0;i16 delta=0;u32 index=0;
@@ -70,47 +69,8 @@ bool guards() noexcept {
     }
     pages_release(memory);return ok;
 }
-struct Reader {const u8* data;u32 size,at;
-    bool word(u32* value) noexcept {if(size-at<4)return false;*value=byte_load_le32(data+at);at+=4;return true;}
-    bool take(u32 count,const u8** value) noexcept {if(count>size-at)return false;*value=data+at;at+=count;return true;}
-};
-bool corpus(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;
-    Win32LargeInteger length{};if(!GetFileSizeEx(file,length.native()) || length.QuadPart<12 || length.QuadPart>0xffffffffll){CloseHandle(file);return false;}
-    HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!mapping){CloseHandle(file);return false;}
-    auto* bytes=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));Reader reader{bytes,static_cast<u32>(length.QuadPart),8};u32 total=0,counts[5]{},failures=0;u64 queries=0,reverse=0;
-    bool ok=bytes && bytes_equal(bytes,"MCOTCM1",8) && reader.word(&total) && total>0;
-    for(u32 record=0;record<total && ok;++record) {
-        u32 kind=0,limit=0,size=0,count=0,aux=0,ident=0;const u8* raw=nullptr;
-        ok=reader.word(&kind)&&reader.word(&limit)&&reader.word(&size)&&reader.word(&count)&&reader.word(&aux)&&reader.word(&ident)&&kind>=1&&kind<=4&&limit>0&&limit<=65536&&count<=65536&&reader.take(size,&raw);if(!ok)break;
-        for(u32 i=0;i<65536;++i){expected[i]=kind==1?sfnt_not_covered:0;seen[i]=0;}
-        for(u32 i=0;i<count && ok;++i){u32 key=0,value=0;ok=reader.word(&key)&&reader.word(&value)&&key<65536&&!seen[key]&&(kind>2 || key<limit);if(ok){expected[key]=value;seen[key]=1;if((kind==1 && value!=i) || (kind==2 && value>65535))ok=false;}}
-        if(!ok)break;bool match=true;const ConstSlice<u8> data{raw,size};
-        if(kind==1 || kind==2) {
-            SfntCoverage coverage{};SfntClassDef classes{};const auto status=kind==1?sfnt_coverage_open(data,limit,&coverage):sfnt_class_def_open(data,limit,&classes);
-            match=status==SfntStatus::ok;
-            if(match && kind==1)match=coverage.covered_count==count && count==aux;
-            if(match && kind==2)match=classes.max_class==aux;
-            if(match)for(u32 glyph=0;glyph<limit;++glyph){const u32 value=kind==1?sfnt_coverage_index(coverage,static_cast<u16>(glyph)):sfnt_class_value(classes,static_cast<u16>(glyph));if(value!=expected[glyph])match=false;++queries;}
-            if(status==SfntStatus::ok && kind==1)for(u32 i=0;i<coverage.covered_count;++i){u16 glyph=0;if(sfnt_coverage_glyph(coverage,i,&glyph)!=SfntStatus::ok || expected[glyph]!=i)match=false;++reverse;}
-            if(status==SfntStatus::ok && limit<65536){const u16 glyph=65535;const u32 value=kind==1?sfnt_coverage_index(coverage,glyph):sfnt_class_value(classes,glyph);if(value!=(kind==1?sfnt_not_covered:0))match=false;++queries;}
-        } else {
-            SfntDevice device{};match=sfnt_device_open(data,&device)==SfntStatus::ok;
-            if(match && kind==4){u32 index=0;i16 delta=42;match=!count && sfnt_device_variation_index(device,&index) && index==aux && sfnt_device_pixels(device,16,&delta)==SfntStatus::unsupported && !delta;++queries;}
-            else if(match){if(device.format==0x8000 || count!=static_cast<u32>(device.end_or_inner)-device.start_or_outer+1)match=false;
-                if(match)for(u32 p=0;p<65536;++p){i16 delta=0;if(sfnt_device_pixels(device,static_cast<u16>(p),&delta)!=SfntStatus::ok || delta!=static_cast<i32>(expected[p]))match=false;++queries;}}
-        }
-        ++counts[kind];if(!match){++failures;if(failures<=10){print(utf8_literal("layout mismatch record="));number(ident);print(utf8_literal(" kind="));number(kind);print(utf8_literal("\n"));}}
-    }
-    if(ok)ok=reader.at==reader.size;
-    for(u32 kind=1;kind<=4;++kind){print(utf8_literal("kind_"));number(kind);print(utf8_literal("="));number(counts[kind]);print(utf8_literal("\n"));}
-    print(utf8_literal("queries="));number(queries);print(utf8_literal("\nreverse_queries="));number(reverse);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\ncomplete="));number(ok?1:0);print(utf8_literal("\n"));
-    if(bytes)UnmapViewOfFile(bytes);CloseHandle(mapping);CloseHandle(file);return ok && !failures;
-}
 int run() noexcept {
     if(!units()){print(utf8_literal("FAIL layout units\n"));return 1;}if(!guards()){print(utf8_literal("FAIL layout guards\n"));return 2;}
-    const wchar_t* command=test_arguments();
-    if(*command){wchar_t path[32768];if(!test_path_argument(command,path))return 3;if(!corpus(path))return 4;}
     print(utf8_literal("PASS native layout common tables\n"));return 0;
 }
 }}

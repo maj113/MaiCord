@@ -2,7 +2,7 @@
 // Cubic reassociation permits sparse one-level rounding differences; other
 // comparisons remain exact. MAICORD_GLYPH_PROBE selects the comparison: topology (unset; list
 // reference vertex shader), easing, stage or color (reference vertex and pixel
-// shaders); stage and color take MAICORD_GLYPH_STAGE_CONTROL 0-2.
+// shaders); stage takes MAICORD_GLYPH_STAGE_CONTROL 0-2.
 #include "maicord/render/d3d11/draw_pipeline.hpp"
 #include "probe_draw_pipeline.hpp"
 #include "maicord/render/text/effect.hpp"
@@ -65,7 +65,7 @@ bool run() noexcept {
     CHECK(!mode_length||mode!=Mode::topology);
     const bool stage=mode==Mode::stage||mode==Mode::color,color=mode==Mode::color;
     u32 control=0;
-    if(stage){wchar_t control_text[2]{};const DWORD control_length=GetEnvironmentVariableW(L"MAICORD_GLYPH_STAGE_CONTROL",control_text,2);
+    if(mode==Mode::stage){wchar_t control_text[2]{};const DWORD control_length=GetEnvironmentVariableW(L"MAICORD_GLYPH_STAGE_CONTROL",control_text,2);
         CHECK(!control_length||(control_length==1&&control_text[0]>=L'0'&&control_text[0]<=L'2'));
         control=control_length?static_cast<u32>(control_text[0]-L'0'):0;}
     const Shaders& shaders=kShaders[static_cast<u32>(mode)];
@@ -146,7 +146,7 @@ bool run() noexcept {
     // At most 0.001% of channels may differ by one level (PSNR >= 98 dB).
     CHECK(painted>100000&&rounded*100000<=channels);
     test_write_text("{\"kind\":\"");test_write_text(shaders.kind);test_write_text("\",");
-    if(stage){test_write_text("\"control\":");test_write_u64(control);test_write_text(",");}
+    if(mode==Mode::stage){test_write_text("\"control\":");test_write_u64(control);test_write_text(",");}
     test_write_text("\"pixel_frames\":");
     test_write_u64(pixel_frames);test_write_text(",\"exact_channels\":");test_write_u64(channels-rounded);test_write_text(",\"rounded_channels\":");test_write_u64(rounded);test_write_text(",\"nonzero_channels\":");test_write_u64(painted);test_write_text(",\"batches\":[");
     for(u32 batch=0;batch<6;++batch){

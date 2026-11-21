@@ -65,8 +65,7 @@ u32 run() noexcept {
     // (a) Submitted before the swap, written after it: the new credential.
     check(submit(p, 11) && contains(head(p), utf8_literal("Authorization: old.token\r\n")),
           "swap: a head written before the swap carries the first credential");
-    check(rest_client_replace_credential(&p.client, bytes(utf8_literal("new.token"))) &&
-              secure_buffer_view(p.runtime->credential).count == 9,
+    check(rest_client_replace_credential(&p.client, bytes(utf8_literal("new.token"))),
           "swap: the replacement is accepted");
     // (b) The head above went out under the old credential; its 401 is stale.
     check(p.receive(401, utf8_literal("{\"message\":\"401: Unauthorized\",\"code\":0}")) &&

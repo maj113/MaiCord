@@ -947,8 +947,6 @@ bool stale_refresh_contract() noexcept {
     return project();
 }
 void costs() noexcept {
-    log_u64(LogLevel::info, "scoped_read_cost", "fixture_bytes", sizeof(Fixture));
-    log_u64(LogLevel::info, "scoped_read_cost", "account_ui_bytes", sizeof(AccountUiRuntime));
     const void* owners[]{fixture, g_app.account_ui};
     constexpr const char* committed_names[]{"fixture_committed_bytes", "account_ui_committed_bytes"};
     constexpr const char* reserved_names[]{"fixture_reserved_bytes", "account_ui_reserved_bytes"};

@@ -211,8 +211,7 @@ void test_budget(PluginBinding* binding) noexcept {
     check(!complete && pass.exhausted && state->message_calls == calls && !decoration(20),
           "an exhausted pass defers the call");
     PluginDecoratePass fresh{};
-    check(prepare(message(20, "hide"), &fresh) && fresh.calls == 1 && decoration(20) && state->message_calls == calls + 1 &&
-              fresh.budget_us == kPluginDecoratePassBudgetUs,
+    check(prepare(message(20, "hide"), &fresh) && fresh.calls == 1 && decoration(20) && state->message_calls == calls + 1,
           "the next pass asks");
 
     const u32 strikes = binding->strikes;

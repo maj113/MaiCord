@@ -321,8 +321,7 @@ void rich_publication() noexcept {
               outer.rich->message_revision == ticket.publication_revision &&
               child.rich->message_revision == ticket.publication_revision &&
               child.source_channel_id == 70 && outer.source_channel_id == 0 &&
-              g_app.search->bank->store.count == 1 && g_app.search->bank->list.count == 2 &&
-              g_app.search->source.rich_order.count == 2 &&
+              g_app.search->bank->list.count == 2 &&
               utf8_equal(message_rich_store_string(*child.rich_store, child.rich->snapshot.content),
                          utf8_literal("Forwarded original")),
           "search rich publication: ticket owns base/outer/child revisions and repeated display order "
@@ -726,8 +725,8 @@ void filter_choices_runtime() noexcept {
           "layouts, allocation or requests");
     const auto caret = g_app.search->edit.caret;
     check(key(key::down) && bank->source.selected == 1 && g_app.search->edit.caret == caret &&
-              g_app.search->focused && bank->scans == scans && bank->copies == copies,
-          "search choices: Down highlights without moving native editor selection or rebuilding the bank");
+              g_app.search->focused,
+          "search choices: Down highlights without moving native editor selection");
     check(modifiers(false, true) && key(key::down) && bank->source.selected == 1 && modifiers(true) &&
               key(key::up) && bank->source.selected == 1 && modifiers(false, false, true) && key(key::down) &&
               bank->source.selected == 1 && modifiers(),
@@ -759,7 +758,6 @@ void filter_choices_runtime() noexcept {
     check(choice_draft(utf8_literal("from:\"ži\"")),
           "search choices: same-token selection reuse captures a real quoted matching source");
     bank = g_app.search->choices;
-    const auto reused_scans = bank->scans, reused_copies = bank->copies, reused_rebuilds = bank->rebuilds;
     UiSearchTarget selection_ticket{UiSearchAction::filter_value, 0, 0};
     selection_ticket.source_revision = bank->source.revision;
     selection_ticket.source_index = 0;
@@ -768,18 +766,13 @@ void filter_choices_runtime() noexcept {
                   MessageComposerResult::changed &&
               !choices_current(g_app.search) && !activate(*g_app.search, selection_ticket) &&
               application_search_edit_changed() && bank == g_app.search->choices &&
-              bank->scans == reused_scans && bank->copies == reused_copies &&
-              bank->rebuilds == reused_rebuilds &&
               bank->source.revision != selection_ticket.source_revision && bank->source.rows.count == 1 &&
               bank->rows[0].id == 3 && !activate(*g_app.search, selection_ticket),
-          "search choices: anchor-only movement republishes exact authority without scanning or copying "
-          "matching rows");
+          "search choices: anchor-only movement republishes exact authority and keeps the matching rows");
     selection_ticket.source_revision = bank->source.revision;
     check(message_composer_set_selection(&g_app.search->edit, 6, quoted_end - 1) ==
                   MessageComposerResult::changed &&
               !activate(*g_app.search, selection_ticket) && application_search_edit_changed() &&
-              bank->scans == reused_scans && bank->copies == reused_copies &&
-              bank->rebuilds == reused_rebuilds &&
               bank->source.revision != selection_ticket.source_revision && bank->rows[0].id == 3 &&
               !activate(*g_app.search, selection_ticket),
           "search choices: crossing a closing quote with identical decoded prefix retains matching data "

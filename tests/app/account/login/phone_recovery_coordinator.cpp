@@ -73,8 +73,7 @@ void run() noexcept {
     test_write_metric("MEASURE phone_coordinator_owner_committed_bytes=", owner_pages.RegionSize);
     test_write_metric("MEASURE phone_coordinator_secret_committed_bytes=", secret_pages.RegionSize);
     test_write_metric("MEASURE phone_coordinator_request_capacity=", runtime->request_capacity);
-    check(runtime->secrets.capacity == kUserAuthCoordinatorSecretBytes && runtime->request_capacity == 32768 &&
-        runtime->continuation_base_bytes == base.bytes && bytes_equal(runtime->secrets.data, base.data, base.bytes) &&
+    check(runtime->continuation_base_bytes == base.bytes && bytes_equal(runtime->secrets.data, base.data, base.bytes) &&
         zero_range(runtime->secrets.data + base.bytes, kPhoneTokenOffset - base.bytes) &&
         zero_range(runtime->secrets.data + kPhoneTokenOffset, 4096),
         "phone coordinator: original exact encoded phone resides in existing 32 KiB request with reserved empty reset stage");

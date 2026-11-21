@@ -108,39 +108,11 @@ bool guards() noexcept {
     CHECK(native_font_candidate_settings(source,0,{nullptr,2},&count)==SfntStatus::invalid_input&&!count);
     return true;
 }
-bool argument(const wchar_t** command,wchar_t* out) noexcept {const wchar_t* p=*command;while(*p==' '||*p=='\t')++p;const bool quoted=*p=='"';if(quoted)++p;u32 n=0;
-    while(*p&&!(quoted?*p=='"':*p==' '||*p=='\t')){if(n==32767)return false;out[n++]=*p++;}if(quoted){if(*p!='"')return false;++p;}out[n]=0;*command=p;return n!=0;}
-bool audit(const wchar_t* path,u32 index) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);HANDLE mapping=nullptr;const u8* data=nullptr;
-    struct Cleanup{HANDLE& f;HANDLE& m;const u8*& p;~Cleanup() noexcept{if(p)UnmapViewOfFile(p);if(m)CloseHandle(m);CloseHandle(f);}} cleanup{file,mapping,data};Win32LargeInteger size{};
-    CHECK(GetFileSizeEx(file,size.native())&&size.QuadPart>0&&size.QuadPart<=0xffffffffll);mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);CHECK(mapping);data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));CHECK(data);
-    SfntFace face{};CHECK(sfnt_open({data,static_cast<u32>(size.QuadPart)},index,&face)==SfntStatus::ok);NativeFontCandidates source{};
 #if defined(MAICORD_FONT_FAMILY)
-    u16 name[2048];NativeFontFamily family{};const auto status=native_font_family_candidates(face,{name,2048},&family,&source);
-    print("{\"status\":");number(static_cast<u32>(status));print(",\"family\":\"");const char hex[]="0123456789abcdef";
-    for(u32 i=0;i<family.units;++i){print("\\u");for(int shift=12;shift>=0;shift-=4)ch(hex[(name[i]>>shift)&15]);}print("\",\"candidates\":[");
-#else
-    const auto status=native_font_candidates_open(face,&source);print("{\"status\":");number(static_cast<u32>(status));print(",\"candidates\":[");
-#endif
-    if(status==SfntStatus::ok)for(u32 i=0;i<source.count;++i){NativeFontCandidate candidate{};FontAxisSetting values[2];u32 count=0;CHECK(native_font_candidate(source,i,&candidate)==SfntStatus::ok&&native_font_candidate_settings(source,i,{values,2},&count)==SfntStatus::ok);
-        if(i)ch(',');print("{\"properties\":[");number(candidate.properties.weight);ch(',');number(candidate.properties.width);ch(',');number(candidate.properties.style);print("],\"settings\":[");
-        for(u32 j=0;j<count;++j){if(j)ch(',');ch('[');number(values[j].tag);ch(',');const float f=static_cast<float>(values[j].value);u32 bits=0;copy_bytes(&bits,&f,4);number(bits);ch(']');}print("]} ");}
-    print("]}\n");return true;
-}
-struct MappedFile {
-    HANDLE file=nullptr,mapping=nullptr;const u8* data=nullptr;u32 size=0;
-    ~MappedFile() noexcept {if(data)UnmapViewOfFile(data);if(mapping)CloseHandle(mapping);if(file&&file!=INVALID_HANDLE_VALUE)CloseHandle(file);}
-    bool open(const wchar_t* path) noexcept {
-        file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);
-        Win32LargeInteger length{};CHECK(GetFileSizeEx(file,length.native())&&length.QuadPart>0&&length.QuadPart<=0xffffffffll);size=static_cast<u32>(length.QuadPart);
-        mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);CHECK(mapping);data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));CHECK(data);return true;
-    }
-};
 struct Reader {const u8* data;u32 size,at;
     bool word(u32* value) noexcept {if(at>size||size-at<4)return false;*value=byte_load_le32(data+at);at+=4;return true;}
     bool take(void* output,u32 bytes) noexcept {if(at>size||bytes>size-at)return false;copy_bytes(output,data+at,bytes);at+=bytes;return true;}
 };
-#if defined(MAICORD_FONT_FAMILY)
 bool family_word_boundaries() noexcept {
     struct Case {const char* suffix;NativeFontProperties properties;const char* retained;};
     const Case cases[]{{" Extra Bold",{800,5,0},""},{"_semi-condensed",{400,4,0},""},{" italic",{400,5,2},""},
@@ -178,36 +150,11 @@ bool family_fixture() noexcept {
     }CHECK(reader.at==reader.size);return true;
 }
 #endif
-bool family_audit(const wchar_t* path) noexcept {
-    MappedFile input;CHECK(input.open(path));CHECK(input.size>=16&&bytes_equal(input.data,"MCFCAND1",8));Reader reader{input.data,input.size,8};u32 file_count=0,queries=0;
-    CHECK(reader.word(&file_count)&&reader.word(&queries)&&file_count&&file_count<=64);
-    MappedFile files[64];NativeFontCandidates sources[64];NativeFontProperties candidates[4096];u32 candidate_files[4096],candidate_indices[4096],count=0;
-    for(u32 f=0;f<file_count;++f){u32 index=0,units=0;wchar_t file_path[32768];CHECK(reader.word(&index)&&reader.word(&units)&&units&&units<32768&&reader.take(file_path,units*2));file_path[units]=0;
-        CHECK(files[f].open(file_path));SfntFace face{};CHECK(sfnt_open({files[f].data,files[f].size},index,&face)==SfntStatus::ok);
-#if defined(MAICORD_FONT_FAMILY)
-        u16 name[2048];NativeFontFamily family{};CHECK(native_font_family_candidates(face,{name,2048},&family,sources+f)==SfntStatus::ok);
-#else
-        CHECK(native_font_candidates_open(face,sources+f)==SfntStatus::ok);
-#endif
-        CHECK(sources[f].count<=4096-count);for(u32 i=0;i<sources[f].count;++i){NativeFontCandidate value{};CHECK(native_font_candidate(sources[f],i,&value)==SfntStatus::ok);candidates[count]=value.properties;candidate_files[count]=f;candidate_indices[count]=i;++count;}
-    }
-    for(u32 q=0;q<queries;++q){NativeFontProperties request{},expected_properties{};u32 expected_file=0,simulations=0,axes=0;
-        CHECK(reader.take(&request,4)&&reader.word(&expected_file)&&reader.take(&expected_properties,4)&&reader.word(&simulations)&&reader.word(&axes));
-        const auto match=native_font_match({candidates,count},request);
-        if(candidate_files[match.index]!=expected_file||match.simulations!=simulations||!bytes_equal(&match.properties,&expected_properties,4)){print("query=");number(q);print(" actual_file=");number(candidate_files[match.index]);print(" expected_file=");number(expected_file);print("\n");}
-        CHECK(candidate_files[match.index]==expected_file&&match.simulations==simulations&&bytes_equal(&match.properties,&expected_properties,4));
-        FontAxisSetting settings[2];u32 settings_count=0;CHECK(native_font_candidate_settings(sources[candidate_files[match.index]],candidate_indices[match.index],{settings,2},&settings_count)==SfntStatus::ok&&settings_count==axes);
-        for(u32 i=0;i<axes;++i){u32 tag=0,expected_bits=0;CHECK(reader.word(&tag)&&reader.word(&expected_bits));const float value=static_cast<float>(settings[i].value);u32 actual_bits=0;copy_bytes(&actual_bits,&value,4);CHECK(settings[i].tag==tag&&actual_bits==expected_bits);}
-    }
-    CHECK(reader.at==reader.size);print("{\"files\":");number(file_count);print(",\"candidates\":");number(count);print(",\"queries\":");number(queries);print(",\"exact\":");number(queries);print("}\n");return true;
-}
-bool run() noexcept {const wchar_t* command=GetCommandLineW();wchar_t path[32768];CHECK(argument(&command,path));while(*command==' '||*command=='\t')++command;if(!*command){
+bool run() noexcept {
 #if defined(MAICORD_FONT_FAMILY)
     CHECK(family_word_boundaries()&&family_fixture());
 #endif
     return basic()&&guards();}
-    CHECK(argument(&command,path));if(bytes_equal(path,L"--family",18)){CHECK(argument(&command,path));return family_audit(path);}
-    while(*command==' '||*command=='\t')++command;u32 index=0;while(*command>='0'&&*command<='9'){CHECK(index<65536);index=index*10+*command++-'0';}CHECK(!*command);return audit(path,index);}
 }}
 MAICORD_TEST_ENTRY(maicord_font_candidates_entry) {
     using namespace maicord;const bool success=run();print("checks=");number(checks);print(success?"\nPASS native font candidates\n":"\nFAIL native font candidates\n");flush();::maicord::test_process_exit(success&&print_ok?0:1);

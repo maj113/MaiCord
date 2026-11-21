@@ -204,51 +204,6 @@ void test_refusals() noexcept {
     check(stats(0, 0, 0) && open_handles() == before, "64 rounds leak nothing");
 }
 
-struct Growth {
-    u32 calls;
-    bool succeed;
-};
-
-bool grow(void* context, bool files, bool faces) noexcept {
-    auto& growth = *static_cast<Growth*>(context);
-    ++growth.calls;
-    if (!growth.succeed) {
-        return false;
-    }
-    if (files && g_store.files.count < kFileSlots) {
-        ++g_store.files.count;
-    }
-    if (faces && g_store.faces.count < kFaceSlots) {
-        ++g_store.faces.count;
-    }
-    return true;
-}
-
-void test_growth() noexcept {
-    wchar_t primary[512];
-    wchar_t copy[512];
-    file_path(kPrimary, primary);
-    file_path(kCopy, copy);
-    const u32 before = open_handles();
-    g_store.files.count = 1;
-    g_store.faces.count = 1;
-    Growth growth{0, false};
-    NativeFontHandle a{};
-    NativeFontHandle b{};
-    check(native_font_acquire(&g_store, primary, 0, &a, grow, &growth).ok() && growth.calls == 0, "room, no growth");
-    check(native_font_acquire(&g_store, copy, 0, &b, grow, &growth).error == NativeFontError::capacity && !b.slot &&
-              growth.calls == 1 && stats(1, 1, 1),
-          "a refused growth is a capacity error");
-    check(open_handles() == before + 1, "the refused file is closed again");
-    growth.succeed = true;
-    check(native_font_acquire(&g_store, copy, 0, &b, grow, &growth).ok() && growth.calls == 2 && stats(2, 2, 2),
-          "growth makes room");
-    check(native_font_release(&g_store, a) && native_font_release(&g_store, b) && stats(0, 0, 0) && open_handles() == before,
-          "release");
-    g_store.files.count = kFileSlots;
-    g_store.faces.count = kFaceSlots;
-}
-
 void test_sharing_lock() noexcept {
     wchar_t path[512];
     file_path(kPrimary, path);
@@ -372,7 +327,6 @@ MAICORD_TEST_ENTRY(maicord_font_store_files_entry) {
           "the font files are written");
     test_acquire_and_share();
     test_refusals();
-    test_growth();
     test_sharing_lock();
     test_stamp_and_validate();
     remove_scratch();

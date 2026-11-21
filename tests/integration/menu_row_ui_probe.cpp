@@ -132,8 +132,6 @@ bool menu_row_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) 
     command_index_release(&commands);
     const bool restored =
         renderer_rebuild_content_text(&renderer, kDefaultTheme) && probe_present(&renderer, kDefaultTheme);
-    log_u64(LogLevel::info, "probe", "shared_menu_popup_item_bytes", sizeof(PopupItem));
-    log_u64(LogLevel::info, "probe", "shared_menu_projection_bytes", sizeof(UiMenuRowGeometry));
     log_u64(LogLevel::info, "probe", "shared_menu_context_original_icons", context_icons);
     log_u64(LogLevel::info, "probe", "shared_menu_native_slot_clips",
             slot_batches[0] + slot_batches[1] + slot_batches[2]);

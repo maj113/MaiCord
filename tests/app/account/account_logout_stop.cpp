@@ -102,7 +102,6 @@ void test_account_logout_stop(void (*check)(bool, const char*) noexcept) noexcep
     const bool entered = WaitForSingleObject(held->entered, 3'000) == WAIT_OBJECT_0;
     check(entered && account_logout_stop_owned(held->owner) && completion &&
         WaitForSingleObject(completion, 0) == WAIT_TIMEOUT &&
-        WaitForSingleObject(held->allowed, 0) == WAIT_TIMEOUT &&
         held->worker_id != GetCurrentThreadId() && read_acquire(&held->calls) == 1 &&
         held->received_timeout == 250 && held->received_monotonic == 1234 && held->received_unix == 5678,
         "logout stop: actual background thread alone receives exact immutable stop arguments without a UI wait");

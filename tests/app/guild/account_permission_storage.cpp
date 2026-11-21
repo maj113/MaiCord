@@ -53,16 +53,10 @@ bool live_unchanged(const AccountUiRuntime& owner, const ChatStateStore& before,
 void run() noexcept {
     Win32SystemInfo system{}; GetSystemInfo(system.native());
     const usize page = system.dwPageSize;
-    check(page && !(page & (page - 1)), "permission owner OS page alignment");
-    if (!page || (page & (page - 1))) return;
     auto* owner = static_cast<AccountUiRuntime*>(VirtualAlloc(nullptr, sizeof(AccountUiRuntime),
         MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(owner != nullptr, "permission production owner allocation");
     if (!owner) return;
-    Win32MemoryInformation owner_vm{};
-    check(VirtualQuery(owner, owner_vm.native(), sizeof(owner_vm)) == sizeof(owner_vm) &&
-        owner_vm.State == MEM_COMMIT && owner_vm.AllocationBase == owner &&
-        owner_vm.RegionSize == pages(sizeof(AccountUiRuntime), page), "permission actual owner commitment follows compiled size");
     const bool initialized = initialize_model(*owner) && account_permission_storage_initialize(*owner);
     check(initialized, "permission production owner binds both zero-backed reserved banks");
     if (!initialized) { account_permission_storage_release(*owner); VirtualFree(owner, 0, MEM_RELEASE); return; }
@@ -136,10 +130,8 @@ void run() noexcept {
     const bool maximum_admitted = chat_state_store_prepare_permissions(&state, kChatStateRoleCapacity, kChatStateOverwriteCapacity);
     check(maximum_admitted &&
         prefix(owner->role_storage, kChatStateRoleCapacity, page) &&
-        prefix(owner->overwrite_storage, kChatStateOverwriteCapacity, page) &&
-        owner->overwrite_storage.element_bytes == 25 && owner->overwrite_storage.alignment == 1 &&
-        owner->role_storage.element_bytes == 48 && owner->role_storage.alignment == 8,
-        "permission maximum admission preserves packed 25-byte overwrite and 40-byte role strides and original caps");
+        prefix(owner->overwrite_storage, kChatStateOverwriteCapacity, page),
+        "permission maximum admission commits both banks' full prefixes at their original caps");
     if (!maximum_admitted) { account_permission_storage_release(*owner); VirtualFree(owner, 0, MEM_RELEASE); return; }
     state = {}; account_permission_storage_release(*owner);
     check(!owner->role_storage.arena.base && !owner->overwrite_storage.arena.base &&

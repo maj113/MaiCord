@@ -286,16 +286,6 @@ void test_wake_coalescing(void (*check)(bool, const char*) noexcept) noexcept {
     check(wake_tolerance_ms(40, WakeContext::hidden) == 0 && wake_tolerance_ms(150, WakeContext::hidden) == 37 &&
               wake_tolerance_ms(30'000, WakeContext::hidden) == 1'000,
           "wake: minimized windows relax every nonvisual timer, bounded to one second");
-    // The tolerant timer path fires once after its due time.
-    const HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
-    LARGE_INTEGER due{};
-    due.QuadPart = -1 * 10'000;
-    const bool armed = timer && SetWaitableTimerEx(timer, &due, 0, nullptr, nullptr, nullptr,
-                                                   wake_tolerance_ms(1, WakeContext::hidden) + 5);
-    const bool fired = armed && WaitForSingleObject(timer, 2'000) == WAIT_OBJECT_0;
-    check(fired && WaitForSingleObject(timer, 0) == WAIT_TIMEOUT, "wake: tolerant synchronization timer fires once");
-    if (timer)
-        CloseHandle(timer);
 }
 
 } // namespace

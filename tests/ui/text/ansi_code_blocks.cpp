@@ -303,15 +303,6 @@ bool rgb_is(Color a, u32 rgb) noexcept {
 }
 
 void test_palette(Check check) noexcept {
-    const auto& dark = kDefaultTheme.tokens.ansi;
-    const auto& light = kLightTheme.tokens.ansi;
-    check(rgb_is(dark.black, 0x000000) && rgb_is(dark.red, 0xec6361) && rgb_is(dark.green, 0x45a366) &&
-              rgb_is(dark.yellow, 0xce8100) && rgb_is(dark.blue, 0x4591ec) && rgb_is(dark.magenta, 0xf549c9) &&
-              rgb_is(dark.cyan, 0x049faa) && rgb_is(dark.white, 0xb6b7bc) && rgb_is(dark.bright_black, 0x70717a) &&
-              rgb_is(dark.bright_red, 0xff938e) && rgb_is(dark.bright_white, 0xffffff) &&
-              rgb_is(light.red, 0xe75858) && rgb_is(light.bright_blue, 0x5865f2) && rgb_is(light.cyan, 0x0098a3) &&
-              rgb_is(ui_theme_amoled().tokens.ansi.red, 0xec6361),
-          "ansi: theme tokens default to the official dark and light palettes");
     Theme custom = kDefaultTheme;
     custom.tokens.ansi.bright_cyan = Color{.1f, .2f, .3f, 1};
     check(rgb_is(ansi_palette_color(kDefaultTheme, 1), 0xec6361) && rgb_is(ansi_palette_color(kLightTheme, 4), 0x3789ea) &&

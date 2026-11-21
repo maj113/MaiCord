@@ -76,23 +76,9 @@ bool corpus() noexcept {
         *bitmap=retained;ok=ok && sfnt_nominal_participation_add(layout,limit,{bitmap,1},{scratch,words-1},&result)==SfntStatus::output_too_small && *bitmap==retained;
         ok=ok && sfnt_nominal_participation_add(layout,limit,{bitmap,0},{scratch,words},&result)==SfntStatus::output_too_small && *bitmap==retained;
     }
-    pages_release(memory);return ok && at==all.count && lazy_built && lazy_skipped;
-}
-int font_bitmap(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return 2;Win32LargeInteger len{};
-    if(!GetFileSizeEx(file,len.native()) || len.QuadPart<12 || len.QuadPart>0xffffffffll){CloseHandle(file);return 2;}HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!mapping){CloseHandle(file);return 2;}
-    auto* bytes=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));if(!bytes){CloseHandle(mapping);CloseHandle(file);return 2;}
-    SfntFace face{};SfntCmap cmap{};u16 count=0;auto s=sfnt_open({bytes,static_cast<u32>(len.QuadPart)},0,&face);if(s==SfntStatus::ok)s=sfnt_glyph_count(face,&count);u64 bits[1024]{},scratch[2048]{},sources[1024]{},source_work=0,work=0,lazy_bits[1024]{},lazy_sources[1024]{},lazy_work=0;SfntNominalSourceCache lazy{&cmap,{lazy_sources,1024},false};
-    if(s==SfntStatus::ok)s=sfnt_cmap_open(face,&cmap);if(s==SfntStatus::ok)s=sfnt_nominal_sources(cmap,{sources,1024},&source_work);
-    for(u32 kind=0;kind<2 && s==SfntStatus::ok;++kind){ConstSlice<u8> raw{};s=sfnt_table(face,kind?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&raw);if(s==SfntStatus::missing_table){s=SfntStatus::ok;continue;}if(s!=SfntStatus::ok)break;SfntLayout l{};s=sfnt_layout_open(raw,static_cast<SfntLayoutKind>(kind),&l);if(s!=SfntStatus::ok)break;SfntNominalParticipationResult r{};s=sfnt_nominal_participation_add(l,count,{bits,1024},{scratch,2048},&r,1000000,{sources,(count+63u)/64});work+=r.operations;
-        if(s==SfntStatus::ok)s=sfnt_nominal_participation_add(l,count,{lazy_bits,1024},{scratch,2048},&r,1000000,{},&lazy);lazy_work+=r.operations;
-        if(s==SfntStatus::ok&&!bytes_equal(bits,lazy_bits,((count+63u)/64)*8))s=SfntStatus::malformed;}
-    print(utf8_literal("{\"status\":"));number(static_cast<u32>(s));print(utf8_literal(",\"glyph_count\":"));number(count);print(utf8_literal(",\"operations\":"));number(work);print(utf8_literal(",\"source_operations\":"));number(source_work);print(utf8_literal(",\"lazy_operations\":"));number(lazy_work+(lazy.ready?source_work:0));print(utf8_literal(",\"source_built\":"));print(lazy.ready?utf8_literal("true"):utf8_literal("false"));print(utf8_literal(",\"bits\":["));
-    if(s==SfntStatus::ok)for(u32 i=0;i<(count+63u)/64;++i){if(i)print(utf8_literal(","));number(bits[i]);}print(utf8_literal("]}\n"));UnmapViewOfFile(bytes);CloseHandle(mapping);CloseHandle(file);return 0;
+    pages_release(memory);return ok && at==all.count;
 }
 int run() noexcept {
-    const wchar_t* command=test_arguments();
-    if(*command){wchar_t path[32768];if(!test_path_argument(command,path))return 2;return font_bitmap(path);}
     const bool boundary_ok=boundaries();if(!boundary_ok)print(utf8_literal("FAIL participation boundaries\n"));const bool ok=boundary_ok && corpus();print(utf8_literal("fonts="));number(font_checks);print(utf8_literal("\nglyph_checks="));number(glyph_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nguards="));number(guards);print(utf8_literal("\nlazy_built="));number(lazy_built);print(utf8_literal("\nlazy_skipped="));number(lazy_skipped);print(ok?utf8_literal("\nPASS native nominal participation\n"):utf8_literal("\nFAIL native nominal participation\n"));return ok?0:1;
 }
 }}

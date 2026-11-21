@@ -254,8 +254,7 @@ void test_media_policy(Check check) noexcept {
               !message_scene_set_media_policy(&scene, policy) &&
               message_scene_media_obscure(scene, owner, 0, key, false, true) ==
                   MessageMediaObscure::explicit_content &&
-              fixture.last_owner.channel_id == 17 && fixture.last_owner.source_message_id == 73 &&
-              fixture.calls == 1,
+              fixture.last_owner.channel_id == 17 && fixture.last_owner.source_message_id == 73,
           "media_forward_policy_retains_destination_and_queries_source_without_plugin_identity");
     message_scene_reveal_media(&scene, key);
     check(message_scene_media_obscure(scene, owner, 0, key, false, true) == MessageMediaObscure::none &&

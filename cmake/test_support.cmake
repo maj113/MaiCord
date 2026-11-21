@@ -333,8 +333,7 @@ endfunction()
 # maicord_ui_probe_test(<test> <variable> [BOOTSTRAP] [WARP] [<maicord_add_tests property>...])
 # MaiCordUiProbe with MAICORD_<variable>=1, the native bootstrap when
 # BOOTSTRAP is given. WARP runs it on WARP with the Direct3D 11 debug layer
-# (tests/support/warp_device.hpp), never on the hardware adapter: GPU hang
-# reproductions take it.
+# (tests/support/warp_device.hpp), never on the hardware adapter.
 function(maicord_ui_probe_test test variable)
     cmake_parse_arguments(PARSE_ARGV 2 ARG "BOOTSTRAP;WARP" "" "")
     set(environment MAICORD_${variable}=1)

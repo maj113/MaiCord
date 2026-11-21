@@ -1,48 +1,27 @@
-// Account video session probe (MaiCordAccountVideoSessionProbe). It is not in the default
-// suite: the --audio suite needs a WASAPI endpoint and runs only with
-// -AudioPlaybackProbe (maicord_account_audio_playback); --opus is one case of it; the plain
-// mode needs MAICORD_ACCOUNT_VIDEO_SESSION_PROBE=1 and MAICORD_ACCOUNT_VIDEO_SESSION_INPUT=<mp4>
-// (MAICORD_ACCOUNT_VIDEO_GENERIC_PROBE=1 accepts any clip), so it is a manual run.
+// Account media session playback (MaiCordAccountVideoSessionProbe --audio): Opus, MP3 and WAV memory streams play
+// through a real WASAPI endpoint, then pause, seek, change volume, mute, end, replay and stop. It is not in the
+// default suite: it runs only with -AudioPlaybackProbe (maicord_account_audio_playback). No network, credential,
+// registry, enrollment or output file.
 #include "maicord/app/media/account_video_session.hpp"
-#include "maicord/render/media/video_frame_gpu.hpp"
 #include "maicord/media/audio/encoded_audio.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/sys/d3d11.hpp"
+#include "maicord/core/win32_kernel.hpp"
 #include "../support/ogg_page_fixture.hpp"
 #include "../support/account_video_session_probe.hpp"
 
-// EXCLUDE_FROM_ALL, never default CTest. The entry requires an explicit opt-in
-// and a bounded original QA movie, --opus original memory stream, or --audio
-// original Opus/MP3/WAV memory streams under one shared deadline.
-// It opens a real endpoint and plays that
-// original signal. No network, credential, registry, enrollment or output file.
-// GPU acknowledgement follows an actual copy on the decoder's protected
-// immediate context: queued command order protects the source lease without
-// CPU pixel readback, a second producer thread or a GPU polling loop.
 namespace maicord {
 namespace {
-constexpr u32 kInputLimit = 256 * 1024;
 struct Probe {
     AccountVideoSession session{};
     OggOpusDemuxer opus_metadata{};
     EncodedAudioMetadata audio_metadata{};
-    Mp4Decoder decoder{};
     AccountVideoIdentity identity{1, 2, 3, 4, 0, 1, 0};
-    ID3D11Device* device{};
-    ID3D11DeviceContext* context{};
-    ID3D11DeviceContext1* render_context{};
-    ID3D11Texture2D* copied{};
-    ID3D11Texture2D* rgba{};
-    ID3D11Texture2D* pixel{};
-    ID3D11UnorderedAccessView* rgba_view{};
-    VideoFrameGpu conversion{};
-    HANDLE lane{}, file{};
+    HANDLE lane{};
     u8* input{};
-    u32 input_bytes{}, stage{}, native{}, copied_frames{};
-    u32 rgba_frames{}, rgba_readbacks{};
-    u64 deadline{}, serial{}, max_written{}, max_submitted{}, max_consumed{};
-    bool com{}, retained{}, joined{}, played{}, paused{}, sought{}, volume{}, muted{}, unmuted{}, ended{},
-        replayed{}, stopped{}, generic{}, opus{}, audio{};
+    u32 input_bytes{}, stage{}, native{};
+    u64 deadline{}, serial{}, max_consumed{};
+    bool retained{}, joined{}, played{}, paused{}, sought{}, volume{}, muted{}, unmuted{}, ended{}, replayed{},
+        stopped{}, opus{};
     u64 opus_total_frames{}, opus_end_written{}, opus_end_consumed{};
     u64 audio_total_frames{}, audio_end_written{}, audio_end_consumed{};
 };
@@ -70,100 +49,7 @@ bool fail(Probe& p, u32 native) noexcept {
     return false;
 }
 void measure(Probe& p) noexcept {
-    const auto a = account_video_session_audio_progress(&p.session);
-    p.max_written = maximum(p.max_written, a.written_frames);
-    p.max_submitted = maximum(p.max_submitted, a.submitted_frames);
-    p.max_consumed = maximum(p.max_consumed, a.consumed_frames);
-}
-bool verify_rgba(Probe& p) noexcept {
-    if (!p.rgba || !p.pixel)
-        return fail(p, ERROR_INVALID_DATA);
-    D3D11_TEXTURE2D_DESC source{};
-    p.rgba->GetDesc(&source);
-    const u32 x = source.Width / 2, y = source.Height / 2;
-    const D3D11_BOX box{x, y, 0, x + 1, y + 1, 1};
-    p.context->CopySubresourceRegion(p.pixel, 0, 0, 0, 0, p.rgba, 0, &box);
-    p.context->Flush();
-    const u64 deadline = GetTickCount64() + 2000;
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    HRESULT result{};
-    do {
-        result = p.context->Map(p.pixel, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped);
-        if (result != DXGI_ERROR_WAS_STILL_DRAWING)
-            break;
-        Sleep(1);
-    } while (GetTickCount64() < deadline);
-    if (FAILED(result))
-        return fail(p, static_cast<u32>(result));
-    const auto* color = static_cast<const u8*>(mapped.pData);
-    const bool opaque = color && color[3] == 255;
-    if (opaque) {
-        const u32 packed =
-            u32{color[0]} | (u32{color[1]} << 8) | (u32{color[2]} << 16) | (u32{color[3]} << 24);
-        metric(p.rgba_readbacks ? "end_rgba_pixel" : "first_rgba_pixel", packed);
-    }
-    p.context->Unmap(p.pixel, 0);
-    if (!opaque)
-        return fail(p, ERROR_INVALID_DATA);
-    result = p.device->GetDeviceRemovedReason();
-    if (FAILED(result))
-        return fail(p, static_cast<u32>(result));
-    ++p.rgba_readbacks;
-    return true;
-}
-bool copy(Probe& p, const AccountVideoService& service) noexcept {
-    const auto* frame = service.frame.gpu;
-    if (!frame || !frame->texture || !frame->width || !frame->height)
-        return fail(p, ERROR_INVALID_DATA);
-    D3D11_TEXTURE2D_DESC source{};
-    frame->texture->GetDesc(&source);
-    if ((!p.generic && (source.Width != 64 || source.Height != 64)) || source.Format != DXGI_FORMAT_NV12 ||
-        source.MipLevels != 1 || frame->subresource >= source.ArraySize)
-        return fail(p, ERROR_NOT_SUPPORTED);
-    if (!p.copied) {
-        auto target = source;
-        target.ArraySize = 1;
-        target.Usage = D3D11_USAGE_DEFAULT;
-        target.BindFlags = target.CPUAccessFlags = target.MiscFlags = 0;
-        const HRESULT h = p.device->CreateTexture2D(&target, nullptr, &p.copied);
-        if (FAILED(h))
-            return fail(p, static_cast<u32>(h));
-    }
-    if (!p.rgba) {
-        D3D11_TEXTURE2D_DESC target{};
-        target.Width = frame->width;
-        target.Height = frame->height;
-        target.MipLevels = target.ArraySize = target.SampleDesc.Count = 1;
-        target.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        target.Usage = D3D11_USAGE_DEFAULT;
-        target.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
-        HRESULT h = p.device->CreateTexture2D(&target, nullptr, &p.rgba);
-        if (SUCCEEDED(h))
-            h = p.device->CreateUnorderedAccessView(p.rgba, nullptr, &p.rgba_view);
-        target.Width = target.Height = 1;
-        target.Usage = D3D11_USAGE_STAGING;
-        target.BindFlags = 0;
-        target.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-        if (SUCCEEDED(h))
-            h = p.device->CreateTexture2D(&target, nullptr, &p.pixel);
-        if (FAILED(h))
-            return fail(p, static_cast<u32>(h));
-    }
-    constexpr float transparent[]{0, 0, 0, 0};
-    p.context->ClearUnorderedAccessViewFloat(p.rgba_view, transparent);
-    const HRESULT converted =
-        video_frame_gpu_present(&p.conversion, p.device, p.render_context, *frame, p.rgba_view, 0, 0);
-    if (FAILED(converted))
-        return fail(p, static_cast<u32>(converted));
-    ++p.rgba_frames;
-    if (!p.rgba_readbacks && !verify_rgba(p))
-        return false;
-    p.context->CopySubresourceRegion(p.copied, 0, 0, 0, 0, frame->texture, frame->subresource, nullptr);
-    ++p.copied_frames;
-    if (!account_video_session_acknowledge(&p.session, p.identity, service.playback_epoch,
-                                           service.frame_serial))
-        return fail(p, ERROR_INVALID_DATA);
-    return true;
+    p.max_consumed = maximum(p.max_consumed, account_video_session_audio_progress(&p.session).consumed_frames);
 }
 enum class Until : u8 {
     playing,
@@ -184,9 +70,7 @@ bool reached(Probe& p, Until until) noexcept {
     switch (until) {
     case Until::playing:
     case Until::replay:
-        return s.playing && s.clock_valid &&
-               (s.has_audio ? (a.epoch == s.playback_epoch && a.consumed_frames > 0)
-                            : p.generic && p.copied_frames > 0);
+        return s.playing && s.clock_valid && a.epoch == s.playback_epoch && a.consumed_frames > 0;
     case Until::paused:
         return s.paused && !s.playing && s.clock_valid;
     case Until::seek:
@@ -197,9 +81,7 @@ bool reached(Probe& p, Until until) noexcept {
     case Until::mute:
         return s.volume_valid && s.applied_volume == 0 && s.muted;
     case Until::end:
-        return s.ended && !s.playing &&
-               (s.has_audio ? (a.written_frames && a.consumed_frames == a.written_frames)
-                            : p.generic && p.copied_frames > 0);
+        return s.ended && !s.playing && a.written_frames && a.consumed_frames == a.written_frames;
     case Until::stop:
         return s.paused && !s.playing && !s.seeking && s.position_100ns == 0;
     }
@@ -210,24 +92,15 @@ bool pump(Probe& p, Until until) noexcept {
         if (GetTickCount64() >= p.deadline)
             return fail(p, WAIT_TIMEOUT);
         const auto service = account_video_session_service(&p.session);
-        if (service.frame_ready && !copy(p, service))
-            return false;
-        // A visible renderer submits its immediate-context work with Present.
-        // This owned headless test has no swapchain, so flush once per service
-        // turn instead of leaving decoder/copy work in a driver command batch.
-        if (p.context)
-            p.context->Flush();
+        // An audio session never publishes a picture.
+        if (service.frame_ready)
+            return fail(p, ERROR_INVALID_DATA);
         const auto s = account_video_session_status(&p.session);
         measure(p);
         if (s.error != AccountVideoError::none)
             return fail(p, s.native_error);
         if (reached(p, until))
             return true;
-        // Copy acknowledgement changed the software frame lease/readiness.
-        // The service result predates that transition; recompute its next frame
-        // and deadline just as production does on the UI-ack lane wake.
-        if (service.frame_ready)
-            continue;
         if (service.needs_service)
             continue;
         const u64 now = GetTickCount64();
@@ -375,7 +248,6 @@ bool build_wave(Probe& p) noexcept {
     return true;
 }
 bool run_audio(Probe& p, MediaAttachmentFormat format) noexcept {
-    p.audio = true;
     p.opus = format == MediaAttachmentFormat::ogg_opus;
     if (!p.deadline)
         p.deadline = GetTickCount64() + 2500;
@@ -465,220 +337,25 @@ bool run_audio(Probe& p, MediaAttachmentFormat format) noexcept {
     if (!command(p, AccountVideoCommand::stop) || !pump(p, Until::stop))
         return false;
     p.stopped = true;
-    return p.max_consumed > 0 && !p.copied_frames && !p.rgba_frames && !p.device && !p.context &&
-           !p.session.status.frame_pending && !p.session.video &&
+    return p.max_consumed > 0 && !p.session.status.frame_pending && !p.session.video &&
            p.session.status.error == AccountVideoError::none;
 }
-bool run(Probe& p) noexcept {
-    p.stage = 1;
-    if (option(L"--opus"))
-        return run_audio(p, MediaAttachmentFormat::ogg_opus);
-    wchar_t flag[4]{};
-    if (GetEnvironmentVariableW(L"MAICORD_ACCOUNT_VIDEO_SESSION_PROBE", flag, 4) != 1 || flag[0] != L'1')
-        return fail(p, ERROR_ACCESS_DENIED);
-    wchar_t generic[4]{};
-    p.generic = GetEnvironmentVariableW(L"MAICORD_ACCOUNT_VIDEO_GENERIC_PROBE", generic, 4) == 1 &&
-                generic[0] == L'1';
-    wchar_t path[1024]{};
-    const DWORD count = GetEnvironmentVariableW(L"MAICORD_ACCOUNT_VIDEO_SESSION_INPUT", path, 1024);
-    if (!count || count >= 1024)
-        return fail(p, ERROR_INVALID_PARAMETER);
-    p.file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
-                         nullptr);
-    if (p.file == INVALID_HANDLE_VALUE) {
-        p.file = nullptr;
-        return fail(p, GetLastError());
-    }
-    LARGE_INTEGER bytes{};
-    if (!GetFileSizeEx(p.file, &bytes) || bytes.QuadPart <= 0 ||
-        bytes.QuadPart > (p.generic ? 64u * 1024u * 1024u : kInputLimit))
-        return fail(p, ERROR_FILE_TOO_LARGE);
-    p.input_bytes = static_cast<u32>(bytes.QuadPart);
-    p.input =
-        static_cast<u8*>(VirtualAlloc(nullptr, p.input_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!p.input)
-        return fail(p, GetLastError());
-    DWORD read{};
-    if (!ReadFile(p.file, p.input, p.input_bytes, &read, nullptr) || read != p.input_bytes)
-        return fail(p, ERROR_READ_FAULT);
-    if (!CloseHandle(p.file))
-        return fail(p, GetLastError());
-    p.file = nullptr;
-    p.stage = 2;
-    const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (FAILED(apartment))
-        return fail(p, static_cast<u32>(apartment));
-    p.com = true;
-    constexpr D3D_FEATURE_LEVEL requested[]{D3D_FEATURE_LEVEL_11_0};
-    D3D_FEATURE_LEVEL actual{};
-    const HRESULT created =
-        D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
-                          D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT, requested,
-                          1, D3D11_SDK_VERSION, &p.device, &actual, &p.context);
-    if (FAILED(created))
-        return fail(p, static_cast<u32>(created));
-    const HRESULT render_context = p.context->QueryInterface(__uuidof(ID3D11DeviceContext1),
-                                                             reinterpret_cast<void**>(&p.render_context));
-    if (FAILED(render_context))
-        return fail(p, static_cast<u32>(render_context));
-    ID3D11Multithread* guard{};
-    const HRESULT protected_context =
-        p.context->QueryInterface(__uuidof(ID3D11Multithread), reinterpret_cast<void**>(&guard));
-    if (FAILED(protected_context))
-        return fail(p, static_cast<u32>(protected_context));
-    guard->SetMultithreadProtected(TRUE);
-    guard->Release();
-    p.lane = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    if (!p.lane)
-        return fail(p, GetLastError());
-    p.stage = 3;
-    if (!mp4_decoder_initialize(&p.decoder, {p.input, p.input_bytes}, p.generic ? 0 : 64,
-                                p.generic ? 0 : 64, p.device))
-        return fail(p, static_cast<u32>(p.decoder.native.status));
-    const auto movie = mp4_decoder_movie(p.decoder);
-    Mp4AudioDemuxer audio{};
-    if (!p.generic &&
-        (movie.samples != 50 || movie.duration_us < 1900000 || movie.duration_us > 2100000 ||
-         mp4_audio_demux_initialize(&audio, mp4_decoder_source(p.decoder)) != Mp4DemuxError::none ||
-         audio.sample_rate != 48000 || audio.channels != 2 || audio.samples.sample_count != 94))
-        return fail(p, ERROR_INVALID_DATA);
-    if (p.generic &&
-        (!movie.samples || movie.samples > 36000 || !movie.duration_us || movie.duration_us > 180000000))
-        return fail(p, ERROR_NOT_SUPPORTED);
-    metric("movie_samples", movie.samples);
-    metric("movie_duration_us", movie.duration_us);
-    p.stage = 4;
-    const auto init = account_video_session_initialize(&p.session, &p.decoder, p.identity, p.lane);
-    if (!init.completed || !init.ok())
-        return fail(p, init.native_error);
-    if (account_video_session_owned_bytes(&p.session))
-        return fail(p, ERROR_INVALID_DATA);
-    metric("metadata_owned_bytes", account_video_session_owned_bytes(&p.session));
-    metric("input_bytes", p.input_bytes);
-    p.deadline = GetTickCount64() + (p.generic ? movie.duration_us / 1000 + 10000 : 20000);
-    if (p.generic) {
-        p.stage = 20;
-        if (!command(p, AccountVideoCommand::volume, 0, 0) || !command(p, AccountVideoCommand::play) ||
-            !pump(p, Until::playing))
-            return false;
-        p.played = true;
-        p.stage = 21;
-        if (!pump(p, Until::end))
-            return false;
-        if (!verify_rgba(p))
-            return false;
-        p.ended = true;
-        p.stage = 22;
-        if (!command(p, AccountVideoCommand::play) || !pump(p, Until::replay))
-            return false;
-        p.replayed = true;
-        p.stage = 23;
-        if (!command(p, AccountVideoCommand::pause) || !pump(p, Until::paused))
-            return false;
-        p.paused = true;
-        p.stage = 24;
-        if (!command(p, AccountVideoCommand::seek, 5000000) || !pump(p, Until::seek))
-            return false;
-        p.sought = true;
-        p.stage = 25;
-        if (!command(p, AccountVideoCommand::stop) || !pump(p, Until::stop))
-            return false;
-        p.stopped = true;
-        return p.copied_frames > 0;
-    }
-    p.stage = 5;
-    if (!command(p, AccountVideoCommand::volume, 0, .1f) || !command(p, AccountVideoCommand::play) ||
-        !pump(p, Until::playing))
-        return false;
-    p.played = true;
-    p.stage = 6;
-    if (!command(p, AccountVideoCommand::pause) || !pump(p, Until::paused))
-        return false;
-    p.paused = true;
-    const i64 paused = account_video_session_status(&p.session).position_100ns;
-    if (account_video_session_status(&p.session).position_100ns != paused)
-        return fail(p, ERROR_INVALID_DATA);
-    p.stage = 7;
-    if (!command(p, AccountVideoCommand::seek, 5000000) || !pump(p, Until::seek))
-        return false;
-    p.sought = true;
-    p.stage = 8;
-    if (!command(p, AccountVideoCommand::play) || !pump(p, Until::playing))
-        return false;
-    p.stage = 9;
-    if (!command(p, AccountVideoCommand::volume, 0, .25f) || !pump(p, Until::volume))
-        return false;
-    p.volume = true;
-    p.stage = 10;
-    if (!command(p, AccountVideoCommand::mute, 0, 1, true) || !pump(p, Until::mute))
-        return false;
-    p.muted = true;
-    p.stage = 11;
-    if (!command(p, AccountVideoCommand::mute, 0, 1, false) || !pump(p, Until::unmute))
-        return false;
-    p.unmuted = true;
-    p.stage = 12;
-    if (!pump(p, Until::end))
-        return false;
-    p.ended = true;
-    p.stage = 13;
-    if (!command(p, AccountVideoCommand::play) || !pump(p, Until::replay))
-        return false;
-    p.replayed = true;
-    p.stage = 14;
-    if (!command(p, AccountVideoCommand::stop) || !pump(p, Until::stop))
-        return false;
-    p.stopped = true;
-    return p.max_consumed > 0 && p.max_submitted >= p.max_consumed && p.max_written >= p.max_submitted &&
-           p.copied_frames > 1;
-}
 bool release(Probe& p) noexcept {
-    // The only producer is this quiescent entry thread. No context/source/event
-    // is freed if a native renderer join or decoder release retains the owner.
+    // The only producer is this quiescent entry thread. No event or input is freed if the session's join retains
+    // the owner.
     const u64 now = GetTickCount64();
-    const u32 join_ms =
-        p.audio ? static_cast<u32>(minimum(u64{1000}, p.deadline > now ? p.deadline - now : 0)) : 2000;
+    const u32 join_ms = static_cast<u32>(minimum(u64{1000}, p.deadline > now ? p.deadline - now : 0));
     const auto value = account_video_session_release(&p.session, join_ms);
     if (!value.completed || !value.ok()) {
         p.retained = true;
         return fail(p, value.native_error);
     }
-    if (p.audio && (p.session.initialized || p.session.workspace || p.session.lane_event ||
-                    p.session.encoded_metadata || account_video_session_owned_bytes(&p.session))) {
+    if (p.session.initialized || p.session.workspace || p.session.lane_event || p.session.encoded_metadata ||
+        account_video_session_owned_bytes(&p.session)) {
         p.retained = true;
         return fail(p, ERROR_INVALID_DATA);
     }
     p.joined = true;
-    mp4_decoder_release(&p.decoder);
-    video_frame_gpu_release(&p.conversion);
-    if (p.rgba_view) {
-        p.rgba_view->Release();
-        p.rgba_view = nullptr;
-    }
-    if (p.pixel) {
-        p.pixel->Release();
-        p.pixel = nullptr;
-    }
-    if (p.rgba) {
-        p.rgba->Release();
-        p.rgba = nullptr;
-    }
-    if (p.render_context) {
-        p.render_context->Release();
-        p.render_context = nullptr;
-    }
-    if (p.copied) {
-        p.copied->Release();
-        p.copied = nullptr;
-    }
-    if (p.context) {
-        p.context->Release();
-        p.context = nullptr;
-    }
-    if (p.device) {
-        p.device->Release();
-        p.device = nullptr;
-    }
     if (p.lane) {
         if (!CloseHandle(p.lane)) {
             p.retained = true;
@@ -686,23 +363,12 @@ bool release(Probe& p) noexcept {
         }
         p.lane = nullptr;
     }
-    if (p.file) {
-        if (!CloseHandle(p.file)) {
-            p.retained = true;
-            return fail(p, GetLastError());
-        }
-        p.file = nullptr;
-    }
     if (p.input) {
         if (!VirtualFree(p.input, 0, MEM_RELEASE)) {
             p.retained = true;
             return fail(p, GetLastError());
         }
         p.input = nullptr;
-    }
-    if (p.com) {
-        CoUninitialize();
-        p.com = false;
     }
     return true;
 }
@@ -728,9 +394,6 @@ void report(const Probe& p, bool okay) noexcept {
     metric("ended", p.ended);
     metric("replayed", p.replayed);
     metric("stopped", p.stopped);
-    metric("copied_frames", p.copied_frames);
-    metric("rgba_frames", p.rgba_frames);
-    metric("rgba_readbacks", p.rgba_readbacks);
 }
 bool run_audio_suite(Probe& p) noexcept {
     const u64 deadline = GetTickCount64() + 4500;
@@ -765,16 +428,5 @@ bool run_audio_suite(Probe& p) noexcept {
 } // namespace
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_account_video_session_probe_entry() noexcept {
-    auto& p = maicord::g_probe;
-    if (maicord::option(L"--audio"))
-        ExitProcess(maicord::run_audio_suite(p) ? 0 : 1);
-    const bool ran = maicord::run(p);
-    const maicord::u32 stage = p.stage, native = p.native;
-    const bool released = maicord::release(p);
-    if (released) {
-        p.stage = stage;
-        p.native = native;
-    }
-    maicord::report(p, ran && released);
-    ExitProcess(ran && released ? 0 : 1);
+    ExitProcess(maicord::option(L"--audio") && maicord::run_audio_suite(maicord::g_probe) ? 0 : 1);
 }

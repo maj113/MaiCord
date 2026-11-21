@@ -31,9 +31,8 @@ SfntGposExecutableLookup shared_gpos_lookups[32];
 SfntGposExecutionFrame gpos_frames[32];u32 gpos_positions[256];SfntCursiveChainNode cursive_chains[64];
 u64 gpos_operations=0,gpos_actions=0;u32 gpos_depth=0;
 u64 shape_runs=0,glyph_checks=0,cluster_checks=0,flag_checks=0,placement_runs=0,float_checks=0,gsub_operations=0,component_export_work=0;u32 failures=0;
-// Known divergent fonts per class (harfbuzz_fixture.py COMPONENT_DIVERGENCES) and, with MAICORD_FIXTURE_RECORD set,
-// the engine's placements printed as pin_component lines for the generator's --pins.
-u64 known_divergent[6]{};bool recording=false;
+// Known divergent fonts per class (harfbuzz_fixture.py COMPONENT_DIVERGENCES).
+u64 known_divergent[6]{};
 u64 commit_budget_checks=0,commit_journal_checks=0;bool commit_tested=false;
 SfntComponentGlyph saved_glyphs[128],committed_glyphs[128];SfntComponentNode saved_nodes[64],committed_nodes[64];
 SfntGsubExecutionScratch scratch() noexcept {return {{frames,32},{positions,256},{rebased,256},{consumed,64},{reinterpret_cast<u8*>(replacements),sizeof(replacements)},{journal,4096}};}
@@ -56,9 +55,9 @@ bool commit_units(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buf
     }
     *buffer=initial;copy_bytes(glyphs,saved_glyphs,sizeof(glyphs));copy_bytes(nodes,saved_nodes,sizeof(nodes));copy_bytes(clusters->storage.data,saved_map,map_bytes);return reached;
 }
-bool placements(ConstSlice<u8> expected,ConstSlice<SfntPlacement> values,u32 font,u32 split,u32 config,u32 stage) noexcept {
+bool placements(ConstSlice<u8> expected,ConstSlice<SfntPlacement> values,u32 font,u32 split,u32 config) noexcept {
     for(u32 i=0;i<values.count;++i){u32 bits[3];copy_bytes(bits,&values.data[i],12);for(u32 j=0;j<3;++j){++float_checks;if(bits[j]!=byte_load_le32(expected.data+i*12+j*4)){++failures;if(failures<10)error(font,split,utf8_literal("placement mismatch"),config*100+i*3+j);
-        if(recording&&!split){print(utf8_literal("pin_component font="));number(font);print(utf8_literal(" config="));number(config);print(utf8_literal(" stage="));number(stage);print(utf8_literal(" word="));number(i*3+j);print(utf8_literal(" actual="));number(bits[j]);print(utf8_literal("\n"));}}}}return true;
+        }}}return true;
 }
 #include "gpos_program_units.inc"
 #include "gpos_backtrack_dispatch_units.inc"
@@ -104,7 +103,7 @@ bool coordinated(const SfntCmap& cmap,const SfntHorizontalMetrics& metrics,const
             for(u32 i=0;i<units;++i)if(character_map[i]!=byte_load_le32(characters.data+i*4))return false;
             for(u32 i=0;i<count*3;++i){u32 actual=0;copy_bytes(&actual,reinterpret_cast<const u8*>(output)+i*4,4);const u32 wanted=byte_load_le32(expected[positioned].data+i*4);
                 if(actual!=wanted){print(utf8_literal("placement config="));number(c);print(utf8_literal(" positioned="));number(positioned);print(utf8_literal(" value="));number(i);
-                    print(utf8_literal(" actual="));number(actual);print(utf8_literal(" expected="));number(wanted);print(utf8_literal("\n"));if(!recording)return false;}}
+                    print(utf8_literal(" actual="));number(actual);print(utf8_literal(" expected="));number(wanted);print(utf8_literal("\n"));return false;}}
             ++coordinated_runs;coordinated_values+=count*5+units;
             const u64 full_work=result.lookup_operations;
             auto short_storage=storage;short_storage.placements.count=count-1;
@@ -178,21 +177,17 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
             u32 target_count=0;u64 used=0;auto status=sfnt_components_export(&forest,view,{targets,64},{associations,64},&target_count,1000000,&used);component_export_work+=used;
             if(status!=SfntStatus::ok)return error(f,split,utf8_literal("association export"),static_cast<u32>(status));++shape_runs;
             Reader config{configs};for(u32 c=0;c<cc;++c){u32 em_bits=0,rtl=0;ConstSlice<u8> expected[2];if(!config.word(&em_bits)||!config.word(&rtl)||rtl>1||!config.take(n*12,&expected[0])||!config.take(n*12,&expected[1]))return false;float em=0;copy_bytes(&em,&em_bits,4);
-                if(sfnt_position_initialize({nominal,n},{flags,n},{state,n})!=SfntStatus::ok || sfnt_position_finalize({state,n},{flags,n},em,metrics.units_per_em,{output,n})!=SfntStatus::ok)return false;placements(expected[0],{output,n},f,split,c,0);
+                if(sfnt_position_initialize({nominal,n},{flags,n},{state,n})!=SfntStatus::ok || sfnt_position_finalize({state,n},{flags,n},em,metrics.units_per_em,{output,n})!=SfntStatus::ok)return false;placements(expected[0],{output,n},f,split,c);
                 for(u32 i=0;i<lc;++i){SfntGposExecutionResult result{};u64 chain=0;
                     const u16 lookup_index=byte_load_be16(gp_feature.lookup_indices.data+i*2);
                     if(!split && !c && sfnt_gpos_lookup(position_program,lookup_index)->type>=7 && !gpos_program_units(position_program,lookup_index,view,{flags,n},{associations,n},{targets,target_count},{state,n}))return error(f,split,utf8_literal("GPOS units"));
                     status=sfnt_gpos_execute_program_lookup(position_program,byte_load_be16(gp_feature.lookup_indices.data+i*2),view,{flags,n},{associations,n},{targets,target_count},{state,n},0,n,rtl!=0,{},SfntComponentAnchorPolicy::skip_missing,{{gpos_frames,32},{gpos_positions,256},{&chain,1},{prefix,target_count},{cursive_chains,64}},{1000000,100000},&result);
                     gpos_operations+=result.operations;gpos_actions+=result.actions;gpos_depth=maximum(gpos_depth,result.max_depth);
                     if(status!=SfntStatus::ok)return error(f,split,utf8_literal("GPOS status"),static_cast<u32>(status));}
-                if(sfnt_position_finalize({state,n},{flags,n},em,metrics.units_per_em,{output,n})!=SfntStatus::ok)return false;placements(expected[1],{output,n},f,split,c,1);++placement_runs;
+                if(sfnt_position_finalize({state,n},{flags,n},em,metrics.units_per_em,{output,n})!=SfntStatus::ok)return false;placements(expected[1],{output,n},f,split,c);++placement_runs;
             }
         }
     }return r.at==r.data.count && commit_tested;
-}
-bool file_corpus(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;LARGE_INTEGER size{};if(!GetFileSizeEx(file,&size) || size.QuadPart<12 || size.QuadPart>0xffffffffll){CloseHandle(file);return false;}
-    HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!mapping){CloseHandle(file);return false;}const auto* data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));const bool ok=data && corpus({data,static_cast<u32>(size.QuadPart)});if(data)UnmapViewOfFile(data);CloseHandle(mapping);CloseHandle(file);return ok;
 }
 #include "component_sequence_units.inc"
 #include "component_bounds_units.inc"
@@ -206,9 +201,7 @@ int run() noexcept {
     if(!shaping_bounds_units()){print(utf8_literal("FAIL shaping bounds units\n"));return 6;}
     if(!gpos_cycle_units()){print(utf8_literal("FAIL GPOS cycle units\n"));return 5;}
     if(!sequence_units() || !affinity_units()){print(utf8_literal("FAIL component sequence units\n"));return 3;}
-    const wchar_t* command=test_arguments();wchar_t flag[4];recording=GetEnvironmentVariableW(L"MAICORD_FIXTURE_RECORD",flag,4)!=0;
-    bool ok=false;if(!*command)ok=corpus({component_fixture,sizeof(component_fixture)});
-    else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_corpus(path);}
+    const bool ok=corpus({component_fixture,sizeof(component_fixture)});
     print(utf8_literal("shape_runs="));number(shape_runs);print(utf8_literal("\nglyph_checks="));number(glyph_checks);print(utf8_literal("\ncluster_checks="));number(cluster_checks);print(utf8_literal("\nplacement_runs="));number(placement_runs);print(utf8_literal("\nfloat_checks="));number(float_checks);print(utf8_literal("\ngsub_operations="));number(gsub_operations);print(utf8_literal("\ncomponent_export_work="));number(component_export_work);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\n"));
     print(utf8_literal("fonts_harfbuzz="));number(known_divergent[0]);print(utf8_literal("\nknown_divergent_mark_coverage="));number(known_divergent[1]);print(utf8_literal("\nknown_divergent_miscounted_ligature="));number(known_divergent[2]);
     print(utf8_literal("\nknown_divergent_multiple_substitution_marks="));number(known_divergent[3]);print(utf8_literal("\nknown_divergent_nested_context="));number(known_divergent[4]);print(utf8_literal("\nknown_divergent_deferred_attachment="));number(known_divergent[5]);print(utf8_literal("\n"));

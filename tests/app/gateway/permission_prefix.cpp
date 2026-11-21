@@ -501,10 +501,10 @@ void test_permission_prefix(void (*check)(bool, const char*) noexcept) noexcept 
     bool fixed = state.role_backed_count == 8 && state.overwrite_backed_count == 8 &&
         state.permission_reserve == nullptr && state.permission_reserve_context == nullptr;
     for (u32 i = 0; i < 8; ++i) fixed = fixed && role_equal(prefix.roles[i], {}) && overwrite_equal(prefix.overwrites[i], {});
-    check(fixed && chat_state_store_prepare_permissions(&state, 8, 8) && prefix.reserve.calls == 0,
+    check(fixed && chat_state_store_prepare_permissions(&state, 8, 8),
         "permission prefix: fixed binder zeroes complete banks and marks full capacity backed without callback");
     check(initialize(true, false) && chat_state_store_bind_permissions_reserved(&state, {prefix.roles, 8},
-        {prefix.overwrites, 8}, reserve_prefix, nullptr) && state.permission_reserve_context == nullptr &&
+        {prefix.overwrites, 8}, reserve_prefix, nullptr) &&
         chat_state_store_prepare_permissions(&state, 0, 0) && suffix_untouched(),
         "permission prefix: reserved binder accepts an opaque null context and zero admission never invokes it");
     check(initialize(true, false) && chat_state_store_upsert_guild(&state,

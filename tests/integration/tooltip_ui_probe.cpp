@@ -393,8 +393,6 @@ bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) n
         if (presentation_passed && !valid)
             log_u64(LogLevel::error, "probe", "tooltip_native_failure_stage", 4);
     }
-    log_u64(LogLevel::info, "probe", "tooltip_scene_bytes", sizeof(UiTooltipScene));
-    log_u64(LogLevel::info, "probe", "tooltip_renderer_bytes", sizeof(D3D11Renderer));
     log_write(valid && restored ? LogLevel::info : LogLevel::error, "probe",
               valid && restored ? "tooltip_native_passed" : "tooltip_native_failed");
     return valid && restored;

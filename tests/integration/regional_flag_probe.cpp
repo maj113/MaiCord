@@ -194,7 +194,6 @@ bool regional_flag_ui_probe(D3D11Renderer& renderer,PopupScene& scene,
         !readback_flags(renderer,allocations,256,256,square_hashes)) return fail(__LINE__);
     log_u64(LogLevel::info,"probe","regional_flag_shared_texture_bytes",after.texture_bytes);
     log_u64(LogLevel::info,"probe","regional_flag_program_buffer_bytes",after.buffer_bytes-before.buffer_bytes);
-    log_u64(LogLevel::info,"probe","regional_flag_media_texture_bytes",256*256*4);
     PopupItem items[item_count]{};items[0]={utf8_literal("Search flags"),1,popup_item_enabled};
     for (u32 i=0;i<4;++i) items[label_count+i]={flags[i],10+i,popup_item_enabled|popup_item_emoji};
     constexpr u32 dpis[]{96,144,192};constexpr const wchar_t* filenames[]{L"flag-grid-96.bmp",L"flag-grid-144.bmp",L"flag-grid-192.bmp"};

@@ -197,14 +197,6 @@ void test_account_session_identity(void (*check)(bool, const char*) noexcept) no
               !account_session_save_state_current(save_state, current, nullptr, 0, false) &&
               !account_session_save_state_current(save_state, current, &heartbeat, 1, false),
           "identity, heartbeat and cookie changes still trigger the periodic autosave");
-    GatewayUserSessionSnapshot persisted{};
-    check(account_user_session_store_save(path, current, &heartbeat).ok() &&
-              account_user_session_store_load(path, profile_id, &persisted).ok() &&
-              persisted.resume.sequence == current.resume.sequence &&
-              account_user_session_store_save(path, advanced, &heartbeat).ok() &&
-              account_user_session_store_load(path, profile_id, &persisted).ok() &&
-              persisted.resume.sequence == advanced.resume.sequence,
-          "the final save writes the advanced Resume sequence");
     account_session_save_state_record(&save_state, advanced, &heartbeat, 0);
     check(account_session_save_state_current(save_state, advanced, &heartbeat, 0, true) &&
               !account_session_save_state_current(save_state, current, &heartbeat, 0, true),

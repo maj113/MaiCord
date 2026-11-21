@@ -2,7 +2,7 @@
 // Test images only: every D3D11CreateDevice call of this image (its own and the renderer's, whose
 // device code it links) makes a WARP device instead of a hardware one, with the Direct3D 11 debug layer when it is
 // asked for and installed. The image's import slots of D3D11CreateDevice are patched; nothing that ships changes.
-// Hang reproductions and validation runs use it, so they never submit work to the hardware adapter.
+// Validation runs use it, so they never submit work to the hardware adapter.
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/heap.hpp"
 #include "maicord/core/win32_kernel.hpp"

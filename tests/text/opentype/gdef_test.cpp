@@ -68,44 +68,10 @@ bool guards() noexcept {
     }
     pages_release(mem);return true;
 }
-struct Reader {const u8* data;u32 size,at;
-    bool word(u32* v) noexcept {if(size-at<4)return false;*v=byte_load_le32(data+at);at+=4;return true;}
-    bool take(u32 n,const u8** v) noexcept {if(n>size-at)return false;*v=data+at;at+=n;return true;}
-};
-bool corpus(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;
-    LARGE_INTEGER len{};if(!GetFileSizeEx(file,&len) || len.QuadPart<12 || len.QuadPart>0xffffffffll){CloseHandle(file);return false;}
-    HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!mapping){CloseHandle(file);return false;}
-    auto* bytes=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));Reader r{bytes,static_cast<u32>(len.QuadPart),8};u32 total=0,failures=0;u64 properties=0,memberships=0,filters=0,stores=0;
-    bool ok=bytes && bytes_equal(bytes,"MCGDEF2",8) && r.word(&total) && total>0;
-    for(u32 record=0;record<total && ok;++record){
-        u32 limit=0,size=0,flags=0,sc=0;const u8* raw=nullptr;
-        ok=r.word(&limit)&&r.word(&size)&&r.word(&flags)&&r.word(&sc)&&limit>0&&limit<=65536&&flags<8&&sc<=65535&&r.take(size,&raw);if(!ok)break;
-        SfntGdef g{};bool match=(flags&1)?sfnt_gdef_open({raw,size},limit,&g)==SfntStatus::ok:size==0;
-        const u8* classes=nullptr;ok=r.take(limit*4,&classes);if(!ok)break;
-        if(match)for(u32 gid=0;gid<limit;++gid){if(static_cast<u16>(sfnt_gdef_glyph_class(g,static_cast<u16>(gid)))!=byte_load_le16(classes+gid*4) || sfnt_class_value(g.mark_classes,static_cast<u16>(gid))!=byte_load_le16(classes+gid*4+2))match=false;properties+=2;}
-        SfntCoverage none{};const auto ss=sfnt_gdef_mark_set(g,static_cast<u16>(sc),&none);if(ss!=((flags&2)?SfntStatus::glyph_out_of_range:SfntStatus::missing_table))match=false;
-        for(u32 i=0;i<sc && ok;++i){u32 n=0;ok=r.word(&n)&&n<=limit;if(!ok)break;clear_bytes(seen,sizeof(seen));SfntCoverage cov{};const bool valid=(flags&2) && sfnt_gdef_mark_set(g,static_cast<u16>(i),&cov)==SfntStatus::ok;if(!valid || cov.covered_count!=n)match=false;
-            for(u32 k=0;k<n && ok;++k){u32 gid=0;ok=r.word(&gid)&&gid<limit&&!seen[gid];if(ok){seen[gid]=1;u16 actual=0;if(valid && (sfnt_coverage_glyph(cov,k,&actual)!=SfntStatus::ok || actual!=gid))match=false;}}
-            if(valid)for(u32 gid=0;gid<limit;++gid){if((sfnt_coverage_index(cov,static_cast<u16>(gid))!=sfnt_not_covered)!=(seen[gid]!=0))match=false;++memberships;}}
-        u32 axes=0,regions=0,data=0;ok=ok&&r.word(&axes)&&r.word(&regions)&&r.word(&data);ItemVariationStore store{};const auto vs=sfnt_gdef_variation_store(g,&store);
-        if(vs!=((flags&4)?SfntStatus::ok:SfntStatus::missing_table) || store.axis_count!=axes || store.region_count!=regions || store.offsets.count/4!=data)match=false;if(flags&4)++stores;
-        u32 configs=0;ok=ok&&r.word(&configs)&&configs<=1000000;
-        for(u32 i=0;i<configs && ok;++i){u32 f=0,index=0;const u8* bits=nullptr;ok=r.word(&f)&&r.word(&index)&&f<=65535&&index<=65535&&r.take((limit+7)/8,&bits);if(!ok)break;
-            SfntLookupFilter filter{};if(sfnt_lookup_filter_prepare(g,static_cast<u16>(f),static_cast<u16>(index),&filter)!=SfntStatus::ok){match=false;continue;}
-            for(u32 gid=0;gid<limit;++gid){if(sfnt_lookup_ignores(g,filter,static_cast<u16>(gid),sfnt_gdef_glyph_class(g,static_cast<u16>(gid)))!=(((bits[gid/8]>>(gid%8))&1)!=0))match=false;++filters;}}
-        if(!match){++failures;print(utf8_literal("mismatch_record="));number(record);print(utf8_literal("\n"));}
-    }
-    ok=ok && r.at==r.size;
-    print(utf8_literal("records="));number(total);print(utf8_literal("\nproperty_checks="));number(properties);print(utf8_literal("\nmark_memberships="));number(memberships);print(utf8_literal("\nfilter_checks="));number(filters);print(utf8_literal("\nvariation_stores="));number(stores);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\ncomplete="));number(ok);print(utf8_literal("\n"));
-    if(bytes)UnmapViewOfFile(bytes);CloseHandle(mapping);CloseHandle(file);return ok&&!failures;
-}
 #include "lookup_filter_units.inc"
 int run() noexcept {
     if(!units()){print(utf8_literal("FAIL GDEF units\n"));return 1;}if(!guards()){print(utf8_literal("FAIL GDEF guards\n"));return 2;}
     if(!filter_membership_units()){print(utf8_literal("FAIL filter membership\n"));return 5;}
-    const wchar_t* cmd=test_arguments();
-    if(*cmd){wchar_t path[32768];if(!test_path_argument(cmd,path))return 3;if(!corpus(path))return 4;}
     print(utf8_literal("PASS native GDEF\n"));return 0;
 }
 }}

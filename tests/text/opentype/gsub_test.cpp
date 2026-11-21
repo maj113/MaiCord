@@ -2,8 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "../../support/test_output.hpp"
-
-#include "glyph_view_check.hpp"
+#include "../../support/text_seams.hpp"
 #include "../../support/text_test_support.hpp"
 
 namespace maicord {namespace {
@@ -103,52 +102,8 @@ bool guards() noexcept {
     }
     pages_release(mem);return true;
 }
-struct Reader {const u8* data;u32 size,at;
-    bool word(u32* v) noexcept {if(size-at<4)return false;*v=byte_load_le32(data+at);at+=4;return true;}
-    bool take(u32 n,const u8** v) noexcept {if(n>size-at)return false;*v=data+at;at+=n;return true;}
-};
-u32 mapping[65536];SfntGsubGlyph glyphs[65536];u32 consumed[65536];SfntGsubExecutableSubtable lookup_storage[65535];
-bool corpus(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;Win32LargeInteger len{};
-    if(!GetFileSizeEx(file,len.native()) || len.QuadPart<12 || len.QuadPart>0xffffffffll){CloseHandle(file);return false;}HANDLE map=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!map){CloseHandle(file);return false;}
-    auto* bytes=static_cast<const u8*>(MapViewOfFile(map,FILE_MAP_READ,0,0,0));Reader r{bytes,static_cast<u32>(len.QuadPart),8};u32 fonts=0,failures=0,type_counts[5]{};u64 queries=0,replacements=0,ligature_queries=0,prepared_lookups=0,coverage_checks=0;
-    bool ok=bytes && bytes_equal(bytes,"MCGSUB1",8) && r.word(&fonts) && fonts>0;
-    for(u32 font=0;font<fonts && ok;++font){u32 limit=0,size=0,gdef_size=0,count=0;const u8 *raw=nullptr,*gd=nullptr;ok=r.word(&limit)&&r.word(&size)&&r.word(&gdef_size)&&r.word(&count)&&limit>0&&limit<=65536&&count<=1000000&&r.take(size,&raw)&&r.take(gdef_size,&gd);if(!ok)break;
-        SfntLayout layout{};SfntGdef gdef{};bool match=sfnt_layout_open({raw,size},SfntLayoutKind::substitution,&layout)==SfntStatus::ok && (!gdef_size || sfnt_gdef_open({gd,gdef_size},limit,&gdef)==SfntStatus::ok);if(!match && !count)++failures;u32 last_lookup=0xffffffff;SfntGsubExecutableLookup prepared{};
-        for(u32 record=0;record<count && ok;++record){u32 type=0,offset=0,li=0,si=0,flags=0,markset=0,n=0;ok=r.word(&type)&&r.word(&offset)&&r.word(&li)&&r.word(&si)&&r.word(&flags)&&r.word(&markset)&&r.word(&n)&&type>=1&&type<=4&&offset<size&&li<=65535&&si<=65535&&flags<=65535&&markset<=65535&&n<=limit;if(!ok)break;
-            for(u32 gid=0;gid<limit;++gid)mapping[gid]=0xffffffff;
-            for(u32 i=0;i<n && ok;++i){u32 gid=0,outputs=0;ok=r.word(&gid)&&gid<limit&&mapping[gid]==0xffffffff;if(!ok)break;mapping[gid]=r.at;
-                if(type<4){ok=r.word(&outputs)&&outputs<=65535&&(type!=1 || outputs==1)&&(type!=2 || outputs>0);const u8* values=nullptr;ok=ok&&r.take(outputs*4,&values);if(ok)for(u32 j=0;j<outputs;++j)if(byte_load_le32(values+j*4)>=limit)ok=false;}}
-            SfntGsubSubtable sub{};const auto status=sfnt_gsub_subtable_open({raw+offset,size-offset},static_cast<u16>(type),limit,&sub);if(status!=SfntStatus::ok || sub.coverage.covered_count!=n)match=false;
-            SfntLookupFilter filter{};if(sfnt_lookup_filter_prepare(gdef,static_cast<u16>(flags),static_cast<u16>(markset),&filter)!=SfntStatus::ok)match=false;
-            if(li!=last_lookup){if(sfnt_gsub_prepare_lookup(layout,static_cast<u16>(li),gdef,limit,{{lookup_storage,65535},{},{}},&prepared)!=SfntStatus::ok)match=false;last_lookup=li;++prepared_lookups;}
-            if(si>=prepared.subtables.count || prepared.subtables.data[si].basic.table.data!=raw+offset || prepared.subtables.data[si].basic.type!=type || prepared.filter.flags!=flags)match=false;
-            if(status==SfntStatus::ok)for(u32 gid=0;gid<limit;++gid){const bool covered=mapping[gid]!=0xffffffff;if((sfnt_coverage_index(sub.coverage,static_cast<u16>(gid))!=sfnt_not_covered)!=covered)match=false;++coverage_checks;if(type==4 && covered)continue;const u32 outputs=covered?byte_load_le32(bytes+mapping[gid]):0;
-                const u32 choices=type==3 && covered?outputs+1:1;glyphs[0]={static_cast<u16>(gid),SfntGlyphClass::unassigned,0};
-                for(u32 choice=0;choice<choices;++choice){SfntGsubMatch result{};const bool expected_match=covered && (type!=3 || choice<outputs);const u32 expected_count=expected_match?(type==2?outputs:1):0;
-                    if(qa_gsub_match(sub,gdef,filter,{glyphs,1},0,choice,{consumed,65536},&result)!=SfntStatus::ok || result.matched!=expected_match || result.output_count!=expected_count || result.input_count!=(expected_match?1u:0u) || (expected_match && (consumed[0]!=0 || result.last_input!=0)))match=false;
-                    for(u32 j=0;j<expected_count;++j){u16 value=0;const u32 at=mapping[gid]+4+(type==3?choice:j)*4;if(sfnt_gsub_replacement(result,static_cast<u16>(j),&value)!=SfntStatus::ok || value!=byte_load_le32(bytes+at))match=false;++replacements;}++queries;
-                }}
-            u32 probes=0;ok=ok&&r.word(&probes)&&probes<=1000000;
-            for(u32 i=0;i<probes && ok;++i){u32 start=0,input_count=0,consumed_count=0,output_count=0;ok=r.word(&start)&&r.word(&input_count)&&r.word(&consumed_count)&&r.word(&output_count)&&input_count>0&&input_count<=65536&&start<input_count&&consumed_count<=input_count&&output_count<=65535;if(!ok)break;
-                for(u32 k=0;k<input_count && ok;++k){u32 gid=0,cl=0;ok=r.word(&gid)&&r.word(&cl)&&gid<limit&&cl<=4;glyphs[k]={static_cast<u16>(gid),static_cast<SfntGlyphClass>(cl),0};}
-                const u8 *expected_positions=nullptr,*expected_glyphs=nullptr;ok=ok&&r.take(consumed_count*4,&expected_positions)&&r.take(output_count*4,&expected_glyphs);if(!ok)break;
-                SfntGsubMatch result{};if(status!=SfntStatus::ok || qa_gsub_match(sub,gdef,filter,{glyphs,input_count},start,0,{consumed,65536},&result)!=SfntStatus::ok || result.matched!=(consumed_count!=0) || result.input_count!=consumed_count || result.output_count!=output_count)match=false;
-                if(consumed_count && result.last_input!=byte_load_le32(expected_positions+(consumed_count-1)*4))match=false;
-                for(u32 k=0;k<consumed_count;++k)if(consumed[k]!=byte_load_le32(expected_positions+k*4))match=false;
-                for(u32 k=0;k<output_count;++k){u16 value=0;if(sfnt_gsub_replacement(result,static_cast<u16>(k),&value)!=SfntStatus::ok || value!=byte_load_le32(expected_glyphs+k*4))match=false;++replacements;}++ligature_queries;
-            }
-            ++type_counts[type];if(!match){++failures;print(utf8_literal("mismatch_font="));number(font);print(utf8_literal(" lookup="));number(li);print(utf8_literal(" subtable="));number(si);print(utf8_literal(" status="));number(static_cast<u32>(status));print(utf8_literal("\n"));match=true;}
-        }
-    }
-    ok=ok&&r.at==r.size;print(utf8_literal("fonts="));number(fonts);for(u32 t=1;t<=4;++t){print(utf8_literal("\ntype_"));number(t);print(utf8_literal("="));number(type_counts[t]);}print(utf8_literal("\nprepared_lookups="));number(prepared_lookups);print(utf8_literal("\ncoverage_checks="));number(coverage_checks);print(utf8_literal("\nsingle_glyph_queries="));number(queries);print(utf8_literal("\nligature_probes="));number(ligature_queries);print(utf8_literal("\nreplacement_checks="));number(replacements);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\ncomplete="));number(ok);print(utf8_literal("\n"));
-    print(utf8_literal("gap_view_queries="));number(qa_gap_queries);print(utf8_literal("\n"));
-    if(bytes)UnmapViewOfFile(bytes);CloseHandle(map);CloseHandle(file);return ok&&!failures;
-}
 int run() noexcept {
     if(!units()){print(utf8_literal("FAIL GSUB units\n"));return 1;}if(!prefix_units()){print(utf8_literal("FAIL GSUB prefix matching\n"));return 5;}if(!guards()){print(utf8_literal("FAIL GSUB guards\n"));return 2;}
-    const wchar_t* cmd=test_arguments();
-    if(*cmd){wchar_t path[32768];if(!test_path_argument(cmd,path))return 3;if(!corpus(path))return 4;}
     print(utf8_literal("PASS native GSUB basic matching\n"));return 0;
 }
 }}

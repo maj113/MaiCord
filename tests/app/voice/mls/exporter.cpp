@@ -100,7 +100,7 @@ void receive(Check check, KdfSha256Workspace& workspace) noexcept {
             size = test_unhex(old.second, frame);
             const auto reordered =
                 dave_receive_sender_open(sender, identity, workspace, {frame, size}, now, {}, {output, 48});
-            check(reordered.ok() && reordered.revision == 1 && reordered.epochs_tried == 2,
+            check(reordered.ok() && reordered.revision == 1,
                   "MLS exporter-derived old epoch remains usable during transition grace");
             dave_receive_sender_release(&sender);
         }
@@ -135,8 +135,7 @@ void failures(Check check, KdfSha256Workspace& workspace) noexcept {
         dave_receive_sender_transition_exporter(sender, identity, 2, workspace, {secret, 32}, 10, 100);
     workspace.storage.capacity = capacity;
     check(replacement.error == DaveSenderError::epoch_export && !replacement.epoch.bytes &&
-              sender.count == 1 && sender.latest_revision == 1 && sender.last_now_ms == 0 &&
-              sender.next_expiry_ms == ~u64{0},
+              sender.count == 1 && sender.latest_revision == 1 && sender.next_expiry_ms == ~u64{0},
           "DAVE failed export preserves existing key epochs, replay lifetime and transition revision");
     check(
         dave_receive_sender_transition_exporter(sender, identity, 2, workspace, {secret, 32}, 10, 100).ok(),

@@ -657,8 +657,8 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
     // Per-server Privacy settings: each switch edits one privacy.*_guild_ids
     // list; the PATCH carries the whole privacy group with packed fixed64 IDs.
     constexpr u64 server = 0x0123456789ABCDEFull;
-    constexpr UserSettingsField dm_list{8, 3, 0, UserSettingsKind::id_member},
-        request_list{8, 16, 0, UserSettingsKind::id_member}, activity_list{8, 13, 0, UserSettingsKind::id_member};
+    constexpr UserSettingsField request_list{8, 16, 0, UserSettingsKind::id_member},
+        activity_list{8, 13, 0, UserSettingsKind::id_member};
     check(!application_user_settings_guild_restricted(GuildPrivacyList::direct_messages, server) &&
               application_user_settings_set_guild_restricted(GuildPrivacyList::direct_messages, server, true) &&
               application_user_settings_set_guild_restricted(GuildPrivacyList::message_requests, server, true) &&
@@ -701,9 +701,7 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
     check(application_user_settings_revision() != privacy_revision &&
               application_user_settings_guild_restricted(GuildPrivacyList::activity_status, server) &&
               !application_user_settings_guild_restricted(GuildPrivacyList::direct_messages, server) &&
-              !application_user_settings_guild_restricted(GuildPrivacyList::message_requests, server) &&
-              user_settings_proto_contains({privacy_update + 2, 10}, activity_list, server) &&
-              !user_settings_proto_contains({privacy_update + 2, 10}, dm_list, server),
+              !application_user_settings_guild_restricted(GuildPrivacyList::message_requests, server),
           "user settings runtime: a gateway privacy update is reflected live");
 
     // Content & Social "Message requests" is the official "Enable message

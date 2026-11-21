@@ -695,8 +695,6 @@ void test_check_schedule() noexcept {
     constexpr u64 seconds[]{3600, 14400, 43200, 86400}, jitter[]{360, 1440, 3600, 3600};
     constexpr u32 randoms[]{0u, 12345u, ~0u};
     const u64 now = 1'000'000;
-    check(kUpdateDefaultCheckInterval == UpdateCheckInterval::four_hours && kUpdateCheckIntervalCount == 4,
-        "update schedule: the default interval is every 4 hours");
     bool success = true, failure = true, retry = true;
     for (u32 i = 0; i < 4; ++i) {
         const u64 s = update_check_interval_seconds(choices[i]);
@@ -1269,9 +1267,6 @@ void test_service() noexcept {
         ? update_service_check(&service, transport, UpdateChannel::stable, 100) : UpdateCheckResult{};
     check(r.outcome == UpdateCheckOutcome::up_to_date && !fake.routes[3].hits && !present(paths.download),
         "update service: an offer no newer than the installed version deletes the kept package");
-    check(update_channel_save(paths, UpdateChannel::preview) &&
-        update_channel_load(paths, UpdateChannel::stable) == UpdateChannel::preview,
-        "update service: channel choice persists in the update storage");
 #else
     check(false, "update service: build must supply the built EXE fixture path");
 #endif

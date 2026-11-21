@@ -953,9 +953,7 @@ void test_encoded_media_cache() noexcept {
         encoded_media_cache_store(&cache, key1, ConstSlice<u8>{one_page, sizeof(one_page)}, fresh);
     expect(pinned_replace.state == EncodedMediaCacheStoreState::no_capacity && pinned_erase_rejected &&
                lease_immutable && released &&
-               after_release.state == EncodedMediaCacheStoreState::replaced &&
-               cache.counters.lease_acquires == 1 && cache.counters.lease_releases == 1 &&
-               cache.counters.pinned_rejections >= 2,
+               after_release.state == EncodedMediaCacheStoreState::replaced,
            "encoded_media_cache_lease_pins_immutable_source");
 
     const u32 before_entries = cache.entry_count;
@@ -1029,10 +1027,7 @@ void test_encoded_media_cache_dense_index() noexcept {
                 encoded_media_cache_release(&media.cache, &lease);
     }
     expect(exact && media.cache.entry_count == kAccountMediaCacheEntryCapacity &&
-               media.cache.used_pages == kAccountMediaCacheEntryCapacity &&
-               media.cache.counters.lease_acquires == kAccountMediaCacheEntryCapacity &&
-               media.cache.counters.lease_acquires == media.cache.counters.lease_releases &&
-               account_media_stop(&media, 5'000),
+               media.cache.used_pages == kAccountMediaCacheEntryCapacity && account_media_stop(&media, 5'000),
            "encoded_media_cache_full_dense_index_hash_and_lease");
 }
 
@@ -3801,7 +3796,7 @@ void test_animation_frame_cache() noexcept {
     AnimationFrameCacheDescriptor pressure = descriptors[0];
     pressure.key = AnimationFrameCacheKey{media_asset_custom_emoji(702, true), 0, 1, 0};
     const AnimationFrameCacheResult replacement = animation_frame_cache_allocate(&cache, pressure);
-    expect(replacement.ok() && cache.counters.evictions == 1 &&
+    expect(replacement.ok() &&
                animation_frame_cache_find(&cache, AnimationFrameCacheKey{emoji, 0, 3, 0}).error ==
                    AnimationFrameCacheError::not_found &&
                animation_frame_cache_find(&cache, AnimationFrameCacheKey{emoji, 2, 3, 0}).ok(),

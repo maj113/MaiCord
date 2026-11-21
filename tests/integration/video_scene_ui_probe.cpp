@@ -210,9 +210,6 @@ bool capture_native_video_preview(D3D11Renderer& renderer, UiVideoScene& scene,
                     renderer.content_text->rebuilds - text_builds);
             log_u64(LogLevel::info, "probe", "video_fade_text_uploads_delta",
                     renderer.text_instance_uploads - text_uploads);
-            log_u64(LogLevel::info, "probe", "video_opacity_transition_bytes", sizeof(UiOpacityTransition));
-            log_u64(LogLevel::info, "probe", "video_scene_bytes", sizeof(UiVideoScene));
-            log_u64(LogLevel::info, "probe", "video_scene_style_bytes", sizeof(UiVideoSceneStyle));
             log_write(LogLevel::info, "probe", "video_hover_fade_native_preview_passed");
         }
     }
@@ -706,7 +703,6 @@ bool video_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t
                 renderer.text_effect_count == retired.effects &&
                 renderer.text_effect_animated == retired.animated && full_rebuild() &&
                 probe_present(&renderer, kDefaultTheme);
-        log_u64(LogLevel::info, "probe", "video_text_prefix_metadata_bytes", sizeof(RendererTextPrefix));
         log_u64(LogLevel::info, "probe", "video_text_base_builds",
                 renderer.content_text_prefix.base_builds);
         log_u64(LogLevel::info, "probe", "video_text_overlay_builds",

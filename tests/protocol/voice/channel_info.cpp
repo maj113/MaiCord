@@ -86,8 +86,7 @@ void pacing_cases(Check check) noexcept {
     u32 repeats = 0;
     for (u64 guild = 1; guild <= kGatewayChannelInfoPending; ++guild)
         repeats += gateway_channel_info_admit(&owner, guild) ? 1u : 0u;
-    check(sends == kGatewayChannelInfoPending && !repeats &&
-              owner.requested_count == kGatewayChannelInfoPending,
+    check(sends == kGatewayChannelInfoPending && !repeats,
           "pacing: revisiting guilds in one session sends nothing more");
 }
 

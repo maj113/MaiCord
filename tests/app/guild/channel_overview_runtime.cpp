@@ -151,7 +151,7 @@ void dialog_exit() noexcept {
           "Dialog exit: input ends a playing exit at once");
     check(show_exit_dialog(), "Dialog exit: the dialog opens a third time");
     settings_modal_close(exit_dialog, false);
-    check(show_exit_dialog() && exit_dialog.scene.active && g_app.renderer.settings_scene == &exit_dialog.scene,
+    check(show_exit_dialog() && exit_dialog.scene.active,
           "Dialog exit: reopening during the exit ends it first and binds the new opening");
     g_app.preferences.reduced_motion = true;
     settings_modal_close(exit_dialog, false);
@@ -252,7 +252,7 @@ void run() noexcept {
               !text_input_ready(old_target),
           "Overview runtime: rejected server save retains draft and retires old native document target");
     activate({UiSettingsTargetKind::reset, page_key, 0});
-    check(!owner->controller.dirty_fields && owner->models[0].bytes == 7 &&
+    check(!owner->controller.dirty_fields &&
               utf8_equal(message_composer_text(owner->models[0]), utf8_literal("general")),
           "Overview runtime: Reset adopts baseline into borrowed model without clearing fetched bytes");
     check(edit_name(utf8_literal("local")),

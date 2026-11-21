@@ -139,9 +139,8 @@ bool plan_checks(const SfntLayout& layout,bool independent,u8* scratch,const Sfn
     }
     return true;
 }
-// Known divergent cases (harfbuzz_fixture.py ARABIC_DIVERGENCES) hold the engine's output; with MAICORD_FIXTURE_RECORD
-// set each prints that output as a pin_arabic line for the generator's --pins instead of being checked.
-u64 known_divergent=0;bool recording=false;
+// Known divergent cases (harfbuzz_fixture.py ARABIC_DIVERGENCES) hold the engine's output.
+u64 known_divergent=0;
 bool corpus(ConstSlice<u8> corpus_bytes,u32 corpus_index) noexcept {
     if(run_mode && !owned_close())return false;
     if(corpus_bytes.count<16 || !bytes_equal(corpus_bytes.data,"MCARPL4\0",8))return false;
@@ -201,13 +200,6 @@ bool corpus(ConstSlice<u8> corpus_bytes,u32 corpus_index) noexcept {
             const auto s=run_mode?native_arabic_run(owned_store,owned_handle,{utf8,utf8_count},independent!=0,rtl!=0,em,storage,&result):
                 sfnt_arabic_shape_run(plan,cmap,{input,n},{scalars,n},n,{starts,start_count},true,em,storage,&result,scheduled);
             if(s!=SfntStatus::ok)return fail(c,10,static_cast<u32>(s));
-            if(recording&&divergence){const auto list=[&](Utf8View name,u32 count,auto value) noexcept {print(utf8_literal(" "));print(name);print(utf8_literal("="));
-                    for(u32 i=0;i<count;++i){if(i)print(utf8_literal(","));number(value(i));}};
-                print(utf8_literal("pin_arabic corpus="));number(corpus_index);print(utf8_literal(" case="));number(c);
-                list(utf8_literal("glyphs"),result.glyph_count,[&](u32 i) noexcept {return static_cast<u64>(glyphs[i].glyph.glyph);});
-                list(utf8_literal("clusters"),n,[&](u32 i) noexcept {return static_cast<u64>(character_map[i]);});
-                list(utf8_literal("placements"),result.glyph_count*3,[&](u32 i) noexcept {return static_cast<u64>(byte_load_le32(reinterpret_cast<const u8*>(placements)+i*4));});
-                print(utf8_literal("\n"));break;}
             if(result.glyph_count!=expected_count)return fail(c,10,static_cast<u32>(s));
             for(u32 i=0;i<expected_count;++i){++glyph_checks;if(glyphs[i].glyph.glyph!=byte_load_le16(expected.data+i*2))return fail(c,11,i);}
             for(u32 i=0;i<n;++i){++cluster_checks;if(character_map[i]!=byte_load_le32(clusters.data+i*4))return fail(c,12,i);}
@@ -227,7 +219,7 @@ bool corpus(ConstSlice<u8> corpus_bytes,u32 corpus_index) noexcept {
     return r.at==r.bytes.count;
 }
 int run() noexcept {
-    const wchar_t* command=test_arguments();wchar_t flag_value[4];recording=GetEnvironmentVariableW(L"MAICORD_FIXTURE_RECORD",flag_value,4)!=0;
+    const wchar_t* command=test_arguments();
     {constexpr wchar_t flag[]=L"--run";u32 i=0;while(flag[i]&&command[i]==flag[i])++i;
         if(!flag[i]&&(!command[i]||command[i]==' '||command[i]=='\t')){run_mode=true;command+=i;while(*command==' ' || *command=='\t')++command;}}
     if(!run_mode && !component_transactions())return 2;

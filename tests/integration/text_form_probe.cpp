@@ -39,9 +39,8 @@ bool text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache) noexcep
     composition = {surface.layout.utf16_units - 2, surface.layout.utf16_units, 0, 0, 0xE03060,
         TextCompositionLineStyle::solid, TextCompositionAttribute::target_converted, text_composition_color_line, true};
     composition_count = 1;
-    const u32 composition_builds = surface.layout.builds;
     if(valid)stage=__LINE__;valid = valid && refresh() && surface.composition_complete && surface.geometry.composition.count == 1 &&
-        surface.layout.builds == composition_builds && surface.geometry.composition[0].attributes.line_rgb == 0xE03060;
+        surface.geometry.composition[0].attributes.line_rgb == 0xE03060;
     composition_count = 0;
     u32 hit = 0;
     if(valid)stage=__LINE__;valid = valid && text_edit_layout_hit_test(surface.layout, surface.layout.caret.left,

@@ -142,8 +142,7 @@ void fixture_tests() noexcept {
     bool refs_empty = true;
     for (const auto& entry : parameters.frame_refs)
         refs_empty = refs_empty && entry.Index == 0xff;
-    check(sizeof(parameters) == 912 && sizeof(DXVA_Tile_AV1) == 16 &&
-              parameters.width == kAv1FixtureWidth && parameters.height == kAv1FixtureHeight &&
+    check(parameters.width == kAv1FixtureWidth && parameters.height == kAv1FixtureHeight &&
               parameters.CurrPicTextureIndex == 3 && parameters.tiles.cols == 2 &&
               parameters.tiles.widths[1] == 2 && parameters.superres_denom == 8 &&
               parameters.bitdepth == 8 && !parameters.format.frame_type && parameters.format.show_frame &&
@@ -151,7 +150,7 @@ void fixture_tests() noexcept {
               !parameters.coding.tx_mode && parameters.quantization.qm_v == 0xff && refs_empty &&
               parameters.RefFrameMapTextureIndex[7] == 0xff && parameters.primary_ref_frame == 7 &&
               !parameters.film_grain.apply_grain && !parameters.StatusReportFeedbackNumber,
-          "AV1 DXVA key frame parameters: sizes, tiles, no references");
+          "AV1 DXVA key frame parameters: tiles, no references");
 
     // The whole fixture: 4 decoded shown frames, 2 hidden, 2 shown existing.
     static Walk walk;

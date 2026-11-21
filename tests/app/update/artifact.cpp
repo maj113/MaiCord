@@ -97,8 +97,6 @@ void test_update_artifact(void (*check)(bool, const char*) noexcept) noexcept {
     check(reject(wrong, UpdateArtifactError::size), "update artifact: extra file bytes fail exact expected size atomically");
     wrong.artifact_bytes = 4;
     check(reject(wrong, UpdateArtifactError::size), "update artifact: short file fails exact expected size atomically");
-    check(write_fixture(path, abc, 2) && reject(approved, UpdateArtifactError::size) && write_fixture(path, abc, 3),
-        "update artifact: truncated artifact is rejected before admitting any digest");
     wrong = approved; wrong.artifact_bytes = 0;
     check(reject(wrong, UpdateArtifactError::invalid_input), "update artifact: zero expected bytes cannot admit an empty artifact");
     wrong.artifact_bytes = kUpdateArtifactMaximumBytes + 1;

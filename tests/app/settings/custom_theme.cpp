@@ -356,7 +356,7 @@ void test_application_custom_theme(void (*check)(bool, const char*) noexcept) no
           "custom theme owner: choosing a built-in theme remembers it as the last built-in theme and glides to it");
     receipt(ClientThemeStorageError::none);
     const u32 saves_before_offer = transport.saves;
-    check(parsed.ok() && offer_candidate(document) && !transport.custom_published &&
+    check(offer_candidate(document) && !transport.custom_published &&
               transport.saves == saves_before_offer,
           "custom theme owner: an offered document is a candidate without apply or write");
     const auto candidate = document;

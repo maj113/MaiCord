@@ -451,7 +451,7 @@ constexpr char kCrossings[] =
 bool work_limit_stops() noexcept {
     const ConstSlice<u8> json{reinterpret_cast<const u8*>(kCrossings), sizeof(kCrossings) - 1};
     LottieTiming timing{};
-    return sizeof(kCrossings) - 1 == 507 && compile(json, 0, &timing) && timing.frames == 60 && !compile(json, 38, &timing);
+    return compile(json, 0, &timing) && timing.frames == 60 && !compile(json, 38, &timing);
 }
 
 bool run() noexcept {

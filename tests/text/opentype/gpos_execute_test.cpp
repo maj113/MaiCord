@@ -30,9 +30,8 @@ u64 cursive_matches=0,cursive_steps=0,cursive_words=0;bool cursive_lookup[8];
 u64 mark_matches=0,target_steps=0;
 SfntGposAttachment mark_storage[8][32];SfntGposAttachmentLookup mark_lookups[8];bool mark_lookup[8];
 u64 configurations=0,executions=0,float_checks=0,budget_checks=0;u32 failures=0;
-// Known divergent fonts per class (harfbuzz_fixture.py GPOS_DIVERGENCES) and, with MAICORD_FIXTURE_RECORD set, the
-// engine's final placements printed as pin_position lines for the generator's --pins.
-u64 known_divergent[4]{};bool recording=false;u32 corpus_index=0;
+// Known divergent fonts per class (harfbuzz_fixture.py GPOS_DIVERGENCES).
+u64 known_divergent[4]{};
 struct Reader {ConstSlice<u8> data;u32 at=0;
     bool word(u32* v) noexcept {if(data.count-at<4)return false;*v=byte_load_le32(data.data+at);at+=4;return true;}
     bool half(u16* v) noexcept {if(data.count-at<2)return false;*v=static_cast<u16>(data.data[at]|(static_cast<u16>(data.data[at+1])<<8));at+=2;return true;}
@@ -43,8 +42,7 @@ struct Cell {SfntGsubGlyph glyph;u32 poison[3];};
 bool check(ConstSlice<u8> bytes,ConstSlice<SfntPlacement> values,u32 font,u32 config,u32 stage,u32 split) noexcept {
     bool pass=true;for(u32 i=0;i<values.count;++i){u32 bits[3];copy_bytes(bits,&values.data[i],12);
         for(u32 k=0;k<3;++k){const u32 expected=byte_load_le32(bytes.data+i*12+k*4);++float_checks;if(bits[k]!=expected){pass=false;++failures;
-            if(failures<10){print(utf8_literal("mismatch_font="));number(font);print(utf8_literal(" config="));number(config);print(utf8_literal(" stage="));number(stage);print(utf8_literal(" split="));number(split);print(utf8_literal(" glyph="));number(i);print(utf8_literal(" component="));number(k);print(utf8_literal(" actual="));number(bits[k]);print(utf8_literal(" expected="));number(expected);print(utf8_literal("\n"));}
-            if(recording&&stage==1&&!split){print(utf8_literal("pin_position corpus="));number(corpus_index);print(utf8_literal(" font="));number(font);print(utf8_literal(" config="));number(config);print(utf8_literal(" glyph="));number(i);print(utf8_literal(" component="));number(k);print(utf8_literal(" actual="));number(bits[k]);print(utf8_literal("\n"));}}}}
+            if(failures<10){print(utf8_literal("mismatch_font="));number(font);print(utf8_literal(" config="));number(config);print(utf8_literal(" stage="));number(stage);print(utf8_literal(" split="));number(split);print(utf8_literal(" glyph="));number(i);print(utf8_literal(" component="));number(k);print(utf8_literal(" actual="));number(bits[k]);print(utf8_literal(" expected="));number(expected);print(utf8_literal("\n"));}}}}
     return pass;
 }
 bool corpus(ConstSlice<u8> bytes) noexcept {
@@ -156,22 +154,16 @@ bool joiner_units() noexcept {
 #include "gpos_mark_execute_units.inc"
 #include "gpos_cursive_execute_units.inc"
 #include "gpos_ligature_execute_units.inc"
-bool file_corpus(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;LARGE_INTEGER size{};if(!GetFileSizeEx(file,&size) || size.QuadPart<12 || size.QuadPart>0xffffffffll){CloseHandle(file);return false;}
-    HANDLE map=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!map){CloseHandle(file);return false;}const auto* data=static_cast<const u8*>(MapViewOfFile(map,FILE_MAP_READ,0,0,0));const bool ok=data && corpus({data,static_cast<u32>(size.QuadPart)});if(data)UnmapViewOfFile(data);CloseHandle(map);CloseHandle(file);return ok;
-}
 int run() noexcept {
     if(!units() || !guarded_storage()){print(utf8_literal("FAIL position units/guards\n"));return 3;}
     if(!mark_units()){print(utf8_literal("FAIL mark units\n"));return 4;}
     if(!cursive_units()){print(utf8_literal("FAIL cursive units\n"));return 5;}
     if(!ligature_units()){print(utf8_literal("FAIL ligature units\n"));return 6;}
     if(!joiner_units()){print(utf8_literal("FAIL joiner units\n"));return 7;}
-    const wchar_t* command=test_arguments();wchar_t flag[4];recording=GetEnvironmentVariableW(L"MAICORD_FIXTURE_RECORD",flag,4)!=0;
-    bool ok=false;if(!*command){const ConstSlice<u8> corpora[]{{basic_corpus::position_fixture,sizeof(basic_corpus::position_fixture)},
-            {mark_corpus::position_fixture,sizeof(mark_corpus::position_fixture)},{cursive_corpus::position_fixture,sizeof(cursive_corpus::position_fixture)},
-            {ligature_corpus::position_fixture,sizeof(ligature_corpus::position_fixture)}};
-        ok=true;for(const auto& c:corpora){ok=corpus(c)&&ok;++corpus_index;}}
-    else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_corpus(path);}
+    const ConstSlice<u8> corpora[]{{basic_corpus::position_fixture,sizeof(basic_corpus::position_fixture)},
+        {mark_corpus::position_fixture,sizeof(mark_corpus::position_fixture)},{cursive_corpus::position_fixture,sizeof(cursive_corpus::position_fixture)},
+        {ligature_corpus::position_fixture,sizeof(ligature_corpus::position_fixture)}};
+    bool ok=true;for(const auto& c:corpora)ok=corpus(c)&&ok;
     print(utf8_literal("configurations="));number(configurations);print(utf8_literal("\nexecutions="));number(executions);print(utf8_literal("\nfloat_checks="));number(float_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\n"));
     print(utf8_literal("fonts_harfbuzz="));number(known_divergent[0]);print(utf8_literal("\nknown_divergent_mark_coverage="));number(known_divergent[1]);print(utf8_literal("\nknown_divergent_deferred_attachment="));number(known_divergent[2]);print(utf8_literal("\nknown_divergent_seeded_ligature="));number(known_divergent[3]);print(utf8_literal("\n"));
     print(utf8_literal("linear_search_steps="));number(linear_search_steps);print(utf8_literal("\nlinear_mark_matches="));number(linear_mark_matches);print(utf8_literal("\n"));

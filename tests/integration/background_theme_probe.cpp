@@ -501,7 +501,6 @@ bool theme_editor_pixels(BackgroundThemeProbeContext c, Theme theme) noexcept {
     ui_theme_editor_close(&editor);
     if (renderer_theme_editor_visible(r))
         return failure(35);
-    log_u64(LogLevel::info, "probe", "theme_editor_scene_bytes", sizeof(editor));
     log_u64(LogLevel::info, "probe", "theme_editor_widget_committed_bytes", editor.storage.arena.committed);
     log_write(
         LogLevel::info, "probe",

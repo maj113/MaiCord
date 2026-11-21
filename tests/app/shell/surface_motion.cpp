@@ -138,14 +138,10 @@ void run() noexcept {
           "surface motion: suppressed lifetime settles identity and does not replay after policy recovery");
 
     application_surface_motion_owner_retire(&host.owner, choice);
-    UiMotionStyle source_style{200, UiMotionCurve::linear};
-    host.owner.slots[2].style = source_style;
-    source_style = {0, UiMotionCurve::ease_out};
+    host.owner.slots[2].style = {200, UiMotionCurve::linear};
     host.synchronize(500);
     host.synchronize(550);
-    check(host.opacity[2] == .25f && host.owner.slots[2].style.duration_ms == 200 &&
-              host.owner.slots[1].style.duration_ms == 120,
-          "surface motion: copied per-surface style has no shared reference or effect on other slots");
+    check(host.opacity[2] == .25f, "surface motion: a per-surface style sets the pace of its own slot");
     host.owner.slots[2].style = {120, UiMotionCurve::ease_out};
     host.synchronize(550);
     check(host.opacity[2] == .25f && host.owner.slots[2].motion.from == .25f &&

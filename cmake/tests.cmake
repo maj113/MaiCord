@@ -169,13 +169,13 @@ set(maicord_test_rank 99)
 foreach(maicord_long_test
     maicord_stream_encoder_gpu_h264 maicord_stream_encoder_gpu_h265 maicord_stream_encoder_gpu_av1
     maicord_go_live_loopback
-    maicord_profile_media_sequence_ui_probe maicord_plugin_dev maicord_core maicord_native_arabic_run
+    maicord_plugin_dev maicord_core maicord_native_arabic_run
     maicord_native_arabic_plan maicord_resize_text_ui_probe maicord_network_loop
     maicord_voice_setup maicord_media_memory_probe maicord_native_matrix_decorations
     maicord_browser_handoff_exchange maicord_unified_picker_ui_probe maicord_store_ui_probe
     maicord_remote_auth_cancellation maicord_guild_channel_uniqueness maicord_build_output_guard
-    maicord_glyph_color_control_1 maicord_glyph_easing maicord_native_simulated_styles maicord_native_mixed_emoji
-    maicord_glyph_stage_control_2 maicord_glyph_stage maicord_glyph_color_control_2
+    maicord_glyph_easing maicord_native_simulated_styles maicord_native_mixed_emoji
+    maicord_glyph_stage_control_2 maicord_glyph_stage
     maicord_native_directional_semantic_ranges maicord_forum_post_ui_probe maicord_glyph_color
     maicord_plugin_binding maicord_glyph_stage_control_1 maicord_native_directional_editor_cuts
     maicord_update_client maicord_pane_glyph_stress_ui_probe)
@@ -185,8 +185,8 @@ foreach(maicord_long_test
     math(EXPR maicord_test_rank "${maicord_test_rank} - 1")
 endforeach()
 # Keep the complete serialized GPU chain ahead of the CPU matrices,
-# including reference tests and newly registered probes. Independent display,
-# GPU and text-render probes follow the ranked CPU jobs but precede the short
+# including reference tests and newly registered probes. Independent display
+# and GPU probes follow the ranked CPU jobs but precede the short
 # font/process tests; their device/window setup must not form the final tail.
 foreach(maicord_registered_test IN LISTS maicord_registered_tests)
     get_property(maicord_test_locks TEST ${maicord_registered_test} PROPERTY RESOURCE_LOCK)
@@ -194,8 +194,7 @@ foreach(maicord_registered_test IN LISTS maicord_registered_tests)
         set_property(TEST ${maicord_registered_test} PROPERTY COST 60)
     else()
         get_property(maicord_test_labels TEST ${maicord_registered_test} PROPERTY LABELS)
-        if("display" IN_LIST maicord_test_labels OR "gpu" IN_LIST maicord_test_labels OR
-           "native-text-render" IN_LIST maicord_test_labels)
+        if("display" IN_LIST maicord_test_labels OR "gpu" IN_LIST maicord_test_labels)
             get_property(maicord_test_cost TEST ${maicord_registered_test} PROPERTY COST)
             if(NOT maicord_test_cost OR maicord_test_cost LESS 58)
                 set_property(TEST ${maicord_registered_test} PROPERTY COST 58)

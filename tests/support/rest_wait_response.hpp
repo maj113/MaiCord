@@ -1,5 +1,5 @@
 #pragma once
-// Blocking wait for a REST client's published response, for tests and the live probe. The shipping client
+// Blocking wait for a REST client's published response, for tests. The shipping client
 // is pumped from its response event and never blocks on it.
 #include "maicord/app/net/rest_client.hpp"
 #include "maicord/core/win32_kernel.hpp"

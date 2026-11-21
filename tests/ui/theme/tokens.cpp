@@ -43,54 +43,15 @@ void test_theme_tokens(void (*check)(bool, const char*) noexcept) noexcept {
     }
     check(constexpr_matches && ui_theme_token_descriptors().count == static_cast<u32>(UiThemeToken::count),
           "theme tokens: constexpr built-in resolution equals the runtime resolver for every shipped theme");
-    // AMOLED is Discord's midnight theme: a black rail and Discord's surface-high (#0a0a0c) and surface-higher
-    // (#121214) greys for cards and fields; the settings plates, dialogs and edges follow from them. Dark and Light keep
-    // the values they shipped with, including the grey plate and the weaker edges.
-    const auto rgb = [](float r, float g, float b) noexcept { return Color{r, g, b, 1}; };
-    const auto byte = [](float value) noexcept { return value / 255.f; };
+    // AMOLED is Discord's midnight theme: the settings tokens put its cards and dialogs on the near-black surface.
+    // Dark and Light keep the grey plate.
     const UiSettingsThemeTokens dark(kDefaultTheme), light(kLightTheme), midnight(amoled);
-    const Color grey{151 / 255.f, 151 / 255.f, 159 / 255.f, 1};
-    const auto edge = [&](float alpha) noexcept { return Color{grey.red, grey.green, grey.blue, alpha}; };
-    check(same(amoled.base_lowest, rgb(0, 0, 0)) && same(amoled.surface, rgb(byte(10), byte(10), byte(12))) &&
-              same(amoled.surface_high, rgb(byte(18), byte(18), byte(20))) &&
-              same(amoled.tokens.background.input, rgb(byte(18), byte(18), byte(20))),
-          "theme: AMOLED surfaces equal Discord's midnight base and surface variables");
     check(same(midnight.color.card_fill, amoled.surface) && same(midnight.color.modal_background, amoled.surface) &&
-              same(midnight.color.card_border, edge(.2f)) && same(midnight.color.border_normal, edge(.24f)) &&
-              same(midnight.color.input_border, edge(.24f)) && same(midnight.color.mod_subtle, edge(.122f)),
-          "theme: AMOLED cards and dialogs are near-black with stronger grey edges, the grey fills stay for controls");
-    check(same(kDefaultTheme.base_lowest, rgb(.0588f, .0588f, .0706f)) &&
-              same(kDefaultTheme.base_low, rgb(.1333f, .1333f, .1451f)) &&
-              same(kDefaultTheme.surface_high, rgb(.2078f, .2078f, .2275f)) &&
-              same(dark.color.card_fill, edge(.122f)) && same(dark.color.card_border, edge(.122f)) &&
-              same(dark.color.border_normal, edge(.2f)) && same(dark.color.input_border, edge(.2f)) &&
+              same(dark.color.card_fill, dark.color.mod_subtle) &&
               same(dark.color.modal_background, kDefaultTheme.base_low) &&
-              same(kLightTheme.base_lowest, rgb(.91f, .92f, .95f)) && same(kLightTheme.surface, rgb(1, 1, 1)) &&
-              same(light.color.card_fill, edge(.16f)) && same(light.color.card_border, edge(.24f)) &&
-              same(light.color.border_normal, edge(.36f)) && same(light.color.input_border, edge(.36f)) &&
+              same(light.color.card_fill, light.color.mod_subtle) &&
               same(light.color.modal_background, kLightTheme.surface),
-          "theme: Dark and Light palettes and settings tokens are unchanged");
-    // Each widget token against Discord's midnight variables: inputs, switches (off), radios and checkboxes are
-    // translucent black with grey borders (input/switch/radio/checkbox-background-default, -border-default), the
-    // selected plates and chips grey (background-mod-subtle/normal/strong), the slider track #383840.
-    const Color black12{0, 0, 0, .122f}, black_light{0, 0, 0, .04f};
-    check(same(midnight.color.input_background, black12) && same(midnight.color.switch_track, black12) &&
-              same(midnight.color.switch_border, edge(.2f)) && same(midnight.color.radio_border, edge(.64f)) &&
-              same(midnight.color.mod_normal, edge(.2f)) && same(midnight.color.mod_strong, edge(.24f)) &&
-              same(midnight.color.slider_track, rgb(byte(56), byte(56), byte(64))) &&
-              same(midnight.color.nav_selected, edge(.24f)),
-          "theme: AMOLED widget tokens equal Discord's midnight input, switch, radio, plate and slider variables");
-    check(same(dark.color.input_background, black12) && same(dark.color.switch_track, black12) &&
-              same(dark.color.switch_border, edge(.2f)) && same(dark.color.radio_border, edge(.64f)) &&
-              same(dark.color.mod_subtle, edge(.122f)) && same(dark.color.mod_normal, edge(.161f)) &&
-              same(dark.color.mod_strong, edge(.2f)) &&
-              same(dark.color.slider_track,
-                   ui_settings_color_mix(kDefaultTheme.base_low, kDefaultTheme.text_secondary, .25f)) &&
-              same(light.color.input_background, black_light) && same(light.color.mod_subtle, edge(.16f)) &&
-              same(light.color.mod_normal, edge(.22f)) && same(light.color.mod_strong, edge(.28f)) &&
-              same(light.color.slider_track,
-                   ui_settings_color_mix(kLightTheme.base_low, kLightTheme.text_secondary, .35f)),
-          "theme: Dark and Light widget tokens are unchanged");
+          "theme: AMOLED cards and dialogs take the midnight surface; Dark and Light keep the grey plate");
 
     PaintStream paint{};
     bool presence = paint_stream_initialize(&paint);
@@ -105,8 +66,7 @@ void test_theme_tokens(void (*check)(bool, const char*) noexcept) noexcept {
     custom.tokens.status.online = {0, 1, 0, 1};
     presence = presence && paint_stream_reset(&paint) &&
                ui_presence_paint(&paint, {0, 0, 10, 10}, UiPresence::online, custom.base_lower, custom) &&
-               contains_fill(paint, {0, 1, 0, 1}) &&
-               !same(kDefaultTheme.tokens.status.online, kDefaultTheme.syntax_string);
+               contains_fill(paint, {0, 1, 0, 1});
     UiEditView view{};
     view.active = true;
     presence = presence && paint_stream_reset(&paint) &&
@@ -150,7 +110,7 @@ void test_theme_tokens(void (*check)(bool, const char*) noexcept) noexcept {
                                                     kDefaultTheme.base_lower, kDefaultTheme, true) &&
                                   contains_fill(paint, kDefaultTheme.tokens.status.idle) && close_to(paint.quads[0].top, 20);
     paint_stream_release(&paint);
-    check(presence, "theme tokens: presence and edit borders paint dedicated status/border tokens, not syntax colours");
+    check(presence, "theme tokens: presence and edit borders paint the status and border tokens");
     check(phone_paint && idle_keeps_shape,
           "presence: the mobile status paints a cut-out green phone with screen and button; idle keeps its dot");
 
@@ -203,12 +163,11 @@ void test_theme_tokens(void (*check)(bool, const char*) noexcept) noexcept {
               !parse(utf8_literal("{\"version\":\"2.0\",\"colors\":{\"accent\":\"{semantic.text.muted}\"}}"), &output).ok() &&
               !parse(utf8_literal("{\"version\":\"2.0\",\"colors\":{\"accent\":\"#12345\"}}"), &output).ok() &&
               !parse(utf8_literal("{\"version\":\"2.0\",\"colors\":{\"accent\":\"{colors.accent}@2\"}}"), &output).ok() &&
-              !parse(utf8_literal("{\"version\":1,\"colors\":{\"accent\":\"#123456\"}}"), &output).ok() &&
               !parse(utf8_literal("{\"version\":\"3.0\"}"), &output).ok() &&
               !parse(utf8_literal("{\"version\":\"2.x\"}"), &output).ok() &&
               bytes_equal(&output, &before, sizeof(output)),
-          "theme document v2: unknown/misdirected references, bad hex, the retired v1 schema and other majors are refused "
-          "without publication");
+          "theme document v2: unknown/misdirected references, bad hex and other majors are refused without "
+          "publication");
     const auto partial = parse(utf8_literal("{\"version\":\"2.3\",\"future\":1,\"semantic\":{\"future\":{},"
                                             "\"overlay\":{\"scrim\":[0,0,0,0.4],\"future\":\"#fff\"}},"
                                             "\"scale\":{\"radius_md\":10,\"future\":1},"

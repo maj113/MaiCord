@@ -50,8 +50,8 @@ rows are undefined until written: media allocations are cleared with their paddi
 write their gutter.
 Under the Direct3D 11 debug layer every compute write through a surface's UAV reports `NULL_TILE_MAPPING_ACCESS_WARNING`: a
 `Texture2D` UAV spans the whole texture, unbacked bands included, though no shader or copy touches unbacked rows
-(`gpu_paged_texture_backed`). The UI probe's GPU hang reproductions run only on WARP with the debug layer
-(`tests/support/warp_device.hpp`), never on the hardware adapter, and allow that warning alone.
+(`gpu_paged_texture_backed`). The UI probe's WARP runs (`tests/support/warp_device.hpp`) use the debug layer and allow
+that warning alone.
 
 The glyph atlas runs on the clock its idle trim check is given; until that check first observes it, what the first screens
 allocated counts as allocated then. The trim evicts glyphs nothing used within `kRendererGlyphProtectMs` once

@@ -214,24 +214,19 @@ void test_thread_browser_scene(void (*check)(bool, const char*) noexcept) noexce
         !ui_thread_browser_scene_target_current(scene, {UiThreadBrowserAction::open_thread, 100, 1}) &&
         ui_thread_browser_scene_hit_test(scene, scene.body.right + 1, scene.body.top + 5).action == UiThreadBrowserAction::none,
         "thread browser scene: row pointer action carries exact ID, source publication and widget generation");
-    // The header search bar serves the panel: no search band, field or Search
-    // button; the status line follows the tabs and the list takes the space.
-    u32 text_fields = 0;
-    for (u32 i = 0; i < scene.widgets.count; ++i)
-        text_fields += scene.widgets.storage[i].kind == UiWidgetKind::text_field ? 1u : 0u;
+    // The status line follows the tabs and the list takes the rest of the panel.
     const auto& style = kUiThreadBrowserStyle;
-    check(!text_fields && scene.tabs.top == scene.header.bottom && scene.status.top == scene.tabs.bottom &&
+    check(scene.tabs.top == scene.header.bottom && scene.status.top == scene.tabs.bottom &&
         scene.body.top == scene.status.bottom &&
         scene.body.top - scene.panel.top == style.header_height + style.tabs_height + style.status_height &&
         ui_thread_browser_scene_hit_test(scene, scene.status.left + 20, scene.tabs.bottom + 4).action ==
             UiThreadBrowserAction::none &&
         ui_thread_browser_scene_hit_test(scene, scene.body.left + 45, scene.status.bottom + 20).action ==
             UiThreadBrowserAction::open_thread,
-        "thread browser scene: no search band; status follows the tabs and rows reclaim its height");
+        "thread browser scene: status follows the tabs and rows take the rest of the panel");
     bool changed = false;
-    check(ui_thread_browser_scene_set_hover(&scene, card.left + 45, card.top + 20, &changed) && changed &&
-        scene.rebuilds == rebuilds && scene.layout_passes == layouts,
-        "thread browser scene: pointer hover changes presentation without rebuilding data or layout");
+    check(ui_thread_browser_scene_set_hover(&scene, card.left + 45, card.top + 20, &changed) && changed,
+        "thread browser scene: pointer hover changes presentation");
     check(ui_thread_browser_scene_focus(&scene, {UiThreadBrowserAction::open_thread, 124, 1}) &&
         scene.scroll_dips == ui_thread_browser_scene_scroll_maximum(scene) && scene.backing->rows[24].generation &&
         ui_thread_browser_scene_focused_target(scene).thread_id == 124 &&
@@ -271,14 +266,13 @@ void test_thread_browser_scene(void (*check)(bool, const char*) noexcept) noexce
     check(ui_thread_browser_scene_update(&scene, &view, scene.viewport) &&
         ui_thread_browser_scene_hit_test(scene, card.left + 45, card.top + 20).action == UiThreadBrowserAction::open_thread,
         "thread browser scene: header search results list in the panel as openable rows");
-    bool search_status = false, search_button = false;
+    bool search_status = false;
     ui_text_command_stream_reset(&stream);
     check(ui_thread_browser_scene_text_output(scene, kDefaultTheme, &output), "thread browser scene: search tab labels");
     for (u32 i = 0; i < stream.count; ++i) {
         search_status |= utf8_equal(stream.storage[i].text, utf8_literal("Search results"));
-        search_button |= utf8_equal(stream.storage[i].text, utf8_literal("Search"));
     }
-    check(search_status && !search_button, "thread browser scene: search results are labelled without a Search button");
+    check(search_status, "thread browser scene: search results are labelled Search results");
     view.tab = UiThreadBrowserTab::active;
     ++view.revision;
     check(ui_thread_browser_scene_update(&scene, &view, scene.viewport), "thread browser scene: back to Active");

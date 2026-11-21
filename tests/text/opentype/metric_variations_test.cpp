@@ -89,14 +89,7 @@ bool invalid() noexcept {
     if(sfnt_hvar_advance_delta({}, {}, 0, &d)!=SfntStatus::invalid_input || d!=0 || sfnt_hvar_advance_delta({}, {}, 0, nullptr)!=SfntStatus::invalid_input || sfnt_mvar_delta({}, {}, 0, nullptr)!=SfntStatus::invalid_input)return false;malformed+=3;
     return true;
 }
-bool argument(const wchar_t** command,wchar_t* out,u32 capacity) noexcept {auto* p=*command;while(*p==' '||*p=='\t')++p;const bool quoted=*p=='"';if(quoted)++p;u32 n=0;while(*p && !(quoted?*p=='"':*p==' '||*p=='\t')){if(n+1==capacity)return false;out[n++]=*p++;}if(quoted){if(*p!='"')return false;++p;}out[n]=0;*command=p;return n!=0;}
-int file(const wchar_t* path) noexcept {
-    HANDLE handle=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(handle==INVALID_HANDLE_VALUE)return 2;LARGE_INTEGER size{};if(!GetFileSizeEx(handle,&size)||size.QuadPart<=0||size.QuadPart>0xffffffffll){CloseHandle(handle);return 2;}
-    HANDLE mapping=CreateFileMappingW(handle,nullptr,PAGE_READONLY,0,0,nullptr);auto* data=mapping?static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0)):nullptr;SfntFace face{};bool ok=data && sfnt_open({data,static_cast<u32>(size.QuadPart)},0,&face)==SfntStatus::ok;
-    print(utf8_literal("["));for(u32 i=0;i<2 && ok;++i){u32 n=0;const u32 weight=i?600:400;ok=resolve(face,weight,&n);if(!ok)break;if(i)print(utf8_literal(","));print(utf8_literal("{\"weight\":"));number(weight);print(utf8_literal(",\"decorations\":["));for(u32 j=0;j<4;++j){if(j)print(utf8_literal(","));number(decorations[j]);}print(utf8_literal("],\"advances\":["));for(u32 j=0;j<n;++j){if(j)print(utf8_literal(","));number(advances[j]);}print(utf8_literal("]}"));}print(utf8_literal("]\n"));
-    if(data)UnmapViewOfFile(data);if(mapping)CloseHandle(mapping);CloseHandle(handle);return ok?0:1;
-}
-int run() noexcept {const wchar_t* command=GetCommandLineW();wchar_t path[32768];if(!argument(&command,path,32768))return 2;while(*command==' '||*command=='\t')++command;if(*command){if(!argument(&command,path,32768))return 2;while(*command==' '||*command=='\t')++command;if(*command)return 2;return file(path);}
+int run() noexcept {
     const bool ok=corpus() && invalid();print(utf8_literal("fonts="));number(fonts);print(utf8_literal("\ncases="));number(cases);print(utf8_literal("\nadvances="));number(advances_checked);print(utf8_literal("\ndecorations="));number(decorations_checked);print(utf8_literal("\nraw_deltas="));number(raw_checks);print(utf8_literal("\nbudgets="));number(budgets);print(utf8_literal("\nguards="));number(guards);print(utf8_literal("\ninvalid="));number(malformed);print(ok?utf8_literal("\nPASS native metric variations\n"):utf8_literal("\nFAIL native metric variations\n"));return ok?0:1;}
 }}
 MAICORD_TEST_ENTRY(maicord_metric_variations_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}

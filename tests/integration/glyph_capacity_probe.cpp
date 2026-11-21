@@ -45,7 +45,7 @@ bool run() noexcept {
     CHECK(rasterize(&s.control,s.context,shape(2048),bounds,allocation,8,1).ok());
     CHECK(s.control.command_committed==2048&&descriptor(s.control));
     const u32 counts[]{5,128,129,256,257,512,513,1024,1025,2048,5};
-    u8 pixels[2][1024]{};u32 compared=0;test_write_text("{\"kind\":\"glyph_command_growth\",\"owner_bytes\":");test_write_u64(sizeof(GlyphAtlasGpu));test_write_text(",\"capacities\":[");
+    u8 pixels[2][1024]{};u32 compared=0;test_write_text("{\"kind\":\"glyph_command_growth\",\"capacities\":[");
     const auto read_back=[&](u32 side) noexcept {
         s.context->CopyResource(s.staging,side?s.control.texture:s.gpu.texture);D3D11_MAPPED_SUBRESOURCE mapped{};
         if(FAILED(s.context->Map(s.staging,0,D3D11_MAP_READ,0,&mapped)))return false;

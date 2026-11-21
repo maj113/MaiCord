@@ -74,10 +74,6 @@ void test_windows_layout(void (*check)(bool, const char*) noexcept) noexcept {
 
 #if !defined(_WIN32)
 
-constexpr char kLinuxUserAgent[] =
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.168 "
-    "Chrome/152.0.7977.169 Electron/44.10.0 Safari/537.36";
-
 // A built host: the storage its views point into and the properties with the fixed launch IDs.
 struct Built {
     UserClientConfigurationStorage storage;
@@ -133,10 +129,6 @@ void test_exact_object(void (*check)(bool, const char*) noexcept) noexcept {
     check(written.ok() && written.bytes > sizeof(tail) &&
               bytes_equal(output + written.bytes - (sizeof(tail) - 1), tail, sizeof(tail) - 1),
           "the heartbeat session and app state follow launch_signature");
-    check(utf8_equal(ubuntu.properties.browser_user_agent, text(kLinuxUserAgent)) &&
-              utf8_equal(ubuntu.properties.os_arch, utf8_literal("x64")) &&
-              ubuntu.properties.os_sdk_version.bytes == 0 && ubuntu.properties.linux_desktop,
-          "the user agent is the Linux Electron host's and no SDK version is reported");
 }
 
 // The Gateway client keeps its properties in GatewayUserRuntime: what it stores and loads back must still be the Linux

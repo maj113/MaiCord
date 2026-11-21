@@ -1,7 +1,4 @@
-// Native font catalog (MaiCordFontCatalogTests). No argument runs the suite. Manual modes:
-// --handle-stat-check (the default run already includes it) and
-// --handle-stat-fallback-check, which asserts the fallback after a debugger (CDB) forces the
-// handle query to fail and therefore fails without that injection.
+// Native font catalog (MaiCordFontCatalogTests).
 #include "maicord/text/fonts/session.hpp"
 #include "maicord/text/fonts/catalog.hpp"
 #include "../../../src/text/fonts/path_stat.hpp"
@@ -51,16 +48,8 @@ bool entries() noexcept {
     CHECK(native_font_catalog_validate(wrong,*fonts,face).native_error==ERROR_RETRY);
     CHECK(native_font_release(fonts,face));face={};return true;
 }
-bool argument(const wchar_t** command,wchar_t* out,u32 available) noexcept {const wchar_t* p=*command;while(*p==L' '||*p==L'\t')++p;const bool quoted=*p==L'"';if(quoted)++p;u32 n=0;
-    while(*p&&!(quoted?*p==L'"':*p==L' '||*p==L'\t')){if(n+1>=available)return false;out[n++]=*p++;}if(quoted){if(*p!=L'"')return false;++p;}out[n]=0;*command=p;return n!=0;}
 #include "handle_stat_units.inc"
-bool run() noexcept {
-    static wchar_t arg[32768];const wchar_t* command=GetCommandLineW();CHECK(argument(&command,arg,32768));while(*command==L' '||*command==L'\t')++command;
-    if(!*command)return views()&&entries()&&handle_stat_tests::run();
-    CHECK(argument(&command,arg,32768));
-    if(equal(wide(arg),wide(L"--handle-stat-check")))return handle_stat_tests::run();
-    CHECK(equal(wide(arg),wide(L"--handle-stat-fallback-check")));return handle_stat_tests::run(true);
-}
+bool run() noexcept {return views()&&entries()&&handle_stat_tests::run();}
 }}
 MAICORD_TEST_ENTRY(maicord_font_catalog_entry) {
     using namespace maicord;const bool ok=run();print("checks=");number(checks);print(ok?"\nPASS native font catalog\n":"\nFAIL native font catalog\n");::maicord::test_process_exit(ok?0:1);

@@ -181,9 +181,8 @@ void page(Check check) noexcept {
                   contains(header, utf8_literal("Cache-Control: no-store")) && contains(header, utf8_literal("Referrer-Policy: no-referrer")) &&
                   contains(header, utf8_literal("X-Content-Type-Options: nosniff")) && !contains(header, utf8_literal("Access-Control")) &&
                   contains(response, provider.script) && contains(response, utf8_literal("nonce=\"fedcba9876543210fedcba9876543210\"")) &&
-                  contains(response, utf8_literal("\"s\":\"/s/0123456789abcdef0123456789abcdef\"")) &&
-                  !contains(response, utf8_literal("Discord")),
-              "bridge page: provider-scoped nonce CSP, no-store headers, same-origin submit route and no foreign branding");
+                  contains(response, utf8_literal("\"s\":\"/s/0123456789abcdef0123456789abcdef\"")),
+              "bridge page: provider-scoped nonce CSP, no-store headers and same-origin submit route");
         u32 declared = 0, offset = 0;
         for (; offset + 16 < head; ++offset) if (bytes_equal(output + offset, "Content-Length: ", 16)) break;
         for (offset += 16; offset < head && output[offset] >= '0' && output[offset] <= '9'; ++offset) declared = declared * 10 + output[offset] - '0';

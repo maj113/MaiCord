@@ -33,33 +33,4 @@ inline const wchar_t* test_arguments() noexcept {
     return at;
 }
 
-// Reads `arguments` as exactly one, optionally quoted, nonempty path into path[32768].
-inline bool test_path_argument(const wchar_t* at, wchar_t* path) noexcept {
-    u32 count = 0;
-    const bool quoted = *at == '"';
-    if (quoted) {
-        ++at;
-    }
-    while (*at && !(quoted ? *at == '"' : (*at == ' ' || *at == '\t'))) {
-        if (count + 1 >= 32768) {
-            return false;
-        }
-        path[count++] = *at++;
-    }
-    if (quoted) {
-        if (*at != '"') {
-            return false;
-        }
-        ++at;
-    }
-    while (*at == ' ' || *at == '\t') {
-        ++at;
-    }
-    if (*at || !count) {
-        return false;
-    }
-    path[count] = 0;
-    return true;
-}
-
 } // namespace maicord

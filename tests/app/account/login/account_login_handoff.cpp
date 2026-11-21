@@ -235,12 +235,13 @@ void run() noexcept {
             fixture.credential.locked && fixture.credential.bytes && fixture.receipts == 1 && fixture.takes == 1 &&
             !fixture.saves && !module_login_notification_handle(owner),
             "login handoff: join/allocation fault preserves authenticated ownership and exposes explicit profile retry");
+        const u32 launches = launch_signed_in_calls;
         status = module_login_pump(owner);
         check(status.ok() && status.profile_saved && !owner->authenticated_pending && !fixture.credential.data &&
             status.event == UserAuthCoordinatorEventKind::none &&
             fixture.pumps == 1 && fixture.receipts == 1 && fixture.takes == 2 && fixture.saves == 1,
             "login handoff: retry adopts password credential without another auth receipt or submission");
-        check(launch_signed_in_calls != 0, "login handoff: a saved sign-in tells the Gateway the launch signed in");
+        check(launch_signed_in_calls == launches + 1, "login handoff: a saved sign-in tells the Gateway the launch signed in");
         module_login_pump(owner);
         check(fixture.takes == 2 && fixture.saves == 1, "login handoff: saved password profile adoption stays one shot");
         void* instance = owner;

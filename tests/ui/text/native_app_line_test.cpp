@@ -10,8 +10,8 @@
 //   needs external input  --paragraph-expansion <font> <weight> (a font whose letters expand)
 //   debug toggles inside the registered corpora  MAICORD_CJK_SAMPLE, MAICORD_CJK_VARIANT and
 //     MAICORD_DEVANAGARI_SAMPLE (select one sample)
-// Recording the references: tools/font_reference/text_reference.py (MAICORD_TEXT_REFERENCE_RECORD). A manual mode
-// or debug selection without a recorded reference reports so and exits 77.
+// The references in tests/generated/app_line_reference.inc are final. A manual mode or debug selection without a
+// recorded reference reports so and exits 77.
 #include "native_app_line_test.hpp"
 #include "maicord/text/fonts/family.hpp"
 namespace maicord::native_app_line {namespace {

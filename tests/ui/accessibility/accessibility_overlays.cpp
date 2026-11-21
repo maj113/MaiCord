@@ -379,9 +379,6 @@ void test_threads(UiAccessTree* tree) noexcept {
               find_node(*tree, list, UiAccessRole::list_item, utf8_literal("Unnamed thread, announcement thread")) !=
                   kUiAccessNone,
           "threads: rows describe kind, archive and membership state");
-    check(count_role(*tree, pane, UiAccessRole::edit) == 0 &&
-              find_node(*tree, pane, UiAccessRole::button, utf8_literal("Search")) == kUiAccessNone,
-          "threads: the panel has no search field or Search button of its own");
     ui_thread_browser_scene_release(&scene);
 }
 

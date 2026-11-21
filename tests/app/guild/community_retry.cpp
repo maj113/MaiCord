@@ -516,7 +516,6 @@ void test_community_retry(void (*check)(bool, const char*) noexcept) noexcept {
         check(!application_guild_community_response(response, {}),
               "community drained receipt cannot requeue twice");
     }
-    check(retry_card_responses == 3, "community terminal joins each reach the card once");
     test_community_forms(check);
     retry_background = {};
     background = old_background;

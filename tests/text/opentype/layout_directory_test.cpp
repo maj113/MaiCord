@@ -113,52 +113,8 @@ bool guards() noexcept {
     }
     pages_release(mem);return true;
 }
-struct Reader {const u8* data;u32 size,at;
-    bool word(u32* v) noexcept {if(size-at<4)return false;*v=byte_load_le32(data+at);at+=4;return true;}
-    bool take(u32 n,const u8** v) noexcept {if(n>size-at)return false;*v=data+at;at+=n;return true;}
-};
-bool indices(Reader& r,u32 count,ConstSlice<u8> actual,bool* match,u64* checks) noexcept {
-    if(actual.count!=count*2)*match=false;
-    for(u32 i=0;i<count;++i){u32 value=0;if(!r.word(&value))return false;if(i<actual.count/2 && byte_load_be16(actual.data+i*2)!=value)*match=false;++*checks;}return true;
-}
-i16 coordinates[65535];
-bool corpus(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;
-    Win32LargeInteger len{};if(!GetFileSizeEx(file,len.native()) || len.QuadPart<12 || len.QuadPart>0xffffffffll){CloseHandle(file);return false;}
-    HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!mapping){CloseHandle(file);return false;}auto* bytes=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));Reader r{bytes,static_cast<u32>(len.QuadPart),8};u32 total=0,failures=0;u64 script_checks=0,language_checks=0,feature_checks=0,lookup_checks=0,subtable_checks=0,variation_checks=0,index_checks=0;
-    bool ok=bytes && bytes_equal(bytes,"MCLDIR1",8) && r.word(&total) && total;
-    for(u32 record=0;record<total && ok;++record){u32 kind=0,size=0,axes=0,count=0;const u8* raw=nullptr;ok=r.word(&kind)&&r.word(&size)&&r.word(&axes)&&kind<2&&axes<=65535&&r.take(size,&raw)&&r.word(&count)&&count<=65535;if(!ok)break;
-        SfntLayout l{};bool match=sfnt_layout_open({raw,size},static_cast<SfntLayoutKind>(kind),&l)==SfntStatus::ok && l.script_count==count;
-        for(u32 i=0;i<count && ok;++i){u32 expected_tag=0,offset=0,named=0,langs=0,tag=0;SfntScript script{};
-            ok=r.word(&expected_tag)&&r.word(&offset)&&r.word(&named)&&r.word(&langs)&&named<=65535&&langs<=named+1;if(!ok)break;u16 found=0;
-            if(sfnt_layout_script(l,static_cast<u16>(i),&tag,&script)!=SfntStatus::ok || tag!=expected_tag || offset>size || script.table.data!=raw+offset || script.language_count!=named || sfnt_layout_find_script(l,expected_tag,&found)!=SfntStatus::ok || found!=i)match=false;++script_checks;
-            for(u32 j=0;j<langs && ok;++j){u32 index=0,ltag=0,required=0,n=0;ok=r.word(&index)&&r.word(&ltag)&&r.word(&required)&&r.word(&n)&&n<=65535;if(!ok)break;SfntLanguage lang{};
-                if(sfnt_script_language(script,l.feature_count,index,&tag,&lang)!=SfntStatus::ok || tag!=ltag || lang.required_feature!=required)match=false;
-                if(index!=sfnt_default_language && (sfnt_script_find_language(script,ltag,&found)!=SfntStatus::ok || found!=index))match=false;ok=indices(r,n,lang.feature_indices,&match,&index_checks);++language_checks;}}
-        u32 features=0;ok=ok&&r.word(&features)&&features<=65535;if(l.feature_count!=features)match=false;
-        for(u32 i=0;i<features && ok;++i){u32 expected_tag=0,offset=0,params=0,n=0,tag=0;ok=r.word(&expected_tag)&&r.word(&offset)&&r.word(&params)&&r.word(&n)&&n<=65535;if(!ok)break;SfntFeature feature{};
-            if(sfnt_layout_feature(l,static_cast<u16>(i),{},&tag,&feature)!=SfntStatus::ok || tag!=expected_tag || offset>size || feature.table.data!=raw+offset)match=false;
-            ok=indices(r,n,feature.lookup_indices,&match,&index_checks);++feature_checks;}
-        u32 lookups=0;ok=ok&&r.word(&lookups)&&lookups<=65535;if(l.lookup_count!=lookups)match=false;
-        for(u32 i=0;i<lookups && ok;++i){u32 type=0,flags=0,set=0,n=0;ok=r.word(&type)&&r.word(&flags)&&r.word(&set)&&r.word(&n)&&n<=65535;if(!ok)break;SfntLookup lookup{};
-            if(sfnt_layout_lookup(l,static_cast<u16>(i),&lookup)!=SfntStatus::ok || lookup.source_type!=type || lookup.flags!=flags || lookup.mark_set!=set || lookup.subtable_count!=n)match=false;++lookup_checks;
-            for(u32 j=0;j<n && ok;++j){u32 resolved=0,offset=0;ok=r.word(&resolved)&&r.word(&offset);if(!ok)break;ConstSlice<u8> data{};
-                if(sfnt_lookup_subtable(lookup,static_cast<u16>(j),&data)!=SfntStatus::ok || lookup.type!=resolved || offset>size || data.data!=raw+offset)match=false;++subtable_checks;}}
-        u32 probes=0;ok=ok&&r.word(&probes)&&probes<=1000000;
-        for(u32 i=0;i<probes && ok;++i){u32 n=0,expected=0,substitutions=0;ok=r.word(&n)&&n==axes;if(!ok)break;
-            for(u32 a=0;a<n && ok;++a){u32 value=0;ok=r.word(&value)&&static_cast<i32>(value)>=-16384&&static_cast<i32>(value)<=16384;coordinates[a]=static_cast<i16>(value);}
-            ok=ok&&r.word(&expected)&&r.word(&substitutions);SfntFeatureSubstitutions selected{};u32 actual=0;
-            if(sfnt_layout_variation_select(l,{coordinates,n},&selected,&actual)!=SfntStatus::ok || actual!=expected || selected.count!=substitutions)match=false;++variation_checks;
-            for(u32 f=0;f<features && ok;++f){u32 count_indices=0,tag=0;ok=r.word(&count_indices)&&count_indices<=65535;if(!ok)break;SfntFeature feature{};if(sfnt_layout_feature(l,static_cast<u16>(f),selected,&tag,&feature)!=SfntStatus::ok)match=false;ok=indices(r,count_indices,feature.lookup_indices,&match,&index_checks);}}
-        if(!match){++failures;print(utf8_literal("mismatch_record="));number(record);print(utf8_literal("\n"));}
-    }
-    ok=ok && r.at==r.size;print(utf8_literal("records="));number(total);print(utf8_literal("\nscripts="));number(script_checks);print(utf8_literal("\nlanguages="));number(language_checks);print(utf8_literal("\nfeatures="));number(feature_checks);print(utf8_literal("\nlookups="));number(lookup_checks);print(utf8_literal("\nsubtables="));number(subtable_checks);print(utf8_literal("\nvariation_probes="));number(variation_checks);print(utf8_literal("\nindex_checks="));number(index_checks);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\ncomplete="));number(ok);print(utf8_literal("\n"));
-    if(bytes)UnmapViewOfFile(bytes);CloseHandle(mapping);CloseHandle(file);return ok&&!failures;
-}
 int run() noexcept {
     if(!units()){print(utf8_literal("FAIL layout directory units\n"));return 1;}if(!guards()){print(utf8_literal("FAIL layout directory guards\n"));return 2;}
-    const wchar_t* cmd=test_arguments();
-    if(*cmd){wchar_t path[32768];if(!test_path_argument(cmd,path))return 3;if(!corpus(path))return 4;}
     print(utf8_literal("PASS native layout directory\n"));return 0;
 }
 }}

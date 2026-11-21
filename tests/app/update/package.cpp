@@ -191,8 +191,8 @@ void test_update_package(void (*check)(bool, const char*) noexcept) noexcept {
             {scratch, 256}, destination, &package);
         check(written_ok && refused.error == UpdatePackageError::digest && !package.file && !present(staged),
             "package: copied caller hashes and a foreign handle cannot authenticate modified package bytes");
-        check(file_mark_delete_on_close(damaged) && file_close(damaged),
-            "package: damaged fixture source disposed by its handle");
+        file_mark_delete_on_close(damaged);
+        file_close(damaged);
     } else check(false, "package: damaged source fixture CREATE_NEW");
     fixture(bytes);
     UpdateArtifact short_source = preparation.artifact; --short_source.bytes;

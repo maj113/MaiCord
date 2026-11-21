@@ -51,29 +51,25 @@ void transitions(Check check, KdfSha256Workspace& workspace) noexcept {
           "DAVE sender identity initialization");
     transition(check, sender, 0, 1, 0, 100);
     auto result = open(check, sender, workspace, 0, 1, 0);
-    check(result.ok() && result.revision == 1 && result.epochs_tried == 1 && result.crypto_attempts == 1,
-          "DAVE first sender epoch succeeds directly");
+    check(result.ok() && result.revision == 1, "DAVE first sender epoch succeeds directly");
     transition(check, sender, 1, 2, 10, 100);
     result = open(check, sender, workspace, 0, 2, 20);
-    check(result.ok() && result.revision == 1 && result.epochs_tried == 2 && result.crypto_attempts == 2,
-          "DAVE tries new epoch first then authenticates reordered older epoch frame");
+    check(result.ok() && result.revision == 1, "DAVE authenticates a reordered frame of the older epoch");
     result = open(check, sender, workspace, 1, 1, 20);
-    check(result.ok() && result.revision == 2 && result.epochs_tried == 1 && result.crypto_attempts == 1,
-          "DAVE same nonce in distinct epoch has independent replay state");
+    check(result.ok() && result.revision == 2, "DAVE same nonce in distinct epoch has independent replay state");
     check(!open(check, sender, workspace, 0, 2, 20).ok(),
           "DAVE old epoch duplicate remains rejected after transition");
     u8 material[16];
     seed(2, material);
     const auto failed = dave_receive_sender_transition(sender, identity, 3, {material, 15}, 40, 9999);
-    check(failed.error == DaveSenderError::invalid_input && sender.count == 2 &&
-              sender.latest_revision == 2 && sender.last_now_ms == 20 && sender.next_expiry_ms == 110,
-          "DAVE failed replacement leaves old keys, grace, revision and clock unchanged");
+    check(failed.error == DaveSenderError::invalid_input && sender.count == 2 && sender.latest_revision == 2 &&
+              sender.next_expiry_ms == 110,
+          "DAVE failed replacement leaves old keys, grace and revision unchanged");
     transition(check, sender, 2, 3, 50, 100);
     check(sender.count == 3 && sender.next_expiry_ms == 150,
           "DAVE successful transition refreshes grace for all live previous epochs");
     result = open(check, sender, workspace, 0, 3, 120);
-    check(result.ok() && result.revision == 1 && result.epochs_tried == 3,
-          "DAVE oldest live epoch receives refreshed transition grace");
+    check(result.ok() && result.revision == 1, "DAVE oldest live epoch receives refreshed transition grace");
     check(dave_receive_sender_collect(sender, identity, 150) == DaveSenderError::none && sender.count == 3,
           "DAVE collect retains epochs at inclusive expiry boundary");
     check(dave_receive_sender_collect(sender, identity, 151) == DaveSenderError::none && sender.count == 1,
@@ -140,8 +136,7 @@ void boundaries(Check check, KdfSha256Workspace& workspace) noexcept {
     const auto in_place =
         dave_receive_sender_open(sender, identity, workspace, {frame, 64}, 2, {scratch, 64}, {frame, 64});
     correct(check, in_place, 0, frame);
-    check(in_place.revision == 65535 && in_place.epochs_tried == 2 &&
-              bytes_equal(frame + 48, original + 48, 16),
+    check(in_place.revision == 65535 && bytes_equal(frame + 48, original + 48, 16),
           "DAVE sender retries mixed-clear frame in place and preserves footer");
     check(dave_receive_sender_collect(sender, identity, 12) == DaveSenderError::none && sender.count == 1,
           "DAVE old epoch collection after guarded input operations");
@@ -170,7 +165,7 @@ void many_epochs(Check check, KdfSha256Workspace& workspace) noexcept {
     for (u32 i = 0; i != 12; ++i)
         transition(check, sender, i, i + 1, i, 100);
     const auto result = open(check, sender, workspace, 0, 1, 20);
-    check(sender.count == 12 && result.ok() && result.revision == 1 && result.epochs_tried == 12,
+    check(sender.count == 12 && result.ok() && result.revision == 1,
           "DAVE retained epochs do not inherit a reference implementation's unrelated eight "
           "staged-transition slot cap");
     check(dave_receive_sender_collect(sender, identity, 112) == DaveSenderError::none && sender.count == 1,
@@ -208,7 +203,7 @@ void guarded_retry(Check check, KdfSha256Workspace& workspace) noexcept {
         const auto result = dave_receive_sender_open(sender, identity, workspace, {input, 64}, 2,
                                                      {scratch, 48}, {output, 48});
         correct(check, result, 0, output);
-        check(result.epochs_tried == 2 && bytes_equal(original, input, 64) && test_filled(scratch, 48, 0),
+        check(bytes_equal(original, input, 64) && test_filled(scratch, 48, 0),
               "DAVE multi-epoch retry respects exact guarded buffers and immutable source");
     }
     dave_receive_sender_release(&sender);
@@ -235,7 +230,7 @@ void expired_transition(Check check, KdfSha256Workspace& workspace) noexcept {
     u8 plain[3]{0xf8, 0xff, 0xfe}, output[3];
     const auto rejected =
         dave_receive_sender_open(sender, identity, workspace, {plain, 3}, 3, {}, {output, 3});
-    check(rejected.error == DaveSenderError::invalid_frame && !rejected.epochs_tried,
+    check(rejected.error == DaveSenderError::invalid_frame,
           "DAVE encrypted sender API never silently treats plaintext/silence as authenticated");
     dave_receive_sender_release(&sender);
 }

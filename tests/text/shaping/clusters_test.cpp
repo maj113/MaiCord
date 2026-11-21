@@ -121,16 +121,9 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
         }
     }return r.at==r.data.count;
 }
-bool file_corpus(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;Win32LargeInteger size{};if(!GetFileSizeEx(file,size.native()) || size.QuadPart<12 || size.QuadPart>0xffffffffll){CloseHandle(file);return false;}
-    HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!mapping){CloseHandle(file);return false;}
-    const auto* data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));const bool ok=data && corpus({data,static_cast<u32>(size.QuadPart)});if(data)UnmapViewOfFile(data);CloseHandle(mapping);CloseHandle(file);return ok;
-}
 int run() noexcept {
     if(!units()){print(utf8_literal("FAIL cluster units\n"));return 3;}if(!model()){print(utf8_literal("FAIL cluster model\n"));return 4;}if(!guards()){print(utf8_literal("FAIL cluster guards\n"));return 5;}
-    const wchar_t* command=test_arguments();
-    bool ok=false;if(!*command)ok=corpus({cluster_execution_fixture,sizeof(cluster_execution_fixture)});
-    else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_corpus(path);}
+    const bool ok=corpus({cluster_execution_fixture,sizeof(cluster_execution_fixture)});
     print(utf8_literal("model_queries="));number(model_queries);print(utf8_literal("\nmerge_plans="));number(merge_plans);print(utf8_literal("\nexecution_queries="));number(execution_queries);print(utf8_literal("\nglyph_checks="));number(glyph_checks);print(utf8_literal("\ncharacter_cluster_checks="));number(character_checks);print(utf8_literal("\ncluster_start_checks="));number(start_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\n"));
     print(ok && !failures?utf8_literal("PASS native cluster updates\n"):utf8_literal("FAIL native cluster updates\n"));return ok && !failures?0:1;
 }

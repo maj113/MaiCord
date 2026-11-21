@@ -189,9 +189,6 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
             unchanged &= after.values[i] - before.values[i] == (i == 14 ? 64u : 0u);
         }
         log_u64(LogLevel::info, "thread_browser_warm", "scene_committed_bytes", scene->storage.arena.committed);
-        log_u64(LogLevel::info, "thread_browser_warm", "scene_abi_bytes", sizeof(UiThreadBrowserScene));
-        log_u64(LogLevel::info, "thread_browser_warm", "view_abi_bytes", sizeof(UiThreadBrowserView));
-        log_u64(LogLevel::info, "thread_browser_warm", "target_abi_bytes", sizeof(UiThreadBrowserTarget));
         log_u64(LogLevel::info, "thread_browser_warm", "sidebar_source_rows", context.sidebar.source_count);
         log_u64(LogLevel::info, "thread_browser_warm", "sidebar_materialized_rows", context.sidebar.count);
         log_u64(LogLevel::info, "thread_browser_warm", "sidebar_committed_bytes", context.sidebar_rows.rows.arena.committed +

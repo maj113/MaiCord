@@ -106,9 +106,8 @@ bool corpus(ConstSlice<u8> data) noexcept {
 }
 bool run() noexcept {
     CHECK(visibility());CHECK(arena_initialize(&scratch,16*1024*1024,0,4096)&&arena_initialize(&state,1024*1024,0,4096));wchar_t folder[MAX_PATH];
-    CHECK(GetTempPathW(MAX_PATH,folder)&&GetTempFileNameW(folder,L"mcp",0,temporary));const wchar_t* command=GetCommandLineW();CHECK(argument(&command,font_path,32768));
-    if(!argument(&command,font_path,32768))return corpus({emoji_paragraph_fixture,sizeof(emoji_paragraph_fixture)});
-    ConstSlice<u8> data;return load_input(&data)&&corpus(data);
+    CHECK(GetTempPathW(MAX_PATH,folder)&&GetTempFileNameW(folder,L"mcp",0,temporary));
+    return corpus({emoji_paragraph_fixture,sizeof(emoji_paragraph_fixture)});
 }
 }}
 extern "C" void maicord_emoji_paragraph_entry() noexcept {

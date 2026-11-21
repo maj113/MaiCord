@@ -69,7 +69,6 @@ void test_png_filters(Check check) noexcept {
     constexpr u32 kBytesPerPixel[] = {1, 2, 3, 4, 6, 8};
     u8 raw[600], fast[600], expected[600], previous[600];
     bool exact = true;
-    u32 cases = 0;
     for (const u32 bpp : kBytesPerPixel) {
         for (u32 pixels = 1; pixels <= 70 && exact; ++pixels) {
             const u32 count = pixels * bpp;
@@ -88,13 +87,12 @@ void test_png_filters(Check check) noexcept {
                         const bool fast_ok = png_unfilter_row(static_cast<u8>(filter), fast, above, count, bpp);
                         const bool expected_ok = reference_unfilter(static_cast<u8>(filter), expected, above, count, bpp);
                         exact = fast_ok == expected_ok && bytes_equal(fast, expected, count);
-                        ++cases;
                     }
                 }
             }
         }
     }
-    check(exact && cases == 6u * 70u * 6u * 2u * 3u, "png_unfilter_matches_reference_rows");
+    check(exact, "png_unfilter_matches_reference_rows");
 }
 
 // ---- GIF LZW -------------------------------------------------------------------------

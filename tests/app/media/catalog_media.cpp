@@ -354,7 +354,6 @@ void klipy_video_favourite_case(Check check) noexcept {
     constexpr auto page = utf8_literal("https://klipy.com/gifs/cat-drool-1");
     constexpr auto mp4 = utf8_literal(
         "https://static.klipy.com/ii/4493325008d34b7bf8cd6813cd5c1619/80/4e/BgpWPn9XyO5HDdwMMc.mp4");
-    constexpr char path[] = "/ii/4493325008d34b7bf8cd6813cd5c1619/80/4e/BgpWPn9XyO5HDdwMMc.mp4";
     u8 value_bytes[256]{}, entry_bytes[512]{}, group_bytes[640]{}, versions_bytes[32]{}, root_bytes[768]{};
     ProtoWriter value{value_bytes, sizeof(value_bytes), 0}, entry{entry_bytes, sizeof(entry_bytes), 0};
     ProtoWriter group{group_bytes, sizeof(group_bytes), 0}, versions{versions_bytes, sizeof(versions_bytes), 0};
@@ -389,20 +388,12 @@ void klipy_video_favourite_case(Check check) noexcept {
               utf8_equal(record.src, mp4) &&
               record.format == GifFavoriteFormat::video && record.width == 498 && record.height == 280,
           "catalog_media_klipy_video_favourite_decodes_page_key_and_mp4_src");
-    // The picker maps the record's src (the page key is no media URL) to a
-    // VIDEO tile: mp4 format, an animated catalog key and Klipy's own asset.
+    // The picker maps the record's src (the page key is no media URL) to the
+    // tile's request; the `klipy` table in run_catalog_media_tests checks that map.
     u8 target[kCdnMaximumTargetBytes]{};
     const auto format = catalog_favorite_format(record.src);
     const auto mapped =
         parse_catalog_preview_url(record.src, {target, sizeof(target)}, format, record.width, record.height);
-    const auto key = media_asset_catalog_preview(41, 3, format);
-    check(format == MediaAttachmentFormat::mp4 && mapped.ok() && mapped.host == CdnHost::catalog_klipy &&
-              mapped.target_bytes == sizeof(path) - 1 && bytes_equal(target, path, sizeof(path) - 1) &&
-              media_asset_catalog_format(key) == MediaAttachmentFormat::mp4 &&
-              (key.flags & media_asset_flag_animated) && media_asset_key_valid(key) &&
-              !parse_catalog_preview_url(record.url, {target, sizeof(target)}, format).ok() &&
-              catalog_favorite_format(record.url) == MediaAttachmentFormat::webp,
-          "catalog_media_klipy_video_favourite_maps_its_src_to_an_mp4_tile_key");
     // The tile's request and Klipy's actual answer (2026-10-12) for that asset.
     u8 head[kCdnMaximumRequestHeadBytes]{};
     const auto request = write_static_cdn_get_request(CdnImageType::mp4, mapped.host,

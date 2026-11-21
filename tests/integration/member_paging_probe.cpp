@@ -69,14 +69,6 @@ bool member_paging_probe(D3D11Renderer& renderer, UiTextMeasureCache& measure,
         !renderer.navigation_view || !renderer.shell_navigation_scene) return false;
     const auto* pane = ui_scene_node(*renderer.ui_scene, UiSemantic::member_sidebar);
     if (!pane || !ui_rect_has_area(pane->rectangle)) return false;
-    log_u64(LogLevel::info, "member_paging", "member_store_bytes", sizeof(GuildMemberStore));
-    log_u64(LogLevel::info, "member_paging", "member_record_bytes", sizeof(GuildMemberRecord));
-    log_u64(LogLevel::info, "member_paging", "user_record_bytes", sizeof(UserRecord));
-    log_u64(LogLevel::info, "member_paging", "projection_bytes", sizeof(MemberListView));
-    log_u64(LogLevel::info, "member_paging", "projection_row_bytes", sizeof(MemberListRow));
-    log_u64(LogLevel::info, "member_paging", "scene_bytes", sizeof(MemberListScene));
-    log_u64(LogLevel::info, "member_paging", "scene_row_bytes", sizeof(MemberListRowWidget));
-    log_u64(LogLevel::info, "member_paging", "subscription_bytes", sizeof(MemberListSubscriptionRetry));
     MemberListRowWidget rows[64]{};
     UiWidget widgets[257]{};
     UiLayoutNode nodes[257]{};

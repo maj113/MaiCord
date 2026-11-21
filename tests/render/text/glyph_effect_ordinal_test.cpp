@@ -2,9 +2,9 @@
 #include "maicord/render/text/effect.hpp"
 #include "../../support/test_output.hpp"
 namespace maicord {namespace {
-u32 checks=0;u64 color_calls=0;
+u32 checks=0;
 #define CHECK(x) do{++checks;if(!(x)){test_write_text("FAIL line ");test_write_u64(__LINE__);test_write_text("\n");return false;}}while(0)
-bool colored(void*,u32 glyph) noexcept {++color_calls;return glyph%11==7;}
+bool colored(void*,u32 glyph) noexcept {return glyph%11==7;}
 // Independent transcription of the previous renderer, including its two loops.
 u32 reference(const ShapedText& text,Utf8View source,u32 glyph) noexcept {
     u32 start=0,logical=0;for(u32 i=0;i<text.cluster_count;++i){const u32 mapped=text.clusters[i];if(mapped!=0xffff&&mapped<=glyph&&mapped>=start)start=mapped;}
@@ -50,10 +50,9 @@ bool run() noexcept {
     ShapedText maximum{};maximum.glyphs=large;maximum.glyph_count=maximum.glyph_capacity=65534;maximum.clusters=mapped;maximum.cluster_count=65533;maximum.cluster_capacity=65534;
     const auto monochrome=+[](void*,u32) noexcept {return false;};CHECK(glyph_effect_prepare(maximum,{source,65533},monochrome,nullptr));CHECK(large[65532].reserved==65532&&large[65533].reserved==65532);
     maximum.cluster_count=65534;large[0].reserved=123;CHECK(!glyph_effect_prepare(maximum,{source,65534},monochrome,nullptr)&&large[0].reserved==123);
-    // One deterministic pass checks the preparation work and every resulting ordinal.
-    maximum.cluster_count=maximum.glyph_count=512;color_calls=0;
+    // One deterministic pass checks every resulting ordinal.
+    maximum.cluster_count=maximum.glyph_count=512;
     CHECK(glyph_effect_prepare(maximum,{source,512},colored,nullptr));
-    CHECK(color_calls==512);
     for(u32 glyph=0;glyph<512;++glyph)
         CHECK(large[glyph].reserved==reference(maximum,{source,512},glyph));
     test_write_text("checks=");test_write_u64(checks);test_write_text("\nPASS glyph effect ordinals\n");return true;

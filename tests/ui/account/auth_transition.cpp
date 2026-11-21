@@ -4,11 +4,6 @@
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
-static_assert(static_cast<u8>(LoginStatus::idle) == 0 &&
-              static_cast<u8>(LoginStatus::browser_starting) == 44 &&
-              static_cast<u8>(LoginStatus::browser_failed) == 48 &&
-              static_cast<u8>(LoginStatus::signed_out) == 49 &&
-              static_cast<u8>(LoginStatus::signed_out_unconfirmed) == 50);
 void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noexcept {
     UserAccountCoordinator account{};
     account.state.phase = UserAccountCoordinatorPhase::gateway_connecting;

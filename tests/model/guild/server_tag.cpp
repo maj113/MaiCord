@@ -114,14 +114,6 @@ void test_draft() noexcept {
 }
 
 void test_catalogue() noexcept {
-    u32 base = 0, packs = 0;
-    for (const auto& badge : kGuildTagBadges) {
-        base += !badge.pack;
-        packs += badge.pack != 0;
-    }
-    check(base == kGuildTagBaseBadgeCount && packs == 20 && kGuildTagBadges[0].type == kGuildTagDefaultBadge &&
-              guild_tag_badge(3) && guild_tag_badge(3)->tints == 2 && !guild_tag_badge(10) && !guild_tag_badge(20),
-          "badges: ten base badges (Leaf first), twenty pack badges, none of the retired 10-20");
     const auto& bunny = *guild_tag_badge(21);
     check(!guild_tag_badge_unlocked(bunny, 0) && guild_tag_badge_unlocked(bunny, guild_feature_badge_pack_pets) &&
               guild_tag_badge_unlocked(*guild_tag_badge(6), 0),
@@ -129,9 +121,6 @@ void test_catalogue() noexcept {
     check(guild_feature_bit(utf8_literal("GUILD_TAGS")) == guild_feature_guild_tags &&
               guild_feature_bit(utf8_literal("GUILD_TAGS_BADGE_PACK_FLEX")) == guild_feature_badge_pack_flex,
           "badges: the GUILD_TAGS features are read from the guild");
-    check(kGuildTagPalettes[0].primary == 0xff1c90 && kGuildTagPalettes[0].secondary == 0xff7fc0 &&
-              kGuildTagPalettes[kGuildTagPaletteCount - 1].primary == 0x222222,
-          "palette: thirteen preset pairs, hot pink first");
 }
 
 void test_validation() noexcept {

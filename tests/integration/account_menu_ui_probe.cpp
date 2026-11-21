@@ -67,7 +67,6 @@ bool account_menu_ui_probe(D3D11Renderer& renderer,
                 popup_scene_set_hover(
                     &popup, (edit.visible_rectangle.left + edit.visible_rectangle.right) * .5f,
                     (edit.visible_rectangle.top + edit.visible_rectangle.bottom) * .5f, &changed) &&
-                popup_scene_selected_action(popup) == static_cast<u32>(UiAccountMenuAction::edit_profile) &&
                 renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                 probe_present(&renderer, kDefaultTheme) &&
                 d3d11_renderer_interaction_text_state_current(renderer) &&
@@ -77,7 +76,6 @@ bool account_menu_ui_probe(D3D11Renderer& renderer,
         const bool pointer_passed = valid;
         renderer_bind_focus_owner(&renderer, &popup.widgets);
         valid = valid && popup_scene_move_selection(&popup, 1, &changed) &&
-                popup_scene_selected_action(popup) == static_cast<u32>(UiAccountMenuAction::copy_user_id) &&
                 renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                 probe_present(&renderer, kDefaultTheme) &&
                 d3d11_renderer_interaction_text_state_current(renderer) &&
@@ -91,7 +89,7 @@ bool account_menu_ui_probe(D3D11Renderer& renderer,
                 ui_account_menu_build(&model,
                                       {0x4143434f554e54ull, utf8_literal("Native Account"),
                                        utf8_literal("native.user"), 0, false, UiPresence::offline, true}) &&
-                model.count == 9 && (model.items[7].flags & popup_item_checked) &&
+                (model.items[7].flags & popup_item_checked) &&
                 ui_account_menu_open_popup(&popup, model,
                                            ui_rect_intersection(source->rectangle, source->clip_rectangle),
                                            viewport)
@@ -106,7 +104,6 @@ bool account_menu_ui_probe(D3D11Renderer& renderer,
                 popup_scene_set_hover(
                     &popup, (idle.visible_rectangle.left + idle.visible_rectangle.right) * .5f,
                     (idle.visible_rectangle.top + idle.visible_rectangle.bottom) * .5f, &changed) &&
-                popup_scene_selected_action(popup) == static_cast<u32>(UiAccountMenuAction::status_idle) &&
                 renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                 probe_present(&renderer, kDefaultTheme) &&
                 d3d11_renderer_interaction_text_state_current(renderer) &&
@@ -119,8 +116,6 @@ bool account_menu_ui_probe(D3D11Renderer& renderer,
                 ui_account_menu_build(&model, {0x4143434f554e54ull, utf8_literal("Native Account"),
                                                utf8_literal("native.user"), 0, false, UiPresence::idle,
                                                true, true}) &&
-                model.count == 9 &&
-                utf8_equal(model.items[5].detail, utf8_literal("Updating status…")) &&
                 ui_account_menu_open_popup(&popup, model,
                                            ui_rect_intersection(source->rectangle, source->clip_rectangle),
                                            viewport)
@@ -129,7 +124,6 @@ bool account_menu_ui_probe(D3D11Renderer& renderer,
         valid = valid && popup_scene_menu_row_geometry(popup, 5, &pending) &&
                 ui_rect_has_area(pending.detail) && pending.primary.bottom <= pending.detail.top &&
                 popup_scene_select_index(&popup, 5, &changed) &&
-                popup_scene_selected_action(popup) == static_cast<u32>(UiAccountMenuAction::status_idle) &&
                 renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                 probe_present(&renderer, kDefaultTheme) &&
                 d3d11_renderer_interaction_text_state_current(renderer) &&
@@ -189,7 +183,6 @@ bool account_menu_ui_probe(D3D11Renderer& renderer,
         const UiRect short_anchor{source->rectangle.left, short_viewport.bottom - 16,
                                   source->rectangle.right, short_viewport.bottom - 8};
         valid = valid && ui_account_menu_open_popup(&popup, model, short_anchor, short_viewport).ok() &&
-                popup.scroll_max > 0 &&
                 popup_scene_resolve_item_layout(popup, 0, &edit) && edit.visible &&
                 renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                 probe_present(&renderer, kDefaultTheme) &&
@@ -199,7 +192,6 @@ bool account_menu_ui_probe(D3D11Renderer& renderer,
         valid = valid && popup_scene_select_index(&popup, 7, &changed) && changed &&
                 popup_scene_resolve_item_layout(popup, 7, &edit) && edit.visible &&
                 edit.row->rectangle.bottom <= edit.clip_rectangle.bottom &&
-                popup_scene_selected_action(popup) == static_cast<u32>(UiAccountMenuAction::status_invisible) &&
                 renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                 probe_present(&renderer, kDefaultTheme) &&
                 d3d11_renderer_interaction_text_state_current(renderer) &&

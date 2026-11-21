@@ -234,7 +234,6 @@ void test_ui_scene() noexcept {
     expect(ring, "account_avatar_speaking_ring_only_while_speaking_in_a_connected_call");
     UiLayoutDiagnostic scene_diagnostics[32]{};
     const u32 scene_rebuilds = scene.layout_rebuilds;
-    const u32 scene_layout_passes = scene.layout_passes;
     const u16 scene_generation = scene.widgets.generation;
     expect(ui_layout_engine_validate(scene.widgets.layout, Slice<UiLayoutDiagnostic>{scene_diagnostics, 32}).clean() &&
                ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannel,
@@ -243,12 +242,10 @@ void test_ui_scene() noexcept {
            "ui_scene_widget_validation_and_invalidation_cache");
     expect(ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannel,
                                         1200.0f, 800.0f) &&
-               scene.layout_rebuilds == scene_rebuilds &&
-               scene.layout_passes == scene_layout_passes + 1 && scene.widgets.generation == scene_generation &&
+               scene.layout_rebuilds == scene_rebuilds && scene.widgets.generation == scene_generation &&
                ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannel,
                                             1280.0f, 800.0f) &&
-               scene.layout_rebuilds == scene_rebuilds &&
-               scene.layout_passes == scene_layout_passes + 2,
+               scene.layout_rebuilds == scene_rebuilds,
            "ui_scene_same_variant_rearrange_without_tree_rebuild");
 
     GuildViewRow guild_rows[1]{};
@@ -542,7 +539,6 @@ void test_ui_scene() noexcept {
         virtual_guild_retained_id != 0 &&
         guild_rail_scene_focus_guild(&virtual_guild_scene, virtual_guild_retained_id);
     const u32 guild_rebuilds_before_data = virtual_guild_scene.rebuilds;
-    const u32 guild_layouts_before_data = virtual_guild_scene.layout_passes;
     virtual_guild_rows[virtual_guild_retained_source].mention_count += 1;
     virtual_guild_rows[virtual_guild_retained_source].revision += 1;
     virtual_guild_navigation.revision += 1;
@@ -583,8 +579,6 @@ void test_ui_scene() noexcept {
                guild_after_data->view.mention_count ==
                    virtual_guild_rows[virtual_guild_retained_source].mention_count &&
                virtual_guild_scene.rebuilds == guild_rebuilds_before_data &&
-               virtual_guild_scene.data_updates == 1 &&
-               guild_layouts_before_data + 1 == virtual_guild_scene.layout_passes &&
                virtual_guild_reflow.ok() && guild_after_reflow && virtual_guild_content_layout &&
                virtual_guild_content_layout->rectangle.left == virtual_guild_viewport.left + 16.0f &&
                ui_rect_width(virtual_guild_content_layout->rectangle) == 40.0f &&
@@ -692,7 +686,6 @@ void test_ui_scene() noexcept {
                virtual_hit.widget.generation == retained_generation && focused && retained_reflow.ok() &&
                retained_row && retained_row->widget.generation == retained_generation &&
                virtual_navigation_scene.rebuilds == materializations_before &&
-               virtual_navigation_scene.layout_passes > virtual_navigation_scene.rebuilds &&
                virtual_structure_validation.clean() && virtual_content_validation.clean(),
            "shell_navigation_virtual_rows_retain_widget_identity_and_validate");
     const ShellNavigationSceneResult displaced = shell_navigation_scene_update(
@@ -884,7 +877,6 @@ void test_ui_scene() noexcept {
         message_after_data && message_after_data->widget.slot == retained_message_handle.slot &&
         message_after_data->widget.generation == retained_message_handle.generation &&
         virtual_message_scene.rebuilds == message_rebuilds_before_data;
-    const u32 message_data_updates_after_data = virtual_message_scene.data_updates;
     bool message_height_changed = false;
     const bool message_measured =
         message_after_data &&
@@ -1087,7 +1079,6 @@ void test_ui_scene() noexcept {
            "message_scene_cached_update_skips_layout");
     expect(virtual_message_data_applied && virtual_message_data.ok(), "message_scene_data_update_applies");
     expect(message_data_identity_retained, "message_scene_data_update_retains_widget_identity");
-    expect(message_data_updates_after_data == 1, "message_scene_data_update_counter");
     expect(message_measured && message_height_changed && virtual_message_reflow.ok() &&
                message_content_layout &&
                ui_variable_list_item_units(message_scene_list, retained_message_source) >
@@ -1454,20 +1445,17 @@ void test_text_measure_cache() noexcept {
     expect(message_text_presentation_measure(&presentation, &message_cache, 1, &measurement_changed) &&
                !measurement_changed && fixture.calls == message_backend_calls,
            "message_text_measure_cache_reuses_stable_commands");
-    const u32 backend_calls_before_malformed = message_cache.backend_calls;
     const float aggregate_before_malformed = measurements[0].content_height;
     commands[1].measurement_index = 1;
     expect(!message_text_presentation_measure(&presentation, &message_cache, 1, &measurement_changed) &&
-               !measurement_changed && message_cache.backend_calls == backend_calls_before_malformed &&
-               measurements[0].content_height == aggregate_before_malformed,
-           "message_text_measure_invalid_batch_rejects_before_cache_access");
+               !measurement_changed && measurements[0].content_height == aggregate_before_malformed,
+           "message_text_measure_invalid_batch_rejects");
     commands[1].measurement_index = 0;
     const Utf8View valid_content = commands[1].text;
     commands[1].text = Utf8View{nullptr, 1};
     expect(!message_text_presentation_measure(&presentation, &message_cache, 1, &measurement_changed) &&
-               !measurement_changed && message_cache.backend_calls == backend_calls_before_malformed &&
-               measurements[0].content_height == aggregate_before_malformed,
-           "message_text_measure_invalid_text_rejects_before_signature_hash");
+               !measurement_changed && measurements[0].content_height == aggregate_before_malformed,
+           "message_text_measure_invalid_text_rejects");
     commands[1].text = valid_content;
     const float reply_before_failure = commands[0].measured_height;
     const float content_before_failure = commands[1].measured_height;

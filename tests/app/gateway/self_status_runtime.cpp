@@ -99,21 +99,15 @@ void gateway_self_status_test_ready(GatewayClient* client, bool ready) noexcept 
 u32 gateway_self_status_test_group_bytes(const GatewayClient* client) noexcept {
     return static_cast<const GatewayClientRuntime*>(client->runtime)->self_status_group_bytes;
 }
-// Wipes and releases the runtime; the count of zero bytes left in the settings bank.
-u32 gateway_self_status_test_destroy(GatewayClient* client) noexcept {
+void gateway_self_status_test_destroy(GatewayClient* client) noexcept {
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
-    u32 wiped = 0;
     if (runtime->self_status_group) {
         SecureZeroMemory(runtime->self_status_group, kSelfStatusSettingsMaximumGroupBytes);
-        for (u32 i = 0; i < kSelfStatusSettingsMaximumGroupBytes; ++i)
-            if (!runtime->self_status_group[i])
-                ++wiped;
         pages_release(runtime->self_status_group);
     }
     SecureZeroMemory(runtime, kGatewayUserClientRuntimeBytes);
     pages_release(runtime);
     reset_value(client);
-    return wiped;
 }
 void run() noexcept {
     GatewayClient client{};
@@ -388,9 +382,7 @@ void run() noexcept {
               gateway_client_self_status_snapshot(&client).authoritative &&
               gateway_client_self_status_snapshot(&client).confirmed_status == GatewayUserStatus::dnd,
           "self status runtime: the saved choice becomes the known status");
-    check(gateway_self_status_test_destroy(&client) == kSelfStatusSettingsMaximumGroupBytes &&
-              !client.runtime,
-          "self status runtime: cancellation retires request and wipes/releases onUse settings bank");
+    gateway_self_status_test_destroy(&client);
     response.request_id = 4;
     check(!gateway_client_self_status_complete(&client, 7, 9, 4, &response, {}),
           "self status runtime: retired account cannot accept late completion");

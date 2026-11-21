@@ -2,69 +2,75 @@
 #include "support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
+// One list serves the prototypes and the calls, in execution order.
+#define MAICORD_VOICE_TESTS(X) \
+    X(test_aes_gcm) \
+    X(test_aes_gcm64) \
+    X(test_xchacha20_poly1305) \
+    X(test_kdf_sha256) \
+    X(test_secure_random) \
+    X(test_hash_stream) \
+    X(test_voice_packet_crypto) \
+    X(test_voice_protocol_selection) \
+    X(test_voice_udp_media) \
+    X(test_voice_participants) \
+    X(test_voice_media_dispatch) \
+    X(test_dave_replay) \
+    X(test_dave_frame) \
+    X(test_dave_frame_crypto) \
+    X(test_dave_key_derivation) \
+    X(test_mls_exporter) \
+    X(test_mls_key_schedule) \
+    X(test_p256) \
+    X(test_mls_signature) \
+    X(test_hpke_derivation) \
+    X(test_mls_hpke) \
+    X(test_mls_objects) \
+    X(test_mls_join_messages) \
+    X(test_dave_key_package) \
+    X(test_dave_welcome) \
+    X(test_dave_package_policy) \
+    X(test_dave_receive_epoch) \
+    X(test_dave_receive_sender) \
+    X(test_dave_session) \
+    X(test_gateway_voice) \
+    X(test_voice_connection_setup) \
+    X(test_gateway_voice_control) \
+    X(test_account_session_identity) \
+    X(test_voice_gateway) \
+    X(test_voice_heartbeat) \
+    X(test_voice_session) \
+    X(test_tls_stream_lifecycle) \
+    X(test_voice_socket) \
+    X(test_voice_connection) \
+    X(test_voice_media_events) \
+    X(test_voice_udp) \
+    X(test_voice_udp_handoff) \
+    X(test_voice_state_store) \
+    X(test_voice_channel_rows) \
+    X(test_voice_channel_info) \
+    X(test_voice_gateway_policy) \
+    X(test_voice_jitter_buffer) \
+    X(test_voice_playback) \
+    X(test_voice_receive) \
+    X(test_video_rtp_receive) \
+    X(test_voice_video_signaling) \
+    X(test_dave_video_frames) \
+    X(test_voice_video_sink) \
+    X(test_gateway_stream) \
+    X(test_voice_send) \
+    X(test_voice_preferences) \
+    X(test_call_view) \
+    X(test_stream_watch) \
+    X(test_stage_channel) \
+    X(test_go_live_scene) \
+    X(test_go_live_send) \
+    X(test_go_live_thumbnails)
+
 namespace maicord {
-void test_aes_gcm(void (*check)(bool, const char*) noexcept) noexcept;
-void test_aes_gcm64(void (*check)(bool, const char*) noexcept) noexcept;
-void test_xchacha20_poly1305(void (*check)(bool, const char*) noexcept) noexcept;
-void test_kdf_sha256(void (*check)(bool, const char*) noexcept) noexcept;
-void test_secure_random(void (*check)(bool, const char*) noexcept) noexcept;
-void test_hash_stream(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_packet_crypto(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_protocol_selection(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_udp_media(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_participants(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_media_dispatch(void (*check)(bool, const char*) noexcept) noexcept;
-void test_dave_replay(void (*check)(bool, const char*) noexcept) noexcept;
-void test_dave_frame(void (*check)(bool, const char*) noexcept) noexcept;
-void test_dave_frame_crypto(void (*check)(bool, const char*) noexcept) noexcept;
-void test_dave_key_derivation(void (*check)(bool, const char*) noexcept) noexcept;
-void test_mls_exporter(void (*check)(bool, const char*) noexcept) noexcept;
-void test_mls_key_schedule(void (*check)(bool, const char*) noexcept) noexcept;
-void test_p256(void (*check)(bool, const char*) noexcept) noexcept;
-void test_mls_signature(void (*check)(bool, const char*) noexcept) noexcept;
-void test_hpke_derivation(void (*check)(bool, const char*) noexcept) noexcept;
-void test_mls_hpke(void (*check)(bool, const char*) noexcept) noexcept;
-void test_mls_objects(void (*check)(bool, const char*) noexcept) noexcept;
-void test_mls_join_messages(void (*check)(bool, const char*) noexcept) noexcept;
-void test_dave_key_package(void (*check)(bool, const char*) noexcept) noexcept;
-void test_dave_welcome(void (*check)(bool, const char*) noexcept) noexcept;
-void test_dave_package_policy(void (*check)(bool, const char*) noexcept) noexcept;
-void test_dave_receive_epoch(void (*check)(bool, const char*) noexcept) noexcept;
-void test_dave_receive_sender(void (*check)(bool, const char*) noexcept) noexcept;
-void test_dave_session(void (*check)(bool, const char*) noexcept) noexcept;
-void test_gateway_voice(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_connection_setup(void (*check)(bool, const char*) noexcept) noexcept;
-void test_gateway_voice_control(void (*check)(bool, const char*) noexcept) noexcept;
-void test_account_session_identity(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_gateway(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_heartbeat(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_session(void (*check)(bool, const char*) noexcept) noexcept;
-void test_tls_stream_lifecycle(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_socket(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_connection(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_media_events(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_udp(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_udp_handoff(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_state_store(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_channel_rows(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_channel_info(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_gateway_policy(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_jitter_buffer(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_playback(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_receive(void (*check)(bool, const char*) noexcept) noexcept;
-void test_video_rtp_receive(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_video_signaling(void (*check)(bool, const char*) noexcept) noexcept;
-void test_dave_video_frames(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_video_sink(void (*check)(bool, const char*) noexcept) noexcept;
-void test_gateway_stream(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_send(void (*check)(bool, const char*) noexcept) noexcept;
-void test_voice_preferences(void (*check)(bool, const char*) noexcept) noexcept;
-void test_call_view(void (*check)(bool, const char*) noexcept) noexcept;
-void test_stream_watch(void (*check)(bool, const char*) noexcept) noexcept;
-void test_stage_channel(void (*check)(bool, const char*) noexcept) noexcept;
-void test_go_live_scene(void (*check)(bool, const char*) noexcept) noexcept;
-void test_go_live_send(void (*check)(bool, const char*) noexcept) noexcept;
-void test_go_live_thumbnails(void (*check)(bool, const char*) noexcept) noexcept;
+#define MAICORD_DECLARE_VOICE_TEST(name) void name(void (*check)(bool, const char*) noexcept) noexcept;
+MAICORD_VOICE_TESTS(MAICORD_DECLARE_VOICE_TEST)
+#undef MAICORD_DECLARE_VOICE_TEST
 namespace {
 u32 failures;
 void check(bool value, const char* message) noexcept {
@@ -74,67 +80,8 @@ void check(bool value, const char* message) noexcept {
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_voice_tests_entry() noexcept {
-    maicord::test_aes_gcm(maicord::check);
-    maicord::test_aes_gcm64(maicord::check);
-    maicord::test_xchacha20_poly1305(maicord::check);
-    maicord::test_kdf_sha256(maicord::check);
-    maicord::test_secure_random(maicord::check);
-    maicord::test_hash_stream(maicord::check);
-    maicord::test_voice_packet_crypto(maicord::check);
-    maicord::test_voice_protocol_selection(maicord::check);
-    maicord::test_voice_udp_media(maicord::check);
-    maicord::test_voice_participants(maicord::check);
-    maicord::test_voice_media_dispatch(maicord::check);
-    maicord::test_dave_replay(maicord::check);
-    maicord::test_dave_frame(maicord::check);
-    maicord::test_dave_frame_crypto(maicord::check);
-    maicord::test_dave_key_derivation(maicord::check);
-    maicord::test_mls_exporter(maicord::check);
-    maicord::test_mls_key_schedule(maicord::check);
-    maicord::test_p256(maicord::check);
-    maicord::test_mls_signature(maicord::check);
-    maicord::test_hpke_derivation(maicord::check);
-    maicord::test_mls_hpke(maicord::check);
-    maicord::test_mls_objects(maicord::check);
-    maicord::test_mls_join_messages(maicord::check);
-    maicord::test_dave_key_package(maicord::check);
-    maicord::test_dave_welcome(maicord::check);
-    maicord::test_dave_package_policy(maicord::check);
-    maicord::test_dave_receive_epoch(maicord::check);
-    maicord::test_dave_receive_sender(maicord::check);
-    maicord::test_dave_session(maicord::check);
-    maicord::test_gateway_voice(maicord::check);
-    maicord::test_voice_connection_setup(maicord::check);
-    maicord::test_gateway_voice_control(maicord::check);
-    maicord::test_account_session_identity(maicord::check);
-    maicord::test_voice_gateway(maicord::check);
-    maicord::test_voice_heartbeat(maicord::check);
-    maicord::test_voice_session(maicord::check);
-    maicord::test_tls_stream_lifecycle(maicord::check);
-    maicord::test_voice_socket(maicord::check);
-    maicord::test_voice_connection(maicord::check);
-    maicord::test_voice_media_events(maicord::check);
-    maicord::test_voice_udp(maicord::check);
-    maicord::test_voice_udp_handoff(maicord::check);
-    maicord::test_voice_state_store(maicord::check);
-    maicord::test_voice_channel_rows(maicord::check);
-    maicord::test_voice_channel_info(maicord::check);
-    maicord::test_voice_gateway_policy(maicord::check);
-    maicord::test_voice_jitter_buffer(maicord::check);
-    maicord::test_voice_playback(maicord::check);
-    maicord::test_voice_receive(maicord::check);
-    maicord::test_video_rtp_receive(maicord::check);
-    maicord::test_voice_video_signaling(maicord::check);
-    maicord::test_dave_video_frames(maicord::check);
-    maicord::test_voice_video_sink(maicord::check);
-    maicord::test_gateway_stream(maicord::check);
-    maicord::test_voice_send(maicord::check);
-    maicord::test_voice_preferences(maicord::check);
-    maicord::test_call_view(maicord::check);
-    maicord::test_stream_watch(maicord::check);
-    maicord::test_stage_channel(maicord::check);
-    maicord::test_go_live_scene(maicord::check);
-    maicord::test_go_live_send(maicord::check);
-    maicord::test_go_live_thumbnails(maicord::check);
+#define MAICORD_RUN_VOICE_TEST(name) maicord::name(maicord::check);
+    MAICORD_VOICE_TESTS(MAICORD_RUN_VOICE_TEST)
+#undef MAICORD_RUN_VOICE_TEST
     ExitProcess(maicord::failures ? 1 : 0);
 }

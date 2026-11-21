@@ -20,7 +20,6 @@ bool gpos_backtrack_dispatch_units() noexcept {
         SfntLayout layout{};SfntGposProgram program{};
         if(sfnt_layout_open({bytes,sizeof(bytes)},SfntLayoutKind::positioning,&layout)!=SfntStatus::ok||
            sfnt_gpos_program_prepare(layout,{},12,storage,&program)!=SfntStatus::ok)return false;
-        const bool certified=mode==0||mode==4||mode==6;if(((lookups[0].bounds.ready&4)!=0)!=certified)return false;
         for(u16 key=0;key<11;++key)for(u32 gap=0;gap<3;++gap)for(u32 rtl=0;rtl<2;++rtl){
             SfntGsubGlyph input_glyphs[3]{{key,SfntGlyphClass::base,0},{8,SfntGlyphClass::mark,0},{9,SfntGlyphClass::base,0}};
             u32 n=gap==0?1:gap==1?2:3;input_glyphs[n-1]={9,SfntGlyphClass::base,0};

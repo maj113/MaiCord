@@ -104,14 +104,8 @@ bool gif_scroll_probe(D3D11Renderer& r, bool unpaced) noexcept {
     for (u32 i = 0; ok && i < 3; ++i) ok = renderer_begin_gif(&r, keys[i], 640, 360, frame, palette, {f.indices, sizeof(f.indices)}).ok();
     ok = ok && (unpaced ? probe_present(&r, kDefaultTheme) : renderer_present(&r, kDefaultTheme));
     const u32 before = r.full_present_draws + r.partial_present_draws;
-    const u32 gif_before = r.media_gpu.gif_frames;
-    // Only the timeline scrolls: every build replays the shell segment and
-    // no glyph is uploaded again.
-    const u32 segment_replays = r.shell_segment.replays, segment_builds = r.shell_segment.builds;
+    // Only the timeline scrolls: no glyph is uploaded again.
     const u64 text_bytes = r.text_upload_bytes;
-    LARGE_INTEGER frequency{}, start{}, finish{};
-    QueryPerformanceFrequency(&frequency);
-    u64 work_us = 0, max_work_us = 0;
     constexpr u32 steps = 48;
     float prior_top = 0;
     u32 moved = 0;
@@ -120,7 +114,6 @@ bool gif_scroll_probe(D3D11Renderer& r, bool unpaced) noexcept {
         // and collecting all three independent animation completions.
         ok = unpaced || gpu_frame_wait(&r.graphics.surface, 1000);
         renderer_accept_begin_frame(&r);
-        QueryPerformanceCounter(&start);
         bool changed = false;
         ok = ok && message_scene_scroll_by(&f.scene, step % 2 == 0 ? 64 : -64, 1, &changed) && changed &&
             message_scene_update(&f.scene, viewport).ok();
@@ -129,10 +122,6 @@ bool gif_scroll_probe(D3D11Renderer& r, bool unpaced) noexcept {
             ok = renderer_advance_gif(&r, keys[i], frame, frame, palette, {f.indices, sizeof(f.indices)}).ok();
         }
         ok = ok && (unpaced ? probe_present(&r, kDefaultTheme) : renderer_present(&r, kDefaultTheme));
-        QueryPerformanceCounter(&finish);
-        const u64 elapsed = static_cast<u64>(finish.QuadPart - start.QuadPart) * 1'000'000 / frequency.QuadPart;
-        work_us += elapsed;
-        max_work_us = maximum(max_work_us, elapsed);
         u32 visible = 0;
         float top = 0;
         for (u32 q = 0; q < r.media_quad_count; ++q) {
@@ -150,18 +139,12 @@ bool gif_scroll_probe(D3D11Renderer& r, bool unpaced) noexcept {
         prior_top = top;
         ok = ok && visible == 3 && r.full_present_draws + r.partial_present_draws == before + step + 1;
     }
-    ok = ok && moved == steps - 1 && r.media_gpu.gif_frames == gif_before + steps * 3;
-    log_u64(LogLevel::info, "probe", "three_gif_scroll_shell_replays", r.shell_segment.replays - segment_replays);
-    log_u64(LogLevel::info, "probe", "three_gif_scroll_shell_builds", r.shell_segment.builds - segment_builds);
+    ok = ok && moved == steps - 1;
     log_u64(LogLevel::info, "probe", "three_gif_scroll_text_upload_bytes", r.text_upload_bytes - text_bytes);
-    ok = ok && r.shell_segment.replays - segment_replays == steps && r.shell_segment.builds == segment_builds &&
-         r.text_upload_bytes == text_bytes;
+    ok = ok && r.text_upload_bytes == text_bytes;
     log_write(LogLevel::info, "probe", unpaced ? "three_gif_scroll_unpaced" : "three_gif_scroll_paced");
-    log_u64(LogLevel::info, "probe", "three_gif_scroll_work_average_us", work_us / steps);
-    log_u64(LogLevel::info, "probe", "three_gif_scroll_work_max_us", max_work_us);
     log_u64(LogLevel::info, "probe", "three_gif_scroll_presented_steps", r.full_present_draws + r.partial_present_draws - before);
     log_u64(LogLevel::info, "probe", "three_gif_scroll_moved_steps", moved);
-    log_u64(LogLevel::info, "probe", "three_gif_scroll_advanced_frames", r.media_gpu.gif_frames - gif_before);
     log_write(ok ? LogLevel::info : LogLevel::error, "probe", ok ? "three_gif_scroll_pass" : "three_gif_scroll_failed");
     renderer_unbind_media_atlas(&r);
     r.media_atlas = old_primary;

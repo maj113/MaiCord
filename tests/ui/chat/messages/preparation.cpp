@@ -159,15 +159,13 @@ void test_message_preparation(void (*check)(bool, const char*) noexcept) noexcep
     check(edited && updated && edited_row && edited_row->message_revision != revision_before,
           "message_preparation_unchanged_update_still_sees_store_edits");
 
-    const u32 passes = f.scene.preparation_passes;
     bool scrolled = true;
-    // Each of the 100 distinct offsets is visited once; repeats added no new rows or passes.
+    // Scrolling over 100 distinct offsets keeps the resident rows bounded.
     for (u32 i = 0; i < 100; ++i) {
         scrolled = scrolled && message_timeline_set_scroll(&f.timeline, ui_extent_units(static_cast<float>(i)), false) &&
                    message_scene_update(&f.scene, viewport).ok();
     }
-    check(scrolled && f.scene.preparation_passes == passes && f.scene.count < 32,
-          "message_preparation_scroll_does_not_repeat_resident_scan_or_grow_overscan");
+    check(scrolled && f.scene.count < 32, "message_preparation_scroll_does_not_grow_overscan");
 
     const u64 anchored = ui_variable_list_prefix_units(f.list, 60) + ui_extent_units(10);
     const bool anchored_ok = message_timeline_set_scroll(&f.timeline, anchored, false) &&

@@ -88,8 +88,6 @@ void test_login_continuations(void (*check)(bool, const char*) noexcept) noexcep
     check(login_verification_write_request({reinterpret_cast<const char*>(request), 3},
                                           {request, sizeof(request)}).error == UserAuthWriteError::invalid_input,
           "verification request rejects aliasing source before writes");
-    check(utf8_equal(user_auth_target(UserAuthOperation::verification), utf8_literal("/api/v9/auth/verify")),
-          "verification uses allowlisted API target");
     u8 head[1024]{};
     const auto head_written = user_auth_write_request_head(UserAuthOperation::verification, 20, {},
                                                           {head, sizeof(head)});

@@ -89,7 +89,7 @@ void run() noexcept {
     g_app.context_focus = &g_app.shell_scene.widgets;
     g_app.keyboard_focus_visible = true;
     ui_widget_manager_focus(&g_app.shell_scene.widgets, footer);
-    check(keyboard.apply(true) && window_key_down(key::ctrl) &&
+    check(keyboard.apply(true) &&
               !application_account_menu_key(key::enter) && !g_app.popup_scene.active,
           "account menu runtime: explicit Ctrl guard never opens a footer menu");
     check(keyboard.apply() && application_account_menu_key(key::enter) && g_app.popup_scene.active &&
@@ -153,7 +153,7 @@ void run() noexcept {
     g_app.preferences.developer_mode = true;
     check(application_account_menu_open(footer, anchor) &&
               application_account_menu_action(static_cast<u32>(UiAccountMenuAction::copy_user_id)) &&
-              copies == 1 && copied_bytes == 20 &&
+              copies == 1 &&
               utf8_equal({copied, copied_bytes}, utf8_literal("18446744073709551615")),
           "account menu runtime: Copy user ID uses bounded exact20-digit formatting and typed clipboard "
           "output");

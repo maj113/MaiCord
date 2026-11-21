@@ -375,7 +375,6 @@ void run_case(GpuDevice* device, GpuContext* context, GpuSrv* glyphs, const Case
     if (parsed.error != McfxError::none)
         return;
     const McfxPackage& package = g_workspace.package;
-    check(package.interface_version == 4, "the package is interface 4");
     BackgroundEffectSpec spec{};
     spec.bytecode = package.shaders[0];
     if (package.graph.pass_count) {

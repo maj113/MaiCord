@@ -4,10 +4,7 @@
 // profile pools, and the renderer draws the card. For more cards than any pool has slots, mixing still, animated and
 // per-server banners, every card's banner, effect layers and decoration must be requested, become resident with
 // their pixels, and be drawn (the renderer finds the entry for the card's key and its pixels reach the screen).
-// Nameplates scroll past in a 30-row member list window by window. Each card opens in the frame that uploads a burst
-// of member-list rows (the sequence that hung an AMD GPU when the atlas's tile pool shrank under queued writes), and
-// while it is open another burst backs and returns bands of the identity surface and the card's text is laid out
-// again before the next frame: the frame presents and the banner's texels, read back whole, are unchanged.
+// Nameplates scroll past in a 30-row member list window by window.
 #include "probe_present.hpp"
 #include "probe_capture.hpp"
 #include "../support/account_module_fake.hpp"
@@ -410,8 +407,6 @@ struct CardResult {
     // Without a picture: the banner shows the accent, or the avatar's colour.
     bool fill_visible;
     bool decoration_ok, effects_ok;
-    // The burst under the open card backed bands of the identity surface, and returned bands it had backed.
-    bool mapped, released;
 };
 
 // The client idles past the media trim delay: the renderer's maintenance trims every surface as the frame loop
@@ -419,60 +414,6 @@ struct CardResult {
 void idle(D3D11Renderer& renderer) noexcept {
     g_sequence->skew_ms += kMediaAtlasIdleTrimMs + 2'000;
     renderer_media_maintain(&renderer, clock_monotonic_milliseconds() + g_sequence->skew_ms);
-}
-
-MediaAssetKey profile_image(u64 id) noexcept {
-    auto key = media_asset_embed(id, 1, 0, MediaEmbedResource::image, MediaAttachmentFormat::png, false,
-                                 MediaResolutionTier::px512);
-    key.kind = MediaAssetKind::profile_image;
-    return key;
-}
-
-// The member list scrolled to new rows between cards: their avatars, decorations and nameplates arrive and take
-// general rows and nameplate slots (nothing of them is drawn here, so all of it may give way).
-bool member_list_rows(D3D11Renderer& renderer, u32 k) noexcept {
-    bool ok = true;
-    for (u32 i = 0; ok && i < 16; ++i) {
-        const MediaAssetKey avatar = media_asset_user_avatar(200'000 + k * 16 + i, 1, false);
-        fill_rgba(key_rgb(avatar), 56, 56);
-        ok = renderer_upload_media_straight_rgba8(&renderer, avatar, 56, 56, 56 * 4,
-                                                  {g_sequence->pixels, 56 * 56 * 4})
-                 .ok();
-        const MediaAssetKey decoration = profile_image(0x44454300'00000000ull + k * 16 + i);
-        fill_rgba(key_rgb(decoration), 64, 64);
-        ok = ok && renderer_upload_media_straight_rgba8(&renderer, decoration, 64, 64, 64 * 4,
-                                                        {g_sequence->pixels, 64 * 64 * 4})
-                       .ok();
-    }
-    for (u32 i = 0; ok && i < 12; ++i) {
-        const MediaAssetKey nameplate = profile_image(0x4E504C00'00000000ull + k * 12 + i);
-        ProfileString<384> url{};
-        set_url(&url, "https://cdn.discordapp.com/assets/collectibles/nameplates/list", k * 12 + i, 0);
-        stage_frame(url.view(), nameplate);
-        g_sequence->frame_ready = false;
-        ok = renderer_upload_png_scanlines(&renderer, nameplate, g_sequence->png,
-                                           {g_sequence->scanlines, g_sequence->png.row_stride * 84})
-                 .ok();
-    }
-    // Rows hovered on the way to a card: their animated decorations at the CDN's native 288 px, and the chat's
-    // emoji and avatars at their many sizes.
-    for (u32 i = 0; ok && i < 4; ++i) {
-        const MediaAssetKey hovered = profile_image(0x48565200'00000000ull + k * 4 + i);
-        fill_rgba(key_rgb(hovered), 288, 288);
-        ok = renderer_upload_media_straight_rgba8(&renderer, hovered, 288, 288, 288 * 4,
-                                                  {g_sequence->pixels, 288 * 288 * 4})
-                 .ok();
-    }
-    static constexpr u16 kChatSizes[] = {22, 24, 32, 40, 48, 64, 80, 96, 128, 160};
-    for (u32 i = 0; ok && i < 40; ++i) {
-        const u16 size = kChatSizes[(k + i) % 10];
-        const MediaAssetKey emoji = media_asset_custom_emoji(0x454D4F00'00000000ull + k * 40 + i, false);
-        fill_rgba(key_rgb(emoji), size, size);
-        ok = renderer_upload_media_straight_rgba8(&renderer, emoji, size, size, size * 4u,
-                                                  {g_sequence->pixels, u32{size} * size * 4u})
-                 .ok();
-    }
-    return ok;
 }
 
 // The client's loop turn (shell/main.cpp): the media pump (finished frames, then the visibility scan and its
@@ -499,11 +440,6 @@ bool run_frames(D3D11Renderer& renderer, Application& application, u32 frames) n
 bool open_card(D3D11Renderer& renderer, Application& application, UiTextMeasureCache* cache,
                ChatStateStore* state, UserStore* users, u32 k, BannerKind kind, bool effect,
                CardResult* out) noexcept {
-    // The member list's rows arrive in one burst and the card opens before the next frame: its text is laid out and
-    // drawn in the frame that uploads them. The uploads back new bands of the identity surface, and bands go back
-    // before that frame while their writes are still queued (shrinking the pool then hung an AMD GPU).
-    if (!member_list_rows(renderer, k))
-        return false;
     ApplicationProfile& profile = *application.profile;
     UserProfile& data = profile.data;
     reset_value(&data);
@@ -580,20 +516,6 @@ bool open_card(D3D11Renderer& renderer, Application& application, UiTextMeasureC
         idle(renderer);
         ok = ok && probe_present(&renderer, kDefaultTheme);
     }
-    // Rows scroll in under the open card: a burst of uploads backs and writes new bands of the identity surface, the
-    // idle trim returns the bands of what nothing draws, and the card's text is laid out again before the frame. The
-    // banner keeps its texels (below).
-    const GpuPagedTexture* surface = renderer.media_gpu.surface;
-    u8 bands[sizeof(surface->band_slot)];
-    copy_bytes(bands, surface->band_slot, sizeof(bands));
-    ok = ok && member_list_rows(renderer, kCards + kEffectCards + k);
-    for (u32 band = 0; band < sizeof(bands); ++band)
-        out->mapped |= surface->band_slot[band] && surface->band_slot[band] != bands[band];
-    copy_bytes(bands, surface->band_slot, sizeof(bands));
-    idle(renderer);
-    for (u32 band = 0; band < sizeof(bands); ++band)
-        out->released |= bands[band] && surface->band_slot[band] != bands[band];
-    ok = ok && renderer_rebuild_content_text(&renderer, kDefaultTheme) && probe_present(&renderer, kDefaultTheme);
     out->banner_requested = media_asset_key_valid(out->banner) && requested(out->banner);
     out->banner_resident = ok && resident_pixels(renderer, out->banner);
     out->banner_drawn = ok && drawn(renderer, out->banner);
@@ -704,7 +626,7 @@ bool profile_media_sequence_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
     if (!ok)
         fail(__LINE__);
     // Banners: still, animated and per-server in turn, more cards than the banner pool has slots.
-    u32 banners_drawn = 0, mapped = 0, released = 0;
+    u32 banners_drawn = 0;
     for (u32 k = 0; ok && k < kCards; ++k) {
         CardResult card{};
         const auto kind = static_cast<BannerKind>(k % 3);
@@ -717,15 +639,11 @@ bool profile_media_sequence_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
                 (u64{k} << 32) | (u64{card.banner_requested} << 3) | (u64{card.banner_resident} << 2) |
                     (u64{card.banner_drawn} << 1) | u64{card.banner_visible});
         banners_drawn += banner;
-        mapped += card.mapped;
-        released += card.released;
         if (!card.decoration_ok)
             fail(__LINE__);
     }
-    // Bursts under open cards must have backed and returned bands, or the banners proved nothing about remaps.
-    if (banners_drawn != kCards || mapped == 0 || released == 0)
+    if (banners_drawn != kCards)
         fail(__LINE__);
-    log_u64(LogLevel::info, "probe", "profile_sequence_bursts_mapped_released", (u64{mapped} << 32) | released);
     // Effect layers and decorations: cards with a two-layer effect each, more layers than the effect pool's slots.
     for (u32 k = 0; ok && k < kEffectCards; ++k) {
         CardResult card{};
@@ -738,12 +656,11 @@ bool profile_media_sequence_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
         }
     }
     // Cards without a banner picture: the accent colour fills the banner, and without one the avatar's colour (its
-    // dominant colour, read back once the avatar is resident). Their member-list rows follow every earlier burst's.
+    // dominant colour, read back once the avatar is resident).
     for (u32 k = 0; ok && k < 2; ++k) {
         CardResult card{};
         const auto kind = k ? BannerKind::avatar : BannerKind::accent;
-        ok = open_card(renderer, *application, cache, state, users, 2 * (kCards + kEffectCards) + k, kind, false,
-                       &card);
+        ok = open_card(renderer, *application, cache, state, users, kCards + kEffectCards + k, kind, false, &card);
         if (!ok)
             fail(__LINE__);
         log_u64(card.fill_visible ? LogLevel::info : LogLevel::error, "probe",

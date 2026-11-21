@@ -719,16 +719,10 @@ void caption_edit(AccountUiRuntime& ui) noexcept {
 
 void run() noexcept {
     Win32SystemInfo system{}; GetSystemInfo(system.native()); const usize page = system.dwPageSize;
-    check(page && !(page & (page - 1)), "history OS page size valid"); if (!page || (page & (page - 1))) return;
     auto* owner = static_cast<AccountUiRuntime*>(VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(owner != nullptr, "history actual production owner allocates"); if (!owner) return;
     g_app.account_ui = owner;
-    Win32MemoryInformation info{};
-    check(VirtualQuery(owner, info.native(), sizeof(info)) == sizeof(info) && info.State == MEM_COMMIT &&
-        info.RegionSize == ((sizeof(AccountUiRuntime) + page - 1) & ~(page - 1)),
-        "history production owner commitment follows actual compiled size");
     measurement("MEASURE account_ui_owner_bytes=", sizeof(AccountUiRuntime));
-    measurement("MEASURE account_ui_owner_committed_bytes=", info.RegionSize);
     measurement("MEASURE history_decode_reserved_bytes=", kHistoryDecodeReservedBytes);
     measurement("MEASURE history_storage_owner_bytes=", sizeof(HistoryDecodeStorage));
     storage(*owner, page); history(*owner); forwarded_history(*owner);

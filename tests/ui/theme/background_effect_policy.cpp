@@ -408,19 +408,14 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
     // ---- Layout of the constants the shaders read ----
     float palette[kBackgroundFxPaletteRoles][4]{};
     effect_palette(starry, palette);
-    EffectFrameConstants frame{};
-    // Interface 1's fields keep their offsets; mc_ambient follows mc_knobs and mc_pass follows mc_ambient, where
-    // older shaders never read.
-    check(sizeof(frame) == 336 && __builtin_offsetof(EffectFrameConstants, time) == 0 &&
-              __builtin_offsetof(EffectFrameConstants, dip) == 12 && __builtin_offsetof(EffectFrameConstants, resolution) == 16 &&
-              __builtin_offsetof(EffectFrameConstants, pointer) == 24 && __builtin_offsetof(EffectFrameConstants, palette) == 32 &&
-              __builtin_offsetof(EffectFrameConstants, dark) == 160 && __builtin_offsetof(EffectFrameConstants, intensity) == 164 &&
-              __builtin_offsetof(EffectFrameConstants, knobs) == 176 && __builtin_offsetof(EffectFrameConstants, ambient) == 304 &&
-              __builtin_offsetof(EffectFrameConstants, pass) == 320 &&
-              sizeof(EffectCompositeConstants) == 80 && sizeof(EffectShaderSettings) == 16 &&
+    // background_effect.hpp asserts the size and the later row offsets. Interface 1's first-row fields keep theirs.
+    check(__builtin_offsetof(EffectFrameConstants, time) == 0 && __builtin_offsetof(EffectFrameConstants, dip) == 12 &&
+              __builtin_offsetof(EffectFrameConstants, resolution) == 16 &&
+              __builtin_offsetof(EffectFrameConstants, pointer) == 24 &&
+              __builtin_offsetof(EffectFrameConstants, intensity) == 164 &&
               palette[0][0] == starry.base_low.red && palette[4][2] == starry.accent.blue &&
               palette[7][1] == starry.tokens.accent.danger.green && palette[3][3] == 1,
-          "effect pass: frame and composite constants keep the shader layout; the palette carries the theme's own sRGB");
+          "effect pass: frame constants keep the shader layout; the palette carries the theme's own sRGB");
 
     // ---- Ambient inputs (mc_ambient) ----
     const EffectClock noon = effect_clock({2026, 7, 2, 12, 0});

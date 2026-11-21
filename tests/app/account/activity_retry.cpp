@@ -216,9 +216,9 @@ void call_idle(void (*check)(bool, const char*) noexcept) noexcept {
     // Windows asks with a timer. On Linux the compositor tells the change, and the headless window never does.
     const bool timer = application_activity_next_wake() > now;
 #if defined(_WIN32)
-    check(g_app.account_ui && !g.in_call && timer, "activity: outside a call the idle check has a deadline");
+    check(!g.in_call && timer, "activity: outside a call the idle check has a deadline");
 #else
-    check(g_app.account_ui && !g.in_call && !application_activity_next_wake(),
+    check(!g.in_call && !application_activity_next_wake(),
           "activity: outside a call the idle check has no timer");
 #endif
     g_app.account_ui->voice_session.channel_id = 5;

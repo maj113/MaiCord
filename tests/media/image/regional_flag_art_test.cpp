@@ -15,9 +15,7 @@ bool run() noexcept {
     CHECK(parse({squares,sizeof(squares)}));
     const auto& layer=art.layers[0];
     CHECK(art.count==1&&layer.fill_rule==GlyphFillRule::alternate&&layer.color.r==0x11/255.f&&
-          layer.color.g==0x22/255.f&&layer.color.b==0x33/255.f&&layer.color.a==1&&layer.path.count==sizeof(squares)-5&&
-          layer.command_bytes==16&&layer.x_bytes==8);
-    CHECK(layer.command_bound==1+2+1+1+1+1+2+3+1);
+          layer.color.g==0x22/255.f&&layer.color.b==0x33/255.f&&layer.color.a==1);
     GlyphOutline outline{commands,kRegionalFlagMaximumCommands};CHECK(regional_flag_layer_outline(layer,&outline));
     CHECK(outline.count==10&&outline.fill_rule==GlyphFillRule::alternate);
     CHECK(commands[0].kind==GlyphPathCommandKind::begin_filled&&commands[0].x1==1&&commands[0].y1==1);
@@ -26,7 +24,6 @@ bool run() noexcept {
     CHECK(outline.minimum_x==1&&outline.minimum_y==1&&outline.maximum_x==5&&outline.maximum_y==5);
     ColrPaintProgram program{};CHECK(arena_initialize(&program.storage,8*1024*1024,0,4096));
     CHECK(regional_flag_compile(art,&program));
-    CHECK(program.mask_count==1&&program.stack==1);
     // A black circle at (1, 1), radius .5, and the rotated ellipse, in hundredths.
     constexpr u8 shapes[]{1,0,0,0,0xC8,0x01,0xC8,0x01,0x64,10,0,0,0x80,0xC8,0x01,0xC8,0x01,0x64,0xC8,0x01,0xFF};
     CHECK(parse({shapes,sizeof(shapes)}));

@@ -56,28 +56,7 @@ void test_json_scan() noexcept {
     expect_json_matches_scalar(utf8_literal(R"([{"nested":{"text":"[,{}:]"}},null,false])"),
                                "json_scan_ignores_string_punctuation");
 
-    char even_cross_block[17]{};
-    even_cross_block[0] = '"';
-    for (u32 index = 1; index < 14; ++index) {
-        even_cross_block[index] = 'a';
-    }
-    even_cross_block[14] = '\\';
-    even_cross_block[15] = '\\';
-    even_cross_block[16] = '"';
-    expect_json_matches_scalar(Utf8View{even_cross_block, 17}, "json_scan_even_escape_run_crosses_block");
-
-    char odd_cross_block[18]{};
-    odd_cross_block[0] = '"';
-    for (u32 index = 1; index < 13; ++index) {
-        odd_cross_block[index] = 'a';
-    }
-    odd_cross_block[13] = '\\';
-    odd_cross_block[14] = '\\';
-    odd_cross_block[15] = '\\';
-    odd_cross_block[16] = '"';
-    odd_cross_block[17] = '"';
-    expect_json_matches_scalar(Utf8View{odd_cross_block, 18}, "json_scan_odd_escape_run_crosses_block");
-
+    // Runs of up to 24 backslashes before a quote at each offset of the first 64 bytes, across block edges.
     bool boundary_matrix_matches = true;
     for (u32 quote_offset = 1; quote_offset <= 63 && boundary_matrix_matches; ++quote_offset) {
         const u32 maximum_slashes = quote_offset - 1 < 24 ? quote_offset - 1 : 24;

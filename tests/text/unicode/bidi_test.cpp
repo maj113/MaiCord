@@ -13,7 +13,7 @@ namespace maicord {
 namespace {
 using B=UnicodeBidiClass;
 constexpr u32 capacity=512;
-UnicodeBidiCell cells[capacity];u32 scratch[capacity],visual[capacity];u8 levels[capacity],expected_levels[capacity];
+UnicodeBidiCell cells[capacity];u32 scratch[capacity],visual[capacity];u8 levels[capacity];
 bool unit_cases() noexcept {
     const u32 text[]{0x202b,0x5d0,0x20,0x5d1,0x202c};UnicodeBidiParagraph paragraph{};
     if(unicode_bidi_classify({text,5},{cells,5})!=UnicodeBidiStatus::ok ||
@@ -172,47 +172,6 @@ bool long_cases() noexcept {
     }
     pages_release(memory);return ok;
 }
-struct Reader {
-    const u8* bytes;u32 size,at;
-    bool word(u32* value) noexcept {if(size-at<4)return false;*value=byte_load_le32(bytes+at);at+=4;return true;}
-    bool take(u32 count,const u8** value) noexcept {if(count>size-at)return false;*value=bytes+at;at+=count;return true;}
-};
-bool corpus(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;
-    Win32LargeInteger size{};if(!GetFileSizeEx(file,size.native()) || size.QuadPart<12 || size.QuadPart>0xffffffffll){CloseHandle(file);return false;}
-    HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!mapping){CloseHandle(file);return false;}
-    const auto* bytes=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));
-    bool ok=bytes && bytes_equal(bytes,"MCBIDI1",8);u32 total=0,failures=0,classes=0,characters=0,scalars=0,order_checks=0;
-    Reader reader{bytes,static_cast<u32>(size.QuadPart),8};if(ok)ok=reader.word(&total) && total>0;
-    for(u32 test=0;test<total && ok;++test) {
-        u32 count=0,policy=0,base=0,expected_count=0,line=0,kind=0;
-        ok=reader.word(&count) && reader.word(&policy) && reader.word(&base) && reader.word(&expected_count) && reader.word(&line) && reader.word(&kind) && count<=capacity && expected_count<=count && policy<=2 && (base<=1 || base==255) && kind<=1;
-        if(!ok)break;
-        for(u32 i=0;i<count && ok;++i) {
-            u32 cp=0;const u8* values=nullptr;ok=reader.word(&cp) && reader.take(4,&values) && unicode_is_scalar(cp);
-            if(ok){const auto type=values[0]==255?unicode_properties(cp)->bidi_class():static_cast<B>(values[0]);cells[i]={cp,0,0,type,type,0,0};expected_levels[i]=values[1];}
-        }
-        const u8* expected_visual=nullptr;if(ok)ok=reader.take(expected_count*4,&expected_visual);if(!ok)break;
-        UnicodeBidiParagraph paragraph{};u32 actual_count=0,first_difference=~0u;
-        const auto status=unicode_bidi_resolve({cells,count},static_cast<UnicodeParagraphDirection>(policy),{scratch,count},&paragraph);
-        const auto line_status=status==UnicodeBidiStatus::ok?unicode_bidi_line({cells,count},paragraph.level,0,count,{levels,count},{visual,count},&actual_count):UnicodeBidiStatus::invalid_input;
-        bool match=status==UnicodeBidiStatus::ok && line_status==UnicodeBidiStatus::ok && (base==255 || base==paragraph.level) && actual_count==expected_count;
-        if(line_status==UnicodeBidiStatus::ok)for(u32 i=0;i<count;++i)if(levels[i]!=expected_levels[i]){if(first_difference==~0u)first_difference=i;match=false;}
-        if(match)for(u32 i=0;i<expected_count;++i)if(visual[i]!=byte_load_le32(expected_visual+i*4)){match=false;break;}
-        if(!match) {
-            if(failures<12){print(utf8_literal("FAIL kind="));number(kind);print(utf8_literal(" line="));number(line);print(utf8_literal(" policy="));number(policy);print(utf8_literal(" status="));number(static_cast<u32>(status));
-                print(utf8_literal(" first_level="));number(first_difference);
-                if(first_difference<count){print(utf8_literal(" actual="));number(levels[first_difference]);print(utf8_literal(" expected="));number(expected_levels[first_difference]);}
-                print(utf8_literal("\n"));}
-            ++failures;
-        }
-        if(kind)++characters;else ++classes;scalars+=count;order_checks+=expected_count;
-    }
-    if(ok)ok=reader.at==reader.size;
-    print(utf8_literal("class_cases="));number(classes);print(utf8_literal("\ncharacter_cases="));number(characters);print(utf8_literal("\nscalar_inputs="));number(scalars);
-    print(utf8_literal("\norder_checks="));number(order_checks);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\ncomplete="));number(ok?1:0);print(utf8_literal("\n"));
-    if(bytes)UnmapViewOfFile(bytes);CloseHandle(mapping);CloseHandle(file);return ok && !failures;
-}
 #include "bidi_ltr_elision.inc"
 int run() noexcept {
     if(!ltr_elision_cases()){print(utf8_literal("FAIL LTR elision\n"));return 8;}
@@ -221,12 +180,6 @@ int run() noexcept {
     if(!tailored_cases()){print(utf8_literal("FAIL tailored weak cases\n"));return 7;}
     if(!long_cases()){print(utf8_literal("FAIL bidi long cases\n"));return 2;}
     if(!random_cases()){print(utf8_literal("FAIL bidi invariants\n"));return 5;}
-    const wchar_t* command=test_arguments();
-    if(*command) {
-        wchar_t path[32768];
-        if(!test_path_argument(command,path))return 3;
-        if(!corpus(path))return 4;
-    }
     print(utf8_literal("PASS bidi tests\n"));return 0;
 }
 }

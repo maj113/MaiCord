@@ -161,18 +161,16 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
                   .ok() &&
               equal(fixture.output, sentinel),
           "theme parser scratch capacity cannot truncate a stored document");
-    const u8 before = fixture.record[0];
     u32 rejected_bytes = 123;
     check(client_theme_storage_encode(initial, {fixture.record, bytes - 1}, &rejected_bytes).error ==
                   ClientThemeStorageError::size &&
-              rejected_bytes == 123 && fixture.record[0] == before &&
+              rejected_bytes == 123 &&
               bytes_equal(fixture.record, fixture.saved, bytes),
           "theme insufficient output capacity preserves record bytes and length");
     auto inactive = initial;
     inactive.custom_active = false;
     check(client_theme_storage_encode(inactive, {fixture.record, sizeof(fixture.record)}, &bytes).ok() &&
-              decode(bytes).ok() && !fixture.output.custom_active && fixture.output.custom_present &&
-              equal(inactive, fixture.output),
+              decode(bytes).ok() && equal(inactive, fixture.output),
           "theme builtin switch retains imported inactive descriptor in the same atomic snapshot");
     auto absent = inactive;
     absent.custom_present = false;

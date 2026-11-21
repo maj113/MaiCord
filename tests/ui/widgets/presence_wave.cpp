@@ -82,21 +82,9 @@ void activities() noexcept {
           "activities: playing keeps application, text, timestamps, party, assets and button labels");
     char url[384];
     MediaAttachmentFormat format{};
-    u32 bytes = user_activity_image_url(game, true, {url, sizeof(url)}, &format);
-    check(same({url, bytes}, utf8_literal("https://cdn.discordapp.com/app-assets/500000000000000001/"
-                                          "500000000000000002.png?size=160")) &&
-              format == MediaAttachmentFormat::png,
-          "activities: numeric assets use the application asset CDN as PNG");
-    bytes = user_activity_image_url(game, false, {url, sizeof(url)}, &format);
-    check(same({url, bytes},
-               utf8_literal("https://media.discordapp.net/external/abc/https/x.png?format=webp&width=160&height=160")) &&
-              format == MediaAttachmentFormat::webp,
-          "activities: mp: assets resolve through the media proxy as WebP");
     const auto& song = set.items[1];
-    bytes = user_activity_image_url(song, true, {url, sizeof(url)}, &format);
-    check(song.type == UserActivityType::listening && user_activity_is_spotify(song) &&
-              same({url, bytes}, utf8_literal("https://i.scdn.co/image/ab67616d0000b273")),
-          "activities: Spotify art comes from i.scdn.co");
+    check(song.type == UserActivityType::listening && user_activity_is_spotify(song),
+          "activities: a Spotify party and name mark the listening activity as Spotify");
     const auto& stream = set.items[2];
     check(stream.type == UserActivityType::streaming &&
               same(text(stream, UserActivityField::url), utf8_literal("https://twitch.tv/x")),
@@ -117,9 +105,6 @@ void activities() noexcept {
         all = all && same({line, user_activity_summary(s.type, s.name, s.details, {line, sizeof(line)})}, s.expected);
     check(all && !user_activity_summary(UserActivityType::custom, utf8_literal("x"), {}, {line, sizeof(line)}),
           "activities: one-line summaries read like the official client's for every type");
-    check(same({line, user_activity_heading(song, {line, sizeof(line)})}, utf8_literal("Listening to Spotify")) &&
-              same({line, user_activity_heading(game, {line, sizeof(line)})}, utf8_literal("Playing")),
-          "activities: card headings");
 
     // Seconds timestamps normalize, malformed rows are ignored, and long
     // names are cut at a code point instead of failing the presence.

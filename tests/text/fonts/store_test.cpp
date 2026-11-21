@@ -88,45 +88,24 @@ bool run() noexcept {
         const u32 tables=byte_load_be16(font.data+4);CHECK(12+tables*16<=font.count);
         for(u32 t=0;t<tables;++t){u8* field=collection+offset+12+t*16+8;byte_store_be32(field,byte_load_be32(field)+offset);}}
     CHECK(write_file(paths[2],{collection,size}));
-    NativeFontHandle a{},b{},alias{},c{},d{};
-    DWORD handles_before=0,handles_after=0;CHECK(GetProcessHandleCount(GetCurrentProcess(),&handles_before));
+    // tests/text/fonts/store_files_test.cpp checks sharing, refusals, collections and leaks; these are the rest.
+    NativeFontHandle a{},b{},alias{},c{};
     CHECK(native_font_acquire(&store,paths[0],0,&a).ok()&&stats(1,1,1));
-    CHECK(GetProcessHandleCount(GetCurrentProcess(),&handles_after)&&handles_after==handles_before+1);
     faces[a.slot-1].references=0xffffffffu;
     const bool overflow_rejected=!native_font_retain(&store,a)&&native_font_acquire(&store,paths[0],0,&b).error==NativeFontError::capacity&&!b.slot&&faces[a.slot-1].references==0xffffffffu;
     faces[a.slot-1].references=1;CHECK(overflow_rejected);
     const auto* view=native_font_get(store,a);CHECK(outline(view));
     MEMORY_BASIC_INFORMATION memory{};CHECK(VirtualQuery(view->geometry.face.file.data,&memory,sizeof(memory))==sizeof(memory)&&memory.Type==MEM_MAPPED&&memory.Protect==PAGE_READONLY);
-    CHECK(native_font_acquire(&store,paths[4],0,&alias).ok()&&same(a,alias)&&stats(1,1,2));
-    CHECK(native_font_get(store,alias)==view&&native_font_retain(&store,a)&&stats(1,1,3));
-#if defined(_WIN32)
-    // Windows refuses a writer while the store holds the file; Linux sharing is advisory (os/file.hpp).
-    HANDLE writer=CreateFileW(paths[0],GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);
-    const DWORD write_error=GetLastError();if(writer!=INVALID_HANDLE_VALUE)CloseHandle(writer);CHECK(writer==INVALID_HANDLE_VALUE&&write_error==ERROR_SHARING_VIOLATION);
-#endif
-    CHECK(native_font_release(&store,a)&&native_font_release(&store,alias)&&stats(1,1,1)&&outline(view));
+    CHECK(native_font_acquire(&store,paths[4],0,&alias).ok()&&same(a,alias)&&stats(1,1,2)&&native_font_get(store,alias)==view);
+    CHECK(native_font_release(&store,alias)&&stats(1,1,1)&&outline(view));
     CHECK(native_font_acquire(&store,paths[1],0,&b).ok()&&!same(a,b)&&stats(2,2,2));
     CHECK(native_font_acquire(&store,paths[2],0,&c).error==NativeFontError::capacity&&!c.slot&&stats(2,2,2));
-    CHECK(native_font_release(&store,b)&&!native_font_get(store,b)&&stats(1,1,1));
-    CHECK(native_font_acquire(&store,paths[2],0,&c).ok()&&native_font_acquire(&store,paths[2],1,&d).ok()&&stats(2,3,3));
-    CHECK(native_font_get(store,c)->geometry.face.file.data==native_font_get(store,d)->geometry.face.file.data&&outline(native_font_get(store,d)));
-    CHECK(native_font_acquire(&store,paths[4],0,&alias).ok()&&same(alias,a)&&stats(2,3,4)&&native_font_release(&store,alias));
-    const auto stale=d;CHECK(native_font_release(&store,d)&&!native_font_release(&store,stale)&&!native_font_retain(&store,stale));
-    const auto bad_face=native_font_acquire(&store,paths[2],2,&d);CHECK(bad_face.error==NativeFontError::font&&bad_face.font_status==SfntStatus::face_out_of_range&&!d.slot&&stats(2,2,2));
-    CHECK(native_font_release(&store,c)&&native_font_release(&store,a)&&stats(0,0,0));
+    CHECK(native_font_release(&store,b)&&native_font_release(&store,a)&&stats(0,0,0));
     const u8 invalid[]{0,0,0,0};CHECK(write_file(paths[0],{invalid,4}));
     CHECK(native_font_acquire(&store,paths[0],0,&b).error==NativeFontError::font&&!b.slot&&stats(0,0,0));
     CHECK(write_file(paths[0],font)&&native_font_acquire(&store,paths[0],0,&b).ok()&&!same(a,b));
     CHECK(!native_font_get(store,a)&&!native_font_retain(&store,a)&&!native_font_release(&store,a)&&outline(native_font_get(store,b)));
     CHECK(native_font_release(&store,b)&&stats(0,0,0));
-    DWORD before=0,after=0;CHECK(GetProcessHandleCount(GetCurrentProcess(),&before));
-    for(u32 i=0;i<128;++i){
-        CHECK(native_font_acquire(&store,paths[3],0,&b).error==NativeFontError::font&&!b.slot&&stats(0,0,0));
-        CHECK(native_font_acquire(&store,paths[0],0,&b).ok()&&native_font_release(&store,b)&&stats(0,0,0));}
-    CHECK(GetProcessHandleCount(GetCurrentProcess(),&after)&&before==after);
-    CHECK(native_font_acquire(nullptr,paths[0],0,&b).error==NativeFontError::invalid_input);
-    CHECK(native_font_acquire(&store,L"",0,&b).error==NativeFontError::invalid_input);
-    CHECK(native_font_acquire(&store,paths[0],0,nullptr).error==NativeFontError::invalid_input);
     CHECK(!native_font_get(store,{0,1})&&!native_font_get(store,{1,0})&&!native_font_get(store,{4,1}));
     CHECK(instance_cases());
     CHECK(growth_cases());

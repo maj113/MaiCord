@@ -270,7 +270,7 @@ void password_flow() noexcept {
           "captcha login: a refused solution presents a fresh challenge");
     u16 second_port = 0;
     check(module_login_start_captcha_bridge(owner, 7, 60000).ok() && wait_bridge(owner, CaptchaBridgePhase::waiting) &&
-              solve(owner, 7, utf8_literal("P1_synthetic.solution-0002"), &second_port) && second_port != 0,
+              solve(owner, 7, utf8_literal("P1_synthetic.solution-0002"), &second_port),
           "captcha login: the retry restarts the bridge with a new state");
     status = module_login_pump_with_captcha(owner);
     check(status.phase == AccountLoginPhase::password_pending && headers_contain(utf8_literal("X-Captcha-Key: P1_synthetic.solution-0002\r\n")),

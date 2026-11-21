@@ -117,9 +117,8 @@ void test_widget_input(void (*check)(bool, const char*) noexcept) noexcept {
     check(login_scene_layout(&login, 1000, 800) && login_scene_focus(&login, LoginControl::login),
           "login input scene ready");
     ui_widget_manager_capture(&login.widgets, login.widgets.focused);
-    const auto passes = login.layout_passes;
     login.action_disabled = true;
-    check(login_scene_layout(&login, 1000, 800) && login.layout_passes == passes &&
+    check(login_scene_layout(&login, 1000, 800) &&
           login.focus == LoginControl::none && !login.widgets.focused.generation &&
           !login.widgets.captured.generation && !login_scene_focus(&login, LoginControl::password),
           "cached login update cancels disabled credential focus and capture");

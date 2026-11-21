@@ -160,10 +160,8 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
             text_measure_calls(form->scene.measure) == form_shapes && form->scene.storage.arena.committed == form_committed;
         log_u64(LogLevel::info, "thread_creation_warm", "sample", sample);
         log_u64(LogLevel::info, "thread_creation_warm", "unchanged_skips", external.unchanged_present_skips - skips);
-        log_u64(LogLevel::info, "thread_creation_warm", "form_bytes", sizeof(ApplicationTextForm));
         log_u64(LogLevel::info, "thread_creation_warm", "form_scene_committed_bytes", form_committed);
         log_u64(LogLevel::info, "thread_creation_warm", "form_owner_committed_bytes", memory.RegionSize);
-        log_u64(LogLevel::info, "thread_creation_warm", "request_bytes", sizeof(ThreadCreationRequest));
         log_u64(LogLevel::info, "thread_creation_warm", "passed", passed); return passed;
     };
     if (!require(begin(), 1) || !require(resize(1100, 760, 96), 2) ||

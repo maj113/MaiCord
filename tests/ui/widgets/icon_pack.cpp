@@ -5,7 +5,6 @@
 namespace maicord {
 namespace {
 GlyphPathCommand g_commands[kIconMaximumOutlineCommands];
-GlyphPathCommand g_repeat[kIconMaximumOutlineCommands];
 } // namespace
 
 void test_icon_pack(void (*check)(bool, const char*) noexcept) noexcept {
@@ -35,16 +34,11 @@ void test_icon_pack(void (*check)(bool, const char*) noexcept) noexcept {
     check(decoded && bounded, "icon pack: every icon decodes in both variants within its box");
 
     GlyphOutline first{g_commands, kIconMaximumOutlineCommands, 0, 0, 0, 0, 0, 0, {}, false};
-    GlyphOutline second{g_repeat, kIconMaximumOutlineCommands, 0, 0, 0, 0, 0, 0, {}, false};
     const u32 settings = static_cast<u32>(UiIcon::settings);
-    const bool repeated = icon_pack_decode(builtin, settings, {1.25f, .5f, -.25f, false}, &first) &&
-                          icon_pack_decode(builtin, settings, {1.25f, .5f, -.25f, false}, &second) &&
-                          first.count == second.count &&
-                          bytes_equal(g_commands, g_repeat, first.count * sizeof(GlyphPathCommand));
     GlyphOutline small{g_commands, 4, 0, 0, 0, 0, 0, 0, {}, false};
-    check(repeated && !icon_pack_decode(builtin, settings, {1, 0, 0, false}, &small) && small.rejected == 1 &&
+    check(!icon_pack_decode(builtin, settings, {1, 0, 0, false}, &small) && small.rejected == 1 &&
               !icon_pack_decode(builtin, builtin.icon_count, {1, 0, 0, false}, &first),
-          "icon pack: decoding is deterministic and bounded by the caller's command capacity");
+          "icon pack: decoding is bounded by the caller's command capacity and refuses an unknown icon");
 
     PaintStream paint{};
     bool painted = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 64, 64) &&

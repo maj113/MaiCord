@@ -100,11 +100,9 @@ bool search_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) no
     };
     valid = show(L"search-results-native.bmp");
     if (valid) {
-        const auto baseline = renderer.content_text_prefix;
         content.filters = true;
         ++content.revision;
-        valid = show(L"search-filters-native.bmp") &&
-                renderer.content_text_prefix.base_builds == baseline.base_builds;
+        valid = show(L"search-filters-native.bmp");
         if (!valid && !failure_stage)
             failure_stage = 26;
     }
@@ -175,7 +173,6 @@ bool search_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) no
     if (!restored && !failure_stage)
         failure_stage = 91;
     ui_search_scene_release(&scene);
-    log_u64(LogLevel::info, "probe", "search_scene_owner_bytes", sizeof(UiSearchScene));
     log_u64(LogLevel::info, "probe", "search_native_source_resolutions", fixture.calls);
     log_u64(LogLevel::info, "probe", "search_native_compact_width_dips",
             static_cast<u64>(compact_width_dips));

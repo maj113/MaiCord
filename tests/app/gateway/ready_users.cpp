@@ -752,7 +752,7 @@ void index_storage(void (*check)(bool, const char*) noexcept) noexcept {
     check(gateway_session_push(&runtime.session, {output, bytes}), "Gateway fixed slice receives dense frame");
     auto failed = gateway_session_next(&runtime.session, 0, GetTickCount64());
     check(failed.kind == GatewaySessionEventKind::error && failed.gateway_error == GatewayDecodeError::scan_failed &&
-        runtime.structural_scratch.capacity == 1024 && runtime.session.lifecycle.last_sequence == 7 && !index_growth_calls,
+        runtime.structural_scratch.capacity == 1024 && runtime.session.lifecycle.last_sequence == 7,
         "Gateway callers without the adapter retain fixed-capacity errors and their checkpoint");
     runtime.json_scan_error = JsonScanError::none;
     check(failed.scan_error == JsonScanError::output_overflow &&

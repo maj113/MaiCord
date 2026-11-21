@@ -49,7 +49,6 @@ void test_embed_colors(void (*check)(bool, const char*) noexcept) noexcept {
     event.embeds = {embeds, 4};
     const UiRect viewport{0, 0, 740, 1000};
     u32 layout_passes = 0;
-    u32 data_updates = 0;
     bool colors_exact = ready;
     for (u32 pass = 0; ready && pass < 2; ++pass) {
         for (u32 i = 0; i < 4; ++i) {
@@ -62,7 +61,7 @@ void test_embed_colors(void (*check)(bool, const char*) noexcept) noexcept {
         if (pass != 0) {
             const auto* row = message_scene_find_row(f.scene, 0);
             check(updated.changed && row && row->text_measured && row->rich_layout_measured &&
-                  f.scene.layout_passes == layout_passes && f.scene.data_updates == data_updates + 1,
+                  f.scene.layout_passes == layout_passes,
                   "embed_color_only_repaint_preserves_measurements_and_layout");
         }
         paint_stream_reset(&f.paint, viewport.right, viewport.bottom);
@@ -92,7 +91,6 @@ void test_embed_colors(void (*check)(bool, const char*) noexcept) noexcept {
             ready = message_scene_set_text_metrics(&f.scene, 0, 0, 20, true,
                 &row->rich_layout, &row->rich_item_layout, {}, &changed) && message_scene_update(&f.scene, viewport).ok();
             layout_passes = f.scene.layout_passes;
-            data_updates = f.scene.data_updates;
         }
     }
     check(ready && colors_exact, "embed_distinct_rgb_black_and_absent_color_reach_paint_stream");

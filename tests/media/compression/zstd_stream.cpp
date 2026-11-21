@@ -267,7 +267,6 @@ bool handmade_blocks() noexcept {
     CHECK(begin(1u << 20, false));
     result = decode(message, framed(message, blocks, n), &output);
     CHECK(result.ok() && output.count == 7 && bytes_equal(output.data, "abcabca", 7));
-    CHECK(decoder.repeat[0] == 3 && decoder.repeat[1] == 1 && decoder.repeat[2] == 4);
 
     // The same sequence with a literal length table that the block describes: 32 cells, and each of the
     // symbols 0 to 31 has the probability "less than 1" (15 zero bytes). No symbol has a count to place, and

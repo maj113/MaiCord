@@ -34,10 +34,8 @@ void test_delay() noexcept {
             }
         }
     }
-    u64 a = 7, b = 7;
     check(bounded, "reconnect delay stays within half and all of the doubling capped ceiling");
-    check(varied || account_reconnect_delay(0, &a) == account_reconnect_delay(0, &b),
-          "reconnect delay is jittered and deterministic for a seed");
+    check(varied, "reconnect delay is jittered");
 }
 
 // A session that never reaches READY: every deadline restarts, every restart

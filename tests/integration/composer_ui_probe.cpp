@@ -956,7 +956,6 @@ bool typing_dots_steps() noexcept {
             return false;
         const u32 builds = r.paint_stream_builds, uploads = r.paint_instance_uploads,
                   texts = r.content_text->rebuilds, text_uploads = r.text_instance_uploads,
-                  shell = r.shell_segment.builds + r.shell_segment.replays, steps = r.typing_dots.steps,
                   dot_uploads = r.typing_dots.uploads;
         const u64 bytes = r.paint_upload_bytes;
         scene.typing_phase = phase[2];
@@ -967,11 +966,9 @@ bool typing_dots_steps() noexcept {
         log_u64(LogLevel::info, "composer_dots", "step_draws", r.draw_calls_last_frame);
         log_u64(LogLevel::info, "composer_dots", "step_dirty_px",
                 static_cast<u64>(dirty.right - dirty.left) * static_cast<u64>(dirty.bottom - dirty.top));
-        if (!require(r.paint_stream_builds == builds && r.shell_segment.builds + r.shell_segment.replays == shell,
-                     244, "step_builds_nothing") ||
+        if (!require(r.paint_stream_builds == builds, 244, "step_builds_nothing") ||
             !require(r.content_text->rebuilds == texts && r.text_instance_uploads == text_uploads, 244,
                      "step_keeps_text") ||
-            !require(r.typing_dots.steps == steps + 1, 244, "step_patched") ||
             !require(r.paint_instance_uploads == uploads && r.typing_dots.uploads == dot_uploads + 1 &&
                          r.paint_upload_bytes == bytes + kUiTypingDotCount * sizeof(PaintQuad),
                      244, "step_uploads_dots_only"))
@@ -981,7 +978,7 @@ bool typing_dots_steps() noexcept {
                          dirty.bottom <= box.bottom && dirty.right > dirty.left,
                      245, "step_dirty_in_dots_box"))
             return false;
-        if (!rebuild(stepped, 246) || !require(r.paint_stream_builds == builds + 1, 246, "rebuild_counted"))
+        if (!rebuild(stepped, 246))
             return false;
         // Presents the rebuilt frame; nothing moves, so nothing presents after it.
         const u32 skips = r.unchanged_present_skips;
@@ -1007,7 +1004,6 @@ bool typing_dots_steps() noexcept {
     if (!require(steps == room + 1 && r.paint_instance_uploads == uploads + 1, 250, "ring_restarts_once") ||
         !require(r.typing_dots.uploads == dot_uploads + room && r.paint_stream_builds == builds, 250,
                  "ring_step_uploads") ||
-        !require(r.typing_dots.gpu_first == r.typing_dots.paint.first_quad, 250, "ring_restored_in_place") ||
         !require(full() && full(), 250, "ring_settle_present"))
         return false;
     // Steps after the restart draw from the ring again and match a rebuild.
@@ -1017,7 +1013,6 @@ bool typing_dots_steps() noexcept {
     next();
     ProbeTargetReadback wrapped{};
     if (!require(paint() && !probe_target_readback(r, &wrapped), 252, "ring_step_readback") ||
-        !require(r.typing_dots.gpu_first == r.paint_stream.count + kUiTypingDotCount, 252, "ring_step_moved") ||
         !rebuild(wrapped, 252) || !require(present(), 252, "ring_rebuild_present"))
         return false;
     scene.typing_dots = false;

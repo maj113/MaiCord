@@ -8,8 +8,7 @@
 // stereo output, the same on every system. SILK is integer arithmetic the format
 // defines, so the SILK-only streams without concealment are also libopus's PCM
 // bit for bit; CELT is single precision, where a digest pins this decoder's own
-// arithmetic and tools/opus_conformance.ps1 measures the distance to the
-// reference.
+// arithmetic.
 #pragma once
 #include "maicord/core/base.hpp"
 

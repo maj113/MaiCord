@@ -9,11 +9,9 @@ bool equal(u32 actual,u32 expected,u32 line) noexcept {if(actual==expected)retur
 struct Reader {ConstSlice<u8> data;u32 at=0;bool word(u32* value) noexcept {if(data.count-at<4)return false;*value=byte_load_le32(data.data+at);at+=4;return true;}bool take(u32 count,ConstSlice<u8>* value) noexcept {if(count>data.count-at)return false;*value={data.data+at,count};at+=count;return true;}};
 NativeFontFileSlot files[1];NativeFontFaceSlot faces[1];NativeFontInstanceSlot instances[1];NativeRunPlanSlot plans[1];
 NativeFontStore fonts{{files,1},{faces,1}};NativeFontInstanceStore font_instances{&fonts,{instances,1}};NativeRunPlanStore store{&font_instances,{plans,1}};
-Arena scratch{},state{};wchar_t temporary[MAX_PATH]{},font_path[32768];u8* input_file=nullptr;
+Arena scratch{},state{};wchar_t temporary[MAX_PATH]{},font_path[32768];
 #include "ascii_buffers.inc"
 
-bool argument(const wchar_t** command,wchar_t* output,u32 available) noexcept {const wchar_t* p=*command;while(*p==' '||*p=='\t')++p;const bool quoted=*p=='"';if(quoted)++p;u32 n=0;
-    while(*p&&!(quoted?*p=='"':*p==' '||*p=='\t')){if(n+1==available)return false;output[n++]=*p++;}if(quoted){if(*p!='"')return false;++p;}output[n]=0;*command=p;return n!=0;}
 bool write_font(ConstSlice<u8> data) noexcept {HANDLE file=CreateFileW(temporary,GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_TEMPORARY,nullptr);if(file==INVALID_HANDLE_VALUE)return false;
     DWORD written=0;const bool ok=WriteFile(file,data.data,data.count,&written,nullptr)&&written==data.count;CloseHandle(file);return ok;}
 bool acquire(const wchar_t* path,NativeRunPlanHandle* run,bool reject,u32 weight,NativeRunPlanKind kind=NativeRunPlanKind::text) noexcept {NativeFontHandle face{};NativeFontInstanceHandle instance{};
@@ -26,11 +24,6 @@ bool acquire(const wchar_t* path,NativeRunPlanHandle* run,bool reject,u32 weight
 bool emoji_cleanup(bool ok) noexcept {
     while(plans[0].references)native_run_plan_release(&store,{1,plans[0].generation});
     while(instances[0].references)native_font_instance_release(&font_instances,{1,instances[0].generation});while(faces[0].references)native_font_release(&fonts,{1,faces[0].generation});
-    arena_release(&scratch);arena_release(&state);if(input_file)pages_release(input_file);if(temporary[0]&&!DeleteFileW(temporary))ok=false;
+    arena_release(&scratch);arena_release(&state);if(temporary[0]&&!DeleteFileW(temporary))ok=false;
     return ok;
-}
-// Reads the whole file named by font_path (at most 32 MiB) into input_file.
-bool load_input(ConstSlice<u8>* data) noexcept {
-    HANDLE file=CreateFileW(font_path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);const DWORD size=GetFileSize(file,nullptr);CHECK(size<=32*1024*1024);
-    input_file=static_cast<u8*>(pages_allocate(size));DWORD read=0;const bool loaded=input_file&&ReadFile(file,input_file,size,&read,nullptr)&&read==size;CloseHandle(file);CHECK(loaded);*data={input_file,size};return true;
 }

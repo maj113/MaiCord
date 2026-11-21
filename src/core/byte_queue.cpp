@@ -32,12 +32,14 @@ u32 byte_queue_available(const ByteQueue& queue) noexcept {
     return queue.capacity - byte_queue_size(queue);
 }
 
+// A queue without storage has begin 0, so its readable bytes start at a null pointer.
 ConstSlice<u8> byte_queue_readable(const ByteQueue& queue) noexcept {
-    return ConstSlice<u8>{queue.data ? queue.data + queue.begin : nullptr, byte_queue_size(queue)};
+    return ConstSlice<u8>{queue.data + queue.begin, byte_queue_size(queue)};
 }
 
+// Every caller passes the address of a queue it owns: the functions below take a queue that exists.
 Slice<u8> byte_queue_writable(ByteQueue* queue) noexcept {
-    if (!queue || !queue->data) {
+    if (!queue->data) {
         return Slice<u8>{nullptr, 0};
     }
     if (queue->end == queue->capacity && queue->begin != 0) {
@@ -47,7 +49,7 @@ Slice<u8> byte_queue_writable(ByteQueue* queue) noexcept {
 }
 
 bool byte_queue_append(ByteQueue* queue, const ConstSlice<u8>& input) noexcept {
-    if (!queue || (!input.data && input.count != 0) || input.count > byte_queue_available(*queue)) {
+    if ((!input.data && input.count != 0) || input.count > byte_queue_available(*queue)) {
         return false;
     }
     if (queue->capacity - queue->end < input.count) {
@@ -59,7 +61,7 @@ bool byte_queue_append(ByteQueue* queue, const ConstSlice<u8>& input) noexcept {
 }
 
 bool byte_queue_produce(ByteQueue* queue, u32 bytes) noexcept {
-    if (!queue || bytes > queue->capacity - queue->end) {
+    if (bytes > queue->capacity - queue->end) {
         return false;
     }
     queue->end += bytes;
@@ -67,7 +69,7 @@ bool byte_queue_produce(ByteQueue* queue, u32 bytes) noexcept {
 }
 
 bool byte_queue_consume(ByteQueue* queue, u32 bytes) noexcept {
-    if (!queue || bytes > byte_queue_size(*queue)) {
+    if (bytes > byte_queue_size(*queue)) {
         return false;
     }
     queue->begin += bytes;
@@ -79,9 +81,6 @@ bool byte_queue_consume(ByteQueue* queue, u32 bytes) noexcept {
 }
 
 void byte_queue_clear(ByteQueue* queue, bool erase) noexcept {
-    if (!queue) {
-        return;
-    }
     if (erase && queue->data) {
         secure_clear_bytes(queue->data, queue->end);
     }

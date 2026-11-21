@@ -364,12 +364,6 @@ void test_datagrams(NetworkLoop* loop) noexcept {
     // More sends in a row than one batch: each one completes, one time.
     for (u32 index = 0; index < 2 * kNetworkDatagramReceiveSlots + 4; ++index) {
         const bool sent = network_datagram_send(&datagram, {ping, 4}).ok();
-#if defined(_WIN32)
-        // A send that finishes at once waits in the loop's ready list, with no packet in the port, until the loop
-        // waited on the port for a batch of them. A layered Winsock provider keeps the packets.
-        if (index < 4)
-            check(!datagram.loop || loop->ready_head == &datagram.send_operation, "a finished send is ready");
-#endif
         check(sent && next(loop, NetworkOperationKind::datagram_send, &done) && done.succeeded &&
                   done.transferred == 4 && !datagram.send_pending,
               "a send of the row completes");

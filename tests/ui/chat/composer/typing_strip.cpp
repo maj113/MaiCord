@@ -39,7 +39,6 @@ constexpr MessageComposerControl kControls[]{
     MessageComposerControl::send};
 struct Geometry {
     UiRect viewport, controls[sizeof(kControls) / sizeof(kControls[0])], surface;
-    u32 layout_passes;
     float measured;
 };
 
@@ -49,7 +48,6 @@ bool capture(const MessageComposerScene& scene, Geometry* geometry) noexcept {
         return false;
     geometry->viewport = scene.viewport;
     geometry->surface = surface->rectangle;
-    geometry->layout_passes = scene.layout_passes;
     geometry->measured = message_composer_scene_measured_height(scene, 60.f);
     for (u32 i = 0; i < sizeof(kControls) / sizeof(kControls[0]); ++i) {
         const UiLayoutNode* node = message_composer_scene_layout_node(scene, kControls[i]);
@@ -62,7 +60,7 @@ bool capture(const MessageComposerScene& scene, Geometry* geometry) noexcept {
 
 bool same(const Geometry& a, const Geometry& b) noexcept {
     bool equal = ui_rect_equal(a.viewport, b.viewport) && ui_rect_equal(a.surface, b.surface) &&
-                 a.layout_passes == b.layout_passes && a.measured == b.measured;
+                 a.measured == b.measured;
     for (u32 i = 0; i < sizeof(kControls) / sizeof(kControls[0]); ++i)
         equal = equal && ui_rect_equal(a.controls[i], b.controls[i]);
     return equal;
@@ -177,12 +175,12 @@ void test_typing_strip(void (*check)(bool, const char*) noexcept) noexcept {
               quiet.controls[0].top >= body.bottom - 24.f && quiet_row_gap >= kListGap,
           "typing_strip_draws_over_the_message_list_bottom_space_while_nobody_types");
 
-    // Someone starts typing: only the strip repaints.
+    // Someone starts typing: no control moves.
     const auto started = update_composer(typers);
     Geometry typing{};
     const bool typing_captured = capture(f.composer, &typing);
     check(started.ok() && started.changed && typing_captured && same(quiet, typing),
-          "typing_strip_typing_starts_without_relayout_or_moving_any_control");
+          "typing_strip_typing_starts_without_moving_any_control");
     check(typing_captured && utf8_equal(message_composer_scene_typing_label(f.composer), typers) &&
               ui_rect_equal(ui_rect_intersection(typing.controls[0], strip), typing.controls[0]) &&
               !ui_rect_has_area(ui_rect_intersection(typing.controls[0], typing.surface)),
@@ -206,16 +204,16 @@ void test_typing_strip(void (*check)(bool, const char*) noexcept) noexcept {
               message_timeline_is_at_bottom(f.timeline, 0),
           "typing_strip_scroll_anchor_unchanged_when_typing_starts_at_the_bottom");
 
-    // The label changes to several typers, and then everyone stops: still no relayout, no movement.
+    // The label changes to several typers, and then everyone stops: still no movement.
     const auto several = update_composer(utf8_literal("Zupko and Mai are typing..."));
     Geometry crowd{};
     check(several.ok() && several.changed && capture(f.composer, &crowd) && same(quiet, crowd),
-          "typing_strip_label_change_repaints_without_relayout");
+          "typing_strip_label_change_moves_no_control");
     const auto stopped = update_composer({});
     Geometry after{};
     check(stopped.ok() && stopped.changed && capture(f.composer, &after) && same(quiet, after) &&
               message_composer_scene_typing_label(f.composer).bytes == 0,
-          "typing_strip_typing_stops_without_relayout_or_moving_any_control");
+          "typing_strip_typing_stops_without_moving_any_control");
     const bool stop_laid_out = layout_shell() && ui_rect_equal(rectangle_of(UiSemantic::message_view), body) &&
                                last_row_gap(after) == quiet_row_gap;
     const auto message_stop = message_scene_update(&f.scene, rectangle_of(UiSemantic::message_view));

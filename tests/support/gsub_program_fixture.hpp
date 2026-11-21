@@ -5,12 +5,6 @@
 #include "maicord/text/opentype/gsub_execute.hpp"
 namespace maicord {
 struct GsubProgramStorage {Slice<SfntGsubExecutableLookup> lookups;Slice<SfntGsubExecutableSubtable> subtables;Slice<SfntCoverage> coverages;Slice<SfntClassDef> classes;};
-inline SfntStatus gsub_program_needs(const SfntLayout& layout,SfntGsubProgramRequirements* output) noexcept {
-    *output={};SfntGsubProgramRequirements total{layout.lookup_count,0,0,0};
-    for(u32 i=0;i<layout.lookup_count;++i){SfntGsubProgramRequirements need{};const auto status=sfnt_gsub_lookup_requirements(layout,static_cast<u16>(i),&need);if(status!=SfntStatus::ok)return status;
-        total.subtables+=need.subtables;total.coverages+=need.coverages;total.classes+=need.classes;}
-    *output=total;return SfntStatus::ok;
-}
 inline SfntStatus prepare_gsub_program(const SfntLayout& layout,const SfntGdef& gdef,u32 glyph_limit,GsubProgramStorage storage,SfntGsubProgram* output,
     bool ignore_empty_sequences=false,bool ignore_unreachable_single_substitutions=false,u32 payload_work_limit=1000000) noexcept {
     *output={};if(layout.lookup_count>storage.lookups.count)return SfntStatus::output_too_small;u32 subtables=0,coverages=0,classes=0;

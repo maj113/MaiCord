@@ -1,6 +1,5 @@
-// Records and checks the committed references of the native app line driver; app_line_reference.hpp describes
-// them and tools/font_reference/text_reference.py writes them. The record (reference_end) and reference
-// (select_profile) layouts are read and written in both places; change them together.
+// Checks the native app line driver against the committed references that app_line_reference.hpp describes. The
+// references are final: no tool writes them again, and select_profile reads their fixed layout.
 #include "native_app_line_test.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/text/fonts/run.hpp"
@@ -26,7 +25,7 @@ template<class T> T read(const u8* p) noexcept {T value;copy_bytes(&value,p,size
 struct Font {u64 digest;u32 face,table_bytes;u16 upem,path_units;bool system,foreign;u8 table[2048];wchar_t path[512];char name[64];};
 struct CachedFont {const u8* directory;u32 face,index;};
 struct State {
-    bool record,active,failed,skipped,group_open,group_shaped,unshaped,simulate_foreign;
+    bool active,failed,skipped,group_open,group_shaped,unshaped,simulate_foreign;
     u64 profile;wchar_t profile_text[2048];u32 profile_units;
     Font fonts[kFontCapacity];u32 font_count;u64 foreign;CachedFont cached[16];u32 cached_next;
     NativeFontSession* sessions[kSessionCapacity];u32 session_count;
@@ -35,16 +34,10 @@ struct State {
     const u8* runs;const u8* divergent;u32 run_count;
     u32 group_index;u64 group_hash,group_fonts;
     u64 run_mismatches,runs_missing,runs_checked,runs_divergent,runs_foreign,group_mismatches,groups_checked,groups_skipped;u32 reported;
-    Arena groups,requests,keys;u64* request_keys;u32 request_count;
-    wchar_t directory[1024];
 } state{};
 inline u32 bits(float value) noexcept {return __builtin_bit_cast(u32,value);}
 void say(const char* text) noexcept {print(text);}
 void wide(const wchar_t* text,u32 units) noexcept {char out[4];for(u32 i=0;i<units;++i){const u8 n=utf8_encode(text[i],out);char line[5]{};copy_bytes(line,out,n);print(line);}}
-bool append(Arena& arena,const void* data,usize bytes) noexcept {
-    if(!bytes)return true;auto* to=static_cast<u8*>(arena_allocate(&arena,bytes,1));if(!to)return false;copy_bytes(to,data,bytes);return true;
-}
-template<class T> bool append_value(Arena& arena,const T& value) noexcept {return append(arena,&value,sizeof(T));}
 // The profile: the arguments after the program, each path reduced to its file name, then MAICORD_CJK_SAMPLE.
 void profile_from_command_line() noexcept {
     const wchar_t* p=GetCommandLineW();bool quote=false;
@@ -86,19 +79,18 @@ void report_profile() noexcept {say(" profile=\"");wide(state.profile_text,state
 u16 upem_of(const SfntFace& face) noexcept {ConstSlice<u8> head{};
     return sfnt_table(face,sfnt_tag('h','e','a','d'),&head)==SfntStatus::ok&&head.count>=54?static_cast<u16>(head.data[18]<<8|head.data[19]):0;}
 // A new font: recorded for this profile, foreign (a system font of another version or never recorded), or a changed
-// repository font, which fails until the reference is recorded again.
+// repository font, which fails.
 void admit_font(Font& font,u32 index) noexcept {
     font.system=false;
     for(u32 i=0;i+15<=font.path_units&&!font.system;++i){bool match=true;const wchar_t* folder=L"\\windows\\fonts\\";
         for(u32 j=0;folder[j]&&match;++j){wchar_t c=font.path[i+j];c=c>='A'&&c<='Z'?static_cast<wchar_t>(c+32):c;match=c==folder[j];}font.system=match;}
-    if(state.record)return;
     bool known=false;
     for(u32 i=0;i<state.profile_font_count&&!known;++i){const u32 at=read<u32>(state.profile_fonts+i*4);if(at>=state.reference_font_count)continue;
         const u8* f=state.reference_fonts+static_cast<usize>(at)*80;known=read<u64>(f)==font.digest&&read<u32>(f+8)==font.face;}
     if(known&&!(state.simulate_foreign&&font.system))return;
     if(font.system){font.foreign=true;state.foreign|=1ull<<index;
-        say("SKIP reference groups using ");say(font.name);say(" (face ");number(font.face);say("): this machine's version was never recorded (tools/font_reference/text_reference.py record --merge)");report_profile();return;}
-    say("REFERENCE font ");say(font.name);say(" (face ");number(font.face);say(") is not the recorded one; record the references again");report_profile();state.failed=true;
+        say("SKIP reference groups using ");say(font.name);say(" (face ");number(font.face);say("): this machine's version was never recorded");report_profile();return;}
+    say("REFERENCE font ");say(font.name);say(" (face ");number(font.face);say(") is not the recorded one");report_profile();state.failed=true;
 }
 // The font table index of a store face. Mappings are cached by address and confirmed by content: a released
 // session's address may later hold another file.
@@ -142,14 +134,13 @@ u64 session_fonts() noexcept {
 void finish_group() noexcept {
     if(!state.group_open)return;state.group_open=false;
     if(!state.group_shaped)state.group_fonts|=session_fonts();
-    if(state.record){append_value(state.groups,state.group_index);append_value(state.groups,state.group_hash);append_value(state.groups,state.group_fonts);return;}
     if(state.group_fonts&state.foreign){++state.groups_skipped;return;}
     ++state.groups_checked;
     u32 low=0,high=state.profile_group_count;
     while(low<high){const u32 middle=(low+high)/2;if(read<u32>(state.profile_groups+middle*16)<state.group_index)low=middle+1;else high=middle;}
     for(;low<state.profile_group_count&&read<u32>(state.profile_groups+low*16)==state.group_index;++low)if(read<u64>(state.profile_groups+low*16+8)==state.group_hash)return;
     if(!state.group_mismatches++){say("REFERENCE layout differs from cases ");number(state.group_index<<kGroupShift);say("..");
-        number(((state.group_index+1)<<kGroupShift)-1);say(" on (record with tools/font_reference/text_reference.py to see the cases)");report_profile();}
+        number(((state.group_index+1)<<kGroupShift)-1);report_profile();}
     state.failed=true;
 }
 void observe_raw(const void* data,u32 bytes) noexcept {
@@ -165,11 +156,6 @@ u32 to_utf16(Utf8View text) noexcept {
     return units;
 }
 bool paragraph_separator(u16 c) noexcept {return c=='\r'||c=='\n'||c==0x0b||c==0x0c||c==0x85||c==0x2028||c==0x2029;}
-bool request_seen(u64 key) noexcept {
-    constexpr u32 mask=(1u<<20)-1;u32 at=static_cast<u32>(key^key>>32)&mask;const u64 stored=key|1;
-    while(state.request_keys[at]){if(state.request_keys[at]==stored)return true;at=(at+1)&mask;}
-    if(state.request_count>=mask/2)return true;state.request_keys[at]=stored;++state.request_count;return false;
-}
 u32 scalar_at(u32 at,u32 limit) noexcept {
     const u16 c=utf16[at];
     if(c>=0xd800&&c<0xdc00&&at+1<limit){const u16 d=utf16[at+1];if(d>=0xdc00&&d<0xe000)return 0x10000+((c-0xd800u)<<10)+(d-0xdc00u);}
@@ -186,7 +172,7 @@ u32 script_anchor(u32 begin,u32 end,u32 units) noexcept {
     for(u32 u=end;u<units&&!paragraph_separator(utf16[u]);){const u32 cp=scalar_at(u,units);if(strong_script(cp))return cp;u+=cp>0xffff?2:1;}
     return 0;
 }
-// The canonical form both sides digest (tools/font_reference/text_reference.py writes HarfBuzz's): the run's units
+// The canonical form both sides digest (the references hold HarfBuzz's): the run's units
 // grouped by equal cluster-map value in logical order, each group as u16 first unit, unit count, glyph count and
 // glyph ids (structure), and per glyph i32 advance, x and y offset in design units (positions; x along +x, so an
 // RTL run's advance offset is negated). Units without a glyph form glyphless groups. The digest is the structure's,
@@ -211,11 +197,11 @@ void report_run(const char* what,u64 key,const ShapedText& text,const TextRun& r
     wide(reinterpret_cast<const wchar_t*>(utf16+run.text_position),run.text_length);say("\" native glyphs=");
     for(u32 g=0;g<run.glyph_count;++g){if(g)say(",");number(text.glyphs[run.first_glyph+g].index);}
     say(" clusters=");for(u32 u=0;u<run.text_length;++u){if(u)say(",");const u16 c=text.clusters[run.text_position+u];if(c==0xffff)say("-");else number(c-run.first_glyph);}
-    say(" (tools/font_reference/text_reference.py explain shows HarfBuzz's)");report_profile();
+    report_profile();
 }
 // One run's HarfBuzz request: font, direction, features, axes, script anchor and text, with up to 16 units of
-// context (cut at paragraph separators) for a run that joins. The record keeps the native glyphs and cluster map for
-// the tool's report; the check compares the run's canonical digests with HarfBuzz's.
+// context (cut at paragraph separators) for a run that joins. The check compares the run's canonical digests with
+// HarfBuzz's.
 void check_run(const ShapedText& text,const TextRun& run,u32 font,const NativeFontRun& record,u32 units,bool independent,float tracking) noexcept {
     if(!run.text_length||run.text_position+run.text_length>units||run.text_position+run.text_length>text.cluster_count)return;
     const u32 begin=run.text_position,end=begin+run.text_length;
@@ -240,20 +226,6 @@ void check_run(const ShapedText& text,const TextRun& run,u32 font,const NativeFo
     const u16 lengths[3]{static_cast<u16>(before),static_cast<u16>(end-begin),static_cast<u16>(after)};key=hash64_bytes(key,lengths,6);
     key=hash64_bytes(key,utf16+begin-before,(before+end-begin+after)*2);
     ++state.runs_checked;
-    if(state.record){
-        // Each distinct native shape of a request is recorded: the run is conformant only if all equal HarfBuzz's.
-        const u64 shape=canonical_run(text,run,state.fonts[font].upem,measured!=0);
-        if(request_seen(key^(shape+1)*0x9e3779b97f4a7c15ull))return;
-        auto& r=state.requests;const u16 font16=static_cast<u16>(font);
-        append_value(r,key);append_value(r,font16);append_value(r,flags);append_value(r,measured);append_value(r,axes);
-        for(u32 i=0;i<axes;++i){append_value(r,record.source.settings[i].tag);append_value(r,static_cast<float>(record.source.settings[i].value));}
-        append_value(r,anchor);append(r,lengths,6);append(r,utf16+begin-before,(before+end-begin+after)*2);append_value(r,run.em_size);
-        append_value(r,static_cast<u16>(run.glyph_count));
-        for(u32 g=0;g<run.glyph_count;++g){const auto& glyph=text.glyphs[run.first_glyph+g];
-            append_value(r,glyph.index);append_value(r,glyph.advance);append_value(r,glyph.advance_offset);append_value(r,glyph.ascender_offset);}
-        for(u32 u=begin;u<end;++u){const u16 c=text.clusters[u];append_value(r,static_cast<u16>(c==0xffff?0xffff:c-run.first_glyph));}
-        return;
-    }
     u32 low=0,high=state.run_count;
     while(low<high){const u32 middle=(low+high)/2;if(read<u64>(state.runs+middle*12)<key)low=middle+1;else high=middle;}
     if(low==state.run_count||read<u64>(state.runs+low*12)!=key){++state.runs_missing;report_run("reference missing",key,text,run);state.failed=true;return;}
@@ -266,16 +238,9 @@ void check_run(const ShapedText& text,const TextRun& run,u32 font,const NativeFo
 
 bool reference_begin() noexcept {
     profile_from_command_line();
-    const DWORD units=GetEnvironmentVariableW(L"MAICORD_TEXT_REFERENCE_RECORD",state.directory,1024);
-    state.record=units&&units<1000;state.active=true;
-    if(state.record){
-        CHECK(arena_initialize(&state.groups,1ull<<30,0)&&arena_initialize(&state.requests,1ull<<32,0));
-        CHECK(arena_initialize(&state.keys,8u<<20,8u<<20));
-        state.request_keys=static_cast<u64*>(arena_allocate_zero(&state.keys,8u<<20,8));CHECK(state.request_keys);
-        return true;
-    }
+    state.active=true;
     CHECK(select_profile());
-    if(!state.profile_groups&&!state.profile_cases){say("SKIP reference: none recorded for this profile; record it with tools/font_reference/text_reference.py");report_profile();state.skipped=true;state.active=false;}
+    if(!state.profile_groups&&!state.profile_cases){say("SKIP reference: none recorded for this profile");report_profile();state.skipped=true;state.active=false;}
     // Treats every system font as foreign: the coverage a machine with other system fonts keeps.
     wchar_t simulate[4];state.simulate_foreign=GetEnvironmentVariableW(L"MAICORD_TEXT_REFERENCE_FOREIGN",simulate,4)==1&&simulate[0]=='1';
     return true;
@@ -306,25 +271,6 @@ void observe_shape(const ShapedText& text,Utf8View source,bool independent,float
 }
 u32 reference_end(bool ok) noexcept {
     finish_group();
-    if(state.record){
-        wchar_t path[1100];u32 n=0;for(u32 i=0;state.directory[i]&&n<1024;++i)path[n++]=state.directory[i];
-        path[n++]='\\';for(u32 shift=64;shift;){shift-=4;path[n++]=L"0123456789abcdef"[state.profile>>shift&15];}
-        const wchar_t* suffix=L".bin";while(*suffix)path[n++]=*suffix++;path[n]=0;
-        const HANDLE file=CreateFileW(path,GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
-        bool written=file!=INVALID_HANDLE_VALUE;
-        const auto put=[&](const void* data,usize bytes) noexcept {const auto* p=static_cast<const u8*>(data);
-            while(written&&bytes){const DWORD chunk=static_cast<DWORD>(bytes>(1u<<30)?(1u<<30):bytes);DWORD done=0;written=WriteFile(file,p,chunk,&done,nullptr)&&done==chunk;p+=chunk;bytes-=chunk;}};
-        const u32 counts[4]{state.profile_units,cases,state.font_count,static_cast<u32>(state.groups.offset/20)};
-        put("MCTXREC2",8);put(&state.profile,8);put(counts,16);put(state.profile_text,state.profile_units*2);
-        for(u32 i=0;i<state.font_count;++i){const auto& f=state.fonts[i];const u16 system=f.system;
-            put(&f.digest,8);put(&f.face,4);put(&f.upem,2);put(&system,2);put(&f.path_units,2);put(f.path,f.path_units*2);}
-        put(state.groups.base,state.groups.offset);
-        const u32 requests=state.request_count;put(&requests,4);put(state.requests.base,state.requests.offset);
-        if(file!=INVALID_HANDLE_VALUE)CloseHandle(file);
-        arena_release(&state.groups);arena_release(&state.requests);arena_release(&state.keys);
-        say("reference_recorded fonts=");number(state.font_count);say(" runs=");number(state.runs_checked);say(" requests=");number(requests);say(written?"\n":" WRITE FAILED\n");
-        return ok&&written?0:1;
-    }
     if(state.skipped)return ok?77:1;
     // Without foreign fonts the run must also have covered exactly the recorded cases and groups; with them its
     // control flow may legitimately differ, and the skipped groups are reported instead.

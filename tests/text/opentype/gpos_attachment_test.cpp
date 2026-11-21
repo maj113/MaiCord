@@ -139,15 +139,9 @@ bool units_guards() noexcept {
     }
     pages_release(mem);return ok;
 }
-bool file_corpus(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;LARGE_INTEGER size{};if(!GetFileSizeEx(file,&size) || size.QuadPart<12 || size.QuadPart>0xffffffffll){CloseHandle(file);return false;}
-    HANDLE map=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!map){CloseHandle(file);return false;}const auto* data=static_cast<const u8*>(MapViewOfFile(map,FILE_MAP_READ,0,0,0));const bool ok=data && corpus({data,static_cast<u32>(size.QuadPart)});if(data)UnmapViewOfFile(data);CloseHandle(map);CloseHandle(file);return ok;
-}
 int run() noexcept {
     if(!units_guards()){print(utf8_literal("FAIL attachment units/guards\n"));return 3;}
-    const wchar_t* command=test_arguments();
-    bool ok=false;if(!*command)ok=corpus({attachment_fixture,sizeof(attachment_fixture)});
-    else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_corpus(path);}
+    const bool ok=corpus({attachment_fixture,sizeof(attachment_fixture)});
     print(utf8_literal("glyph_queries="));number(glyph_queries);print(utf8_literal("\nanchor_checks="));number(anchor_checks);print(utf8_literal("\nnull_anchors="));number(null_anchors);print(utf8_literal("\ndevice_samples="));number(device_samples);print(utf8_literal("\ntarget_rows="));number(target_rows);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nguard_observations="));number(observations);print(utf8_literal("\n"));print(ok?utf8_literal("PASS native GPOS attachment data\n"):utf8_literal("FAIL native GPOS attachment data\n"));return ok?0:1;
 }
 }}

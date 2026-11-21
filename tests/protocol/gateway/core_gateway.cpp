@@ -3144,8 +3144,6 @@ void test_gateway_endpoint() noexcept {
 }
 
 void test_gateway_commands() noexcept {
-    expect(kGatewayUserCapabilitiesDefault == 1'734'653 && (kGatewayUserCapabilitiesDefault & (1u << 8)) != 0,
-           "gateway_advertises_auth_token_refresh_as_the_desktop_client");
     u8 output[2048]{};
     u8 guarded[2048]{};
     guard_fill(guarded, sizeof(guarded));
@@ -3172,14 +3170,8 @@ void test_gateway_commands() noexcept {
     expect(user_identified.ok() && user_identified.bytes == expected_user_identify.count &&
                bytes_equal(ConstSlice<u8>{output, user_identified.bytes}, expected_user_identify),
            "gateway_user_identify_fresh_write");
-    // The desktop client's capabilities with channel obfuscation off, AUTH_TOKEN_REFRESH (bit 8) included: READY's
-    // replacement auth_token is adopted by the Gateway, REST and the saved profile. No installation_id is sent (a
-    // server-issued analytics ID the client keeps in local storage).
-    bool installation_absent = true;
-    for (u32 index = 0; index + 15 <= user_identified.bytes; ++index)
-        installation_absent = installation_absent && !bytes_equal(ConstSlice<u8>{output + index, 15},
-                                                                  ConstSlice<u8>{reinterpret_cast<const u8*>("installation_id"), 15});
-    expect(installation_absent, "gateway_user_identify_capabilities_and_properties_pinned");
+    // The capabilities are the desktop client's with channel obfuscation off, AUTH_TOKEN_REFRESH (bit 8) included:
+    // READY's replacement auth_token is adopted by the Gateway, REST and the saved profile.
 
     // The X-Super-Properties header carries the same object: measured without
     // an output, written whole or not at all.

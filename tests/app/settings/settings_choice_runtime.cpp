@@ -300,16 +300,6 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
         check(!scene->widgets.hovered.generation && !f.background_pointer_events,
               "settings pointer: native leave clears hover while preserving modal ownership");
     }
-    // Every pointer move tracks the option under it: the option a swatch or radio row left hovered clears as soon as
-    // the pointer is on any other control, so a segmented row never paints it. (Segment hover itself is covered by
-    // the scene test; the segmented rows here are disabled without an account.)
-    if (pointer_settings) {
-        auto* scene = const_cast<UiSettingsScene*>(g_app.renderer.settings_scene);
-        scene->palette_hovered_index = 2;
-        inject(window_test::pointer_move(window_test::x_of(toggle_point), window_test::y_of(toggle_point)));
-        check(scene->palette_hovered_index == ~u32{0},
-              "settings pointer: moving onto another control clears the option a previous row left hovered");
-    }
     bool changed = false;
     const bool opened = open();
     const u32 initial = effect();

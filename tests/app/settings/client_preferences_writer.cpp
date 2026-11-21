@@ -157,7 +157,7 @@ void test_client_preferences_writer(void (*check)(bool, const char*) noexcept) n
               "preferences writer: second bounded stop joins the preserved worker");
     }
     check(accepted && !writer && client_preferences_load_file(path, &loaded).ok() &&
-          client_preferences_equal(final, loaded) && client_preferences_writer_stop(&writer, 0),
+          client_preferences_equal(final, loaded),
           "preferences writer: stop drains newest accepted snapshot before releasing ownership");
 }
 

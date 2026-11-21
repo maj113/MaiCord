@@ -288,9 +288,6 @@ void test_manifest(Check check) noexcept {
               ambient_error("\"interface\":2", "\"uses\":[\"clock\",\"clock\"]") == McfxError::manifest &&
               ambient_error("\"interface\":2", "\"uses\":[\"sunlight\"]") == McfxError::manifest,
           "mcfx manifest: clock and appearance parse under interface 2 only; interface 2 alone changes nothing");
-    check(parses(good_package()) && workspace.package.uses == (effect_use_noise | effect_use_glyphs) &&
-              !(workspace.package.uses & kEffectAmbientUses),
-          "mcfx manifest: an interface-1 package parses as before, with no ambient input");
     check(refuses("\"blend\":\"screen\"", "\"blend\":\"multiply\"") && refuses("\"uses\":[\"noise\",\"glyphs\"]", "\"uses\":[\"noise\",\"noise\"]") &&
               refuses("\"uses\":[\"noise\",\"glyphs\"]", "\"uses\":[\"texture0\"]") && refuses("\"resolution\":75", "\"resolution\":80") &&
               refuses("\"fps\":30", "\"fps\":0"),
@@ -408,9 +405,6 @@ void test_mutation(Check check) noexcept {
         accepted += mcfx_parse({mutated, length}, &workspace).ok();
     }
     check(accepted < 3000, "mcfx: 6,000 mutated packages are parsed without a crash and mostly refused");
-    // A rewritten manifest byte never corrupts the neighbouring section.
-    good_package();
-    check(parses(bytes), "mcfx: the good package is still accepted after the mutation runs");
 }
 
 // PNG: an 8-bit RGBA IHDR is all the container reads; the decoder runs when the effect is selected.

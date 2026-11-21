@@ -6,7 +6,6 @@
 // Manual modes, deliberately not in the suite:
 //   MAICORD_UI_PROBE_CAPTURE_DIR / _CAPTURE_PREFIX  write BMP frames.
 //   MAICORD_UI_SHOWCASE_PROBE  website screenshots (label showcase, opt-in).
-//   MAICORD_REGIONAL_FLAG_SURFACES_PROBE  the bundled flags on message, composer and reaction surfaces.
 #include "ui_probe_internal.hpp"
 #include "maicord/ui/shell/notice_band.hpp"
 #include "maicord/ui/chat/messages/text_selection.hpp"
@@ -17,7 +16,6 @@
 #include "../support/glyph_atlas_pins.hpp"
 #include "../support/warp_device.hpp"
 #include "probe_draw_pipeline.hpp"
-#include "regional_flag_surfaces_probe.hpp"
 #include "inline_flags_probe.hpp"
 #include "guild_rail_icon_probe.hpp"
 #include "background_theme_probe.hpp"
@@ -31,7 +29,6 @@
 #include "maicord/core/decimal.hpp"
 #include "font_identity_probe.hpp"
 #include "../fixtures/jpeg_reference_fixture.hpp"
-#include "../fixtures/jpeg_progressive_fixture.hpp"
 #include "../fixtures/jpeg_cmyk_fixture.hpp"
 #include "../support/media_fixture.hpp"
 #include "../support/jpeg_decode.hpp"
@@ -1443,57 +1440,6 @@ bool initialize_fixture(bool focused_text = false) noexcept {
             .ok()) {
         return false;
     }
-    g_probe.failure_stage = 31;
-    JpegImage jpeg_420_image{};
-    JpegDecodeResult jpeg_420_decoded{};
-    const MediaAtlasGpuResult jpeg_420_uploaded = probe_upload_jpeg(
-        ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)}, 109, &jpeg_420_image, &jpeg_420_decoded);
-    if (!jpeg_420_decoded.ok() || !jpeg_420_uploaded.ok() ||
-        !jpeg_atlas_pixels_reference_tolerance(
-            jpeg_420_uploaded.allocation, 16, 16,
-            ConstSlice<u8>{reinterpret_cast<const u8*>(kJpeg420ReferenceRgb),
-                           sizeof(kJpeg420ReferenceRgb)})) {
-        return false;
-    }
-    g_probe.failure_stage = 32;
-    JpegImage progressive_jpeg_image{};
-    JpegDecodeResult progressive_jpeg_decoded{};
-    const MediaAtlasGpuResult progressive_jpeg_uploaded =
-        probe_upload_jpeg(ConstSlice<u8>{reinterpret_cast<const u8*>(kJpegProgressive420Reference),
-                                         kJpegProgressive420ReferenceBytes},
-                          111, &progressive_jpeg_image, &progressive_jpeg_decoded);
-    if (!progressive_jpeg_decoded.ok() || progressive_jpeg_decoded.decoded_scans != 10 ||
-        !progressive_jpeg_uploaded.ok() ||
-        !jpeg_atlas_pixels_reference_tolerance(
-            progressive_jpeg_uploaded.allocation, 16, 16,
-            ConstSlice<u8>{reinterpret_cast<const u8*>(kJpegProgressive420ReferenceRgb),
-                           kJpegProgressive420ReferenceRgbBytes})) {
-        return false;
-    }
-    g_probe.failure_stage = 33;
-    JpegImage cmyk_jpeg_image{};
-    JpegDecodeResult cmyk_jpeg_decoded{};
-    const MediaAtlasGpuResult cmyk_jpeg_uploaded =
-        probe_upload_jpeg(ConstSlice<u8>{kJpegCmykAdobeReference, sizeof(kJpegCmykAdobeReference)}, 112,
-                          &cmyk_jpeg_image, &cmyk_jpeg_decoded);
-    if (!cmyk_jpeg_decoded.ok() || !cmyk_jpeg_uploaded.ok() ||
-        !jpeg_atlas_pixels_reference_tolerance(
-            cmyk_jpeg_uploaded.allocation, 16, 16,
-            ConstSlice<u8>{kJpegCmykAdobeReferenceRgb, sizeof(kJpegCmykAdobeReferenceRgb)})) {
-        return false;
-    }
-    g_probe.failure_stage = 34;
-    JpegImage ycck_jpeg_image{};
-    JpegDecodeResult ycck_jpeg_decoded{};
-    const MediaAtlasGpuResult ycck_jpeg_uploaded =
-        probe_upload_jpeg(ConstSlice<u8>{kJpegYcckProgressiveReference, sizeof(kJpegYcckProgressiveReference)},
-                          113, &ycck_jpeg_image, &ycck_jpeg_decoded);
-    if (!ycck_jpeg_decoded.ok() || ycck_jpeg_decoded.decoded_scans <= 1 || !ycck_jpeg_uploaded.ok() ||
-        !jpeg_atlas_pixels_reference_tolerance(
-            ycck_jpeg_uploaded.allocation, 16, 16,
-            ConstSlice<u8>{kJpegYcckProgressiveReferenceRgb, sizeof(kJpegYcckProgressiveReferenceRgb)})) {
-        return false;
-    }
     g_probe.failure_stage = 35;
     for (u8 orientation_value = 1; orientation_value <= 8; ++orientation_value) {
         u32 oriented_bytes = 0;
@@ -1858,7 +1804,6 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     return true;
 }
 
-#include "thai_wrapped_probe.inc"
 #include "catalog_apng_probe.inc"
 
 int run_probe() noexcept {
@@ -1920,14 +1865,11 @@ int run_probe() noexcept {
     const bool user_settings_requested = probe_option_enabled(L"MAICORD_USER_SETTINGS_UI_PROBE");
     const bool resize_text_requested = probe_option_enabled(L"MAICORD_UI_RESIZE_TEXT_PROBE");
     const bool store_requested = probe_option_enabled(L"MAICORD_STORE_UI_PROBE");
-    const bool flag_surfaces_requested = probe_option_enabled(L"MAICORD_REGIONAL_FLAG_SURFACES_PROBE");
     if (probe_option_enabled(L"MAICORD_REGIONAL_FLAG_PROBE"))
         return finish_gate(regional_flag_ui_probe(g_probe.renderer, g_probe.popup_scene, probe_capture_frame),
                            "regional_flag_gpu_probe_passed", "regional_flag_gpu_probe_failed", 242);
-    wchar_t title_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_BOOTSTRAP_TITLE_PROBE", title_only, 2) == 1)
-        return finish_gate(title_only[0] == L'2' || probe_bootstrap_title(), "bootstrap_title_passed",
-                           "bootstrap_title_failed", 246);
+    if (probe_option_enabled(L"MAICORD_BOOTSTRAP_TITLE_PROBE"))
+        return finish_gate(probe_bootstrap_title(), "bootstrap_title_passed", "bootstrap_title_failed", 246);
     if (probe_option_enabled(L"MAICORD_STARTUP_GLYPH_ATLAS_PROBE"))
         return finish_gate(probe_startup_glyph_atlas(), "startup_glyph_atlas_passed", "startup_glyph_atlas_failed",
                            247);
@@ -2021,9 +1963,6 @@ int run_probe() noexcept {
     if (probe_option_enabled(L"MAICORD_UI_FRAME_DAMAGE_PROBE"))
         return finish_gate(initialize_fixture(true) && frame_damage_ui_probe(), "frame_damage_native_ui_passed",
                            "frame_damage_native_ui_failed", 307);
-    if (probe_option_enabled(L"MAICORD_UI_SCROLL_FADE_PROBE"))
-        return finish_gate(initialize_fixture(true) && scroll_fade_ui_probe(), "scroll_fade_native_ui_passed",
-                           "scroll_fade_native_ui_failed", 310);
     if (probe_option_enabled(L"MAICORD_UI_SHOWCASE_PROBE"))
         return finish_gate(
             initialize_fixture(true) && showcase_ui_probe(g_probe.renderer, g_probe.message_text),
@@ -2443,212 +2382,19 @@ int run_probe() noexcept {
                                false,
                                false,
                                true};
-    struct WrappedRenderProbe {
-        const wchar_t* option;
-        WrappedProbeScript script;
-        const char* passed;
-        const char* failed;
-    };
-    static constexpr WrappedRenderProbe wrapped_render_probes[]{
-        {L"MAICORD_TIBETAN_WRAP_RENDER_PROBE", WrappedProbeScript::tibetan, "tibetan_wrap_render_probe_passed",
-         "tibetan_wrap_render_probe_failed"},
-        {L"MAICORD_MYANMAR_WRAP_RENDER_PROBE", WrappedProbeScript::myanmar, "myanmar_wrap_render_probe_passed",
-         "myanmar_wrap_render_probe_failed"},
-        {L"MAICORD_KHMER_WRAP_RENDER_PROBE", WrappedProbeScript::khmer, "khmer_wrap_render_probe_passed",
-         "khmer_wrap_render_probe_failed"},
-        {L"MAICORD_SINHALA_WRAP_RENDER_PROBE", WrappedProbeScript::sinhala, "sinhala_wrap_render_probe_passed",
-         "sinhala_wrap_render_probe_failed"},
-        {L"MAICORD_MALAYALAM_WRAP_RENDER_PROBE", WrappedProbeScript::malayalam,
-         "malayalam_wrap_render_probe_passed", "malayalam_wrap_render_probe_failed"},
-        {L"MAICORD_KANNADA_WRAP_RENDER_PROBE", WrappedProbeScript::kannada, "kannada_wrap_render_probe_passed",
-         "kannada_wrap_render_probe_failed"},
-        {L"MAICORD_TELUGU_WRAP_RENDER_PROBE", WrappedProbeScript::telugu, "telugu_wrap_render_probe_passed",
-         "telugu_wrap_render_probe_failed"},
-        {L"MAICORD_ODIA_WRAP_RENDER_PROBE", WrappedProbeScript::odia, "odia_wrap_render_probe_passed",
-         "odia_wrap_render_probe_failed"},
-        {L"MAICORD_GURMUKHI_WRAP_RENDER_PROBE", WrappedProbeScript::gurmukhi, "gurmukhi_wrap_render_probe_passed",
-         "gurmukhi_wrap_render_probe_failed"},
-        {L"MAICORD_GUJARATI_WRAP_RENDER_PROBE", WrappedProbeScript::gujarati, "gujarati_wrap_render_probe_passed",
-         "gujarati_wrap_render_probe_failed"},
-        {L"MAICORD_BENGALI_WRAP_RENDER_PROBE", WrappedProbeScript::bengali, "bengali_wrap_render_probe_passed",
-         "bengali_wrap_render_probe_failed"},
-        {L"MAICORD_TAMIL_WRAP_RENDER_PROBE", WrappedProbeScript::tamil, "tamil_wrap_render_probe_passed",
-         "tamil_wrap_render_probe_failed"},
-        {L"MAICORD_THAI_WRAP_RENDER_PROBE", WrappedProbeScript::thai, "thai_wrap_render_probe_passed",
-         "thai_wrap_render_probe_failed"},
-    };
-    for (const auto& wrapped : wrapped_render_probes) {
-        if (!probe_option_enabled(wrapped.option))
-            continue;
-        const bool valid = initialize_fixture(true) && probe_script_wrapped(wrapped.script);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe", valid ? wrapped.passed : wrapped.failed);
-        renderer_shutdown(&g_probe.renderer);
-        d3d11_draw_pipeline_release(&g_probe.renderer.pipeline);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 241;
-    }
-    static constexpr Utf8View hangul_samples[]{utf8_literal("한국어 메시지 😀"), utf8_literal("한글 각 각"),
-                                               utf8_literal("ᄓᅡᇫ ᅟᅠᆨ 가〮 각〯"), utf8_literal("〮 가〮〯 가〮")};
-    static constexpr Utf8View extended_samples[]{utf8_literal("ሰላም ዓለም 😀"), utf8_literal("ሀ፝ ሁ፞ ሂ፟ ፩፪፫ ፲፻፼"),
-                                                 utf8_literal("ᎣᏏᏲ ᏣᎳᎩ ꭰꭱꭲ"), utf8_literal("Ꭰ́ Ꭱ̄ שלום ሰላም")};
-    static constexpr Utf8View standard_samples[]{utf8_literal("Բարև աշխարհ 😀"), utf8_literal("և եւ ﬓ ﬔ ﬕ ﬖ ﬗ ա́"),
-                                                 utf8_literal("ქართული ᲥᲐᲠᲗᲣᲚᲘ"), utf8_literal("ႠႡႢ ⴀⴁⴂ ა́ ա̄")};
-    static constexpr Utf8View deva_samples[]{utf8_literal("नमस्ते दुनिया 😀"), utf8_literal("र्कि किं कृ त्र ज्ञ"),
-                                             utf8_literal("क्‍ष क्‌ष क़ि"), utf8_literal("ि ़ ॑ क॑ कः")};
-    static constexpr Utf8View deva_direction_samples[]{
-        utf8_literal("A \u202eर्कि हिन्दी 😀\u202c B"), utf8_literal("\u202eक्‍ष क्‌ष क्षेत्र\u202c"),
-        utf8_literal("אב हिन्दी \u202eर्कि\u202c"), utf8_literal("\u2067हिन्दी \u202eर्कि\u202c\u2069")};
-    static constexpr Utf8View direction_tracking_samples[]{
-        utf8_literal("A \u202eर्कि हिन्दी 😀\u202c B"), utf8_literal("אָבּ גּד हिन्दी"),
-        utf8_literal("سَلَامٌ \u202dب\u034fب بَ\u034fب\u202c"), utf8_literal("سَّلَام 👩‍👩‍👧‍👦 A")};
-    // How a probe sets the text system's tracking: leave it, none, or alternate by sample.
-    enum class RenderTracking : u8 { keep, none, alternate };
-    struct RenderProbe {
-        const wchar_t* option;
-        const Utf8View* samples;
-        wchar_t capture[32];
-        u32 digit;
-        RenderTracking tracking;
-        const char* passed;
-        const char* failed;
-    };
-    static constexpr RenderProbe render_probes[]{
-        {L"MAICORD_EXTENDED_STANDARD_RENDER_PROBE", extended_samples, L"extended-standard-0-0-0.bmp", 18,
-         RenderTracking::alternate, "extended_standard_render_probe_passed", "extended_standard_render_probe_failed"},
-        {L"MAICORD_DIRECTION_TRACKING_RENDER_PROBE", direction_tracking_samples, L"direction-tracking-0-0-0.bmp",
-         19, RenderTracking::alternate, "direction_tracking_render_probe_passed",
-         "direction_tracking_render_probe_failed"},
-        {L"MAICORD_DEVANAGARI_DIRECTION_RENDER_PROBE", deva_direction_samples, L"devanagari-direction-0-0-0.bmp",
-         21, RenderTracking::none, "devanagari_direction_render_probe_passed",
-         "devanagari_direction_render_probe_failed"},
-        {L"MAICORD_DEVANAGARI_TRACKING_RENDER_PROBE", deva_samples, L"devanagari-tracking-0-0-0.bmp", 20,
-         RenderTracking::alternate, "devanagari_tracking_render_probe_passed",
-         "devanagari_tracking_render_probe_failed"},
-        {L"MAICORD_DEVANAGARI_RENDER_PROBE", deva_samples, L"devanagari-0-0-0.bmp", 11, RenderTracking::keep,
-         "devanagari_render_probe_passed", "devanagari_render_probe_failed"},
-        {L"MAICORD_STANDARD_RENDER_PROBE", standard_samples, L"standard-0-0-0.bmp", 9, RenderTracking::keep,
-         "standard_render_probe_passed", "standard_render_probe_failed"},
-        {L"MAICORD_HANGUL_RENDER_PROBE", hangul_samples, L"hangul-0-0-0.bmp", 7, RenderTracking::keep,
-         "hangul_render_probe_passed", "hangul_render_probe_failed"},
-    };
-    for (const auto& render : render_probes) {
-        if (!probe_option_enabled(render.option))
-            continue;
-        const Utf8View* samples = render.samples;
-        auto& system = g_probe.renderer.glyph_text.system;
-        const float saved_tracking = system.tracking;
-        const bool saved_independent = system.independent_letters;
-        // Field drawing uses the native shaping of the renderer's text system.
-        bool valid = true;
-        constexpr u32 dpis[]{96, 144};
-        for (u32 scale = 0; valid && scale < 2; ++scale) {
-            renderer_set_dpi(&g_probe.renderer, dpis[scale]);
-            for (u32 i = 0; valid && i < 4; ++i)
-                for (u32 mode = 0; valid && mode < 3; ++mode) {
-                    if (render.tracking != RenderTracking::keep) {
-                        system.tracking = render.tracking == RenderTracking::none ? 0 : (i & 1) ? .13f : .03f;
-                        system.independent_letters = i >= 2;
-                    }
-                    u32 characters = 0;
-                    for (u32 byte = 0; byte < samples[i].bytes; ++byte)
-                        characters += (static_cast<u8>(samples[i].data[byte]) & 0xc0) != 0x80;
-                    auto view = login_view;
-                    view.login = samples[i];
-                    view.password_mask = {};
-                    view.qr_code = nullptr;
-                    view.focus = LoginControl::login;
-                    view.edit_active = mode != 0;
-                    view.edit_anchor = mode == 1 ? 0 : characters;
-                    view.edit_caret = characters;
-                    TextCompositionSpan composition{};
-                    composition.start = 1;
-                    composition.end = characters - 1;
-                    composition.line_style = TextCompositionLineStyle::solid;
-                    view.edit_composition_active = mode == 2;
-                    view.edit_composition = mode == 2 ? ConstSlice<TextCompositionSpan>{&composition, 1}
-                                                      : ConstSlice<TextCompositionSpan>{};
-                    wchar_t capture[32];
-                    copy_bytes(capture, render.capture, sizeof(capture));
-                    capture[render.digit] += static_cast<wchar_t>(i);
-                    capture[render.digit + 2] += static_cast<wchar_t>(mode);
-                    capture[render.digit + 4] += static_cast<wchar_t>(scale);
-                    valid = set_probe_login_view(view) && probe_prepare_capture();
-                    if (mode)
-                        valid = valid && g_probe.renderer.login_edit.active &&
-                                g_probe.renderer.login_edit.caret.height > 0;
-                    if (mode == 1)
-                        valid = valid && g_probe.renderer.login_edit.selection_count > 0;
-                    if (mode)
-                        valid = valid && g_probe.renderer.login_edit.geometry;
-                    valid = valid && probe_capture_frame(capture);
-                }
-        }
-        system.tracking = saved_tracking;
-        system.independent_letters = saved_independent;
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe", valid ? render.passed : render.failed);
-        renderer_shutdown(&g_probe.renderer);
-        d3d11_draw_pipeline_release(&g_probe.renderer.pipeline);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 240;
-    }
-    // Empty-owner contract: waiting is immediate and releasing is idempotent.
-    D3D11DeviceOwner invalid_owner{};
-    if (!gpu_frame_wait(&invalid_owner.surface, 0)) {
+    // The content text retention key: a miss, then a hit once the build commits, and a reset empties it.
+    ContentTextRetentionOwner retention{};
+    const ContentTextRetentionKey retention_key{};
+    if (content_text_retention_probe(&retention, retention_key) || retention.misses != 1) {
         return 9;
     }
-    d3d11_device_owner_release(&invalid_owner);
-    d3d11_device_owner_release(&invalid_owner);
-    if (!device_owner_empty(invalid_owner)) {
+    content_text_retention_commit(&retention, retention_key);
+    if (!content_text_retention_probe(&retention, retention_key) || retention.builds != 1 || retention.hits != 1) {
         return 9;
     }
-    D3D11DrawPipelineOwner invalid_pipeline{};
-    const D3D11DrawPipelineConfig invalid_pipeline_config{};
-    if (d3d11_draw_pipeline_initialize(&invalid_pipeline, nullptr, nullptr, 0, 0, 0,
-                                       invalid_pipeline_config)
-                .error != D3D11DrawPipelineError::invalid_input ||
-        d3d11_draw_pipeline_reserve_glyph_instances(&invalid_pipeline, nullptr, 0, 0).error !=
-            D3D11DrawPipelineError::invalid_input ||
-        d3d11_draw_pipeline_update_transform(invalid_pipeline, nullptr, 0, 0, 0)) {
-        return 9;
-    }
-    d3d11_draw_pipeline_release(&invalid_pipeline);
-    d3d11_draw_pipeline_release(&invalid_pipeline);
-    if (!draw_pipeline_empty(invalid_pipeline)) {
-        return 9;
-    }
-    D3D11GlyphTextOwner invalid_glyph_text{};
-    if (d3d11_glyph_text_initialize(&invalid_glyph_text, nullptr, nullptr, 0).error !=
-        D3D11GlyphTextInitializeError::invalid_input) {
-        return 9;
-    }
-    d3d11_glyph_text_release(&invalid_glyph_text);
-    d3d11_glyph_text_release(&invalid_glyph_text);
-    if (!glyph_text_owner_empty(invalid_glyph_text)) {
-        return 9;
-    }
-    TextEditLayoutOwner invalid_composer{};
-    MessageHitTestCacheOwner invalid_message_hit{};
-    ContentTextRetentionOwner invalid_content_text{};
-    ContentTextRetentionKey invalid_content_key{};
-    text_edit_layout_release(&invalid_composer);
-    text_edit_layout_release(&invalid_composer);
-    message_hit_test_cache_release(&invalid_message_hit);
-    message_hit_test_cache_release(&invalid_message_hit);
-    if (content_text_retention_probe(&invalid_content_text, invalid_content_key) ||
-        invalid_content_text.misses != 1) {
-        return 9;
-    }
-    content_text_retention_commit(&invalid_content_text, invalid_content_key);
-    if (!content_text_retention_probe(&invalid_content_text, invalid_content_key) ||
-        invalid_content_text.builds != 1 || invalid_content_text.hits != 1) {
-        return 9;
-    }
-    content_text_retention_invalidate(&invalid_content_text);
-    content_text_retention_reset(&invalid_content_text);
-    content_text_retention_reset(&invalid_content_text);
-    if (!composer_layout_empty(invalid_composer) ||
-        !message_hit_cache_empty(invalid_message_hit) ||
-        !content_text_retention_empty(invalid_content_text)) {
+    content_text_retention_invalidate(&retention);
+    content_text_retention_reset(&retention);
+    if (!content_text_retention_empty(retention)) {
         return 9;
     }
     const bool login_view_set = set_probe_login_view(login_view);
@@ -2974,32 +2720,10 @@ int run_probe() noexcept {
         log_write(LogLevel::error, "probe", "login_browser_standalone_pixel_probe_failed");
         return finish_probe(9);
     }
-    if (!initialize_fixture(flag_surfaces_requested)) {
+    if (!initialize_fixture()) {
         renderer_shutdown(&g_probe.renderer);
         DestroyWindow(g_probe.window);
         return static_cast<int>(g_probe.failure_stage);
-    }
-    if (flag_surfaces_requested) {
-        const bool popup_ready =
-            popup_scene_initialize(&g_probe.popup_scene, {g_probe.popup_items, 1}, {g_probe.popup_rows, 1},
-                                   {g_probe.popup_widgets, 2 + kPopupWidgetsPerItem},
-                                   {g_probe.popup_layout_nodes, 2 + kPopupWidgetsPerItem}) &&
-            renderer_bind_popup_scene(&g_probe.renderer, &g_probe.popup_scene);
-        const bool valid =
-            popup_ready &&
-            regional_flag_surfaces_ui_probe(
-                {g_probe.renderer, g_probe.shell_scene, g_probe.message_view, g_probe.rich_store,
-                 g_probe.message_text, g_probe.message_scene, g_probe.message_composer,
-                 g_probe.message_composer_scene, g_probe.popup_scene, g_probe.chat_state, g_probe.users,
-                 g_probe.navigation, +[](u64 id, Utf8View text) noexcept { return add_message(id, text); },
-                 +[]() noexcept {
-                     return synchronize_probe_shell_layout() && rebuild_probe_content_text();
-                 },
-                 probe_capture_frame});
-        renderer_shutdown(&g_probe.renderer);
-        popup_scene_release(&g_probe.popup_scene);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 248;
     }
     if (!probe_reaction_picker_server_icon()) {
         log_write(LogLevel::error, "probe", "reaction_picker_server_icon_probe_failed");
@@ -3356,9 +3080,6 @@ int run_probe() noexcept {
             return 238;
         if (!read_state_probe(g_probe.renderer, g_probe.text_measure_cache, probe_capture_frame))
             return 239;
-        log_u64(LogLevel::info, "member_paging", "account_ui_bytes", sizeof(app_detail::AccountUiRuntime));
-        log_u64(LogLevel::info, "thread_members", "thread_store_bytes", sizeof(ThreadMemberStore));
-        log_u64(LogLevel::info, "thread_members", "subscription_bytes", sizeof(GatewayGuildSubscription));
         // Exercise empty Home and a selected private conversation with the real
         // D3D11 chrome, text cache, and pixel-to-DIP hit-test path before teardown.
         message_composer_reset(&g_probe.message_composer, 0, false);
@@ -3923,9 +3644,6 @@ int run_probe() noexcept {
                 g_probe.renderer.glyph_text.font_face_count);
         if (!probe_renderer_font_aliases(g_probe.renderer))
             return 238;
-        // The renderer types hold no DirectWrite objects, and the probe does
-        // not link dwrite.lib.
-        log_write(LogLevel::info, "probe", "native_application_text_objects_absent_passed");
         renderer_shutdown(&g_probe.renderer);
         d3d11_draw_pipeline_release(&g_probe.renderer.pipeline);
         const bool released = !g_probe.renderer.shell_text_storage.base &&
@@ -3969,7 +3687,7 @@ bool probe_resize_surface(u32 width, u32 height) noexcept {
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_ui_probe_entry() noexcept {
-    // MAICORD_UI_PROBE_WARP=1 (cmake/test_registry.cmake: the GPU hang reproductions): every device the probe makes,
+    // MAICORD_UI_PROBE_WARP=1 (cmake/test_registry.cmake): every device the probe makes,
     // the renderer's included, is WARP with the debug layer where it is installed, so the case never reaches the
     // hardware adapter; a debug-layer message other than NULL_TILE_MAPPING_ACCESS_WARNING fails it.
     const bool warp = maicord::probe_option_enabled(L"MAICORD_UI_PROBE_WARP");

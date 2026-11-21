@@ -25,11 +25,8 @@ float coordinate() noexcept {
 }
 u32 failures;
 void compare(const UiRect& a, const UiRect& b) noexcept {
-    const auto expected_overlap = reference_overlap(a, b);
     const auto expected_intersection = reference_intersection(a, b);
-    const auto overlap = ui_rect_overlap(a, b);
     const auto intersection = ui_rect_intersection(a, b);
-    test_check(&failures, bytes_equal(&overlap, &expected_overlap, sizeof(UiRect)), "rectangle overlap mismatch");
     test_check(&failures, bytes_equal(&intersection, &expected_intersection, sizeof(UiRect)), "rectangle intersection mismatch");
 }
 

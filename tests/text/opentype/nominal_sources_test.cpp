@@ -64,17 +64,8 @@ bool units() noexcept {
     u64 word=0,used=1;if(sfnt_nominal_sources({}, {&word,1},&used)!=SfntStatus::invalid_input || used)return false;SfntFace face{};SfntCmap cmap{};if(sfnt_open({file,sizeof(file)},0,&face)!=SfntStatus::ok || sfnt_cmap_open(face,&cmap)!=SfntStatus::ok || sfnt_nominal_sources(cmap,{nullptr,1})!=SfntStatus::invalid_input)return false;
     return true;
 }
-bool file_check(const wchar_t* path) noexcept {
-    HANDLE handle=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(handle==INVALID_HANDLE_VALUE)return false;
-    LARGE_INTEGER size{};if(!GetFileSizeEx(handle,&size)||size.QuadPart<12||size.QuadPart>0xffffffffll){CloseHandle(handle);return false;}
-    HANDLE mapping=CreateFileMappingW(handle,nullptr,PAGE_READONLY,0,0,nullptr);if(!mapping){CloseHandle(handle);return false;}
-    auto* bytes=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));const bool ok=bytes&&verify({bytes,static_cast<u32>(size.QuadPart)},false);
-    if(bytes)UnmapViewOfFile(bytes);CloseHandle(mapping);CloseHandle(handle);return ok;
-}
 int run() noexcept {
-    const wchar_t* command=test_arguments();
-    bool ok=false;if(!*command)ok=units();
-    else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_check(path);}
+    const bool ok=units();
 print(utf8_literal("scalar_checks="));number(scalar_checks);print(utf8_literal("\nmap_checks="));number(map_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nguards="));number(guard_checks);print(ok?utf8_literal("\nPASS native nominal sources\n"):utf8_literal("\nFAIL native nominal sources\n"));return ok?0:1;}
 }}
 MAICORD_TEST_ENTRY(maicord_nominal_sources_entry) {::maicord::test_process_exit(static_cast<UINT>(maicord::run()));}
