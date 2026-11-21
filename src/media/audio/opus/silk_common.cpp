@@ -338,6 +338,8 @@ void silk_lpc_analysis(i16* out, const i16* in, const i16* lpc_q12, u32 length, 
     alignas(16) i16 taps[16]{};
     for (u32 j = 0; j < 8; ++j)
         taps[j] = lpc_q12[order - 1 - j];
+    // At most eight taps: a vector loop and its tail would cost more bytes than these moves take time.
+#pragma clang loop vectorize(disable)
     for (u32 j = 8; j < order; ++j)
         taps[8 + (16 - order) + (j - 8)] = lpc_q12[order - 1 - j];
     const __m128i older = _mm_loadu_si128(reinterpret_cast<const __m128i_u*>(taps));
@@ -358,16 +360,14 @@ void silk_lpc_analysis(i16* out, const i16* in, const i16* lpc_q12, u32 length, 
     clear_bytes(out, order * static_cast<u32>(sizeof(i16)));
 }
 
+// `length` is even: every caller passes a subframe or a frame.
 i32 silk_energy(const i16* x, u32 length, i32* shift_out) noexcept {
     // A first pass with a shift that cannot overflow finds the shift that leaves two bits of headroom.
     i32 shift = 31 - leading_zeros(static_cast<i32>(length));
     u32 energy = length;
     for (u32 pass = 0; pass < 2; ++pass) {
-        u32 i = 0;
-        for (; i + 1 < length; i += 2)
+        for (u32 i = 0; i < length; i += 2)
             energy += (static_cast<u32>(x[i] * x[i]) + static_cast<u32>(x[i + 1] * x[i + 1])) >> shift;
-        if (i < length)
-            energy += static_cast<u32>(x[i] * x[i]) >> shift;
         if (pass == 0) {
             shift = maximum(0, shift + 3 - leading_zeros(static_cast<i32>(energy)));
             energy = 0;

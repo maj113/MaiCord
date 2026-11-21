@@ -1,9 +1,10 @@
 #pragma once
 // Four- and eight-lane float vectors for the codec's kernels: the compiler's vector types, whose operators
-// and
-// __builtin_shufflevector become SSE and AVX instructions (the baseline has no FMA and no 256-bit
-// integers). Sums and products keep their written order, so results are the same on every build.
+// and __builtin_shufflevector become SSE and AVX instructions. Sums and products keep their written order, and a
+// multiply-add fuses only through an fmadd intrinsic or fused() in a MAICORD_HASWELL_FMA function, so results are the
+// same on every build.
 #include "maicord/core/base.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord::opus {
 
@@ -53,6 +54,10 @@ __forceinline float sum4(F4 value) noexcept {
 }
 __forceinline float sum8(F8 value) noexcept {
     return sum4(low4(value) + high4(value));
+}
+// a * b + c, rounded once.
+MAICORD_HASWELL_FMA __forceinline float fused(float a, float b, float c) noexcept {
+    return _mm_cvtss_f32(_mm_fmadd_ss(_mm_set_ss(a), _mm_set_ss(b), _mm_set_ss(c)));
 }
 
 } // namespace maicord::opus

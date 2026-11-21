@@ -431,13 +431,8 @@ static const u8 kNlsfWidePrediction[30]{
 static const i16 kNlsfWideSpacing[17]{
     100, 3, 40, 3, 3, 3, 5, 14, 14, 10, 11, 3, 8, 9, 7, 3, 347,
 };
-// Cost of the residual symbols in 1/32 bit, for the encoder.
-static const u8 kNlsfNarrowResidualBits[72]{
-    255, 255, 255, 131, 6,  145, 255, 255, 255, 255, 255, 236, 93, 15, 96, 255, 255, 255,
-    255, 255, 194, 83,  25, 71,  221, 255, 255, 255, 255, 162, 73, 34, 66, 162, 255, 255,
-    255, 210, 126, 73,  43, 57,  173, 255, 255, 255, 201, 125, 71, 48, 58, 130, 255, 255,
-    255, 166, 110, 73,  57, 62,  104, 210, 255, 255, 251, 123, 65, 55, 68, 100, 171, 255,
-};
+// Cost of the residual symbols in 1/32 bit, for the encoder. It codes only wideband frames, so the
+// narrowband codebook has no costs.
 static const u8 kNlsfWideResidualBits[72]{
     255, 255, 255, 156, 4,  154, 255, 255, 255, 255, 255, 227, 102, 15, 92, 255, 255, 255,
     255, 255, 213, 83,  24, 72,  236, 255, 255, 255, 255, 150, 76,  33, 63, 214, 255, 255,
@@ -458,7 +453,7 @@ const NlsfCodebook kNlsfNarrow{32,
                                kNlsfNarrowPrediction,
                                kNlsfNarrowSelectors,
                                kNlsfNarrowResidualIcdf,
-                               kNlsfNarrowResidualBits,
+                               nullptr,
                                kNlsfNarrowSpacing};
 const NlsfCodebook kNlsfWide{32,
                              16,

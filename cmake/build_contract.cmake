@@ -283,8 +283,8 @@ if(MAICORD_LINUX)
         "$<$<COMPILE_LANGUAGE:C,CXX>:-ffp-contract=off>"
         # The x86-64 baseline of the Windows build: clang-cl's /arch:AVX2 is Haswell (AVX2, FMA, BMI1, BMI2, LZCNT,
         # MOVBE, F16C, POPCNT, PCLMULQDQ) with generic tuning, plus -maes, less AVX2 and FMA. AVX2 stays in the
-        # MAICORD_HASWELL loops: as the baseline it vectorized more loops and grew the client by 4 KB. The processor
-        # check does not require FMA, and a fused multiply-add rounds once where the code rounds twice. The features
+        # MAICORD_HASWELL loops: as the baseline it vectorized more loops and grew the client by 4 KB. FMA stays in
+        # the MAICORD_HASWELL_FMA loops: a fused multiply-add rounds once where the code rounds twice. The features
         # come from the processor name and not from -m switches, so MAICORD_ANY_PROCESSOR removes all of them.
         # Sandy Bridge's own tuning grew the client by 38 KB.
         "$<$<COMPILE_LANGUAGE:CXX>:-march=haswell;-mtune=generic;-maes;-mno-avx2;-mno-fma>"

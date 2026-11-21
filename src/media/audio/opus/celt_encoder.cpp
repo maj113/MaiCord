@@ -83,42 +83,43 @@ bool analyze_transient(const float* const in[2], u32 channels, bool allow_weak, 
     constexpr u32 kLength = kFrame + kOverlap, kHalf = kLength / 2;
     // The forward masking decays more slowly when weak transients are to be told apart.
     const float forward = allow_weak ? 0.03125f : 0.0625f;
-    float* const tmp = scratch;
+    // Each recursion below waits for its last value, so both channels run at once, one in each lane (a mono
+    // frame computes its channel twice). Each lane does the operations of the scalar recursion in its order.
+    typedef float F2 __attribute__((__vector_size__(8), __aligned__(4), __may_alias__));
+    F2* const smoothed = reinterpret_cast<F2*>(scratch); // per sample pair, kHalf of them
+    const float* const right = in[channels - 1];
+    // High-pass (1 - 2 z^-1 + z^-2) / (1 - z^-1 + z^-2 / 2), whose first 12 samples have no history and
+    // count as 0. Then the energy of sample pairs, smoothed forwards (post-masking).
+    F2 mem0{}, mem1{}, mean{}, forward_mask{};
+    const auto high_pass = [&](u32 at) __attribute__((always_inline)) noexcept {
+        const F2 x{in[0][at], right[at]}, y = mem0 + x;
+        mem0 = mem1 + y - 2 * x;
+        mem1 = x - 0.5f * y;
+        return y;
+    };
+    for (u32 i = 0; i < kHalf; ++i) {
+        const F2 y0 = high_pass(2 * i), y1 = high_pass(2 * i + 1);
+        const F2 pair = i < 6 ? F2{} : y0 * y0 + y1 * y1;
+        mean += pair;
+        forward_mask += forward * (pair - forward_mask);
+        smoothed[i] = forward_mask;
+    }
+    // Smoothed backwards (pre-masking, faster).
+    F2 backward_mask{}, peak{};
+    for (u32 i = kHalf; i-- > 0;) {
+        backward_mask += 0.125f * (smoothed[i] - backward_mask);
+        smoothed[i] = backward_mask;
+        peak = peak > backward_mask ? peak : backward_mask;
+    }
     i32 metric = 0;
     for (u32 c = 0; c < channels; ++c) {
-        // High-pass (1 - 2 z^-1 + z^-2) / (1 - z^-1 + z^-2 / 2); its first samples have no history.
-        float mem0 = 0, mem1 = 0;
-        for (u32 i = 0; i < kLength; ++i) {
-            const float x = in[c][i], y = mem0 + x;
-            mem0 = mem1 + y - 2 * x;
-            mem1 = x - 0.5f * y;
-            tmp[i] = y;
-        }
-        clear_bytes(tmp, 12 * sizeof(float));
-        // Energy of sample pairs, smoothed forwards (post-masking) and then backwards (pre-masking,
-        // faster).
-        float mean = 0;
-        mem0 = 0;
-        for (u32 i = 0; i < kHalf; ++i) {
-            const float pair = tmp[2 * i] * tmp[2 * i] + tmp[2 * i + 1] * tmp[2 * i + 1];
-            mean += pair;
-            mem0 += forward * (pair - mem0);
-            tmp[i] = mem0;
-        }
-        mem0 = 0;
-        float peak = 0;
-        for (u32 i = kHalf; i-- > 0;) {
-            mem0 += 0.125f * (tmp[i] - mem0);
-            tmp[i] = mem0;
-            peak = maximum(peak, mem0);
-        }
         // The frame energy (the geometric mean of the energy and half the peak) over the harmonic mean of
         // the masking curve: a temporal noise-to-mask ratio.
-        mean = square_root(mean * peak * 0.5f * static_cast<float>(kHalf));
-        const float norm = static_cast<float>(kHalf) / (1e-15f + 0.5f * mean);
+        const float energy = square_root(mean[c] * peak[c] * 0.5f * static_cast<float>(kHalf));
+        const float norm = static_cast<float>(kHalf) / (1e-15f + 0.5f * energy);
         i32 unmask = 0;
         for (u32 i = 12; i < kHalf - 5; i += 4) {
-            const float scaled = 64 * norm * (tmp[i] + 1e-15f);
+            const float scaled = 64 * norm * (smoothed[i][c] + 1e-15f);
             unmask += kInverse[static_cast<i32>(clamp_value(scaled, 0.f, 127.f))];
         }
         unmask = 64 * unmask * 4 / (6 * static_cast<i32>(kHalf - 17));

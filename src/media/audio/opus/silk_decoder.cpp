@@ -262,21 +262,15 @@ __attribute__((minsize)) void decode_parameters(SilkChannel& ch, FrameControl& c
     }
 }
 
-// Short-term synthesis of n samples: state[i] = residual[i] + 16 * prediction, in Q14, with the reference's
-// saturations; `state` has kSilkOrderMaximum samples of history before it. The prediction is the wrapping
-// sum of floor(state[i - 1 - j] * lpc[j] / 2^16) over the taps.
+// Short-term synthesis of n samples, a multiple of four as every subframe is: state[i] = residual[i] + 16 *
+// prediction, in Q14, with the reference's saturations; `state` has kSilkOrderMaximum samples of history
+// before it. The prediction is the wrapping sum of floor(state[i - 1 - j] * lpc[j] / 2^16) over the taps.
 //
 // Four samples at a time: the taps that reach samples older than the block before are summed for all four
 // outputs with 16-bit multiplies, well ahead of the sample-to-sample chain, which keeps only four to seven
 // taps. A state value hi * 2^16 + low (low signed, hi its carry-corrected upper half) times a tap b gives
 // floor(...) = hi * b + floor(low * b / 2^16); the first is a pmaddwd of (upper word, low's sign bit) with
 // (b, b), the second a pmulhw.
-__forceinline i32 predict_lpc(const i32* state, const i16* lpc, u32 order) noexcept {
-    i32 sum = static_cast<i32>(order >> 1); // rounding bias
-    for (u32 j = 0; j < order; ++j)
-        sum = add_wrap(sum, multiply_high_16(state[-1 - static_cast<i32>(j)], lpc[j]));
-    return sum;
-}
 struct StateWindow {
     __m128i upper[3]; // per sample one 32-bit lane: the upper word, and the low word's top bit above it
     __m128i lower[2]; // the low words: eight samples, then four
@@ -315,8 +309,11 @@ void synthesize_lpc(i32* state, const i32* residual, i16* out, const i16* lpc, u
     }
     const i32 bias = static_cast<i32>(order >> 1);
     const __m128i ones = _mm_set1_epi16(1);
-    u32 i = 0;
-    for (; i + 4 <= n; i += 4) {
+    // The block before: kept in a register, because a vector load of four values that were stored one by one
+    // would wait until those stores reach the cache.
+    I4 recent = __builtin_bit_cast(I4, load(state - 4));
+    i32 newest = state[-1];
+    for (u32 i = 0; i < n; i += 4) {
         __m128i sums[4];
         for (u32 k = 0; k < 4; ++k) {
             const __m128i high =
@@ -332,14 +329,13 @@ void synthesize_lpc(i32* state, const i32* residual, i16* out, const i16* lpc, u
             reinterpret_cast<__m128i_u*>(older),
             _mm_hadd_epi32(_mm_hadd_epi32(sums[0], sums[1]), _mm_hadd_epi32(sums[2], sums[3])));
         // The block before this one joins the window for the next.
-        const __m128i previous = load(state + i - 4);
+        const __m128i previous = __builtin_bit_cast(__m128i, recent);
         window.upper[0] = window.upper[1], window.upper[1] = window.upper[2],
         window.upper[2] = upper_form(previous);
         window.lower[0] = _mm_unpacklo_epi64(_mm_srli_si128(window.lower[0], 8), window.lower[1]);
         window.lower[1] = lower_words(previous);
         // The newest sample's tap goes last: everything before it is ready while that sample is still
         // computed.
-        i32 newest = state[static_cast<i32>(i) - 1];
         for (u32 k = 0; k < 4; ++k) {
             i32* const at = state + i + k;
             i32 prediction = add_wrap(bias, older[k]);
@@ -348,14 +344,9 @@ void synthesize_lpc(i32* state, const i32* residual, i16* out, const i16* lpc, u
             prediction = add_wrap(prediction, multiply_high_16(newest, taps[0]));
             newest = saturate_32(static_cast<i64>(residual[i + k]) + shift_left_saturate(prediction, 4));
             *at = newest;
+            recent[k] = newest;
             out[i + k] = static_cast<i16>(saturate_16(round_shift(multiply_high(newest, gain_q10), 8)));
         }
-    }
-    for (; i < n; ++i) { // lengths that are no multiple of four: none of the format's
-        const i32 value = saturate_32(static_cast<i64>(residual[i]) +
-                                      shift_left_saturate(predict_lpc(state + i, lpc, order), 4));
-        state[i] = value;
-        out[i] = static_cast<i16>(saturate_16(round_shift(multiply_high(value, gain_q10), 8)));
     }
 }
 
@@ -600,12 +591,8 @@ void conceal(SilkChannel& ch, FrameControl& control, i16* frame) noexcept {
     // Short-term synthesis in place over the excitation.
     i32* const lpc_state = ltp_state + ch.ltp_memory - kSilkOrderMaximum;
     copy_bytes(lpc_state, ch.lpc_state, sizeof(ch.lpc_state));
-    for (u32 i = 0; i < ch.frame_length; ++i) {
-        i32* const at = lpc_state + kSilkOrderMaximum + i;
-        const i32 prediction = predict_lpc(at, lpc, ch.order);
-        *at = saturate_32(static_cast<i64>(*at) + shift_left_saturate(prediction, 4));
-        frame[i] = static_cast<i16>(saturate_16(round_shift(multiply_high(*at, gains_q10[1]), 8)));
-    }
+    synthesize_lpc(lpc_state + kSilkOrderMaximum, lpc_state + kSilkOrderMaximum, frame, lpc, ch.order,
+                   gains_q10[1], ch.frame_length);
     copy_bytes(ch.lpc_state, lpc_state + ch.frame_length, sizeof(ch.lpc_state));
     ch.conceal_seed = seed;
     ch.conceal_noise_scale_q14 = static_cast<i16>(noise_scale_q14);
@@ -707,13 +694,11 @@ void comfort_noise(SilkChannel& ch, const FrameControl& control, i16* frame, u32
     i16 lpc[kSilkOrderMaximum];
     silk_nlsf_to_lpc(lpc, ch.noise_nlsf, ch.order);
     copy_bytes(signal, ch.noise_state, sizeof(ch.noise_state));
-    for (u32 i = 0; i < length; ++i) {
-        i32* const at = signal + kSilkOrderMaximum + i;
-        const i32 prediction = predict_lpc(at, lpc, ch.order);
-        *at = saturate_32(static_cast<i64>(*at) + shift_left_saturate(prediction, 4));
-        frame[i] = static_cast<i16>(
-            saturate_16(frame[i] + saturate_16(round_shift(multiply_high(*at, gain_q10), 8))));
-    }
+    i16 noise[kSilkFrameMaximum];
+    synthesize_lpc(signal + kSilkOrderMaximum, signal + kSilkOrderMaximum, noise, lpc, ch.order, gain_q10,
+                   length);
+    for (u32 i = 0; i < length; ++i)
+        frame[i] = static_cast<i16>(saturate_16(frame[i] + noise[i]));
     copy_bytes(ch.noise_state, signal + length, sizeof(ch.noise_state));
 }
 

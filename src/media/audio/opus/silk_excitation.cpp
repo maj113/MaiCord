@@ -7,7 +7,7 @@
 #include "silk_encoder.hpp"
 #include "vector.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/sys/simd.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord::opus {
 namespace {
@@ -18,12 +18,15 @@ constexpr i32 kLevelAdjust = 80;   // Q10: quantization levels sit this much nea
 constexpr i32 kPast = static_cast<i32>(kSilkHistory);
 constexpr u32 kChainFront = 4; // zeros in front of a shaping chain, for the taps that reach back
 
+typedef i16 Words __attribute__((__vector_size__(16)));
+
 // One candidate history of the delayed decision.
 struct Decision {
-    // The short-term predictor's memory, each value as high * 65536 + low with a signed low half: a tap's
-    // floor(value * coefficient / 65536) is then high * coefficient + floor(low * coefficient / 65536),
-    // both sixteen-bit multiplies.
-    alignas(16) i16 lpc_high[kSilkSubframe + kOrder], lpc_low[kSilkSubframe + kOrder];
+    // The short-term predictor's last kOrder outputs, oldest first, each as high * 65536 + low with a signed
+    // low half: a tap's floor(value * coefficient / 65536) is then high * coefficient + floor(low *
+    // coefficient / 65536), both sixteen-bit multiplies. A sample stores the vectors that the next sample
+    // loads. A 16-byte load that covers a newer 2-byte store waits until that store reaches the cache.
+    Words lpc_high[kOrder / 8], lpc_low[kOrder / 8];
     // The shaping filter chain: after the zeros, the last quantization error, then the allpass sections'
     // states.
     float chain[kChainFront + 1 + kShapeOrderMaximum + 3];
@@ -51,12 +54,22 @@ __forceinline i32 subtract_wrap(i32 a, i32 b) noexcept {
     return static_cast<i32>(static_cast<u32>(a) - static_cast<u32>(b));
 }
 __forceinline void split(Decision& s, u32 at, i32 value) noexcept {
-    s.lpc_low[at] = static_cast<i16>(value);
-    s.lpc_high[at] = static_cast<i16>(static_cast<i32>(static_cast<u32>(value) + 0x8000u) >> 16);
+    s.lpc_low[at >> 3][at & 7] = static_cast<i16>(value);
+    s.lpc_high[at >> 3][at & 7] = static_cast<i16>(static_cast<i32>(static_cast<u32>(value) + 0x8000u) >> 16);
 }
 __forceinline i32 joined(const Decision& s, u32 at) noexcept {
-    return static_cast<i32>((static_cast<u32>(static_cast<i32>(s.lpc_high[at])) << 16) +
-                            static_cast<u32>(static_cast<i32>(s.lpc_low[at])));
+    return static_cast<i32>((static_cast<u32>(static_cast<i32>(s.lpc_high[at >> 3][at & 7])) << 16) +
+                            static_cast<u32>(static_cast<i32>(s.lpc_low[at >> 3][at & 7])));
+}
+// The predictor's newest output goes in, its oldest leaves.
+__forceinline void shift_in(Decision& s, i32 value) noexcept {
+    const auto shift = [](Words* window, i32 word) noexcept {
+        const Words newest{static_cast<i16>(word)};
+        window[0] = __builtin_shufflevector(window[0], window[1], 1, 2, 3, 4, 5, 6, 7, 8);
+        window[1] = __builtin_shufflevector(window[1], newest, 1, 2, 3, 4, 5, 6, 7, 8);
+    };
+    shift(s.lpc_low, value);
+    shift(s.lpc_high, static_cast<i32>(static_cast<u32>(value) + 0x8000u) >> 16);
 }
 __forceinline i32 nearest(float value) noexcept {
     return _mm_cvtss_si32(_mm_set_ss(clamp_value(value, -2.e9f, 2.e9f)));
@@ -114,8 +127,8 @@ void set_shaping(Subframe& sub, const SilkShape& shape, u32 k, float w, u32 orde
     sub.taps[4] = splat8(-w2 * w);
     sub.entry = F4{w2, -w2 * w, w2 * w2, 0.f};
     sub.carry = splat4(w2 * w2);
-    for (u32 j = 0; j < kShapeOrderMaximum; ++j)
-        sub.ar[j] = j < order ? shape.ar[k][j] : 0.f;
+    // silk_noise_shape clears each row before it writes the first `order` coefficients.
+    copy_bytes(sub.ar, shape.ar[k], sizeof(sub.ar));
     sub.blocks = (order + 3) / 4;
     sub.harmonic = shape.harmonic_gain[k];
     sub.tilt = shape.tilt[k];
@@ -123,13 +136,13 @@ void set_shaping(Subframe& sub, const SilkShape& shape, u32 k, float w, u32 orde
     sub.lf_ar = shape.lf_ar[k];
 }
 
-// The short-term prediction of sample i of the subframe, Q14.
-__forceinline i32 predict(const Decision& s, i32 i, const Subframe& sub) noexcept {
+// The short-term prediction of the next sample, Q14.
+__forceinline i32 predict(const Decision& s, const Subframe& sub) noexcept {
     const __m128i ones = _mm_set1_epi16(1);
-    const __m128i high0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s.lpc_high + i));
-    const __m128i high1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s.lpc_high + i + 8));
-    const __m128i low0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s.lpc_low + i));
-    const __m128i low1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s.lpc_low + i + 8));
+    const __m128i high0 = __builtin_bit_cast(__m128i, s.lpc_high[0]);
+    const __m128i high1 = __builtin_bit_cast(__m128i, s.lpc_high[1]);
+    const __m128i low0 = __builtin_bit_cast(__m128i, s.lpc_low[0]);
+    const __m128i low1 = __builtin_bit_cast(__m128i, s.lpc_low[1]);
     __m128i sum = _mm_add_epi32(_mm_madd_epi16(high0, sub.lpc[0]), _mm_madd_epi16(high1, sub.lpc[1]));
     const __m128i floors = _mm_add_epi32(_mm_madd_epi16(_mm_mulhi_epi16(low0, sub.lpc[0]), ones),
                                          _mm_madd_epi16(_mm_mulhi_epi16(low1, sub.lpc[1]), ones));
@@ -147,20 +160,23 @@ __forceinline i32 predict(const Decision& s, i32 i, const Subframe& sub) noexcep
 //     o[m] = E[m] + w^4 * o[m - 4],
 // with E a fixed five-tap combination of the old states, so the chain advances four sections per step. (For
 // the first four sections E counts a section before the chain that does not exist, which `entry` takes
-// out.) Returns the sum of the new states weighted with the shaping coefficients.
-__forceinline float advance_shaping(float* t, const Subframe& sub) noexcept {
+// out.) Returns the sum of the new states weighted with the shaping coefficients. The multiplies and adds
+// are fused: a step of the chain then waits for one instruction, not two.
+MAICORD_HASWELL_FMA __forceinline float advance_shaping(float* t, const Subframe& sub) noexcept {
+    #pragma clang fp contract(off)
     F8 e[3];
     for (u32 v = 0; 2 * v < sub.blocks; ++v) {
         const float* const at = t + 8 * v + 1;
-        e[v] = (sub.taps[0] * load8(at) + sub.taps[1] * load8(at - 1)) +
-               (sub.taps[2] * load8(at - 2) + sub.taps[3] * load8(at - 3)) + sub.taps[4] * load8(at - 4);
+        e[v] = _mm256_fmadd_ps(sub.taps[1], load8(at - 1), sub.taps[0] * load8(at)) +
+               _mm256_fmadd_ps(sub.taps[4], load8(at - 4),
+                               _mm256_fmadd_ps(sub.taps[3], load8(at - 3), sub.taps[2] * load8(at - 2)));
     }
-    F4 out = low4(e[0]) + sub.entry * splat4(t[0]);
+    F4 out = _mm_fmadd_ps(sub.entry, splat4(t[0]), low4(e[0]));
     F4 sum = out * load4(sub.ar);
     store4(t + 1, out);
     for (u32 b = 1; b < sub.blocks; ++b) {
-        out = (b & 1 ? high4(e[b >> 1]) : low4(e[b >> 1])) + sub.carry * out;
-        sum += out * load4(sub.ar + 4 * b);
+        out = _mm_fmadd_ps(sub.carry, out, b & 1 ? high4(e[b >> 1]) : low4(e[b >> 1]));
+        sum = _mm_fmadd_ps(out, load4(sub.ar + 4 * b), sum);
         store4(t + 4 * b + 1, out);
     }
     return sum4(sum);
@@ -208,9 +224,11 @@ void scale_states(SilkQuantizerState* nsq, Decision* states, u32 count, const i1
 
 // One subframe: every history tries the two levels around its residual; the best `count` of the 2 * count
 // live on, and what the best one held `delay` samples ago is final.
-void quantize_subframe(SilkQuantizerState* nsq, Decision* states, u32 count, const Subframe& sub,
-                       const i32* x_q10, i8* pulses, i16* out, i32* ltp_q15, i32* delayed_gain,
-                       i32* newest_index, i32 delay, const i32 (*table)[4]) noexcept {
+MAICORD_HASWELL_FMA void quantize_subframe(SilkQuantizerState* nsq, Decision* states, u32 count,
+                                           const Subframe& sub, const i32* x_q10, i8* pulses, i16* out,
+                                           i32* ltp_q15, i32* delayed_gain, i32* newest_index, i32 delay,
+                                           const i32 (*table)[4]) noexcept {
+    #pragma clang fp contract(off)
     Choice choices[kDecisionStatesMaximum][2];
     const i32 rate_offset = (sub.lambda_q10 >> 1) - 512;
     const float* shape_lag = &nsq->ltp_shape[nsq->ltp_shape_index - sub.lag + 1];
@@ -238,7 +256,7 @@ void quantize_subframe(SilkQuantizerState* nsq, Decision* states, u32 count, con
         for (u32 k = 0; k < count; ++k) {
             Decision& s = states[k];
             s.seed = static_cast<i32>(static_cast<u32>(s.seed) * 196314165u + 907633515u);
-            prediction[k] = predict(s, i, sub);
+            prediction[k] = predict(s, sub);
             shaped_ar[k] = advance_shaping(s.chain + kChainFront, sub) + s.lf_ar * sub.tilt;
             shaped_low[k] = s.shape[newest] * sub.lf_ma + s.lf_ar * sub.lf_ar;
         }
@@ -323,7 +341,7 @@ void quantize_subframe(SilkQuantizerState* nsq, Decision* states, u32 count, con
             const i32 pulse = round_shift(chosen.pulse_q10, 10);
             s.lf_ar = chosen.lf_ar;
             s.chain[kChainFront] = chosen.difference;
-            split(s, kOrder + static_cast<u32>(i), chosen.output_q14);
+            shift_in(s, chosen.output_q14);
             s.output_q14[newest] = chosen.output_q14;
             s.pulse[newest] = static_cast<i8>(pulse);
             s.prediction_q15[newest] = shift_left(chosen.excitation_q14, 1);
@@ -335,10 +353,6 @@ void quantize_subframe(SilkQuantizerState* nsq, Decision* states, u32 count, con
         delayed_gain[newest] = gain_q10;
     }
     *newest_index = newest;
-    for (u32 k = 0; k < count; ++k) {
-        copy_bytes(states[k].lpc_high, states[k].lpc_high + kSilkSubframe, kOrder * sizeof(i16));
-        copy_bytes(states[k].lpc_low, states[k].lpc_low + kSilkSubframe, kOrder * sizeof(i16));
-    }
 }
 
 inline u32 least_cost(const Decision* states, u32 count) noexcept {

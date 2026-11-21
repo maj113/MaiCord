@@ -2,10 +2,11 @@
 
 #include "maicord/core/base.hpp"
 
-// All compiled code uses BMI1, BMI2, LZCNT, MOVBE and F16C (the compiler baseline), and the hand-written vector code
-// (MAICORD_HASWELL) uses AVX2, with no other version. So MaiCord needs an Intel Haswell (2013), an AMD Excavator or Zen,
-// or a later processor. Each client's entry calls processor_too_old() before any other code and refuses to start on
-// an older processor. The code that runs before the check returns is MAICORD_ANY_PROCESSOR.
+// All compiled code uses BMI1, BMI2, LZCNT, MOVBE and F16C (the compiler baseline), the hand-written vector code
+// (MAICORD_HASWELL) uses AVX2 and some of it (MAICORD_HASWELL_FMA) FMA, with no other version. So MaiCord needs an
+// Intel Haswell (2013), an AMD Excavator or Zen, or a later processor. Each client's entry calls processor_too_old()
+// before any other code and refuses to start on an older processor. The code that runs before the check returns is
+// MAICORD_ANY_PROCESSOR.
 
 // The reason, shown after "MaiCord cannot start: ".
 #define MAICORD_PROCESSOR_TOO_OLD "this processor is too old. MaiCord needs a processor from 2013 or later with AVX2."
@@ -18,8 +19,8 @@ struct ProcessorFeatures {
 };
 
 MAICORD_ANY_PROCESSOR constexpr bool processor_supported(const ProcessorFeatures& features) noexcept {
-    // MOVBE, OSXSAVE, AVX, F16C. Compiled code also uses PCLMULQDQ, POPCNT and AES.
-    constexpr u32 kBasic = 1u << 22 | 1u << 27 | 1u << 28 | 1u << 29 | 1u << 1 | 1u << 23 | 1u << 25;
+    // FMA, MOVBE, OSXSAVE, AVX, F16C. Compiled code also uses PCLMULQDQ, POPCNT and AES.
+    constexpr u32 kBasic = 1u << 12 | 1u << 22 | 1u << 27 | 1u << 28 | 1u << 29 | 1u << 1 | 1u << 23 | 1u << 25;
     constexpr u32 kStructured = 1u << 3 | 1u << 5 | 1u << 8;          // BMI1, AVX2, BMI2
     constexpr u32 kExtended = 1u << 5;                                // LZCNT
     constexpr u32 kSavedState = 1u << 1 | 1u << 2;                    // the system saves the XMM and YMM registers

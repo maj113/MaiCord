@@ -110,18 +110,42 @@ inline void quarter_turn(float x, float* cosine, float* sine) noexcept {
                                   s * (1.f / 362880 + s * (-1.f / 39916800 + s * (1.f / 6227020800.f)))))));
 }
 
-// One pass of the spreading rotation over pairs `stride` apart, forward then backward.
-void rotate_pairs(float* x, u32 length, u32 stride, float c, float s) noexcept {
+// One pass of the spreading rotation over pairs `stride` (2 or more) apart, forward then backward. Each pair
+// takes values that a pair before wrote: fused, its step waits for one instruction.
+MAICORD_HASWELL_FMA void rotate_pairs(float* x, u32 length, u32 stride, float c, float s) noexcept {
+    #pragma clang fp contract(off)
     for (u32 i = 0; i + stride < length; ++i) {
         const float x1 = x[i], x2 = x[i + stride];
-        x[i + stride] = c * x2 + s * x1;
-        x[i] = c * x1 - s * x2;
+        x[i + stride] = fused(c, x2, s * x1);
+        x[i] = fused(c, x1, -(s * x2));
     }
     for (i32 i = static_cast<i32>(length) - 2 * static_cast<i32>(stride) - 1; i >= 0; --i) {
         const float x1 = x[i], x2 = x[i + stride];
-        x[i + stride] = c * x2 + s * x1;
-        x[i] = c * x1 - s * x2;
+        x[i + stride] = fused(c, x2, s * x1);
+        x[i] = fused(c, x1, -(s * x2));
     }
+}
+// The same for adjacent pairs. Each pair takes the value that the pair before wrote, so that value stays in
+// a register: the chain of sums does not wait for a store and a load at each step, and its step is one fused
+// multiply-add.
+MAICORD_HASWELL_FMA void rotate_adjacent(float* x, u32 length, float c, float s) noexcept {
+    #pragma clang fp contract(off)
+    float x1 = x[0];
+    for (u32 i = 0; i + 1 < length; ++i) {
+        const float x2 = x[i + 1];
+        x[i] = fused(c, x1, -(s * x2));
+        x1 = fused(s, x1, c * x2);
+    }
+    x[length - 1] = x1;
+    if (length < 3)
+        return;
+    float x2 = x[length - 2];
+    for (i32 i = static_cast<i32>(length) - 3; i >= 0; --i) {
+        const float x0 = x[i];
+        x[i + 1] = fused(s, x0, c * x2);
+        x2 = fused(-s, x2, c * x0);
+    }
+    x[0] = x2;
 }
 // Spreads the pulses of a sparse band over neighbouring bins (direction 1 before the search, -1 after
 // decoding).
@@ -145,9 +169,9 @@ void spread_rotation(float* x, u32 length, i32 direction, u32 blocks, u32 pulses
         if (direction < 0) {
             if (stride2)
                 rotate_pairs(part, length, stride2, s, c);
-            rotate_pairs(part, length, 1, c, s);
+            rotate_adjacent(part, length, c, s);
         } else {
-            rotate_pairs(part, length, 1, c, -s);
+            rotate_adjacent(part, length, c, -s);
             if (stride2)
                 rotate_pairs(part, length, stride2, s, -c);
         }
@@ -312,15 +336,16 @@ i32 split_angle(const float* x, const float* y, u32 n, bool stereo) noexcept {
                             16384.f * 0.63661977f * arc_tangent(square_root(second), square_root(first)));
 }
 
-// Left and right into one channel along their energies, for bands coded without a side.
-void intensity_downmix(float* x, const float* y, float left, float right, u32 n) noexcept {
+// Left and right into one channel along their energies, for bands coded without a side. x and y are the two
+// channels' bands and never overlap (__restrict): the vector loop needs no run-time overlap test.
+void intensity_downmix(float* __restrict x, const float* y, float left, float right, u32 n) noexcept {
     const float norm = 1e-15f + square_root(1e-15f + left * left + right * right);
     const float a = left / norm, b = right / norm;
     for (u32 j = 0; j < n; ++j)
         x[j] = a * x[j] + b * y[j];
 }
-// Left and right to mid and side (right minus left, the sign stereo_merge undoes).
-void stereo_split(float* x, float* y, u32 n) noexcept {
+// Left and right to mid and side (right minus left, the sign stereo_merge undoes). x and y never overlap.
+void stereo_split(float* x, float* __restrict y, u32 n) noexcept {
     constexpr float kHalfRoot = 0.70710678f;
     for (u32 j = 0; j < n; ++j) {
         const float left = kHalfRoot * x[j], right = kHalfRoot * y[j];
@@ -696,8 +721,8 @@ u32 code_band(BandCoder& band, float* x, u32 n, i32 bits, u32 blocks, float* low
     return mask & ((1u << blocks) - 1);
 }
 
-// Mid and side back to left and right, each of unit norm.
-void stereo_merge(float* x, float* y, float middle, u32 n) noexcept {
+// Mid and side back to left and right, each of unit norm. x and y never overlap.
+void stereo_merge(float* x, float* __restrict y, float middle, u32 n) noexcept {
     const float cross = middle * celt_inner_product(y, x, n), side = celt_inner_product(y, y, n);
     const float left_energy = middle * middle + side - 2 * cross,
                 right_energy = middle * middle + side + 2 * cross;
@@ -791,14 +816,20 @@ u32 code_band_stereo(BandCoder& band, float* x, float* y, u32 n, i32 bits, u32 b
 
 } // namespace
 
-float celt_inner_product(const float* a, const float* b, u32 n) noexcept {
-    F8 sums{};
+// Two chains of fused multiply-adds: each waits for its own sum only every second step.
+MAICORD_HASWELL_FMA float celt_inner_product(const float* a, const float* b, u32 n) noexcept {
+    #pragma clang fp contract(off)
+    F8 even{}, odd{};
     u32 i = 0;
-    for (; i + 8 <= n; i += 8)
-        sums += load8(a + i) * load8(b + i);
-    float sum = sum8(sums);
+    for (; i + 16 <= n; i += 16) {
+        even = _mm256_fmadd_ps(load8(a + i), load8(b + i), even);
+        odd = _mm256_fmadd_ps(load8(a + i + 8), load8(b + i + 8), odd);
+    }
+    if (i + 8 <= n)
+        even = _mm256_fmadd_ps(load8(a + i), load8(b + i), even), i += 8;
+    float sum = sum8(even + odd);
     for (; i < n; ++i)
-        sum += a[i] * b[i];
+        sum = fused(a[i], b[i], sum);
     return sum;
 }
 

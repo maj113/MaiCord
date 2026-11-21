@@ -4,7 +4,9 @@
 #include "maicord/media/audio/opus_encoder.hpp"
 #include "opus/celt.hpp"
 #include "opus/silk_encoder.hpp"
+#include "opus/vector.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord {
 namespace {
@@ -74,25 +76,36 @@ i32 silk_share(i32 rate, bool fec, i32 channels) noexcept {
     return share;
 }
 
-// Second-order high-pass at 2^cutoff Hz of one channel of interleaved PCM16.
-inline void high_pass(float* state, float cutoff, const i16* in, u32 stride, float* out) noexcept {
-    const float frequency = 1.5f * 3.14159f / 48000.f * exp2_approximate(cutoff);
+// Second-order high-pass of interleaved PCM16 at `frequency` (1.5 pi / 48000 times the cutoff in Hz), both
+// channels at once, one in each lane (mono: the channel twice). Each sample waits for the filter state of the
+// sample before, so two channels in one pass take the time of one. The multiplies of the output fuse with the
+// adds after them: each sample then waits for one fused multiply-add and one add. The caller computes the
+// frequency: inlined here, the Windows build would fuse the multiply-adds of exp2_approximate too.
+MAICORD_HASWELL_FMA void high_pass(float (*state)[2], float frequency, const i16* pcm, u32 channels,
+                                   float* const out[2]) noexcept {
+    #pragma clang fp contract(off)
     const float r = 1.f - 0.92f * frequency;
-    const float a0 = r * (frequency * frequency - 2.f), a1 = r * r;
-    float s0 = state[0], s1 = state[1];
+    const F4 a0 = splat4(-r * (frequency * frequency - 2.f)), a1 = splat4(-r * r);
+    F4 s0{state[0][0], state[1][0], 0.f, 0.f}, s1{state[0][1], state[1][1], 0.f, 0.f};
+    const i16* const right = pcm + channels - 1;
     for (u32 i = 0; i < kFrame; ++i) {
-        const float x = static_cast<float>(in[i * stride]);
-        const float y = s0 + r * x;
-        s0 = s1 - a0 * y - 2.f * r * x;
-        s1 = r * x - a1 * y;
-        out[i] = y;
+        const F4 x{static_cast<float>(pcm[i * channels]), static_cast<float>(right[i * channels]), 0.f,
+                   0.f};
+        const F4 rx = r * x;
+        const F4 y = s0 + rx;
+        s0 = _mm_fmadd_ps(a0, y, s1 - 2.f * rx);
+        s1 = _mm_fmadd_ps(a1, y, rx);
+        out[0][i] = y[0];
+        out[1][i] = y[1];
     }
     // Silence must not leave the state decaying through the denormal range.
     const auto settle = [](float value) noexcept {
         return value > -1e-15f && value < 1e-15f ? 0.f : value;
     };
-    state[0] = settle(s0);
-    state[1] = settle(s1);
+    for (u32 c = 0; c < 2; ++c) {
+        state[c][0] = settle(s0[c]);
+        state[c][1] = settle(s1[c]);
+    }
 }
 // The gain from `before` to `now` along the squared window, then held.
 __forceinline float fade(u32 i, float before, float now) noexcept {
@@ -164,9 +177,9 @@ u32 opus_encode(OpusEncoder* encoder, const i16* pcm, u8* packet) noexcept {
     // One buffer per channel serves both layers: the frame after the delay line's samples, which the CELT
     // layer (running kDelay behind) starts from, after room for that layer's window overlap.
     alignas(32) float buffer[2][kOverlap + kDelay + kFrame];
-    for (u32 c = 0; c < channels; ++c)
-        high_pass(st.high_pass[c], st.cutoff, pcm + c, channels, buffer[c] + kOverlap + kDelay);
-    const float* const silk_input[2]{buffer[0] + kOverlap + kDelay, buffer[1] + kOverlap + kDelay};
+    float* const silk_input[2]{buffer[0] + kOverlap + kDelay, buffer[1] + kOverlap + kDelay};
+    high_pass(st.high_pass, 1.5f * 3.14159f / 48000.f * exp2_approximate(st.cutoff), pcm, channels,
+              silk_input);
 
     RangeCoder coder;
     coder.start_encode(packet + 1, kPayloadBytes);

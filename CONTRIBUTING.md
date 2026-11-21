@@ -27,10 +27,7 @@ tools/build_linux.sh --test
 Both take the same options, `-PascalCase` on Windows and `--kebab-case` on Linux: [AGENTS.md](AGENTS.md#build-and-test) has
 the table and the rules of a run. `build.ps1`'s parameter block and `build_linux.sh`'s header document every option
 (`-NoUpdater`, `-TestHooks`, the [`tools/perf`](tools/perf/README.md) probes, CI's shards and deadlines), and
-[tools/README.md](tools/README.md#images-size-and-memory) lists the audit, comparison, size and memory tools.
-
-The suite must finish within **20 seconds**: shrink a slow test's input but keep the coverage that matters, and assert
-outputs and counts, never wall-clock times.
+[tools/README.md](tools/README.md) lists every tool.
 
 A run with `-TestNames` links and audits the client only when a named test uses it (`USES_CLIENT` or
 `maicord_test_runs_client` in `cmake/test_registry.cmake`), and says so when it does not. A `-KeepIntermediates` run on
@@ -60,15 +57,10 @@ Windows configures again only when an option, the commit, a tag, a file name, th
 ### Toolchain
 
 Both systems build with LLVM 24 from the [maj113/llvm-pe](https://github.com/maj113/llvm-pe/releases) release pinned in
-`tools/llvm_toolchain.json`. The build downloads it on first use, checks its SHA-256 and keeps it in
-`%LOCALAPPDATA%\MaiCord-toolchain\<tag>` or `~/.cache/maicord-toolchain/<tag>`; CI fetches the same pin.
-
-- Another LLVM: `-LlvmBin DIR` / `--llvm-bin DIR` or `MAICORD_LLVM_BIN`, and on Linux `MAICORD_LLVM_MAJOR` for a major other
-  than 24. The fork's code generation options are added only where the configure step finds the toolchain takes them, so a
-  stock LLVM builds a bigger client instead of failing.
-- MASM is the Build Tools' `ml64`, never `llvm-ml`, which would change `MaiCord.exe`.
-- A new pin sets `tag`, `sha256` and `linux.sha256` in that file. [tools/README.md](tools/README.md#the-llvm-toolchain) says
-  what a toolchain release must contain and how the build finds the Build Tools.
+`tools/llvm_toolchain.json`. The build downloads and checks it on first use, and CI fetches the same pin. Another LLVM:
+`-LlvmBin DIR` / `--llvm-bin DIR` or `MAICORD_LLVM_BIN`, and on Linux `MAICORD_LLVM_MAJOR` for a major other than 24. A
+stock LLVM builds a bigger client. [tools/README.md](tools/README.md#the-llvm-toolchain) has the cache, the contents of a
+toolchain release, a new pin and the Windows build environment.
 
 ### Test hooks and the fake Discord
 
@@ -101,7 +93,7 @@ Overrides a user or an operator may want are not hooks: every build reads them, 
 Tests that need an environment the suite cannot assume (a compositor, a sound server, namespaces) are registered disabled and
 run through their script, which sets the opt-in variable at configure time (`MAICORD_WAYLAND_INTEGRATION`,
 `MAICORD_PULSE_INTEGRATION`, `MAICORD_SPEECHD_INTEGRATION`, `MAICORD_FAKE_DISCORD_INTEGRATION`); status 77 is a skip.
-`tools/test_linux_integration.sh` runs the CI set; [tools/README.md](tools/README.md#linux-qa-scripts) lists every script.
+`tools/test_linux_integration.sh` runs the CI set; [tools/README.md](tools/README.md#linux-integration-runs) lists the others.
 
 ### CI
 
@@ -115,8 +107,10 @@ run through their script, which sets the opt-in variable at configure time (`MAI
   `sudo mount --make-rshared /`, then `tools/test_linux_distros.sh --build ~/mc-build debian-12`.
 - A test that belongs in the portable set is added to `tools/linux_portable_tests.txt`. It must hold on any host: no
   installed-package assumptions, no `MAICORD_TEST_FONT_SET` or `MAICORD_TEST_SPELL_SET`, skips return 77.
-- Validate workflow changes with `actionlint` and `zizmor`; keep actions pinned by SHA, permissions minimal and concurrency
-  as it is.
+- Validate workflow changes with `actionlint` and `zizmor`, at the versions `workflow-lint.yml` pins (it runs both on every
+  change under `.github`). Keep actions pinned by SHA, permissions minimal and concurrency as it is.
+- Jobs use the Python of the hosted images (`windows-2025`, `ubuntu-24.04`), and the Windows jobs also use the image's
+  CMake and Ninja. Do not add `actions/setup-python` or pip packages to a job that builds or ships.
 
 ## Build files
 
@@ -218,7 +212,7 @@ with the area's design and test notes.
 | Video decode | `platform/decode/gpu_stream_decoder.hpp` | DXVA, Media Foundation | [`src/platform/decode`](src/platform/decode/README.md): `vaapi`, `software`, `linux` |
 | Go Live encode | `platform/encode/gpu_stream_encoder.hpp` | Media Foundation hardware transforms | VA-API, [`src/platform/encode`](src/platform/encode/README.md) |
 | Go Live capture | `platform/capture/screen_capture.hpp`, `platform/audio/stream_audio.hpp` | Windows.Graphics.Capture, DXGI Desktop Duplication, WASAPI process loopback | ScreenCast portal and PipeWire, [`src/platform/capture`](src/platform/capture/README.md) |
-| Crypto, TLS | `platform/crypto`, `platform/net` | CNG, SChannel | system OpenSSL 3 or 4, `src/platform/crypto/openssl` |
+| Crypto, TLS | `platform/crypto`, `platform/net` | CNG, SChannel; AES-GCM and ChaCha20-Poly1305 in-house | system OpenSSL 3 or 4, `src/platform/crypto/openssl`; AES-GCM in-house |
 | Desktop: shell open, notifications, spell checker, security keys | `platform/desktop` | | [`src/platform/desktop`](src/platform/desktop/README.md) over the in-house D-Bus client, [`src/platform/dbus`](src/platform/dbus/README.md) |
 | Accessibility | | UI Automation, `src/platform/uia` | AT-SPI, [`src/platform/atspi`](src/platform/atspi/README.md) |
 | System fonts | `platform/font` | GDI | fontconfig, [`src/platform/font`](src/platform/font/README.md) |
@@ -255,6 +249,13 @@ with the area's design and test notes.
   in `include/maicord/sys/simd.hpp` as clang defines them, and the AVX2 ones of `MAICORD_HASWELL` functions in
   `include/maicord/sys/simd_haswell.hpp`; only the conformance units use the SDK headers (`MAICORD_SDK_INCLUDES`). New
   Win32 imports need a reason.
+- **Compiler baseline.** Every unit compiles for Haswell without AVX2 and FMA (`/arch:AVX2` or `-march=haswell`, with
+  `-mno-avx2 -mno-fma`): BMI1, BMI2, LZCNT, MOVBE and F16C need no attribute, and `__builtin_ctzll` and the like become
+  one instruction. AVX2 goes in `MAICORD_HASWELL` functions. The baseline leaves FMA off, as it changes rounding: FMA
+  goes in `MAICORD_HASWELL_FMA` functions, through the fmadd intrinsics, where no output must keep its rounding. The
+  processor features come from the processor name, not from `-m` switches, so `MAICORD_ANY_PROCESSOR` removes them all
+  from the code that runs before the processor check. The image audit proves that on every link
+  (`tools/check_processor_entry.py`).
 - **No unwind tables.** Frame-based exception dispatch stops at the first MaiCord frame, so the tests report crashes from a
   vectored handler and crash-dump stacks through MaiCord code are heuristic. Only the perf probe, which walks stacks
   in-process, configures with `MAICORD_UNWIND_TABLES`.

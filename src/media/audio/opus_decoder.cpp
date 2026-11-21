@@ -55,6 +55,31 @@ struct Packet {
     const u8* data; // the frames, one after the other
     u16 sizes[kFramesMaximum];
 };
+// The mode, bandwidth and frame size of each configuration (RFC 6716 3.1), by toc >> 3: mode | bandwidth << 2 |
+// frame size / 120 << 5.
+constexpr Table<u16, 32> build_configurations() noexcept {
+    Table<u16, 32> table{};
+    for (u32 configuration = 0; configuration < 32; ++configuration) {
+        const u32 toc = configuration << 3;
+        u32 mode, bandwidth, frame_size;
+        if (toc & 0x80) {
+            mode = kCeltOnly;
+            bandwidth = (toc >> 5 & 3) == 0 ? kNarrow : kMedium + (toc >> 5 & 3);
+            frame_size = kFrame2_5 << (toc >> 3 & 3);
+        } else if ((toc & 0x60) == 0x60) {
+            mode = kHybrid;
+            bandwidth = toc & 0x10 ? kFull : kSuperWide;
+            frame_size = toc & 0x08 ? kFrame20 : kFrame10;
+        } else {
+            mode = kSilkOnly;
+            bandwidth = kNarrow + (toc >> 5 & 3);
+            frame_size = (toc >> 3 & 3) == 3 ? 2880 : kFrame10 << (toc >> 3 & 3);
+        }
+        table.value[configuration] = static_cast<u16>(mode | bandwidth << 2 | frame_size / kFrame2_5 << 5);
+    }
+    return table;
+}
+constexpr Table<u16, 32> kConfigurations = build_configurations();
 // One or two bytes of frame length; 0 when the bytes are missing.
 u32 parse_size(const u8* data, u32 available, u32* size) noexcept {
     if (available < 1)
@@ -74,19 +99,10 @@ __attribute__((minsize)) bool parse_packet(ConstSlice<u8> packet, Packet* out) n
     const u8* data = packet.data;
     const u32 toc = *data++;
     u32 left = packet.count - 1;
-    if (toc & 0x80) {
-        out->mode = kCeltOnly;
-        out->bandwidth = (toc >> 5 & 3) == 0 ? kNarrow : kMedium + (toc >> 5 & 3);
-        out->frame_size = kFrame2_5 << (toc >> 3 & 3);
-    } else if ((toc & 0x60) == 0x60) {
-        out->mode = kHybrid;
-        out->bandwidth = toc & 0x10 ? kFull : kSuperWide;
-        out->frame_size = toc & 0x08 ? kFrame20 : kFrame10;
-    } else {
-        out->mode = kSilkOnly;
-        out->bandwidth = kNarrow + (toc >> 5 & 3);
-        out->frame_size = (toc >> 3 & 3) == 3 ? 2880 : kFrame10 << (toc >> 3 & 3);
-    }
+    const u32 configuration = kConfigurations[toc >> 3];
+    out->mode = configuration & 3;
+    out->bandwidth = configuration >> 2 & 7;
+    out->frame_size = (configuration >> 5) * kFrame2_5;
     out->channels = toc & 4 ? 2 : 1;
     u32 last = left;
     switch (toc & 3) {

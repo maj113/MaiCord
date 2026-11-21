@@ -5,6 +5,7 @@
 // are in aac_tables.inc (the tables of ISO/IEC 14496-3, checked in).
 #include "maicord/media/audio/aac_lc.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord {
 namespace {
@@ -612,7 +613,8 @@ void apply_tns(Channel& c) noexcept {
 // ---- The filterbank ----------------------------------------------------------------------------------------------
 
 // The IMDCT of `lines` coefficients into 2 * lines samples, scaled by `scale` folded into the post twiddles.
-void imdct(AacLc& d, const float* spectrum, float* out, bool is_long) noexcept {
+// AVX2: the vectorized loops take eight lanes. Fused multiply-adds were slower here.
+MAICORD_HASWELL void imdct(AacLc& d, const float* spectrum, float* out, bool is_long) noexcept {
     const u32 lines = is_long ? kLines : kShortLines, points = lines / 2;
     const float* stage_re = is_long ? d.stage_re : d.short_stage_re;
     const float* stage_im = is_long ? d.stage_im : d.short_stage_im;
@@ -845,11 +847,27 @@ bool skip(Bits& b, u32 bits) noexcept {
     return true;
 }
 
-float sanitize(float value) noexcept {
-    // Corrupt scalefactors and TNS filters can produce huge or non-finite values; real audio stays far inside.
+typedef float Lanes __attribute__((__vector_size__(32), __aligned__(4), __may_alias__));
+// Corrupt scalefactors and TNS filters can produce huge or non-finite values; real audio stays far inside.
+MAICORD_HASWELL __forceinline Lanes sanitize(Lanes value) noexcept {
     constexpr float kLimit = 1024.0f;
     value = value < -kLimit ? -kLimit : value > kLimit ? kLimit : value;
     return value != value ? 0.0f : value;
+}
+// The staged channels into `pcm`, clamped and interleaved: eight samples of each channel at a time.
+MAICORD_HASWELL void emit(const AacLc& d, u32 channels, float* pcm) noexcept {
+    for (u32 i = 0; i < kLines; i += 8) {
+        const Lanes left = sanitize(*reinterpret_cast<const Lanes*>(d.staged_pcm[0] + i));
+        if (channels == 1) {
+            *reinterpret_cast<Lanes*>(pcm + i) = left;
+            continue;
+        }
+        const Lanes right = sanitize(*reinterpret_cast<const Lanes*>(d.staged_pcm[1] + i));
+        *reinterpret_cast<Lanes*>(pcm + 2 * i) =
+            __builtin_shufflevector(left, right, 0, 8, 1, 9, 2, 10, 3, 11);
+        *reinterpret_cast<Lanes*>(pcm + 2 * i + 8) =
+            __builtin_shufflevector(left, right, 4, 12, 5, 13, 6, 14, 7, 15);
+    }
 }
 
 } // namespace
@@ -915,9 +933,7 @@ AacLcError aac_lc_decode(AacLc* d, ConstSlice<u8> frame, float* pcm) noexcept {
         apply_tns(d->channel[ch]);
         synthesize(*d, ch, d->channel[ch]);
     }
-    for (u32 i = 0; i < kLines; ++i)
-        for (u32 ch = 0; ch < decoded; ++ch)
-            pcm[i * decoded + ch] = sanitize(d->staged_pcm[ch][i]);
+    emit(*d, decoded, pcm);
     for (u32 ch = 0; ch < decoded; ++ch) {
         copy_bytes(d->overlap[ch], d->staged_overlap[ch], sizeof(d->overlap[ch]));
         d->shape[ch] = d->staged_shape[ch];

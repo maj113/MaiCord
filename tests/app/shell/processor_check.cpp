@@ -25,11 +25,11 @@ void test_processor_check(void (*check)(bool, const char*) noexcept) noexcept {
     check(!processor_supported(no_xsave), "Haswell whose system does not use XSAVE: refused");
 
     // One feature absent at a time.
-    constexpr u32 basic_bits[]{1, 22, 23, 25, 28, 29}, structured_bits[]{3, 5, 8};
+    constexpr u32 basic_bits[]{1, 12, 22, 23, 25, 28, 29}, structured_bits[]{3, 5, 8};
     for (const u32 bit : basic_bits) {
         ProcessorFeatures features = haswell;
         features.basic &= ~(1u << bit);
-        check(!processor_supported(features), "PCLMULQDQ, MOVBE, POPCNT, AES, AVX and F16C are each required");
+        check(!processor_supported(features), "PCLMULQDQ, FMA, MOVBE, POPCNT, AES, AVX and F16C are each required");
     }
     for (const u32 bit : structured_bits) {
         ProcessorFeatures features = haswell;

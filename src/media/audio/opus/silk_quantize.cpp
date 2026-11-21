@@ -51,26 +51,22 @@ void first_stage_errors(i32* errors, const i16* nlsf, const NlsfCodebook& cb) no
     }
 }
 
+// The quantization levels of the residual indices -kAmplitudeExtended to kAmplitudeExtended in the
+// codebook's step: index i at i * 1024 (Q10), 0.1 nearer to zero. Index i quantizes to its level or to the
+// level of i + 1.
+void residual_levels(i32* levels, i32 step_q16) noexcept {
+    constexpr i32 kAdjust = 102;
+    for (i32 i = -kAmplitudeExtended; i <= kAmplitudeExtended; ++i)
+        levels[i + kAmplitudeExtended] =
+            multiply_16(i * 1024 + (i > 0 ? -kAdjust : i < 0 ? kAdjust : 0), step_q16) >> 16;
+}
+
 // The residual x (Q10) of a first stage vector, quantized from the last coefficient to the first against
 // the backward predictor, keeping the kPaths best paths. Returns the rate-distortion cost of the path
 // chosen.
 i32 quantize_residual(i8* indices, const i16* x_q10, const i16* weights_q5, const u8* prediction_q8,
-                      const i16* table_offsets, const NlsfCodebook& cb, i32 mu_q20) noexcept {
-    constexpr i32 kAdjust = 102; // levels sit 0.1 nearer to zero
-    i32 low_table[2 * kAmplitudeExtended], high_table[2 * kAmplitudeExtended];
-    for (i32 i = -kAmplitudeExtended; i < kAmplitudeExtended; ++i) {
-        i32 low = i * 1024, high = low + 1024;
-        if (i > 0)
-            low -= kAdjust, high -= kAdjust;
-        else if (i == 0)
-            high -= kAdjust;
-        else if (i == -1)
-            low += kAdjust;
-        else
-            low += kAdjust, high += kAdjust;
-        low_table[i + kAmplitudeExtended] = multiply_16(low, cb.step_q16) >> 16;
-        high_table[i + kAmplitudeExtended] = multiply_16(high, cb.step_q16) >> 16;
-    }
+                      const i16* table_offsets, const NlsfCodebook& cb, const i32* levels,
+                      i32 mu_q20) noexcept {
     u32 paths = 1;
     i32 cost[2 * kPaths];
     i16 output[2 * kPaths];
@@ -85,8 +81,8 @@ i32 quantize_residual(i8* indices, const i16* x_q10, const i16* weights_q5, cons
             const i32 index = clamp_value(multiply_16(cb.inverse_step_q6, in - predicted) >> 16,
                                           -kAmplitudeExtended, kAmplitudeExtended - 1);
             path[j][i] = static_cast<i8>(index);
-            const i32 low = low_table[index + kAmplitudeExtended] + predicted,
-                      high = high_table[index + kAmplitudeExtended] + predicted;
+            const i32 low = levels[index + kAmplitudeExtended] + predicted,
+                      high = levels[index + 1 + kAmplitudeExtended] + predicted;
             output[j] = static_cast<i16>(low);
             output[j + paths] = static_cast<i16>(high);
             i32 rate_low, rate_high;
@@ -190,6 +186,8 @@ __attribute__((minsize)) void silk_nlsf_encode(i8* indices, i16* nlsf_q15, const
     first_stage_errors(errors, nlsf_q15, cb);
     smallest(errors, candidates, cb.vectors, survivors);
     i8 residuals[kSurvivorsMaximum][kOrder];
+    i32 levels[2 * kAmplitudeExtended + 1];
+    residual_levels(levels, cb.step_q16);
     i32 best_cost = 0x7fffffff;
     u32 best = 0;
     const u8* const icdf = cb.base_icdf + (signal >> 1) * cb.vectors;
@@ -206,7 +204,7 @@ __attribute__((minsize)) void silk_nlsf_encode(i8* indices, i16* nlsf_q15, const
         }
         silk_nlsf_unpack(table_offsets, prediction_q8, cb, vector);
         i32 cost = quantize_residual(residuals[s], residual_q10, weights_q5, prediction_q8, table_offsets,
-                                     cb, mu_q20);
+                                     cb, levels, mu_q20);
         // Plus what the first stage index costs.
         const i32 probability_q8 = vector == 0 ? 256 - icdf[0] : icdf[vector - 1] - icdf[vector];
         cost += multiply_16((8 << 7) - log2_q7(probability_q8), mu_q20 >> 2);

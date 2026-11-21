@@ -59,7 +59,7 @@ struct NlsfCodebook {
     const u8* prediction; // Q8
     const u8* selectors;
     const u8* residual_icdf;
-    const u8* residual_bits; // Q5, for the encoder
+    const u8* residual_bits; // Q5, for the encoder: wideband only, null in kNlsfNarrow
     const i16* spacing;      // minimum distance between neighbours, Q15
 };
 extern const NlsfCodebook kNlsfNarrow, kNlsfWide;

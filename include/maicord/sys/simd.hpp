@@ -325,6 +325,12 @@ MAICORD_SIMD(256) __m256 _mm256_add_ps(__m256 __a, __m256 __b) { return (__m256)
 MAICORD_SIMD(256) __m256 _mm256_sub_ps(__m256 __a, __m256 __b) { return (__m256)((__v8sf)__a - (__v8sf)__b); }
 MAICORD_SIMD(256) __m256 _mm256_mul_ps(__m256 __a, __m256 __b) { return (__m256)((__v8sf)__a * (__v8sf)__b); }
 MAICORD_SIMD(256) __m256 _mm256_xor_ps(__m256 __a, __m256 __b) { return (__m256)((__v8su)__a ^ (__v8su)__b); }
+MAICORD_SIMD(256) __m256 _mm256_max_ps(__m256 __a, __m256 __b) {
+    return (__m256)__builtin_ia32_maxps256((__v8sf)__a, (__v8sf)__b);
+}
+MAICORD_SIMD(256) __m256 _mm256_min_ps(__m256 __a, __m256 __b) {
+    return (__m256)__builtin_ia32_minps256((__v8sf)__a, (__v8sf)__b);
+}
 MAICORD_SIMD(256) __m256 _mm256_blendv_ps(__m256 __a, __m256 __b, __m256 __c) {
     return (__m256)__builtin_ia32_blendvps256((__v8sf)__a, (__v8sf)__b, (__v8sf)__c);
 }

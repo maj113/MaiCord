@@ -5,6 +5,7 @@
 #include "celt.hpp"
 #include "vector.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord::opus {
 namespace {
@@ -208,21 +209,22 @@ void autocorrelation(float* out, const float* x, u32 length, u32 count) noexcept
     for (u32 lag = 0; lag < count; ++lag)
         out[lag] = celt_inner_product(x, x + lag, length - lag);
 }
-// Reflection coefficients from correlations (Schur); returns the residual energy.
+// Reflection coefficients from correlations (Schur); returns the residual energy. The two columns of the
+// recursion are two arrays, so that the compiler sees that they never overlap.
 float schur(float* reflection, const float* correlation, u32 order) noexcept {
-    float c[kShapeOrderMaximum + 1][2];
+    float forward[kShapeOrderMaximum + 1], backward[kShapeOrderMaximum + 1];
     for (u32 k = 0; k <= order; ++k)
-        c[k][0] = c[k][1] = correlation[k];
+        forward[k] = backward[k] = correlation[k];
     for (u32 k = 0; k < order; ++k) {
-        const float rc = -c[k + 1][0] / maximum(c[0][1], 1e-9f);
+        const float rc = -forward[k + 1] / maximum(backward[0], 1e-9f);
         reflection[k] = rc;
         for (u32 n = 0; n < order - k; ++n) {
-            const float a = c[n + k + 1][0], b = c[n][1];
-            c[n + k + 1][0] = a + b * rc;
-            c[n][1] = b + a * rc;
+            const float a = forward[n + k + 1], b = backward[n];
+            forward[n + k + 1] = a + b * rc;
+            backward[n] = b + a * rc;
         }
     }
-    return c[0][1];
+    return backward[0];
 }
 // Prediction coefficients from reflection coefficients: x[i] is predicted as sum of a[j] x[i - 1 - j].
 void reflection_to_prediction(float* a, const float* reflection, u32 order) noexcept {
@@ -483,14 +485,20 @@ namespace {
 // input, and becomes its state; out[m] sums input * o[m]. As in the quantizer's shaping filter
 // (silk_excitation.cpp), four steps of the recurrence written out let the chain advance four sections at a
 // time: o[m] = E[m] + w^4 * o[m - 4], E a five-tap combination of the old states.
-void warped_autocorrelation(float* out, const float* x, float w, u32 length, u32 order) noexcept {
-    constexpr u32 kFront = 4;
-    alignas(32) float buffer[kFront + 1 + kShapeOrderMaximum + 7]{};
-    float* const t = buffer + kFront; // t[m] the state of section m, t[0] the previous input
+//
+// The states are kept in blocks of four sections, and each block is read back as the same block that the
+// sample before stored. A wider read across several newer stores would wait until those stores reach the
+// cache, and each sample waits for the states of the one before. The multiplies and adds are fused: a step
+// of the chain then waits for one instruction, not two.
+MAICORD_HASWELL_FMA void warped_autocorrelation(float* out, const float* x, float w, u32 length,
+                                                u32 order) noexcept {
+    #pragma clang fp contract(off)
+    F4 states[kShapeOrderMaximum / 4]{}; // block b: the states of sections 4b + 1 to 4b + 4
+    float input_before = 0;               // the state before the first section: the previous input
     const u32 blocks = (order + 3) / 4;
     const float w2 = w * w, rest = 1.f - w2;
-    const F8 tap0 = splat8(w), tap1 = splat8(rest), tap2 = splat8(-w * rest), tap3 = splat8(w2 * rest),
-             tap4 = splat8(-w2 * w);
+    const F4 tap0 = splat4(w), tap1 = splat4(rest), tap2 = splat4(-w * rest), tap3 = splat4(w2 * rest),
+             tap4 = splat4(-w2 * w);
     // The first four sections: the input's way through them, and E's count of a section before the first
     // taken out.
     const F4 entry_input{-w, w2, -w2 * w, w2 * w2}, entry_state{w2, -w2 * w, w2 * w2, 0.f},
@@ -498,23 +506,23 @@ void warped_autocorrelation(float* out, const float* x, float w, u32 length, u32
     F4 sums[kShapeOrderMaximum / 4]{};
     float energy_sum = 0;
     for (u32 n = 0; n < length; ++n) {
-        F8 e[3];
-        for (u32 v = 0; 2 * v < blocks; ++v) {
-            const float* const at = t + 8 * v + 1;
-            e[v] = (tap0 * load8(at) + tap1 * load8(at - 1)) +
-                   (tap2 * load8(at - 2) + tap3 * load8(at - 3)) + tap4 * load8(at - 4);
-        }
         const F4 input = splat4(x[n]);
-        F4 o = low4(e[0]) + (entry_input * input + entry_state * splat4(t[0]));
-        t[0] = x[n];
-        energy_sum += x[n] * x[n];
-        sums[0] += input * o;
-        store4(t + 1, o);
-        for (u32 b = 1; b < blocks; ++b) {
-            o = (b & 1 ? high4(e[b >> 1]) : low4(e[b >> 1])) + carry * o;
-            sums[b] += input * o;
-            store4(t + 4 * b + 1, o);
+        F4 before{0.f, 0.f, 0.f, input_before}, o{};
+        for (u32 b = 0; b < blocks; ++b) {
+            const F4 block = states[b];
+            const F4 e =
+                _mm_fmadd_ps(tap1, __builtin_shufflevector(before, block, 3, 4, 5, 6), tap0 * block) +
+                _mm_fmadd_ps(tap4, before,
+                             _mm_fmadd_ps(tap3, __builtin_shufflevector(before, block, 1, 2, 3, 4),
+                                          tap2 * __builtin_shufflevector(before, block, 2, 3, 4, 5)));
+            o = b == 0 ? e + _mm_fmadd_ps(entry_input, input, entry_state * splat4(input_before))
+                       : _mm_fmadd_ps(carry, o, e);
+            sums[b] = _mm_fmadd_ps(input, o, sums[b]);
+            states[b] = o;
+            before = block;
         }
+        input_before = x[n];
+        energy_sum += x[n] * x[n];
     }
     out[0] = energy_sum;
     for (u32 m = 1; m <= order; ++m)

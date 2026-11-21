@@ -3,7 +3,7 @@
 #include "celt.hpp"
 #include "vector.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/sys/simd.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord::opus {
 namespace {
@@ -231,22 +231,21 @@ void synthesize(float* x, float* const out[2], const float energy[2][kBands], u3
 constexpr float kCombTaps[3][3]{{0.3066406250f, 0.2170410156f, 0.1296386719f},
                                 {0.4638671875f, 0.2680664062f, 0.f},
                                 {0.7998046875f, 0.1000976562f, 0.f}};
-void comb_filter_constant(float* y, const float* x, u32 period, u32 n, float g0, float g1,
-                          float g2) noexcept {
+// n is a multiple of 8: every frame and overlap is a multiple of 120 samples. The taps fuse with their sums.
+MAICORD_HASWELL_FMA __forceinline void comb_filter_constant(float* y, const float* x, u32 period, u32 n,
+                                                            float g0, float g1, float g2) noexcept {
+    #pragma clang fp contract(off)
     const F8 v0 = splat8(g0), v1 = splat8(g1), v2 = splat8(g2);
-    u32 i = 0;
-    for (; i + 8 <= n; i += 8) { // period >= 15: the taps end before the samples being written
+    for (u32 i = 0; i < n; i += 8) { // period >= 15: the taps end before the samples being written
         const float* const p = x + i - period;
-        store8(y + i, load8(x + i) + v0 * load8(p) + v1 * (load8(p + 1) + load8(p - 1)) +
-                          v2 * (load8(p + 2) + load8(p - 2)));
-    }
-    for (; i < n; ++i) {
-        const float* const p = x + i - period;
-        y[i] = x[i] + g0 * p[0] + g1 * (p[1] + p[-1]) + g2 * (p[2] + p[-2]);
+        const F8 near = _mm256_fmadd_ps(v0, load8(p), load8(x + i));
+        store8(y + i, _mm256_fmadd_ps(v2, load8(p + 2) + load8(p - 2),
+                                      _mm256_fmadd_ps(v1, load8(p + 1) + load8(p - 1), near)));
     }
 }
-void comb_filter(float* y, const float* x, u32 period0, u32 period1, u32 n, float gain0, float gain1,
-                 u32 tapset0, u32 tapset1, u32 overlap) noexcept {
+MAICORD_HASWELL_FMA void comb_filter(float* y, const float* x, u32 period0, u32 period1, u32 n, float gain0,
+                                     float gain1, u32 tapset0, u32 tapset1, u32 overlap) noexcept {
+    #pragma clang fp contract(off)
     if (gain0 == 0 && gain1 == 0) {
         if (x != y)
             copy_bytes(y, x, n * static_cast<u32>(sizeof(float)));
@@ -263,11 +262,12 @@ void comb_filter(float* y, const float* x, u32 period0, u32 period1, u32 n, floa
         const F8 window = load8(kWindow.value + i), fade_in = window * window, fade_out = 1.f - fade_in;
         const float* const p0 = x + i - period0;
         const float* const p1 = x + i - period1;
-        store8(y + i, load8(x + i) + fade_out * g00 * load8(p0) +
-                          fade_out * g01 * (load8(p0 + 1) + load8(p0 - 1)) +
-                          fade_out * g02 * (load8(p0 + 2) + load8(p0 - 2)) + fade_in * g10 * load8(p1) +
-                          fade_in * g11 * (load8(p1 + 1) + load8(p1 - 1)) +
-                          fade_in * g12 * (load8(p1 + 2) + load8(p1 - 2)));
+        F8 sum = _mm256_fmadd_ps(fade_out * g00, load8(p0), load8(x + i));
+        sum = _mm256_fmadd_ps(fade_out * g01, load8(p0 + 1) + load8(p0 - 1), sum);
+        sum = _mm256_fmadd_ps(fade_out * g02, load8(p0 + 2) + load8(p0 - 2), sum);
+        sum = _mm256_fmadd_ps(fade_in * g10, load8(p1), sum);
+        sum = _mm256_fmadd_ps(fade_in * g11, load8(p1 + 1) + load8(p1 - 1), sum);
+        store8(y + i, _mm256_fmadd_ps(fade_in * g12, load8(p1 + 2) + load8(p1 - 2), sum));
     }
     if (gain1 == 0) {
         if (x != y)
@@ -291,38 +291,56 @@ void post_filter(CeltDecoder& st, float* const out[2], u32 n, u32 lm, u32 period
 }
 
 // De-emphasis y[i] = x[i] + 0.85 y[i - 1] and rounding to PCM16, replacing what pcm holds or added to it
-// (the SILK layer) before the saturation, so that the sum clips once, as a float decoder's does.
-void emit(CeltDecoder& st, float* const out[2], i16* pcm, u32 n, const CeltFrame& frame) noexcept {
+// (the SILK layer) before the saturation, so that the sum clips once, as a float decoder's does. Eight samples at
+// a time: three fused steps of a log-step scan sum 0.85^k x[i - k] within the block, and the block before enters
+// through its memory (0.85 y) times 1, 0.85, ..., 0.85^7. From block to block the chain is one fused multiply-add,
+// where the recurrence of single samples waited for an add and a multiply per sample.
+MAICORD_HASWELL_FMA void emit(CeltDecoder& st, float* const out[2], i16* pcm, u32 n,
+                              const CeltFrame& frame) noexcept {
+    #pragma clang fp contract(off)
+    constexpr float a = kEmphasis, a2 = a * a, a4 = a2 * a2;
+    const F8 zero{}, powers{1.f, a, a2, a2 * a, a4, a4 * a, a4 * a2, a4 * a2 * a};
     const u32 channels = st.channels;
     const bool accumulate = frame.accumulate, store = !frame.tap_only;
-    const float gain = frame.gain;
-    float* const tap = frame.tap;
-    const u32 tap_start = frame.tap_start, tap_count = frame.tap_count;
-    const auto finish = [&](float sample, u32 i, u32 c) __attribute__((always_inline)) noexcept {
-        i16* const to = pcm + i * channels + c;
-        const float total = accumulate ? sample + static_cast<float>(*to) : sample;
-        if (i - tap_start < tap_count)
-            tap[(i - tap_start) * channels + c] = total;
-        if (store)
-            *to = static_cast<i16>(_mm_cvt_ss2si(_mm_set_ss(clamp_value(total * gain, -32768.f, 32767.f))));
+    const F8 gain = splat8(frame.gain);
+    const u32 tap_first = frame.tap_start * channels, tap_values = frame.tap_count * channels;
+    // The de-emphasized samples x[0..7], and the memory after them.
+    const auto scan = [&](const float* x, float* memory) MAICORD_HASWELL_FMA noexcept {
+        F8 s = load8(x) + 1e-30f;
+        s = _mm256_fmadd_ps(splat8(a), __builtin_shufflevector(zero, s, 0, 8, 9, 10, 11, 12, 13, 14), s);
+        s = _mm256_fmadd_ps(splat8(a2), __builtin_shufflevector(zero, s, 0, 1, 8, 9, 10, 11, 12, 13), s);
+        s = _mm256_fmadd_ps(splat8(a4), __builtin_shufflevector(zero, s, 0, 1, 2, 3, 8, 9, 10, 11), s);
+        const F8 y = _mm256_fmadd_ps(powers, splat8(*memory), s);
+        *memory = fused(a4 * a4, *memory, a * s[7]);
+        return y;
     };
-    const float *const left = out[0], *const right = out[channels - 1];
+    // Eight interleaved samples from pcm position j.
+    const auto finish = [&](F8 total, u32 j) MAICORD_HASWELL_FMA noexcept {
+        __m128i_u* const to = reinterpret_cast<__m128i_u*>(pcm + j);
+        if (accumulate)
+            total += _mm256_cvtepi32_ps(_mm256_cvtepi16_epi32(_mm_loadu_si128(to)));
+        if (j + 8 > tap_first && j < tap_first + tap_values)
+            for (u32 k = 0; k < 8; ++k)
+                if (j + k - tap_first < tap_values)
+                    frame.tap[j + k - tap_first] = total[k];
+        if (store) {
+            const F8 clipped = _mm256_min_ps(_mm256_max_ps(total * gain, splat8(-32768.f)), splat8(32767.f));
+            const __m256i words = _mm256_packs_epi32(_mm256_cvtps_epi32(clipped), _mm256_setzero_si256());
+            _mm_storeu_si128(to, _mm256_castsi256_si128(_mm256_permute4x64_epi64(words, 0xd8)));
+        }
+    };
     float memory = st.emphasis[0], memory_right = st.emphasis[1];
-    // Each channel is one chain of sums, and each sum waits for the sum before it. The loop for two channels
-    // advances both chains in one pass, so the processor works on them at the same time.
     if (channels == 2) {
-        for (u32 i = 0; i < n; ++i) {
-            const float sample = left[i] + 1e-30f + memory, sample_right = right[i] + 1e-30f + memory_right;
-            memory = kEmphasis * sample, memory_right = kEmphasis * sample_right;
-            finish(sample, i, 0), finish(sample_right, i, 1);
+        for (u32 i = 0; i < n; i += 8) {
+            const F8 left = scan(out[0] + i, &memory), right = scan(out[1] + i, &memory_right);
+            const F8 low = _mm256_unpacklo_ps(left, right), high = _mm256_unpackhi_ps(left, right);
+            finish(_mm256_permute2f128_ps(low, high, 0x20), 2 * i);
+            finish(_mm256_permute2f128_ps(low, high, 0x31), 2 * i + 8);
         }
         st.emphasis[1] = memory_right;
     } else {
-        for (u32 i = 0; i < n; ++i) {
-            const float sample = left[i] + 1e-30f + memory;
-            memory = kEmphasis * sample;
-            finish(sample, i, 0);
-        }
+        for (u32 i = 0; i < n; i += 8)
+            finish(scan(out[0] + i, &memory), i);
     }
     st.emphasis[0] = memory;
 }

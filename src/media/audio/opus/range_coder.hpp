@@ -256,7 +256,7 @@ struct RangeCoder {
         encode(top, top + 1, (maximum_value >> bits) + 1);
         encode_raw(symbol & ((1u << bits) - 1), bits);
     }
-    // Out of line (opus_encoder.cpp): overwrite the first `count` bits, move the raw bits to a smaller
+    // Out of line (range_encoder.cpp): overwrite the first `count` bits, move the raw bits to a smaller
     // frame end, and flush both ends.
     void patch_initial_bits(u32 symbol, u32 count) noexcept;
     void shrink(u32 bytes) noexcept;

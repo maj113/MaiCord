@@ -51,10 +51,14 @@ One entry point per system with the same options: `tools\build.ps1` (from Window
 - `-nostdinc`: SDK, C library and compiler declarations (intrinsics included) live in `include/maicord/sys` and
   `core/win32_*.hpp` (Linux: `include/maicord/sys/linux`), declared exactly as the SDK and compiler declare them. Add what you
   use there; a generated conformance unit checks them on every build.
-- The compiler's baseline is Sandy Bridge (`/arch:AVX`, `-march=sandybridge`): do not change it. The minimum processor is
-  Haswell, because hand-written `MAICORD_HASWELL` functions (`include/maicord/sys/simd_haswell.hpp`) use AVX2, BMI1, BMI2,
-  LZCNT, MOVBE and F16C with no other path. Each client's entry checks the processor first
-  (`maicord/app/shell/processor_check.hpp`).
+- The compiler's baseline is Haswell without AVX2 and FMA (`/arch:AVX2` or `-march=haswell`, with `-mno-avx2 -mno-fma`):
+  do not change it. AVX2 is only in hand-written `MAICORD_HASWELL` functions (`include/maicord/sys/simd_haswell.hpp`),
+  and FMA only in `MAICORD_HASWELL_FMA` ones, with no other path, so the minimum processor is Haswell. Each client's
+  entry checks the processor first (`maicord/app/shell/processor_check.hpp`). The code that runs before the check returns
+  is `MAICORD_ANY_PROCESSOR`. FMA goes only where no output must keep its exact rounding (never in layout, hit tests or
+  an output pinned bit for bit; the Opus float paths are held to libopus by PSNR, not to their own PCM), through the fmadd
+  intrinsics, in a function that starts with `#pragma clang fp contract(off)` so that both systems fuse the same
+  operations.
 - UI colors, radii and spacing come from theme tokens (`include/maicord/ui/theme/tokens.inc`).
 - Shaders: the HLSL in `src/render/shaders` and its hand-written GLSL ES 3.10 twin in `src/render/shaders/gles` change in one
   commit; `tools/check_shader_twins.py --stamp <twin>` records the reviewed pair.

@@ -6,6 +6,7 @@
 #include "celt.hpp"
 #include "constant_math.hpp"
 #include "vector.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord::opus {
 namespace {
@@ -80,13 +81,14 @@ constexpr Twiddles kTwiddles = build_twiddles();
 struct Complex4 {
     F4 re, im;
 };
-__forceinline Complex4 multiply(Complex4 a, const float* re, const float* im) noexcept {
+MAICORD_HASWELL_FMA __forceinline Complex4 multiply(Complex4 a, const float* re, const float* im) noexcept {
     const F4 wr = load4(re), wi = load4(im);
-    return {a.re * wr - a.im * wi, a.re * wi + a.im * wr};
+    return {_mm_fmadd_ps(a.re, wr, -(a.im * wi)), _mm_fmadd_ps(a.re, wi, a.im * wr)};
 }
 
-// The passes after the first, in place on n points.
-void fft_passes(float* re, float* im, u32 n) noexcept {
+// The passes after the first, in place on n points. The products fuse with their sums: fewer instructions.
+MAICORD_HASWELL_FMA void fft_passes(float* re, float* im, u32 n) noexcept {
+    #pragma clang fp contract(off)
     // Radix 3 over sub-blocks of 4.
     constexpr float kSine3 = 0.86602540378443865f;
     for (u32 p = 0; p < n; p += 12) {
@@ -97,7 +99,8 @@ void fft_passes(float* re, float* im, u32 n) noexcept {
             multiply({load4(re + p + 8), load4(im + p + 8)}, kTwiddles.three[1][0], kTwiddles.three[1][1]);
         const F4 sum_re = b.re + c.re, sum_im = b.im + c.im;
         const F4 turn_re = (b.im - c.im) * kSine3, turn_im = (b.re - c.re) * kSine3;
-        const F4 middle_re = a.re - sum_re * 0.5f, middle_im = a.im - sum_im * 0.5f;
+        const F4 middle_re = _mm_fmadd_ps(sum_re, splat4(-0.5f), a.re),
+                 middle_im = _mm_fmadd_ps(sum_im, splat4(-0.5f), a.im);
         store4(re + p, a.re + sum_re);
         store4(im + p, a.im + sum_im);
         store4(re + p + 4, middle_re + turn_re);
@@ -126,17 +129,19 @@ void fft_passes(float* re, float* im, u32 n) noexcept {
             store4(r, u0.re + (a1.re + a2.re));
             store4(i, u0.im + (a1.im + a2.im));
             // Outputs 1 and 4 share c = u0 + cos1 a1 + cos2 a2 and differ by -+i (sin1 b1 + sin2 b2).
-            const F4 c_re = u0.re + (a1.re * kCosine1 + a2.re * kCosine2);
-            const F4 c_im = u0.im + (a1.im * kCosine1 + a2.im * kCosine2);
-            const F4 s_re = b1.re * kSine1 + b2.re * kSine2, s_im = b1.im * kSine1 + b2.im * kSine2;
+            const F4 c_re = u0.re + _mm_fmadd_ps(a1.re, splat4(kCosine1), a2.re * kCosine2);
+            const F4 c_im = u0.im + _mm_fmadd_ps(a1.im, splat4(kCosine1), a2.im * kCosine2);
+            const F4 s_re = _mm_fmadd_ps(b1.re, splat4(kSine1), b2.re * kSine2),
+                     s_im = _mm_fmadd_ps(b1.im, splat4(kSine1), b2.im * kSine2);
             store4(r + 12, c_re + s_im);
             store4(i + 12, c_im - s_re);
             store4(r + 48, c_re - s_im);
             store4(i + 48, c_im + s_re);
             // Outputs 2 and 3: d = u0 + cos2 a1 + cos1 a2, -+i (sin2 b1 - sin1 b2).
-            const F4 d_re = u0.re + (a1.re * kCosine2 + a2.re * kCosine1);
-            const F4 d_im = u0.im + (a1.im * kCosine2 + a2.im * kCosine1);
-            const F4 t_re = b1.re * kSine2 - b2.re * kSine1, t_im = b1.im * kSine2 - b2.im * kSine1;
+            const F4 d_re = u0.re + _mm_fmadd_ps(a1.re, splat4(kCosine2), a2.re * kCosine1);
+            const F4 d_im = u0.im + _mm_fmadd_ps(a1.im, splat4(kCosine2), a2.im * kCosine1);
+            const F4 t_re = _mm_fmadd_ps(b1.re, splat4(kSine2), -(b2.re * kSine1)),
+                     t_im = _mm_fmadd_ps(b1.im, splat4(kSine2), -(b2.im * kSine1));
             store4(r + 24, d_re + t_im);
             store4(i + 24, d_im - t_re);
             store4(r + 36, d_re - t_im);
@@ -154,7 +159,7 @@ void fft_passes(float* re, float* im, u32 n) noexcept {
             for (; j + 8 <= m; j += 8) {
                 const F8 ar = load8(r + j), ai = load8(i + j), br = load8(r + m + j), bi = load8(i + m + j);
                 const F8 cr = load8(wr + j), ci = load8(wi + j);
-                const F8 tr = br * cr - bi * ci, ti = br * ci + bi * cr;
+                const F8 tr = _mm256_fmadd_ps(br, cr, -(bi * ci)), ti = _mm256_fmadd_ps(br, ci, bi * cr);
                 store8(r + j, ar + tr);
                 store8(i + j, ai + ti);
                 store8(r + m + j, ar - tr);
@@ -163,7 +168,7 @@ void fft_passes(float* re, float* im, u32 n) noexcept {
             if (j < m) { // m = 60: four more
                 const F4 ar = load4(r + j), ai = load4(i + j), br = load4(r + m + j), bi = load4(i + m + j);
                 const F4 cr = load4(wr + j), ci = load4(wi + j);
-                const F4 tr = br * cr - bi * ci, ti = br * ci + bi * cr;
+                const F4 tr = _mm_fmadd_ps(br, cr, -(bi * ci)), ti = _mm_fmadd_ps(br, ci, bi * cr);
                 store4(r + j, ar + tr);
                 store4(i + j, ai + ti);
                 store4(r + m + j, ar - tr);
@@ -204,9 +209,18 @@ __forceinline void first_pass(const Complex8& z0, const Complex8& z1, const Comp
     }
 }
 
+// Every other float: forward from p[0] to p[14], or backward from p[0] to p[-14].
+__forceinline F8 forward(const float* p) noexcept {
+    return __builtin_shufflevector(load8(p), load8(p + 8), 0, 2, 4, 6, 8, 10, 12, 14);
+}
+__forceinline F8 backward(const float* p) noexcept {
+    return __builtin_shufflevector(load8(p - 15), load8(p - 7), 15, 13, 11, 9, 7, 5, 3, 1);
+}
+
 } // namespace
 
-void celt_imdct(const float* spectrum, float* out, u32 shift) noexcept {
+MAICORD_HASWELL_FMA void celt_imdct(const float* spectrum, float* out, u32 shift) noexcept {
+    #pragma clang fp contract(off)
     const u32 n = kFftMaximum >> shift; // FFT points; 2n bins and output samples
     const float* const trig = kTrig.value + kTrigOffset[shift];
     const u8* const blocks = kBlocks.value + kBlockOffset[shift];
@@ -220,13 +234,10 @@ void celt_imdct(const float* spectrum, float* out, u32 shift) noexcept {
         Complex8 z[4];
         for (u32 d = 0; d < 4; ++d) {
             const u32 i = q + d * quarter;
-            const F8 a = load8(spectrum + 2 * i), b = load8(spectrum + 2 * i + 8);
-            const F8 c = load8(spectrum + 2 * n - 16 - 2 * i), e = load8(spectrum + 2 * n - 8 - 2 * i);
-            const F8 x1 = __builtin_shufflevector(a, b, 0, 2, 4, 6, 8, 10, 12, 14);
-            const F8 x2 = __builtin_shufflevector(c, e, 15, 13, 11, 9, 7, 5, 3, 1);
+            const F8 x1 = forward(spectrum + 2 * i), x2 = backward(spectrum + 2 * n - 1 - 2 * i);
             const F8 t0 = load8(trig + i), t1 = load8(trig + n + i);
-            z[d].im = x2 * t0 + x1 * t1;
-            z[d].re = x1 * t0 - x2 * t1;
+            z[d].im = _mm256_fmadd_ps(x2, t0, x1 * t1);
+            z[d].re = _mm256_fmadd_ps(x1, t0, -(x2 * t1));
         }
         first_pass(z[0], z[1], z[2], z[3], blocks + q, re, im);
         if (q + 8 == quarter)
@@ -244,9 +255,10 @@ void celt_imdct(const float* spectrum, float* out, u32 shift) noexcept {
                  back_im = load8(re + back);
         const F8 f0 = load8(trig + i), f1 = load8(trig + n + i), b0 = load8(trig + back),
                  b1 = load8(trig + n + back);
-        const F8 front_even = front_re * f0 + front_im * f1,
-                 front_odd = reverse8(front_re * f1 - front_im * f0);
-        const F8 back_even = back_re * b0 + back_im * b1, back_odd = reverse8(back_re * b1 - back_im * b0);
+        const F8 front_even = _mm256_fmadd_ps(front_re, f0, front_im * f1),
+                 front_odd = reverse8(_mm256_fmadd_ps(front_re, f1, -(front_im * f0)));
+        const F8 back_even = _mm256_fmadd_ps(back_re, b0, back_im * b1),
+                 back_odd = reverse8(_mm256_fmadd_ps(back_re, b1, -(back_im * b0)));
         store8(y + 2 * i, __builtin_shufflevector(front_even, back_odd, 0, 8, 1, 9, 2, 10, 3, 11));
         store8(y + 2 * i + 8, __builtin_shufflevector(front_even, back_odd, 4, 12, 5, 13, 6, 14, 7, 15));
         store8(y + 2 * back, __builtin_shufflevector(back_even, front_odd, 0, 8, 1, 9, 2, 10, 3, 11));
@@ -260,8 +272,8 @@ void celt_imdct(const float* spectrum, float* out, u32 shift) noexcept {
         const F4 old = load4(out + i), fresh = reverse4(load4(out + kOverlap - 4 - i));
         const F4 rising = load4(kWindow.value + i),
                  falling = reverse4(load4(kWindow.value + kOverlap - 4 - i));
-        store4(out + i, old * falling - fresh * rising);
-        store4(out + kOverlap - 4 - i, reverse4(old * rising + fresh * falling));
+        store4(out + i, _mm_fmadd_ps(old, falling, -(fresh * rising)));
+        store4(out + kOverlap - 4 - i, reverse4(_mm_fmadd_ps(old, rising, fresh * falling)));
     }
 }
 
@@ -271,29 +283,45 @@ void celt_mdct(const float* in, float* out, u32 shift) noexcept {
     const u8* const blocks = kBlocks.value + kBlockOffset[shift];
     // Window the two overlaps and fold the 4n-sample block [a, b, c, d] (the window is zero outside the
     // overlaps and one between them) into n complex values: real -d - c reversed, then a - b reversed;
-    // imaginary likewise.
-    alignas(32) float folded[2 * kFftMaximum];
-    {
-        constexpr u32 kEdge = (kOverlap + 3) >> 2;
-        const float* x1 = in + kOverlap / 2;
-        const float* x2 = in + 2 * n - 1 + kOverlap / 2;
-        const float* w1 = kWindow.value + kOverlap / 2;
-        const float* w2 = kWindow.value + kOverlap / 2 - 1;
-        float* y = folded;
-        u32 i = 0;
-        for (; i < kEdge; ++i, x1 += 2, x2 -= 2, w1 += 2, w2 -= 2) {
-            *y++ = *w2 * x1[2 * n] + *w1 * *x2;
-            *y++ = *w1 * *x1 - *w2 * x2[-static_cast<i32>(2 * n)];
+    // imaginary likewise. Eight values at a time; a range that is not a multiple of eight ends with an
+    // overlapping step, which writes the same values again.
+    alignas(32) float folded_re[kFftMaximum], folded_im[kFftMaximum];
+    constexpr u32 kEdge = (kOverlap + 3) >> 2;
+    const float* const window = kWindow.value;
+    const i32 n2 = static_cast<i32>(2 * n);
+    for (u32 i = 0;; i += 8) { // rising overlap
+        if (i + 8 > kEdge)
+            i = kEdge - 8;
+        const float* const x1 = in + kOverlap / 2 + 2 * i;
+        const float* const x2 = x1 + 2 * n - 1 - 4 * i;
+        const F8 w1 = forward(window + kOverlap / 2 + 2 * i);
+        const F8 w2 = backward(window + kOverlap / 2 - 1 - 2 * i);
+        store8(folded_re + i, w2 * forward(x1 + n2) + w1 * backward(x2));
+        store8(folded_im + i, w1 * forward(x1) - w2 * backward(x2 - n2));
+        if (i + 8 == kEdge)
+            break;
+    }
+    if (n > 2 * kEdge)
+        for (u32 i = kEdge;; i += 8) { // flat middle
+            if (i + 8 > n - kEdge)
+                i = n - kEdge - 8;
+            const float* const x1 = in + kOverlap / 2 + 2 * i;
+            store8(folded_re + i, backward(x1 + 2 * n - 1 - 4 * i));
+            store8(folded_im + i, forward(x1));
+            if (i + 8 == n - kEdge)
+                break;
         }
-        for (; i < n - kEdge; ++i, x1 += 2, x2 -= 2) {
-            *y++ = *x2;
-            *y++ = *x1;
-        }
-        w1 = kWindow.value, w2 = kWindow.value + kOverlap - 1;
-        for (; i < n; ++i, x1 += 2, x2 -= 2, w1 += 2, w2 -= 2) {
-            *y++ = *w2 * *x2 - *w1 * x1[-static_cast<i32>(2 * n)];
-            *y++ = *w2 * *x1 + *w1 * x2[2 * n];
-        }
+    for (u32 i = n - kEdge;; i += 8) { // falling overlap
+        if (i + 8 > n)
+            i = n - 8;
+        const float* const x1 = in + kOverlap / 2 + 2 * i;
+        const float* const x2 = x1 + 2 * n - 1 - 4 * i;
+        const u32 j = i - (n - kEdge);
+        const F8 w1 = forward(window + 2 * j), w2 = backward(window + kOverlap - 1 - 2 * j);
+        store8(folded_re + i, w2 * backward(x2) - w1 * forward(x1 - n2));
+        store8(folded_im + i, w2 * forward(x1) + w1 * backward(x2 + n2));
+        if (i + 8 == n)
+            break;
     }
     // Rotate, scale by 1 / n and run the first pass, four quarters at a time.
     alignas(32) float re[kFftMaximum], im[kFftMaximum];
@@ -305,9 +333,7 @@ void celt_mdct(const float* in, float* out, u32 shift) noexcept {
         Complex8 z[4];
         for (u32 d = 0; d < 4; ++d) {
             const u32 i = q + d * quarter;
-            const F8 a = load8(folded + 2 * i), b = load8(folded + 2 * i + 8);
-            const F8 real = __builtin_shufflevector(a, b, 0, 2, 4, 6, 8, 10, 12, 14);
-            const F8 imaginary = __builtin_shufflevector(a, b, 1, 3, 5, 7, 9, 11, 13, 15);
+            const F8 real = load8(folded_re + i), imaginary = load8(folded_im + i);
             const F8 t0 = load8(trig + i), t1 = load8(trig + n + i);
             z[d].re = (real * t0 - imaginary * t1) * scale;
             z[d].im = (imaginary * t0 + real * t1) * scale;
@@ -351,7 +377,10 @@ float exp2_approximate(float x) noexcept {
     return e * __builtin_bit_cast(float, static_cast<u32>(whole + 127) << 23);
 }
 
-float log2_approximate(float x) noexcept {
+// Only the encoder uses it. Each step of the series waits for the one before: fused, a step takes the time
+// of one instruction.
+MAICORD_HASWELL_FMA float log2_approximate(float x) noexcept {
+    #pragma clang fp contract(off)
     // x = m 2^e with m in [sqrt(1/2), sqrt(2)); log2(m) from the series of 2 atanh((m - 1) / (m + 1)).
     u32 bits = __builtin_bit_cast(u32, x);
     i32 exponent = static_cast<i32>(bits >> 23) - 127;
@@ -361,9 +390,14 @@ float log2_approximate(float x) noexcept {
         m *= 0.5f;
         ++exponent;
     }
-    const float s = (m - 1.f) / (m + 1.f), s2 = s * s;
-    const float series = s * (1.f + s2 * (1.f / 3 + s2 * (1.f / 5 + s2 * (1.f / 7 + s2 * (1.f / 9)))));
-    return static_cast<float>(exponent) + 2.88539008178f * series;
+    const float s = (m - 1.f) / (m + 1.f);
+    const __m128 s2 = _mm_set_ss(s * s);
+    __m128 series = _mm_fmadd_ss(s2, _mm_set_ss(1.f / 9), _mm_set_ss(1.f / 7));
+    series = _mm_fmadd_ss(series, s2, _mm_set_ss(1.f / 5));
+    series = _mm_fmadd_ss(series, s2, _mm_set_ss(1.f / 3));
+    series = _mm_fmadd_ss(series, s2, _mm_set_ss(1.f));
+    return _mm_cvtss_f32(
+        _mm_fmadd_ss(_mm_set_ss(2.88539008178f * s), series, _mm_set_ss(static_cast<float>(exponent))));
 }
 
 } // namespace maicord::opus

@@ -259,8 +259,9 @@ __attribute__((minsize)) void quantize_predictors(i32* predictor_q13, u8 index[2
     predictor_q13[0] -= predictor_q13[1];
 }
 // Left and right (after the two samples of history in each buffer) to mid and what the predictors leave of
-// the side, both one sample late; decides the rates of the two and whether the side is coded at all.
-void mix_stereo(SilkEncoder& st, i16* left, i16* right, i32* rates, i32 total_rate, i32 activity_q8,
+// the side, both one sample late; decides the rates of the two and whether the side is coded at all. left and
+// right are the two channels' own input buffers (__restrict): the loops need no run-time overlap test.
+void mix_stereo(SilkEncoder& st, i16* left, i16* __restrict right, i32* rates, i32 total_rate, i32 activity_q8,
                 bool to_mono) noexcept {
     constexpr i32 kInterpolation = 8 * kSilkRate, kFrame = kSilkFrame;
     i16* const mid = left;

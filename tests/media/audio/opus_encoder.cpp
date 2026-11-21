@@ -23,14 +23,14 @@ struct Scenario {
     u64 digest, ranges;
 };
 constexpr Scenario kScenarios[]{
-    {2, 64000, 10, 5, 0, 25, 0xaa7f46872d3cd10full, 0x69c2e66ca33e629eull},
-    {1, 16000, 2, 0, 2, 50, 0xd77c8a441ace0d71ull, 0x56bc051107bc56a3ull},
-    {2, 128000, 8, 20, 1, 25, 0x2830c100c03f1c8dull, 0x0d7bff35e0445af6ull},
-    {1, 40000, 3, 10, 0, 50, 0x9150c4b20dc8dda8ull, 0xa7d9764d1e6d7407ull},
-    {1, 64000, 7, 10, 0, 50, 0xca0f880d5f0f1906ull, 0xedf1e9bd5015c561ull},  // voice send
-    {2, 128000, 7, 10, 0, 50, 0x652b46c7735fba7bull, 0x53b49e0720130aaaull}, // Go Live
-    {1, 32000, 10, 0, 0, 50, 0x7fd619d625705ca9ull, 0x080bcf2c0850cf55ull},  // voice message
-    {2, 32000, 10, 0, 1, 25, 0x4af09f3a0a5f9cceull, 0xc29702e5b253e991ull},
+    {2, 64000, 10, 5, 0, 25, 0xad3234333f47e052ull, 0x9bc0766feb1e1068ull},
+    {1, 16000, 2, 0, 2, 50, 0xa9ee2ac990f3388bull, 0x9847710179cc070eull},
+    {2, 128000, 8, 20, 1, 25, 0xf51441eba24aa050ull, 0x956bd6615d4a439bull},
+    {1, 40000, 3, 10, 0, 50, 0x96b08112e71c6655ull, 0xff9bb6b925efb31cull},
+    {1, 64000, 7, 10, 0, 50, 0x58284d396bec6888ull, 0x834b0c2d64a22c5eull},  // voice send
+    {2, 128000, 7, 10, 0, 50, 0xa90948a22ea7893full, 0x35720dce56b2d808ull}, // Go Live
+    {1, 32000, 10, 0, 0, 50, 0x7f7f8eb03d41432full, 0xbd516ce2b093739full},  // voice message
+    {2, 32000, 10, 0, 1, 25, 0x879e449a79e3a991ull, 0x11cd568c7bc27e5aull},
 };
 OpusEncoder encoder;
 OpusDecoder decoder;
@@ -226,9 +226,12 @@ void test_opus_encoder() noexcept {
         const bool decoded = encoded && decode_all(s.channels, s.frames, &decoded_ranges);
         check(decoded && ranges == decoded_ranges,
               "Opus encoder bitstream: every packet decodes 20 ms to the encoder's final range");
-        if (digest != s.digest || ranges != s.ranges) {
-            test_write_text("    {"), write_hex(digest), test_write_text("ull, "), write_hex(ranges),
-                test_write_line("ull}");
+        if (digest != s.digest || ranges != s.ranges) { // the row to pin
+            const u32 fields[]{s.channels, s.bitrate, s.complexity, s.loss, s.signal, s.frames};
+            test_write_text("    {");
+            for (const u32 field : fields)
+                test_write_u64(field), test_write_text(", ");
+            write_hex(digest), test_write_text("ull, "), write_hex(ranges), test_write_line("ull},");
         }
         check(encoded && digest == s.digest && ranges == s.ranges,
               "Opus encoder pinned output: the packets equal the pinned digests");

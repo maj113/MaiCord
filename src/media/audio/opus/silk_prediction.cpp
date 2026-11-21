@@ -5,6 +5,7 @@
 #include "silk_encoder.hpp"
 #include "celt.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord::opus {
 namespace {
@@ -223,7 +224,8 @@ float burg(float* a, const float* x, float minimum_inverse_gain, u32 subframes) 
 // Prediction coefficients to line spectral frequencies (Q15 of pi): the roots of the two symmetric
 // polynomials alternate along the frequency axis; each is bracketed on the decoder's cosine table and
 // placed linearly within its bracket, as the decoder's inverse does.
-void lpc_to_nlsf(i16* nlsf, const float* a_in) noexcept {
+MAICORD_HASWELL_FMA void lpc_to_nlsf(i16* nlsf, const float* a_in) noexcept {
+    #pragma clang fp contract(off)
     constexpr u32 kHalf = kOrder / 2;
     float a[kOrder];
     copy_bytes(a, a_in, sizeof(a));
@@ -247,11 +249,12 @@ void lpc_to_nlsf(i16* nlsf, const float* a_in) noexcept {
                 poly[k - 2] -= 2 * poly[k];
             }
         }
-        const auto evaluate = [](const float* poly, float x) noexcept {
-            float y = poly[kHalf];
+        // Each step waits for the one before: fused, a step takes one instruction's time.
+        const auto evaluate = [](const float* poly, float x) MAICORD_HASWELL_FMA noexcept {
+            __m128 y = _mm_set_ss(poly[kHalf]);
             for (u32 n = kHalf; n-- > 0;)
-                y = y * x + poly[n];
-            return y;
+                y = _mm_fmadd_ss(y, _mm_set_ss(x), _mm_set_ss(poly[n]));
+            return _mm_cvtss_f32(y);
         };
         const auto cosine = [](u32 k) noexcept { return static_cast<float>(kLsfCosine[k]) * (1.f / 4096); };
         const float* const both[2]{p, q};
