@@ -4,6 +4,11 @@
 
 namespace maicord {
 
+// Counts the themes the renderer saw: the count changes exactly when the bytes of `theme` differ from those of
+// the theme in the call before. Stamps and caches keep the count in place of the theme.
+u64 renderer_theme_serial(const Theme& theme) noexcept;
+// content_text_theme_signature of `theme`, hashed again only when renderer_theme_serial changes.
+u64 renderer_theme_text_signature(const Theme& theme) noexcept;
 RendererPresentationStamp renderer_capture_presentation_stamp(
     const D3D11Renderer& renderer, const Theme& theme, bool structural = false) noexcept;
 bool renderer_presentation_stamp_equal(

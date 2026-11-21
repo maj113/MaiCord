@@ -26,11 +26,11 @@ bool row_visible(const GlyphAtlasAllocator& atlas, u32 row_index, bool protect) 
            (protect && atlas.protect_ms && row.occupied_entries != 0 && row.last_used >= atlas.protect_after);
 }
 
-u32 page_of(const GlyphAtlasAllocator& atlas, u32 y) noexcept {
+inline u32 page_of(const GlyphAtlasAllocator& atlas, u32 y) noexcept {
     return y / atlas.page_rows;
 }
 
-u32 page_base(const GlyphAtlasAllocator& atlas, u32 page) noexcept {
+inline u32 page_base(const GlyphAtlasAllocator& atlas, u32 page) noexcept {
     return page * atlas.page_rows;
 }
 
@@ -64,7 +64,7 @@ void renumber_rows(GlyphAtlasAllocator* atlas, u32 from, i32 delta) noexcept {
     }
 }
 
-u32 insert_row(GlyphAtlasAllocator* atlas, const GlyphAtlasRow& row) noexcept {
+inline u32 insert_row(GlyphAtlasAllocator* atlas, const GlyphAtlasRow& row) noexcept {
     u32 index = atlas->row_count;
     while (index != 0 && atlas->rows[index - 1].y > row.y) {
         atlas->rows[index] = atlas->rows[index - 1];
@@ -122,7 +122,7 @@ u32 find_empty_entry(GlyphAtlasAllocator* atlas) noexcept {
     return kNone;
 }
 
-u32 pool_slots(const GlyphAtlasAllocator& atlas, u8 pool, u32 span) noexcept {
+inline u32 pool_slots(const GlyphAtlasAllocator& atlas, u8 pool, u32 span) noexcept {
     u32 slots = 0;
     for (u32 index = 0; index < atlas.row_count; ++index) {
         if (atlas.rows[index].pool == pool) {
@@ -191,7 +191,7 @@ void evict_rows(GlyphAtlasAllocator* atlas, u32 first, u32 end, bool protect) no
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // The general region may back more rows while what it keeps beyond its
 // visible shelves stays within the budget.
-bool general_commit_allowed(const GlyphAtlasAllocator& atlas, u32 height, bool protect) noexcept {
+inline bool general_commit_allowed(const GlyphAtlasAllocator& atlas, u32 height, bool protect) noexcept {
     if (atlas.budget_rows == 0) {
         return true;
     }
@@ -281,7 +281,7 @@ bool empty_lru_rows(GlyphAtlasAllocator* atlas, bool protect) noexcept {
 // The least recently used shelf of the region that holds nothing visible and
 // could take the request (general shelves at most twice as tall), emptied:
 // every entry on it is evicted and it fills again from its left.
-u32 empty_lru_row(GlyphAtlasAllocator* atlas, u32 width, u32 height, u8 pool, bool protect) noexcept {
+inline u32 empty_lru_row(GlyphAtlasAllocator* atlas, u32 width, u32 height, u8 pool, bool protect) noexcept {
     u32 found = kNone;
     u64 oldest = ~0ull;
     for (u32 index = 0; index < atlas->row_count; ++index) {
@@ -300,7 +300,7 @@ u32 empty_lru_row(GlyphAtlasAllocator* atlas, u32 width, u32 height, u8 pool, bo
     return found;
 }
 
-bool any_visible(const GlyphAtlasAllocator& atlas, bool protect) noexcept {
+inline bool any_visible(const GlyphAtlasAllocator& atlas, bool protect) noexcept {
     for (u32 index = 0; index < atlas.row_count; ++index) {
         if (row_visible(atlas, index, protect)) {
             return true;
@@ -312,7 +312,7 @@ bool any_visible(const GlyphAtlasAllocator& atlas, bool protect) noexcept {
 // A run of general shelves of one page holding nothing visible becomes one
 // shelf for the request (the least recently used run that fits, within the
 // committed rows). Handles and pixels of every other entry stay as they are.
-u32 reclaim_span(GlyphAtlasAllocator* atlas, u32 height, bool protect) noexcept {
+inline u32 reclaim_span(GlyphAtlasAllocator* atlas, u32 height, bool protect) noexcept {
     u32 best = kNone, best_end = 0;
     u64 best_age = ~0ull;
     for (u32 first = 0; first < atlas->row_count;) {
@@ -779,7 +779,7 @@ void index_place(GlyphAtlasIndex* index, u64 key, u32 slot) noexcept {
     index->used = static_cast<u16>(index->used + 1);
 }
 
-void index_rebuild(GlyphAtlasIndex* index, const GlyphAtlasAllocator& atlas) noexcept {
+inline void index_rebuild(GlyphAtlasIndex* index, const GlyphAtlasAllocator& atlas) noexcept {
     for (u32 bucket = 0; bucket <= index->mask; ++bucket) {
         index->buckets[bucket] = 0;
     }
@@ -796,7 +796,7 @@ void index_rebuild(GlyphAtlasIndex* index, const GlyphAtlasAllocator& atlas) noe
 // The caller guarantees key is absent, so the first dead bucket in its probe
 // sequence can be reused. Never-used buckets bound probe chains: rebuild once
 // three quarters have been written since the last rebuild.
-void index_insert(GlyphAtlasIndex* index, const GlyphAtlasAllocator& atlas, u64 key, u32 slot) noexcept {
+inline void index_insert(GlyphAtlasIndex* index, const GlyphAtlasAllocator& atlas, u64 key, u32 slot) noexcept {
     u32 probe = index_home(*index, key);
     for (u32 step = 0; step <= index->mask; ++step, probe = (probe + 1) & index->mask) {
         const u16 bucket = index->buckets[probe];

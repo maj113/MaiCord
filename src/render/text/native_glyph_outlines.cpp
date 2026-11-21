@@ -35,7 +35,7 @@ struct NativeGlyphOutlines {
 static_assert(sizeof(NativeGlyphOutlines)<=4096); // Fits one committed page.
 static_assert(is_trivial_v<NativeGlyphOutlines>); // Fresh VirtualAlloc storage is already zeroed.
 namespace {
-template<class T> Slice<T> take(Arena& a,u32 n) noexcept {return {n?arena_allocate<T>(&a,n):nullptr,n};}
+template<class T> inline Slice<T> take(Arena& a,u32 n) noexcept {return {n?arena_allocate<T>(&a,n):nullptr,n};}
 bool failed(NativeGlyphOutlines& o,u32 stage,u32 error) noexcept {++o.failures;LogEvent("native_outline_failed").field("stage",stage).error("error",error).write(LogLevel::error,"render");return false;}
 bool bind(NativeGlyphOutlines& o,u32 index,NativeFontRunHandle run,bool instructions=false) noexcept {
     bool oblique=false,bold=false;NativeFontResult result{};NativeFontInstanceHandle prepared{};

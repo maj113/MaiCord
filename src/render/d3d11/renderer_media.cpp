@@ -2,6 +2,7 @@
 #include "maicord/media/image/png.hpp"
 #include "maicord/media/image/vp8.hpp"
 
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/render/effects/colr_program.hpp"
 #include "maicord/render/effects/lottie_program.hpp"
@@ -815,10 +816,7 @@ bool renderer_media_maintain(D3D11Renderer* renderer, u64 now_ms) noexcept {
 
 u64 renderer_media_next_trim_ms(const D3D11Renderer& renderer) noexcept {
     u64 deadline = 0;
-    const auto take = [&deadline](u64 value) noexcept {
-        if (value && (!deadline || value < deadline))
-            deadline = value;
-    };
+    const auto take = [&deadline](u64 value) noexcept { deadline = earliest_deadline(deadline, value); };
     if (renderer.media_atlas)
         take(media_atlas_trim_deadline(*renderer.media_atlas));
     if (renderer.preview_media_atlas)

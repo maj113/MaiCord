@@ -246,6 +246,10 @@ struct GpuDevice {
     // A shader or program was built since the last present: the driver's compiler (llvmpipe's LLVM, Mesa's NIR) left
     // freed memory in the C library's heap, which the present hands back (heap_trim).
     bool trim_pending;
+    // The inflated shader pack (shader_pack.cpp fills it): the shaders made since the last present take their text from
+    // it, and the present or the device's destruction frees it (release_pack_text). It lives here, not in the shaders
+    // library, so the backend frees it without linking that library.
+    void* pack_text;
 };
 
 // What one present changed: the whole frame, or the bounding box of its dirty rectangles.
@@ -276,6 +280,9 @@ struct GlesSurface {
 };
 
 namespace gles {
+
+// An applied-state value no GL name has: the tracker no longer knows what the driver holds, so the next use sets it.
+inline constexpr u32 kUnknown = 0xFFFFFFFFu;
 
 GpuDevice& device() noexcept;
 GpuContext& context() noexcept;
@@ -316,6 +323,8 @@ void blend_factors(const GpuBlendDesc& desc, gl::Enum* source, gl::Enum* destina
 // Shader pack (shader_pack.cpp).
 GpuStatus create_shader(GpuDevice* device, ShaderId id, gl::Enum stage, GlesShader* shader) noexcept;
 GpuStatus create_compute_program(GpuDevice* device, ShaderId id, GlesShader* shader) noexcept;
+// Frees GpuDevice::pack_text (device.cpp, so the backend library needs nothing of the shaders library).
+void release_pack_text(GpuDevice& device) noexcept;
 u32 graphics_program(GpuContext* context) noexcept;
 // Waits for the prestart worker, if one still runs, and makes the context current on the calling thread.
 void claim_context() noexcept;

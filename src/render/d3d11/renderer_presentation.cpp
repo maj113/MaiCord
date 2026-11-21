@@ -1,3 +1,4 @@
+#include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
 #include "maicord/core/hash.hpp"
@@ -10,6 +11,7 @@
 #include "renderer_edit.hpp"
 #include "renderer_login_form.hpp"
 #include "maicord/ui/core/transition.hpp"
+#include "maicord/render/text/content_text_retention.hpp"
 #include <stddef.h>
 
 #include "maicord/core/time.hpp"
@@ -96,13 +98,15 @@ StampWriter& StampWriter::bytes(const void* bytes, u32 count) noexcept {
             while (left != 0)
                 value = value << 8 | source[--left];
         }
-        primary = (primary ^ (value + 0x9E3779B97F4A7C15ull + ordinal)) * 0x100000001B3ull;
-        const u64 mixed =
-            (secondary ^ (((value << 29) | (value >> 35)) ^ (ordinal * 0xD6E8FEB86659FD93ull))) * 0xC2B2AE3D27D4EB4Full;
+        // Each step is a bijection of its chain value, so a stamp with one changed word always differs. A chain
+        // holds the order of the words, so the words need no position mixed in.
+        primary = (primary ^ value) * 0x9E3779B97F4A7C15ull;
+        const u64 mixed = (secondary ^ ((value << 29) | (value >> 35))) * 0xC2B2AE3D27D4EB4Full;
         secondary = (mixed << 23) | (mixed >> 41);
         if (shell_input) {
-            const u64 folded = shell ^ (value + 0x9E3779B97F4A7C15ull * ++shell_count);
-            shell = (folded ^ (folded >> 31)) * 0xC2B2AE3D27D4EB4Full;
+            const u64 folded = shell ^ value;
+            shell = (folded ^ (folded >> 31)) * 0xD6E8FEB86659FD93ull;
+            ++shell_count;
         }
     }
     stamp->primary = primary;
@@ -117,18 +121,6 @@ u64 presentation_handle(UiWidgetHandle handle) noexcept {
     return static_cast<u64>(handle.slot) | (static_cast<u64>(handle.generation) << 16);
 }
 
-// The theme is hundreds of words and changes rarely: it enters a stamp as a
-// digest, folded again only when its bytes differ from the last theme seen.
-u64 theme_digest(const Theme& theme) noexcept {
-    alignas(Theme) static u8 last[sizeof(Theme)];
-    static u64 digest;
-    if (!digest || !bytes_equal(last, &theme, sizeof(theme))) {
-        copy_bytes(last, &theme, sizeof(theme));
-        digest = hash64_bytes(kHash64Seed, &theme, sizeof(theme)) | 1u;
-    }
-    return digest;
-}
-
 StampWriter& StampWriter::widgets(const UiWidgetManager& widgets) noexcept {
     return push(widgets.generation, widgets.layout.revision, presentation_handle(widgets.focused),
                 stamp_->structural ? 0 : presentation_handle(widgets.hovered), presentation_handle(widgets.captured));
@@ -141,6 +133,32 @@ u64 avatar_color_token(const ProfileScene* scene) noexcept {
 
 } // namespace
 
+u64 renderer_theme_serial(const Theme& theme) noexcept {
+    // 32 bytes a step, no branch per step: the usual call finds the same theme, so it reads all of it.
+    using Block = u64 __attribute__((vector_size(32), aligned(8)));
+    static_assert(sizeof(Theme) % sizeof(Block) == 0);
+    static Block last[sizeof(Theme) / sizeof(Block)];
+    static u64 serial;
+    const auto* blocks = reinterpret_cast<const Block*>(&theme);
+    Block changed{};
+    for (u32 i = 0; i < sizeof(Theme) / sizeof(Block); ++i)
+        changed |= blocks[i] ^ last[i];
+    if (!serial || (changed[0] | changed[1] | changed[2] | changed[3])) {
+        copy_bytes(last, &theme, sizeof(theme));
+        ++serial;
+    }
+    return serial;
+}
+
+u64 renderer_theme_text_signature(const Theme& theme) noexcept {
+    static u64 signed_serial, signature;
+    if (const u64 serial = renderer_theme_serial(theme); serial != signed_serial) {
+        signed_serial = serial;
+        signature = content_text_theme_signature(theme);
+    }
+    return signature;
+}
+
 RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Renderer& renderer,
                                                               const Theme& theme, bool structural) noexcept {
     RendererPresentationStamp stamp{};
@@ -150,11 +168,11 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     stamp.valid = true;
     stamp.structural = structural;
     StampWriter s(&stamp);
-    s.push(renderer.typography_revision);
+    s.push(renderer.typography_revision, renderer_theme_serial(theme));
     if (d3d11_renderer_login_form_text(renderer)) {
         const auto& owned = *renderer.login_form_text;
         const auto* form = d3d11_renderer_text_form_active(renderer) ? renderer.text_form->scene : nullptr;
-        s.push(renderer.width, renderer.height, renderer.dpi, theme_digest(theme), renderer.login_scene, owned.valid,
+        s.push(renderer.width, renderer.height, renderer.dpi, renderer.login_scene, owned.valid,
                owned.projection.signature, renderer.content_text->rebuilds, renderer.content_text->quad_count,
                renderer.content_text->batch_count, renderer.overlay_text_first_batch, renderer.form_text_first_batch,
                renderer.login_qr_ready, renderer.text_form, form, renderer.interaction_text_form_revision);
@@ -201,7 +219,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
         s.push(renderer.settings_scene, settings.revision, settings.motion_revision,
                stamp.structural ? 0 : settings.spinner_phase,
                stamp.structural || !renderer.settings_store ? 0 : renderer.settings_store->spinner_phase,
-               renderer.width, renderer.height, renderer.dpi, renderer.login_visible, theme_digest(theme),
+               renderer.width, renderer.height, renderer.dpi, renderer.login_visible,
                renderer.content_text, renderer.glyph_text.allocator.evicted_entries,
                renderer.glyph_text.allocator.full_resets, renderer.glyph_text.ready,
                renderer.interaction_text_settings_revision, renderer.interaction_text_active_mask,
@@ -388,12 +406,14 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     if (renderer.image_viewer)
         s.push(renderer.image_viewer->revision, renderer.image_viewer->spinner_phase);
     // The magnifier follows the pointer and only adds media and paint after
-    // the shell: every change of the lens bumps its revision.
+    // the shell: every change of the lens bumps its revision. A lens that moves
+    // or changes its zoom or size keeps the frame's structure, so the paint
+    // diff damages only its old and new quads.
     {
         const TimelineInputs timeline(&stamp);
         s.push(renderer.zoom_lens);
         if (renderer.zoom_lens)
-            s.push(renderer.zoom_lens->active, renderer.zoom_lens->revision);
+            s.push(renderer.zoom_lens->active, stamp.structural ? 0 : renderer.zoom_lens->revision);
     }
     const auto* video = (shown & (d3d11_surface_video | d3d11_surface_viewer_video | d3d11_surface_page_video))
                             ? renderer.video_scene
@@ -416,7 +436,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
         s.push(poll_search->polls->store->revision);
     const auto* focus_owner = d3d11_renderer_visible_focus_owner(renderer, shown);
     // Every block below is keyed by its scene pointer here.
-    s.push(focus_owner, renderer.width, renderer.height, renderer.dpi, renderer.login_visible, theme_digest(theme),
+    s.push(focus_owner, renderer.width, renderer.height, renderer.dpi, renderer.login_visible,
            renderer.content_text, renderer.media_atlas, renderer.preview_media_atlas, renderer.ui_scene,
            renderer.guild_rail_scene, renderer.shell_navigation_scene, renderer.message_scene,
            renderer.message_action_bar, renderer.reaction_viewer, renderer.message_composer_scene,
@@ -570,7 +590,7 @@ u64 text_signature(const D3D11Renderer& renderer) noexcept {
     const RendererTextStorage& text = *renderer.content_text;
     const u64 identity = static_cast<u64>(reinterpret_cast<ULONG_PTR>(renderer.content_text));
     const u32 values[] = {text.rebuilds, text.quad_count, text.batch_count, renderer.text_effect_count};
-    return hash64_bytes(hash64_bytes(kHash64Seed, &identity, sizeof(identity)), values, sizeof(values));
+    return hash64_words(hash64_mix(kHash64Seed, identity), values, sizeof(values));
 }
 
 // Batch markers decide how paint, media and text ranges interleave; they are
@@ -587,11 +607,13 @@ u64 layout_signature(const D3D11Renderer& renderer) noexcept {
                   offsetof(D3D11Renderer, interaction_text_action_bar_revision) > offsetof(D3D11Renderer, draw_layer_scale));
     u64 hash = hash64_words(kHash64Seed, first, static_cast<u32>(backdrop - first));
     hash = hash64_words(hash, resume, static_cast<u32>(end - resume));
-    const u32 inline_range[] = {renderer.inline_media_first_batch, renderer.inline_media_last_batch,
-                                renderer.inline_media.count};
-    hash = hash64_bytes(hash, inline_range, sizeof(inline_range));
-    hash = hash64_bytes(hash, renderer.inline_media_layer_first, sizeof(renderer.inline_media_layer_first));
-    return hash64_bytes(hash, renderer.inline_media_layer_end, sizeof(renderer.inline_media_layer_end));
+    // The inline media batch range and the layer bounds are adjacent u32 fields: one block.
+    constexpr u32 inline_bytes = 2 * sizeof(u32) + 2 * sizeof(D3D11Renderer::inline_media_layer_first);
+    static_assert(offsetof(D3D11Renderer, inline_media_layer_end) + sizeof(D3D11Renderer::inline_media_layer_end) -
+                      offsetof(D3D11Renderer, inline_media_first_batch) ==
+                  inline_bytes);
+    return hash64_words(hash64_mix(hash, renderer.inline_media.count), &renderer.inline_media_first_batch,
+                        inline_bytes);
 }
 
 template <typename Quad>
@@ -600,6 +622,23 @@ bool add_quad_damage(PresentationDamageTracker* tracker, const Quad& quad, Prese
                                    {quad.left - kPaintDiffFringe, quad.top - kPaintDiffFringe,
                                     quad.right + kPaintDiffFringe, quad.bottom + kPaintDiffFringe},
                                    clip);
+}
+
+// One quad against its copy, eight bytes at a time without a branch: the
+// diff compares every retained quad of a rebuild, nearly all of them equal.
+template <typename Quad>
+__forceinline bool same_quad(const Quad& left, const Quad& right) noexcept {
+    static_assert(sizeof(Quad) % sizeof(u64) == 0);
+    const auto* a = reinterpret_cast<const u8*>(&left);
+    const auto* b = reinterpret_cast<const u8*>(&right);
+    u64 changed = 0;
+    for (u32 i = 0; i < sizeof(Quad); i += sizeof(u64)) {
+        u64 x, y;
+        CopyMemory(&x, a + i, sizeof(x));
+        CopyMemory(&y, b + i, sizeof(y));
+        changed |= x ^ y;
+    }
+    return !changed;
 }
 
 // Adds old/new bounds of the quads between the common prefix and suffix of
@@ -622,12 +661,11 @@ bool add_paint_damage(D3D11Renderer* renderer, const RendererFrameCopy& diff) no
         const PaintQuad* new_quads = paint.quads + after.first_quad;
         const u32 old_count = before.quad_count, new_count = after.quad_count;
         u32 prefix = 0;
-        while (prefix < old_count && prefix < new_count &&
-               bytes_equal(&old_quads[prefix], &new_quads[prefix], sizeof(PaintQuad)))
+        while (prefix < old_count && prefix < new_count && same_quad(old_quads[prefix], new_quads[prefix]))
             ++prefix;
         u32 suffix = 0;
         while (suffix < old_count - prefix && suffix < new_count - prefix &&
-               bytes_equal(&old_quads[old_count - 1 - suffix], &new_quads[new_count - 1 - suffix], sizeof(PaintQuad)))
+               same_quad(old_quads[old_count - 1 - suffix], new_quads[new_count - 1 - suffix]))
             ++suffix;
         const PaintClip& clip = paint.clips[after.clip_index];
         const PresentationDamageRect bounds{clip.left, clip.top, clip.right, clip.bottom};
@@ -641,35 +679,39 @@ bool add_paint_damage(D3D11Renderer* renderer, const RendererFrameCopy& diff) no
     return true;
 }
 
-// Media batches, handles and domains must match exactly; changed sources and
-// pending atlas writes for visible handles become damage, as on a retained frame.
+// Media batches must hold the same quads, handles and domains; changed sources and
+// pending atlas writes for visible handles become damage, as on a retained frame. A
+// batch whose clip moved (the magnifier's lens) repaints its quads where they were and
+// where they are now.
 bool add_media_damage(D3D11Renderer* renderer, const RendererFrameCopy& diff) noexcept {
     const u32 count = renderer->media_quad_count;
     const RendererMediaDrawStorage& media = renderer->media_draw;
     if (count != diff.media_count || renderer->media_batch_count != diff.media_batch_count ||
-        (renderer->media_batch_count &&
-         !bytes_equal(media.batch_data, stable_storage_data<MediaDrawBatch>(diff.media_batches),
-                      static_cast<usize>(renderer->media_batch_count) * sizeof(MediaDrawBatch))) ||
         (count && (!bytes_equal(media.handle_data, stable_storage_data<MediaAtlasHandle>(diff.media_handles),
                                 static_cast<usize>(count) * sizeof(MediaAtlasHandle)) ||
                    !bytes_equal(media.domain_data, stable_storage_data<u8>(diff.media_domains), count))))
         return false;
     const auto* previous = stable_storage_data<MediaQuad>(diff.media_quads);
+    const auto* previous_batches = stable_storage_data<MediaDrawBatch>(diff.media_batches);
     for (u32 batch_index = 0; batch_index < renderer->media_batch_count; ++batch_index) {
         const MediaDrawBatch& batch = media.batch_data[batch_index];
-        if (batch.first_quad > count || batch.quad_count > count - batch.first_quad)
+        const MediaDrawBatch& before = previous_batches[batch_index];
+        if (batch.first_quad != before.first_quad || batch.quad_count != before.quad_count ||
+            batch.first_quad > count || batch.quad_count > count - batch.first_quad)
             return false;
+        const bool same_clip = bytes_equal(&batch.clip, &before.clip, sizeof(UiRect));
         const PresentationDamageRect clip{batch.clip.left, batch.clip.top, batch.clip.right, batch.clip.bottom};
+        const PresentationDamageRect old_clip{before.clip.left, before.clip.top, before.clip.right, before.clip.bottom};
         for (u32 index = batch.first_quad; index < batch.first_quad + batch.quad_count; ++index) {
             const MediaQuad& quad = media.quad_data[index];
             const PresentationDamageRect rectangle{quad.left, quad.top, quad.right, quad.bottom};
             if (!presentation_damage_add_media(&renderer->presentation_damage, media.handle_data[index], rectangle,
                                                clip, media.domain_data[index]))
                 return false;
-            if (bytes_equal(&quad, &previous[index], sizeof(MediaQuad)))
+            if (same_clip && same_quad(quad, previous[index]))
                 continue;
             const MediaQuad& old = previous[index];
-            if (!add_quad_damage(&renderer->presentation_damage, old, clip) ||
+            if (!add_quad_damage(&renderer->presentation_damage, old, old_clip) ||
                 !add_quad_damage(&renderer->presentation_damage, quad, clip))
                 return false;
         }

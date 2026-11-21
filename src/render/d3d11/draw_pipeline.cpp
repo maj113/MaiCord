@@ -338,12 +338,6 @@ bool d3d11_draw_pipeline_update_caption(const D3D11DrawPipelineOwner& owner, Gpu
 
 void d3d11_draw_pipeline_release(D3D11DrawPipelineOwner* owner) noexcept {
     gpu_release(owner->background_buffer);
-    owner->background_valid = false;
-    owner->background_active = false;
-    reset_value(&owner->background_constants);
-    reset_value(&owner->background_source);
-    owner->background_light = owner->background_source_valid = false;
-    owner->background_updates = 0;
     gpu_release(owner->glyph_sampler);
     gpu_release(owner->media_instance_buffer);
     gpu_release(owner->glyph_instance_buffer);
@@ -360,9 +354,7 @@ void d3d11_draw_pipeline_release(D3D11DrawPipelineOwner* owner) noexcept {
     gpu_release(owner->ui_input_layout);
     gpu_release(owner->ui_pixel_shader);
     gpu_release(owner->ui_vertex_shader);
-    owner->glyph_instance_capacity = 0;
-    owner->glyph_instance_end = 0;
-    owner->ui_instance_capacity = 0;
+    reset_value(owner);
 }
 
 bool d3d11_draw_pipeline_update_background(D3D11DrawPipelineOwner* owner, GpuDevice* device,
@@ -374,25 +366,25 @@ bool d3d11_draw_pipeline_update_background(D3D11DrawPipelineOwner* owner, GpuDev
     if (!owner->background_active)
         return true;
     const bool light = theme.appearance == ThemeAppearance::light;
-    D3D11BackgroundConstants next = owner->background_constants;
-    if (!owner->background_source_valid || owner->background_light != light ||
-        !background_theme_equal(owner->background_source, background)) {
-        Color colors[5]{};
-        if (ui_background_active(theme) && !ui_background_palette(theme, colors))
-            return false;
-        reset_value(&next);
-        // The shader's single-colour test needs the raw 0 and 1; more than five
-        // stops never fit the palette.
-        const u32 stops = minimum<u32>(background.color_count, 5);
-        for (u32 i = 0; i < stops; ++i) {
-            next.colors[i][0] = colors[i].red;
-            next.colors[i][1] = colors[i].green;
-            next.colors[i][2] = colors[i].blue;
-        }
-        next.colors[1][3] = light ? 1.f : 0.f;
-        ui_background_direction(background.angle_degrees, &next.controls[0], &next.controls[1]);
-        next.controls[2] = stops;
+    // A recorded source has its buffer and its constants on the GPU.
+    if (owner->background_source_valid && owner->background_light == light &&
+        background_theme_equal(owner->background_source, background))
+        return true;
+    Color colors[5]{};
+    if (ui_background_active(theme) && !ui_background_palette(theme, colors))
+        return false;
+    D3D11BackgroundConstants next{};
+    // The shader's single-colour test needs the raw 0 and 1; more than five
+    // stops never fit the palette.
+    const u32 stops = minimum<u32>(background.color_count, 5);
+    for (u32 i = 0; i < stops; ++i) {
+        next.colors[i][0] = colors[i].red;
+        next.colors[i][1] = colors[i].green;
+        next.colors[i][2] = colors[i].blue;
     }
+    next.colors[1][3] = light ? 1.f : 0.f;
+    ui_background_direction(background.angle_degrees, &next.controls[0], &next.controls[1]);
+    next.controls[2] = stops;
     if (!owner->background_buffer) {
         if (FAILED(gpu_buffer_create(device, {sizeof(next), GpuUsage::default_, gpu_bind_constant, false}, nullptr,
                                      &owner->background_buffer)))

@@ -1,7 +1,6 @@
 // The Direct3D 11 bodies of the MAICORD_GPU_INLINE functions of maicord/gpu/api.hpp and surface.hpp: each is the
-// D3D11 call it stands for (a create call fills the D3D11 description from the portable one, which folds away where
-// the description is a constant), so a call site compiles to what the code it replaced did. Included at the end of
-// surface.hpp; the out-of-line functions (device, shaders, surface lifetime) are in src/gpu/d3d11.
+// D3D11 call it stands for, so a call site compiles to what the code it replaced did. Included at the end of
+// surface.hpp; the out-of-line functions (device, resource creation, shaders, surface lifetime) are in src/gpu/d3d11.
 
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/d3d11.hpp"
@@ -68,16 +67,16 @@ __forceinline constexpr D3D11_BLEND blend_factor(GpuBlendFactor factor) noexcept
 
 // ---- Device ----------------------------------------------------------------------------------------------
 
+// Every context has a device: GetDevice never writes null.
 __forceinline GpuDevice* gpu_context_device(GpuContext* context) {
-    GpuDevice* device = nullptr;
+    GpuDevice* device;
     context->GetDevice(&device);
-    if (device)
-        device->Release();
+    device->Release();
     return device;
 }
 
 __forceinline GpuStatus gpu_format_check(GpuDevice* device, GpuFormat format, u8 bind) {
-    UINT support = 0;
+    UINT support;
     const HRESULT result = device->CheckFormatSupport(gpu_d3d11::dxgi_format(format), &support);
     UINT required = D3D11_FORMAT_SUPPORT_TEXTURE2D;
     if (bind & gpu_bind_srv)
@@ -93,103 +92,17 @@ __forceinline GpuStatus gpu_format_check(GpuDevice* device, GpuFormat format, u8
 
 // ---- Resources -------------------------------------------------------------------------------------------
 
-__forceinline GpuStatus gpu_buffer_create(GpuDevice* device, const GpuBufferDesc& desc, const void* initial,
-                                          GpuBuffer** buffer) {
-    D3D11_BUFFER_DESC description{};
-    description.ByteWidth = desc.bytes;
-    description.Usage = gpu_d3d11::usage(desc.usage);
-    description.BindFlags = desc.bind;
-    description.CPUAccessFlags = desc.usage == GpuUsage::dynamic        ? D3D11_CPU_ACCESS_WRITE
-                                 : desc.usage == GpuUsage::staging_read ? D3D11_CPU_ACCESS_READ
-                                                                        : 0;
-    description.MiscFlags = desc.raw ? D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS : 0;
-    const D3D11_SUBRESOURCE_DATA data{initial, 0, 0};
-    return device->CreateBuffer(&description, initial ? &data : nullptr, buffer);
-}
-
-__forceinline GpuStatus gpu_texture_create(GpuDevice* device, const GpuTextureDesc& desc, const GpuInitialData* initial,
-                                           GpuTexture** texture) {
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = desc.width;
-    description.Height = desc.height;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = gpu_d3d11::dxgi_format(desc.format);
-    description.SampleDesc.Count = 1;
-    description.Usage = gpu_d3d11::usage(desc.usage);
-    description.BindFlags = desc.bind;
-    description.CPUAccessFlags = desc.usage == GpuUsage::staging_read ? D3D11_CPU_ACCESS_READ : 0;
-    const D3D11_SUBRESOURCE_DATA data{initial ? initial->data : nullptr, initial ? initial->pitch : 0, 0};
-    return device->CreateTexture2D(&description, initial ? &data : nullptr, texture);
-}
-
 // A texture view covers the whole texture in the texture's own format.
 __forceinline GpuStatus gpu_srv_create(GpuDevice* device, GpuTexture* texture, const GpuViewDesc&, GpuSrv** view) {
     return device->CreateShaderResourceView(texture, nullptr, view);
-}
-
-__forceinline GpuStatus gpu_srv_create(GpuDevice* device, GpuBuffer* buffer, const GpuViewDesc& desc, GpuSrv** view) {
-    D3D11_SHADER_RESOURCE_VIEW_DESC description{};
-    if (desc.kind == GpuViewKind::buffer_raw) {
-        description.Format = DXGI_FORMAT_R32_TYPELESS;
-        description.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
-        description.BufferEx.NumElements = desc.elements;
-        description.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
-    } else {
-        description.Format = gpu_d3d11::dxgi_format(desc.format);
-        description.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
-        description.Buffer.NumElements = desc.elements;
-    }
-    return device->CreateShaderResourceView(buffer, &description, view);
 }
 
 __forceinline GpuStatus gpu_uav_create(GpuDevice* device, GpuTexture* texture, GpuUav** view) {
     return device->CreateUnorderedAccessView(texture, nullptr, view);
 }
 
-__forceinline GpuStatus gpu_uav_create(GpuDevice* device, GpuBuffer* buffer, u32 elements, GpuUav** view) {
-    D3D11_UNORDERED_ACCESS_VIEW_DESC description{};
-    description.Format = DXGI_FORMAT_R32_TYPELESS;
-    description.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-    description.Buffer.NumElements = elements;
-    description.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
-    return device->CreateUnorderedAccessView(buffer, &description, view);
-}
-
 __forceinline GpuStatus gpu_rtv_create(GpuDevice* device, GpuTexture* texture, GpuRtv** view) {
     return device->CreateRenderTargetView(texture, nullptr, view);
-}
-
-__forceinline GpuStatus gpu_sampler_create(GpuDevice* device, const GpuSamplerDesc& desc, GpuSampler** sampler) {
-    D3D11_SAMPLER_DESC description{};
-    description.Filter = static_cast<D3D11_FILTER>(desc.filter);
-    description.AddressU = description.AddressV = description.AddressW =
-        static_cast<D3D11_TEXTURE_ADDRESS_MODE>(desc.address);
-    description.MaxLOD = 0.0f;
-    return device->CreateSamplerState(&description, sampler);
-}
-
-__forceinline GpuStatus gpu_blend_create(GpuDevice* device, const GpuBlendDesc& desc, GpuBlend** blend) {
-    D3D11_BLEND_DESC description{};
-    D3D11_RENDER_TARGET_BLEND_DESC& target = description.RenderTarget[0];
-    target.BlendEnable = desc.enable ? TRUE : FALSE;
-    target.SrcBlend = gpu_d3d11::blend_factor(desc.source);
-    target.DestBlend = gpu_d3d11::blend_factor(desc.destination);
-    target.BlendOp = D3D11_BLEND_OP_ADD;
-    target.SrcBlendAlpha = gpu_d3d11::blend_factor(desc.source_alpha);
-    target.DestBlendAlpha = gpu_d3d11::blend_factor(desc.destination_alpha);
-    target.BlendOpAlpha = D3D11_BLEND_OP_ADD;
-    target.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-    return device->CreateBlendState(&description, blend);
-}
-
-__forceinline GpuStatus gpu_raster_create(GpuDevice* device, GpuRaster** raster) {
-    D3D11_RASTERIZER_DESC description{};
-    description.FillMode = D3D11_FILL_SOLID;
-    description.CullMode = D3D11_CULL_NONE;
-    description.DepthClipEnable = TRUE;
-    description.ScissorEnable = TRUE;
-    return device->CreateRasterizerState(&description, raster);
 }
 
 // Every page is the one tiled texture, addressed and sampled by virtual rows: one binding.
@@ -327,7 +240,7 @@ __forceinline void gpu_update_buffer(GpuContext* context, GpuBuffer* buffer, con
 }
 
 __forceinline void* gpu_map(GpuContext* context, GpuBuffer* buffer, GpuMap mode, GpuStatus* status) {
-    D3D11_MAPPED_SUBRESOURCE mapped{};
+    D3D11_MAPPED_SUBRESOURCE mapped;
     const HRESULT result =
         context->Map(buffer, 0, mode == GpuMap::discard ? D3D11_MAP_WRITE_DISCARD : D3D11_MAP_WRITE_NO_OVERWRITE, 0,
                      &mapped);
@@ -361,13 +274,13 @@ __forceinline GpuStatus gpu_readback_map(GpuDevice* device, GpuContext* context,
     description.SampleDesc.Count = 1;
     description.Usage = D3D11_USAGE_STAGING;
     description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
+    ID3D11Texture2D* staging;
     HRESULT result = device->CreateTexture2D(&description, nullptr, &staging);
     if (FAILED(result))
         return result;
     const D3D11_BOX region{box.left, box.top, 0, box.right, box.bottom, 1};
     context->CopySubresourceRegion(staging, 0, 0, 0, 0, source, 0, &region);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
+    D3D11_MAPPED_SUBRESOURCE mapped;
     result = context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
     if (FAILED(result)) {
         staging->Release();
@@ -388,9 +301,9 @@ __forceinline void gpu_readback_unmap(GpuContext* context, GpuReadback* readback
 
 __forceinline GpuStatus gpu_readback(GpuDevice* device, GpuContext* context, GpuTexture* source, const GpuBox& box,
                                      void* destination, u32 pitch) {
-    D3D11_TEXTURE2D_DESC description{};
+    D3D11_TEXTURE2D_DESC description;
     source->GetDesc(&description);
-    GpuReadback readback{};
+    GpuReadback readback;
     const HRESULT result =
         gpu_readback_map(device, context, source, gpu_d3d11::gpu_format(description.Format), box, &readback);
     if (SUCCEEDED(result)) {
@@ -447,9 +360,9 @@ __forceinline void gpu_timer_end(GpuContext* context, GpuTimer* timer) {
 
 __forceinline GpuPoll gpu_timer_poll(GpuContext* context, GpuTimer* timer, bool flush, double* milliseconds) {
     const UINT flags = flush ? 0 : D3D11_ASYNC_GETDATA_DONOTFLUSH;
-    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
+    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint;
     const HRESULT state = context->GetData(timer->disjoint, &disjoint, sizeof(disjoint), flags);
-    u64 begin = 0, end = 0;
+    u64 begin, end;
     HRESULT a = S_OK, b = S_OK;
     if (state != S_FALSE && SUCCEEDED(state)) {
         a = context->GetData(timer->begin, &begin, sizeof(begin), flags);
@@ -467,8 +380,8 @@ __forceinline GpuPoll gpu_timer_poll(GpuContext* context, GpuTimer* timer, bool 
 // 1703 runtime's, and device creation refused a driver without fences, so only the fence itself can fail (device
 // removal, memory); the signaller is then left set, for the caller to release.
 __forceinline GpuStatus gpu_fence_create(GpuDevice* device, GpuContext4** signaller, GpuFence** fence) {
-    ID3D11DeviceContext* context = nullptr;
-    ID3D11Device5* device5 = nullptr;
+    ID3D11DeviceContext* context;
+    ID3D11Device5* device5;
     device->GetImmediateContext(&context);
     context->QueryInterface(__uuidof(ID3D11DeviceContext4), reinterpret_cast<void**>(signaller));
     context->Release();
@@ -494,11 +407,11 @@ __forceinline GpuRtv* gpu_surface_target(const GpuSurface* surface) {
 }
 
 __forceinline GpuTexture* gpu_surface_target_texture(const GpuSurface* surface) {
-    ID3D11Resource* resource = nullptr;
+    ID3D11Resource* resource;
     surface->target->GetResource(&resource);
-    ID3D11Texture2D* texture = nullptr;
+    ID3D11Texture2D* texture;
     resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&texture));
-    com_release(resource);
+    resource->Release();
     if (texture)
         texture->Release();
     return texture;

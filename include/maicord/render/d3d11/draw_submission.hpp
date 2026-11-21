@@ -172,8 +172,10 @@ inline bool draw_quads_within(const void* quads, u32 stride, u32 count, const Ra
     const u8* quad = static_cast<const u8*>(quads);
     for (u32 i = 0; i < count; ++i, quad += stride) {
         const float* rectangle = reinterpret_cast<const float*>(quad);
-        if (!(rectangle[0] * scale >= left && rectangle[1] * scale >= top && rectangle[2] * scale <= right &&
-              rectangle[3] * scale <= bottom))
+        // The four compares join with `&`: the compiler tests the edges with one vector multiply and compare, not
+        // a branch for each. A NaN edge fails its compare.
+        if (!((rectangle[0] * scale >= left) & (rectangle[1] * scale >= top) & (rectangle[2] * scale <= right) &
+              (rectangle[3] * scale <= bottom)))
             return false;
         if (sign_offset != kDrawQuadNoSign && !(*reinterpret_cast<const float*>(quad + sign_offset) >= 0))
             return false;

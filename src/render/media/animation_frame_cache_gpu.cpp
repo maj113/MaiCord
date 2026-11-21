@@ -19,7 +19,7 @@ void release_storage(AnimationFrameCacheGpuStorage* storage) noexcept {
     reset_value<AnimationFrameCacheGpuStorage>(storage);
 }
 
-void unbind_media_resources(GpuContext1* context) noexcept {
+inline void unbind_media_resources(GpuContext1* context) noexcept {
     GpuSrv* null_views[2]{};
     GpuUav* null_uav = nullptr;
     gpu_set_srvs(context, GpuStage::pixel, 0, 2, null_views);
@@ -43,7 +43,7 @@ void copy_tile(GpuContext1* context, GpuPagedTexture* to, u32 to_x, u32 to_y, Gp
 }
 
 // The surface is made on the first frame and backs the rows the cache allocated.
-bool sync_surface(AnimationFrameCacheGpu* gpu, GpuDevice* device, GpuContext1* context) noexcept {
+inline bool sync_surface(AnimationFrameCacheGpu* gpu, GpuDevice* device, GpuContext1* context) noexcept {
     const GlyphAtlasAllocator& pages = gpu->cache.allocations;
     if (!gpu->surface) {
         if (FAILED(gpu_paged_texture_create(
@@ -226,7 +226,6 @@ bool animation_frame_cache_gpu_capture(AnimationFrameCacheGpu* gpu, GpuDevice* d
     }
     const MediaAtlasResult source = media_atlas_find(media_atlas, descriptor.key.asset);
     if (!source.ok() || source.width != descriptor.width || source.height != descriptor.height) {
-        ++gpu->failures;
         return false;
     }
     u32 required_capacity = static_cast<u32>(source.handle.slot) + 1u;
@@ -236,12 +235,10 @@ bool animation_frame_cache_gpu_capture(AnimationFrameCacheGpu* gpu, GpuDevice* d
     }
     if (required_capacity > gpu->storage.entries.capacity &&
         !animation_frame_cache_gpu_reserve(gpu, required_capacity)) {
-        ++gpu->failures;
         return false;
     }
     const AnimationFrameCacheResult destination = animation_frame_cache_allocate(&gpu->cache, descriptor);
     if (!destination.ok() || !sync_surface(gpu, device, context)) {
-        ++gpu->failures;
         return false;
     }
     if (!destination.cached) {
@@ -249,11 +246,9 @@ bool animation_frame_cache_gpu_capture(AnimationFrameCacheGpu* gpu, GpuDevice* d
         copy_tile(context, gpu->surface, destination.allocation.x, destination.allocation.y, media_surface,
                   source.x, source.y, source.width, source.height,
                   media_atlas->allocations.padding != 0 ? 1u : 0u);
-        ++gpu->captures;
         saturating_accumulate(gpu->copied_pixels, u64{source.width} * source.height);
     }
     if (!publish_presentation(gpu, source, destination.allocation.handle, true)) {
-        ++gpu->failures;
         return false;
     }
     if (presented_media) {
@@ -282,7 +277,6 @@ bool animation_frame_cache_gpu_restore(AnimationFrameCacheGpu* gpu, MediaAtlas* 
     if (!destination.ok() || destination.width != source.allocation.width ||
         destination.height != source.allocation.height ||
         !publish_presentation(gpu, destination, source.allocation.handle, false)) {
-        ++gpu->failures;
         return false;
     }
     ++gpu->restores;
@@ -327,7 +321,6 @@ bool animation_frame_cache_gpu_materialize(AnimationFrameCacheGpu* gpu, GpuConte
     // Materializing shows nothing: neither the entry nor its frame is pinned.
     const MediaAtlasResult destination = media_atlas_peek(media_atlas, key);
     if (!destination.ok() || destination.handle.slot >= gpu->storage.presentations.capacity) {
-        ++gpu->failures;
         return false;
     }
     AnimationFramePresentation& presentation = presentations(gpu)[destination.handle.slot];
@@ -338,7 +331,6 @@ bool animation_frame_cache_gpu_materialize(AnimationFrameCacheGpu* gpu, GpuConte
     if (!glyph_atlas_validate(gpu->cache.allocations, presentation.frame, &source) ||
         source.width != destination.width || source.height != destination.height) {
         reset_value<AnimationFramePresentation>(&presentation);
-        ++gpu->failures;
         return false;
     }
     // Includes the atlas's padding texel, so linear filtering never samples a neighbouring tile.

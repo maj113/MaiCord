@@ -6,12 +6,8 @@ namespace maicord {
 namespace {
 constexpr u16 kPadding = 1;
 
-i32 floor_i32(float value) noexcept {
-    const i32 truncated = static_cast<i32>(value);
-    return static_cast<float>(truncated) > value ? truncated - 1 : truncated;
-}
 i32 round_i32(float value) noexcept {
-    return floor_i32(value + .5f);
+    return static_cast<i32>(__builtin_elementwise_floor(value + .5f));
 }
 float edge_error(float value) noexcept {
     const float distance = value - static_cast<float>(round_i32(value));
@@ -39,13 +35,13 @@ float stem_offset(const IconStem* stems, u32 count, u8 axis, float units_to_pixe
     return best;
 }
 
-u64 cell_key(u32 icon, bool solid, u16 size, float half_width) noexcept {
+inline u64 cell_key(u32 icon, bool solid, u16 size, float half_width) noexcept {
     return static_cast<u64>(icon & 1023) | (static_cast<u64>(solid) << 11) | (static_cast<u64>(size) << 12) |
            (static_cast<u64>(round_i32(half_width * 8) & 255) << 20) | (static_cast<u64>(icon & 255) << 28);
 }
 
 // Bounds and stroke determine the cache key. Optical offsets are needed only for a new raster.
-bool place_bounds(const IconPack& pack, u32 index, UiRect box, float pixel_scale, float weight,
+inline bool place_bounds(const IconPack& pack, u32 index, UiRect box, float pixel_scale, float weight,
                   IconPlacement* placement) noexcept {
     const float extent = minimum(ui_rect_width(box), ui_rect_height(box));
     if (index >= pack.icon_count || !(pixel_scale > 0 && pixel_scale <= 8) || !(extent > 0))
@@ -61,7 +57,7 @@ bool place_bounds(const IconPack& pack, u32 index, UiRect box, float pixel_scale
     return true;
 }
 
-void align_stems(const IconPack& pack, u32 index, IconPlacement* placement) noexcept {
+inline void align_stems(const IconPack& pack, u32 index, IconPlacement* placement) noexcept {
     IconStem stems[kIconMaximumStems]{};
     const u32 stem_count = icon_pack_stems(pack, index, stems, kIconMaximumStems);
     const float units_to_pixels = static_cast<float>(placement->size) / kIconPackGrid;
@@ -75,6 +71,7 @@ bool icon_atlas_initialize(IconAtlas* atlas, GpuDevice* device) noexcept {
         return false;
     if (!glyph_atlas_initialize(&atlas->allocator, kIconAtlasExtent, kIconAtlasExtent, kPadding,
                                 {atlas->entries, kIconAtlasEntries}, {atlas->rows, kIconAtlasRows}) ||
+        !glyph_atlas_index_initialize(&atlas->index, {atlas->index_buckets, kIconAtlasEntries * 2}) ||
         !glyph_atlas_gpu_initialize(&atlas->gpu, device, kIconAtlasExtent, kIconAtlasExtent,
                                     kIconMaximumOutlineCommands)
              .ok())
@@ -125,10 +122,11 @@ bool icon_atlas_resolve(IconAtlas* atlas, GpuContext* context, const PaintQuad* 
             continue;
         }
         const u64 key = cell_key(data.icon, data.solid, place.size, place.stroke_half_width);
-        GlyphAtlasAllocation cell = glyph_atlas_find(&atlas->allocator, key);
+        GlyphAtlasAllocation cell = glyph_atlas_find_indexed(&atlas->allocator, &atlas->index, key);
         if (!cell.ok()) {
             align_stems(pack, data.icon, &place);
-            cell = glyph_atlas_allocate_unique(&atlas->allocator, key, place.size, place.size);
+            cell = glyph_atlas_allocate_unique_indexed(&atlas->allocator, &atlas->index, key, place.size,
+                                                       place.size);
             GlyphOutline outline{atlas->commands, kIconMaximumOutlineCommands, 0, 0, 0, 0, 0, 0, {}, false};
             const float units_to_pixels = static_cast<float>(place.size) / kIconPackGrid;
             const GlyphRasterBounds bounds{0, 0, place.size, place.size, place.size, place.size};

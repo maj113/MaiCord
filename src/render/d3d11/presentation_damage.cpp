@@ -1,34 +1,28 @@
 #include "maicord/render/d3d11/presentation_damage.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/render/media/atlas.hpp"
+#include "maicord/ui/core/geometry.hpp"
 
 namespace maicord {
 namespace {
 
-bool coordinate_valid(float value) noexcept {
-    return value == value && value >= -1'048'576.0f &&
-           value <= 1'048'576.0f;
+inline bool rect_valid(PresentationDamageRect rectangle) noexcept {
+    return ui_coordinate_valid(rectangle.left) & ui_coordinate_valid(rectangle.top) &
+           ui_coordinate_valid(rectangle.right) & ui_coordinate_valid(rectangle.bottom);
 }
 
-bool rect_valid(PresentationDamageRect rectangle) noexcept {
-    return coordinate_valid(rectangle.left) &&
-           coordinate_valid(rectangle.top) &&
-           coordinate_valid(rectangle.right) &&
-           coordinate_valid(rectangle.bottom);
-}
-
-PresentationDamageRect intersect(PresentationDamageRect left,
+inline PresentationDamageRect intersect(PresentationDamageRect left,
                                  PresentationDamageRect right) noexcept {
     return PresentationDamageRect{
         maximum(left.left, right.left), maximum(left.top, right.top),
         minimum(left.right, right.right), minimum(left.bottom, right.bottom)};
 }
 
-bool has_area(PresentationDamageRect rectangle) noexcept {
+inline bool has_area(PresentationDamageRect rectangle) noexcept {
     return rectangle.left < rectangle.right && rectangle.top < rectangle.bottom;
 }
 
-u32 media_bit(MediaAtlasHandle handle, u8 domain) noexcept {
+inline u32 media_bit(MediaAtlasHandle handle, u8 domain) noexcept {
     return static_cast<u32>(domain) * kPresentationDamageMediaCapacity +
            handle.slot;
 }
@@ -114,8 +108,7 @@ void presentation_damage_invalidate_full(PresentationDamageTracker* tracker) noe
 PresentationDamage presentation_damage_current(
     const PresentationDamageTracker& tracker, float viewport_width,
     float viewport_height) noexcept {
-    if (!coordinate_valid(viewport_width) || !coordinate_valid(viewport_height) ||
-        viewport_width <= 0.0f || viewport_height <= 0.0f) {
+    if (!ui_size_valid({viewport_width, viewport_height})) {
         return PresentationDamage{};
     }
     const PresentationDamageRect viewport{0.0f, 0.0f, viewport_width,

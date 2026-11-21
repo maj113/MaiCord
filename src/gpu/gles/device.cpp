@@ -1,3 +1,4 @@
+#include "maicord/core/heap.hpp"
 #include "maicord/core/log_event.hpp"
 #include "maicord/core/test_hook.hpp"
 #include "maicord/os/thread.hpp"
@@ -190,6 +191,13 @@ GpuContext& context() noexcept {
     return g_context;
 }
 
+void release_pack_text(GpuDevice& device) noexcept {
+    if (device.pack_text) {
+        heap_free(device.pack_text);
+        device.pack_text = nullptr;
+    }
+}
+
 GpuStatus check_error(const char* where) noexcept {
     GpuDevice& d = g_device;
     GpuStatus result = kGpuOk;
@@ -270,7 +278,7 @@ u32 texture_framebuffer(GpuTexture* texture) noexcept {
         // A texture cannot be a render target.
         LogEvent("framebuffer_incomplete").hex("status", status).write(LogLevel::error, "gpu");
         d.gl.glDeleteFramebuffers(1, &name);
-        c.applied_draw_framebuffer = 0xFFFFFFFFu;
+        c.applied_draw_framebuffer = kUnknown;
         return 0;
     }
     texture->framebuffer = name;
@@ -363,10 +371,10 @@ GpuStatus create_device_here() noexcept {
     d.queries.reset();
     d.fences.reset();
     GpuContext& c = gles::context();
-    c.applied_draw_framebuffer = 0xFFFFFFFFu;
-    c.applied_program = 0xFFFFFFFFu;
-    c.applied_vertex_array = 0xFFFFFFFFu;
-    c.applied_vertex_buffer = 0xFFFFFFFFu;
+    c.applied_draw_framebuffer = gles::kUnknown;
+    c.applied_program = gles::kUnknown;
+    c.applied_vertex_array = gles::kUnknown;
+    c.applied_vertex_buffer = gles::kUnknown;
     status = check_error("device initialization");
     if (!gpu_ok(status)) {
         gpu_device_destroy(nullptr, nullptr);
@@ -488,6 +496,7 @@ void gpu_device_destroy(GpuDevice** out_device, GpuContext** out_context) {
             d.egl.eglDestroyContext(d.display, d.context);
         d.egl.eglTerminate(d.display);
     }
+    gles::release_pack_text(d);
     gles::unload_libraries(&d);
     clear_bytes(&d, static_cast<u32>(sizeof(d)));
     gles::g_prestarted_device = false;

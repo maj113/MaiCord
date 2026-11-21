@@ -6,7 +6,7 @@ namespace maicord {
 namespace {
 
 // Callers grow only past the current capacity, so one doubling step suffices.
-u32 grown_capacity(u32 current, u32 required, u32 maximum_capacity) noexcept {
+inline u32 grown_capacity(u32 current, u32 required, u32 maximum_capacity) noexcept {
     return required > maximum_capacity ? 0 : minimum(maximum_capacity, maximum(current * 2u, required));
 }
 

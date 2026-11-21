@@ -33,7 +33,6 @@ inline constexpr Enum kVendor = 0x1F00;
 inline constexpr Enum kRenderer = 0x1F01;
 inline constexpr Enum kVersion = 0x1F02;
 inline constexpr Enum kExtensions = 0x1F03;
-inline constexpr Enum kNumExtensions = 0x821D;
 inline constexpr Enum kMajorVersion = 0x821B;
 inline constexpr Enum kMinorVersion = 0x821C;
 inline constexpr Enum kMaxTextureSize = 0x0D33;
@@ -66,8 +65,6 @@ inline constexpr Enum kTextureWrapS = 0x2802;
 inline constexpr Enum kTextureWrapT = 0x2803;
 inline constexpr Enum kTextureSwizzleR = 0x8E42;
 inline constexpr Enum kTextureSwizzleB = 0x8E44;
-inline constexpr Enum kTextureBaseLevel = 0x813C;
-inline constexpr Enum kTextureMaxLevel = 0x813D;
 inline constexpr Enum kNearest = 0x2600;
 inline constexpr Enum kLinear = 0x2601;
 inline constexpr Enum kClampToEdge = 0x812F;
@@ -121,11 +118,10 @@ inline constexpr Enum kSrc1Color = 0x88F9; // GL_SRC1_COLOR_EXT (EXT_blend_func_
 inline constexpr Bitfield kAllBarrierBits = 0xFFFFFFFFu;
 
 // The functions the backend loads from libGLESv2.so.2 by name (ES 3.1; glCopyImageSubData is 3.2 or an
-// extension and is reached through eglGetProcAddress as GlesApi::glCopyImageSubData when present).
+// extension and is reached through eglGetProcAddress as Api::glCopyImageSubData when present).
 #define MAICORD_GLES_FUNCTIONS(X)                                                                                      \
     X(Enum, glGetError, ())                                                                                            \
     X(const u8*, glGetString, (Enum name))                                                                             \
-    X(const u8*, glGetStringi, (Enum name, Uint index))                                                                \
     X(void, glGetIntegerv, (Enum name, Int * values))                                                                  \
     X(void, glEnable, (Enum capability))                                                                               \
     X(void, glDisable, (Enum capability))                                                                              \

@@ -9,6 +9,7 @@
 #include "maicord/render/media/inline_media.hpp"
 #include "maicord/ui/chat/threads/header.hpp"
 #include "renderer_edit.hpp"
+#include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "renderer_login_form.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/os/file.hpp"
@@ -433,15 +434,13 @@ u32 float_word(float value) noexcept {
     return bits.word;
 }
 
-// The widget manager state the shell text depends on.
+// The widget manager state the shell text depends on. Two 32-bit inputs share one mix: the packing keeps them
+// apart, so the stamp tells the same changes apart with fewer dependent multiplies.
 __declspec(noinline) u64 mix_widget_state(u64 hash, const UiWidgetManager& manager) noexcept {
-    hash = hash64_mix(hash, manager.hovered.slot);
-    hash = hash64_mix(hash, manager.hovered.generation);
+    hash = hash64_mix(hash, manager.hovered.slot | u64{manager.hovered.generation} << 16 |
+                                u64{manager.focused.slot} << 32 | u64{manager.focused.generation} << 48);
     hash = hash64_mix(hash, manager.hover_started_ms);
-    hash = hash64_mix(hash, manager.focused.slot);
-    hash = hash64_mix(hash, manager.focused.generation);
-    hash = hash64_mix(hash, manager.count);
-    return hash64_mix(hash, manager.generation);
+    return hash64_mix(hash, manager.count | u64{manager.generation} << 32);
 }
 
 // Revisions and positions of every scene and store the shell projection
@@ -450,96 +449,72 @@ __declspec(noinline) u64 mix_widget_state(u64 hash, const UiWidgetManager& manag
 u64 shell_scene_stamp(const D3D11Renderer& renderer) noexcept {
     u64 hash = kHash64Seed;
     // Inlined so the running hash stays in a register instead of being reloaded
-    // and stored through its capture at each of the ~60 mixes.
+    // and stored through its capture at each of the ~35 mixes.
     const auto mix = [&hash](u64 value) __attribute__((always_inline)) noexcept { hash = hash64_mix(hash, value); };
+    const auto pair = [&mix](u32 low, u32 high) __attribute__((always_inline)) noexcept {
+        mix(low | u64{high} << 32);
+    };
     const auto widgets = [&hash](const UiWidgetManager& manager) __attribute__((always_inline)) noexcept {
         hash = mix_widget_state(hash, manager);
     };
-    const auto scroll = [&mix](float value) __attribute__((always_inline)) noexcept { mix(float_word(value)); };
     if (const auto* scene = renderer.ui_scene) {
         mix(reinterpret_cast<usize>(scene));
-        mix(scene->layout_passes);
-        mix(scene->layout_rebuilds);
-        mix(scene->layout_metrics_revision);
-        mix(scene->widgets.generation);
-        mix(static_cast<u8>(scene->view));
-        mix(scene->guild_menu_expanded);
+        pair(scene->layout_rebuilds, scene->layout_passes);
+        pair(scene->layout_metrics_revision, scene->widgets.generation);
+        pair(static_cast<u8>(scene->view), scene->guild_menu_expanded);
         widgets(scene->widgets);
     }
     if (const auto* scene = renderer.shell_navigation_scene) {
-        mix(scene->rebuilds);
-        mix(scene->layout_passes);
-        mix(scene->source_revision);
-        mix(scene->first);
-        mix(scene->count);
-        scroll(scene->scroll_dips);
+        pair(scene->rebuilds, scene->layout_passes);
+        pair(scene->first, scene->count);
+        pair(scene->source_revision, float_word(scene->scroll_dips));
         widgets(scene->widgets);
     }
     if (const auto* scene = renderer.member_list_scene) {
-        mix(scene->rebuilds);
-        mix(scene->layout_passes);
-        mix(scene->source_revision);
-        mix(scene->first);
-        mix(scene->count);
+        pair(scene->rebuilds, scene->layout_passes);
+        pair(scene->first, scene->count);
+        pair(scene->source_revision, float_word(scene->scroll_dips));
         mix(scene->active);
-        scroll(scene->scroll_dips);
         widgets(scene->widgets);
     }
     if (const auto* scene = renderer.guild_rail_scene) {
-        mix(scene->rebuilds);
-        mix(scene->layout_passes);
-        mix(scene->data_updates);
-        mix(scene->source_revision);
-        mix(scene->first);
-        mix(scene->count);
-        mix(scene->active);
-        scroll(scene->scroll_dips);
+        pair(scene->rebuilds, scene->layout_passes);
+        pair(scene->first, scene->count);
+        pair(scene->source_revision, float_word(scene->scroll_dips));
+        pair(scene->data_updates, scene->active);
         widgets(scene->widgets);
     }
     if (const auto* composer = renderer.message_composer_scene) {
-        mix(composer->active);
         mix(composer->display_signature);
-        mix(composer->observed_revision);
-        mix(composer->composition_revision);
-        mix(composer->observed_geometry_revision);
-        mix(composer->display_anchor);
-        mix(composer->display_caret);
+        pair(composer->display_anchor, composer->display_caret);
+        pair(composer->observed_revision, composer->composition_revision);
+        pair(composer->observed_geometry_revision, composer->active);
         widgets(composer->widgets);
     }
     const auto& layout = renderer.composer_layout;
-    scroll(layout.origin_x);
-    scroll(layout.origin_y);
-    scroll(layout.width);
-    scroll(layout.layout_height);
+    pair(float_word(layout.origin_x), float_word(layout.origin_y));
+    pair(float_word(layout.width), float_word(layout.layout_height));
     if (const auto* state = renderer.chat_state) {
-        mix(state->guild_mutations);
-        mix(state->channel_mutations);
-        mix(state->permission_mutations);
-        mix(state->activity_mutations);
-        mix(state->emoji_mutations);
-        mix(state->compactions);
-        mix(state->name_used);
-        mix(state->selection_revision);
+        pair(state->guild_mutations, state->channel_mutations);
+        pair(state->permission_mutations, state->activity_mutations);
+        pair(state->emoji_mutations, state->compactions);
+        pair(state->name_used, state->selection_revision);
         mix(state->selected_guild_id);
         mix(state->selected_channel_id);
         mix(state->restore_channel_id);
-        mix(state->home_selected);
-        mix(state->private_channels ? state->private_channels->revision : 0u);
+        pair(state->private_channels ? state->private_channels->revision : 0u, state->home_selected);
     }
     if (renderer.navigation_view)
         mix(renderer.navigation_view->revision);
-    if (const auto* users = renderer.user_store) {
-        mix(users->revision);
-        mix(users->appearance.revision);
-    }
+    if (const auto* users = renderer.user_store)
+        pair(users->revision, users->appearance.revision);
     mix(renderer.thread_header ? renderer.thread_header->revision : 0u);
     // The DM profile panel's text is shell text: showing, hiding, laying out
     // or scrolling it must not keep a retained shell.
     mix(reinterpret_cast<usize>(renderer.dm_profile_panel));
     if (const auto* panel = renderer.dm_profile_panel) {
+        pair(panel->revision, float_word(panel->scroll));
         mix(panel->active);
-        mix(panel->revision);
-        scroll(panel->scroll);
         widgets(panel->widgets);
     }
     return hash;
@@ -676,8 +651,10 @@ __declspec(noinline) bool projection_rejected(const char* projection, const UiTe
     line.write(LogLevel::error, "render");
     return false;
 }
-bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& theme, bool* atlas_invalidated,
-                             bool* storage_modified, bool* prefix_reused, bool include_messages) noexcept {
+// `theme_signature`: the theme's text signature mixed with the typography source (one per rebuild).
+bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& theme, u64 theme_signature,
+                             bool* atlas_invalidated, bool* storage_modified, bool* prefix_reused,
+                             bool include_messages) noexcept {
     const bool login_form = d3d11_renderer_login_form_text(*renderer);
     const bool settings_active = !login_form && (shown & d3d11_surface_settings_page);
     const bool friends_active = !login_form && !settings_active && renderer->friends_scene &&
@@ -767,8 +744,20 @@ bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& th
         if (!ui_text_emitter_initialize(&overlay, reserve_overlay_text, &reservation))
             return false;
     }
-    ContentTextRetentionKey retention_key =
-        content_text_retention_key(*renderer, shown, theme, shell.signature, overlay.signature, include_messages);
+    // The shell's glyph inputs beyond its projection, read once: every shell key below mixes them in.
+    const u64 shell_inputs = login_form ? 0 : retention_shell_inputs(*renderer, shown);
+    const auto shell_key = [shell_inputs](u64 signature) noexcept { return hash64_mix(signature, shell_inputs); };
+    ContentTextRetentionKey retention_key{
+        shell_key(shell.signature),
+        include_messages ? presentation->projection_signature : 0,
+        overlay.signature,
+        theme_signature,
+        include_messages ? renderer->message_text_selection.signature : 0,
+        renderer->dpi,
+        renderer->glyph_text.allocator.evicted_entries,
+        renderer->glyph_text.allocator.full_resets,
+        include_messages,
+    };
     if (shell_retained && (retention_key.shell_signature != retained_shell.signature ||
                            retention_key.theme_signature != retained_shell.theme_signature ||
                            retention_key.dpi != retained_shell.dpi ||
@@ -780,8 +769,7 @@ bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& th
         if (!ui_text_emitter_initialize(&shell) || !project_static() ||
             !project_shell_member_text(renderer, shown, theme, &shell))
             return projection_rejected(static_known ? "members" : "shell", shell);
-        retention_key = content_text_retention_key(*renderer, shown, theme, shell.signature, overlay.signature,
-                                                   include_messages);
+        retention_key.shell_signature = shell_key(shell.signature);
     }
     if (!shell_moved && content_text_retention_probe(&renderer->content_text_retention, retention_key)) {
         d3d11_renderer_commit_interaction_text_state(renderer, shown);
@@ -836,10 +824,7 @@ bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& th
         // Glyph inputs beyond the projection (composer styles and selection,
         // appearance and thread header revisions, a hovered name effect) key
         // the static part exactly as they key the whole shell.
-        const u64 static_key =
-            static_known
-                ? content_text_retention_key(*renderer, shown, theme, static_signature, 0, false).shell_signature
-                : 0;
+        const u64 static_key = static_known ? shell_key(static_signature) : 0;
         const RendererTextShellStatic previous_static = shell_prefix.static_marks;
         RendererTextShellStatic static_marks = previous_static;
         const bool shell_storage_current =
@@ -909,14 +894,9 @@ bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& th
                     (static_known &&
                      (shell_raster.signature != static_signature || shell_raster.count != static_count)))
                     return false;
-                // This build's serial is rebuilds + 1.
-                static_marks = shell_static_marks(
-                    *renderer, shell_raster,
-                    static_known
-                        ? static_key
-                        : content_text_retention_key(*renderer, shown, theme, shell_raster.signature, 0, false)
-                              .shell_signature,
-                    storage->rebuilds + 1);
+                // This build's serial is rebuilds + 1. A known static part matched shell_raster's signature above.
+                static_marks = shell_static_marks(*renderer, shell_raster, shell_key(shell_raster.signature),
+                                                  storage->rebuilds + 1);
             }
             if (!project_shell_member_text(renderer, shown, theme, &shell_raster) ||
                 (!shell_moved &&
@@ -925,8 +905,8 @@ bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& th
             if (shell_moved) {
                 shell.signature = shell_raster.signature;
                 shell.count = shell_raster.count;
-                retention_key = content_text_retention_key(*renderer, shown, theme, shell.signature,
-                                                           overlay.signature, include_messages);
+                // Only the shell moved: a raster that evicted or reset the atlas failed the projection above.
+                retention_key.shell_signature = shell_key(shell.signature);
             }
             renderer->text_shell_scroll_key = shell_scroll;
             renderer->text_shell_navigation_scroll_key = navigation_scroll;
@@ -1606,6 +1586,9 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
         text_edit_layout_invalidate(&renderer->composer_layout);
     if (include_messages)
         sync_message_scroll(renderer);
+    // Each key of this rebuild holds the theme's signature, hashed again only for a new theme.
+    const u64 theme_signature = hash64_mix(renderer_theme_text_signature(theme),
+                                           typography_source_identity(renderer->glyph_text.system));
     for (u32 attempt = 0; attempt < 8; ++attempt) {
         bool atlas_invalidated = false;
         bool storage_modified = false;
@@ -1623,8 +1606,8 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
             (!renderer->text_form || text_form_surface_update(renderer->text_form, renderer->glyph_text.system));
         const bool content_built =
             composer_measured &&
-            build_content_text_once(renderer, shown, theme, &atlas_invalidated, &storage_modified, &prefix_reused,
-                                    include_messages);
+            build_content_text_once(renderer, shown, theme, theme_signature, &atlas_invalidated, &storage_modified,
+                                    &prefix_reused, include_messages);
         if (content_built) {
             if (!g_overlay_text_withheld)
                 g_projection_reject_logged = false;

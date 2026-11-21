@@ -34,7 +34,7 @@ HardwareDevice create_hardware_device() noexcept {
         D3D11_SDK_VERSION, &hardware.device, nullptr, &hardware.context);
     // ID3D11Multithread is the Windows 10 runtime's: every device context has it.
     if (SUCCEEDED(hardware.result)) {
-        ID3D11Multithread* multithread = nullptr;
+        ID3D11Multithread* multithread;
         hardware.context->QueryInterface(__uuidof(ID3D11Multithread), reinterpret_cast<void**>(&multithread));
         multithread->SetMultithreadProtected(TRUE);
         multithread->Release();
@@ -42,7 +42,7 @@ HardwareDevice create_hardware_device() noexcept {
     // Atlases are tiled textures (gpu_paged_texture_*): the device floor is Tiled Resources Tier 1. A device below
     // it is refused with DXGI_ERROR_UNSUPPORTED, which the renderer logs and the shell names to the user.
     if (SUCCEEDED(hardware.result)) {
-        D3D11_FEATURE_DATA_D3D11_OPTIONS1 options{};
+        D3D11_FEATURE_DATA_D3D11_OPTIONS1 options;
         if (FAILED(hardware.device->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS1, &options, sizeof(options))) ||
             options.TiledResourcesTier < D3D11_TILED_RESOURCES_TIER_1) {
             log_write(LogLevel::error, "gpu", "d3d11_device_lacks_tiled_resources_tier_1");
@@ -53,7 +53,7 @@ HardwareDevice create_hardware_device() noexcept {
     // video posters wait on them. A driver that cannot make one (WDDM 1.x) is refused the same way; the shell asks
     // for a graphics driver update. ID3D11Device5 is the Windows 10 1703 runtime's.
     if (SUCCEEDED(hardware.result)) {
-        ID3D11Device5* device5 = nullptr;
+        ID3D11Device5* device5;
         ID3D11Fence* fence = nullptr;
         hardware.device->QueryInterface(__uuidof(ID3D11Device5), reinterpret_cast<void**>(&device5));
         if (FAILED(device5->CreateFence(0, D3D11_FENCE_FLAG_NONE, __uuidof(ID3D11Fence),
@@ -156,7 +156,7 @@ void gpu_device_destroy(GpuDevice** device, GpuContext** context) {
 const GpuCaps& gpu_caps(const GpuDevice* device) {
     // One device at a time: the limits of Direct3D 11 feature level 11, and the one optional feature in use.
     static GpuCaps caps;
-    D3D11_FEATURE_DATA_D3D11_OPTIONS options{};
+    D3D11_FEATURE_DATA_D3D11_OPTIONS options;
     const bool options_known =
         SUCCEEDED(const_cast<GpuDevice*>(device)->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS, &options,
                                                                       sizeof(options)));
@@ -170,13 +170,13 @@ const char* gpu_device_description(const GpuDevice*) {
 }
 
 u64 gpu_adapter_key(const GpuDevice* device) {
-    IDXGIDevice* dxgi_device = nullptr;
+    IDXGIDevice* dxgi_device;
     IDXGIAdapter* adapter = nullptr;
     u64 key = 0;
     // Every Direct3D 11 device is an IDXGIDevice.
     const_cast<GpuDevice*>(device)->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgi_device));
     const HRESULT result = dxgi_device->GetAdapter(&adapter);
-    DXGI_ADAPTER_DESC description{};
+    DXGI_ADAPTER_DESC description;
     if (SUCCEEDED(result) && SUCCEEDED(adapter->GetDesc(&description))) {
         const u32 parts[]{description.VendorId, description.DeviceId, description.SubSysId,
                           description.Revision, description.AdapterLuid.LowPart,
@@ -186,7 +186,7 @@ u64 gpu_adapter_key(const GpuDevice* device) {
             key = hash64_mix(key, part);
     }
     com_release(adapter);
-    com_release(dxgi_device);
+    dxgi_device->Release();
     return key;
 }
 
@@ -238,7 +238,7 @@ bool gpu_device_prestarted(const GpuDevice* device) {
 
 // Direct3D 11.1 ships with every Windows 10 device: the interface is always there.
 GpuContext1* gpu_context_1(GpuContext* context) {
-    ID3D11DeviceContext1* extended = nullptr;
+    ID3D11DeviceContext1* extended;
     context->QueryInterface(__uuidof(ID3D11DeviceContext1), reinterpret_cast<void**>(&extended));
     extended->Release();
     return extended;

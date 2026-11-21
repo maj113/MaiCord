@@ -45,7 +45,7 @@ static_assert([]() constexpr {
     return true;
 }());
 
-bool inflate(const PackedShader& entry, DeflateWorkspace* workspace, u8* output) noexcept {
+inline bool inflate(const PackedShader& entry, DeflateWorkspace* workspace, u8* output) noexcept {
     const u32 raw = raw_size(entry);
     const DeflateInputSpan input{kShaderPacked + entry.offset, entry.packed_bytes};
     if (!zlib_inflate({&input, 1}, {output, raw}, raw, workspace).ok())
@@ -107,8 +107,9 @@ GpuStatus gpu_vertex_shader_create(GpuDevice* device, ShaderId id, ConstSlice<Gp
     *layout_failed = false;
     if (elements.count > kMaximumInputElements)
         return E_INVALIDARG;
-    // Every attribute is four floats per instance from vertex buffer slot 0.
-    D3D11_INPUT_ELEMENT_DESC descriptions[kMaximumInputElements]{};
+    // Every attribute is four floats per instance from vertex buffer slot 0. Only the first elements.count entries
+    // reach CreateInputLayout.
+    D3D11_INPUT_ELEMENT_DESC descriptions[kMaximumInputElements];
     for (u32 i = 0; i < elements.count; ++i)
         descriptions[i] = {elements[i].semantic,       elements[i].index, DXGI_FORMAT_R32G32B32A32_FLOAT,
                            0,                          elements[i].offset, D3D11_INPUT_PER_INSTANCE_DATA,

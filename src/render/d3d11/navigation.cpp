@@ -12,24 +12,16 @@ const UiLayoutNode* navigation_scene_node(const D3D11Renderer& renderer, UiSeman
                : nullptr;
 }
 
-bool point_in_node(const D3D11Renderer& renderer, const UiLayoutNode* node, i32 client_x_pixels,
-                   i32 client_y_pixels, float* x, float* y) noexcept {
-    if (!node || !x || !y || renderer.dpi == 0 || client_x_pixels < 0 || client_y_pixels < 0) {
-        return false;
-    }
-    *x = static_cast<float>(client_x_pixels) * 96.0f / static_cast<float>(renderer.dpi);
-    *y = static_cast<float>(client_y_pixels) * 96.0f / static_cast<float>(renderer.dpi);
-    return ui_rect_contains(node->rectangle, *x, *y);
-}
-
 } // namespace
 
 bool renderer_guild_rail_hit_test(const D3D11Renderer& renderer, i32 client_x_pixels,
                                   i32 client_y_pixels) noexcept {
-    float x = 0.0f;
-    float y = 0.0f;
-    return point_in_node(renderer, navigation_scene_node(renderer, UiSemantic::guild_navigation), client_x_pixels,
-                         client_y_pixels, &x, &y);
+    const UiLayoutNode* node = navigation_scene_node(renderer, UiSemantic::guild_navigation);
+    if (!node || renderer.dpi == 0 || client_x_pixels < 0 || client_y_pixels < 0)
+        return false;
+    const float dpi = static_cast<float>(renderer.dpi);
+    return ui_rect_contains(node->rectangle, static_cast<float>(client_x_pixels) * 96.0f / dpi,
+                            static_cast<float>(client_y_pixels) * 96.0f / dpi);
 }
 
 RendererNavigationHit renderer_navigation_hit_test(const D3D11Renderer& renderer, i32 client_x_pixels,

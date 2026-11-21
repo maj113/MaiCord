@@ -322,8 +322,8 @@ AnimationFrameCacheResult animation_frame_cache_allocate(
         return failure(AnimationFrameCacheError::no_capacity);
     }
 
+    // A free entry is all zero: initialize, grow_storage, reset, erase_entry and a failed pin clear it.
     AnimationFrameCacheEntry& entry = cache->entries[slot];
-    reset_value<AnimationFrameCacheEntry>(&entry);
     entry.key = descriptor.key;
     entry.home_bucket = home_bucket;
     entry.duration_us = descriptor.duration_us;

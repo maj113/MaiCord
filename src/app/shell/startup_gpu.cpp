@@ -14,9 +14,9 @@ void application_log_start_gpu(GpuDevice* device) noexcept {
     LogEvent line("gpu");
 #if defined(_WIN32)
     line.field("backend", "d3d11");
-    IDXGIDevice* dxgi = nullptr;
+    IDXGIDevice* dxgi;
     IDXGIAdapter* adapter = nullptr;
-    DXGI_ADAPTER_DESC description{};
+    DXGI_ADAPTER_DESC description;
     // Every Direct3D 11 device is an IDXGIDevice.
     device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgi));
     if (SUCCEEDED(dxgi->GetAdapter(&adapter)) && SUCCEEDED(adapter->GetDesc(&description))) {
@@ -30,7 +30,7 @@ void application_log_start_gpu(GpuDevice* device) noexcept {
             .hex("vendor", description.VendorId)
             .hex("device", description.DeviceId)
             .field("vram_mib", description.DedicatedVideoMemory >> 20);
-        LARGE_INTEGER driver{};
+        LARGE_INTEGER driver;
         if (SUCCEEDED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &driver))) {
             // The user-mode driver's version, a.b.c.d in its four 16-bit parts.
             char version[24];
@@ -46,7 +46,7 @@ void application_log_start_gpu(GpuDevice* device) noexcept {
         }
     }
     com_release(adapter);
-    com_release(dxgi);
+    dxgi->Release();
     // D3D_FEATURE_LEVEL_11_1 is 0xb100: the major version in the top nibbles, the minor in the next.
     const u32 level = static_cast<u32>(device->GetFeatureLevel());
     char feature[8];

@@ -1,4 +1,4 @@
-// twin: src/render/shaders/png_atlas.hlsl 5d2c21457cc7d3bd
+// twin: src/render/shaders/png_atlas.hlsl 2ab0755152bb14b6
 // png_expand (STAGE_CS): decodes reconstructed PNG scanlines into the premultiplied media atlas.
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -39,20 +39,9 @@ uint load_word(uint offset) {
     return word;
 }
 
-uint load_sample(uint offset) {
-    return bit_depth == 16u ? (load_byte(offset) << 8u) | load_byte(offset + 1u) : load_byte(offset);
-}
-
-uint expand_sample(uint value) {
-    // Bit depth is uniform; keep unused integer divisions off the 8-bit path.
-    uint result = value;
-    if (bit_depth != 8u) {
-        if (bit_depth == 16u)
-            result = (value + 128u) / 257u;
-        else
-            result = value * 255u / ((1u << bit_depth) - 1u);
-    }
-    return result;
+// A big-endian 16-bit sample. (sample + 128) / 257 scales it to 8 bits with rounding.
+uint load_sample16(uint offset) {
+    return (load_byte(offset) << 8u) | load_byte(offset + 1u);
 }
 
 uvec4 unpack_rgba(uint word) {
@@ -72,36 +61,60 @@ void main() {
     uint x = id.x;
     // Rows of raw RGBA8 (color type 7) carry no filter byte.
     uint row = id.y * row_stride + (color_type == 7u || color_type == 8u ? 0u : 1u);
-    uint sample_bytes = bit_depth == 16u ? 2u : 1u;
     uvec4 rgba = uvec4(0u, 0u, 0u, 255u);
 
+    // The bit depth is uniform: each type branches on it before its loads, so a pixel reads and scales only the
+    // samples of its depth. Color types 2, 4 and 6 have 8 or 16 bits a sample (png_format_valid).
     // 8-bit RGBA rows (PNG color type 6, raw color type 7): one word per pixel instead of four byte loads.
     if (color_type == 7u || (color_type == 6u && bit_depth == 8u)) {
         rgba = unpack_rgba(load_word(row + x * 4u));
     } else if (color_type == 0u) {
-        uint gray = bit_depth < 8u ? packed_sample(row, x) : load_sample(row + x * sample_bytes);
-        rgba.rgb = uvec3(expand_sample(gray));
+        uint gray, expanded;
+        if (bit_depth == 16u) {
+            gray = load_sample16(row + x * 2u);
+            expanded = (gray + 128u) / 257u;
+        } else if (bit_depth == 8u) {
+            gray = load_byte(row + x);
+            expanded = gray;
+        } else {
+            gray = packed_sample(row, x);
+            expanded = gray * 255u / ((1u << bit_depth) - 1u);
+        }
+        rgba.rgb = uvec3(expanded);
         rgba.a = gray == transparent_gray ? 0u : 255u;
     } else if (color_type == 2u) {
-        uint offset = row + x * 3u * sample_bytes;
-        uint red = load_sample(offset);
-        uint green = load_sample(offset + sample_bytes);
-        uint blue = load_sample(offset + sample_bytes * 2u);
-        rgba.rgb = uvec3(expand_sample(red), expand_sample(green), expand_sample(blue));
-        rgba.a = red == transparent_red && green == transparent_green && blue == transparent_blue ? 0u : 255u;
+        uvec3 samples;
+        if (bit_depth == 16u) {
+            uint offset = row + x * 6u;
+            samples = uvec3(load_sample16(offset), load_sample16(offset + 2u), load_sample16(offset + 4u));
+            rgba.rgb = (samples + 128u) / 257u;
+        } else {
+            uint offset = row + x * 3u;
+            samples = uvec3(load_byte(offset), load_byte(offset + 1u), load_byte(offset + 2u));
+            rgba.rgb = samples;
+        }
+        rgba.a = all(equal(samples, uvec3(transparent_red, transparent_green, transparent_blue))) ? 0u : 255u;
     } else if (color_type == 3u || color_type == 8u) {
-        uint index = bit_depth < 8u ? packed_sample(row, x) : load_byte(row + x);
+        uint index;
+        if (bit_depth < 8u)
+            index = packed_sample(row, x);
+        else
+            index = load_byte(row + x);
         rgba = unpack_rgba(index < palette_count ? palette_rgba[index] : 0u);
     } else if (color_type == 4u) {
-        uint offset = row + x * 2u * sample_bytes;
-        uint gray = expand_sample(load_sample(offset));
-        rgba.rgb = uvec3(gray);
-        rgba.a = expand_sample(load_sample(offset + sample_bytes));
+        if (bit_depth == 16u) {
+            uint offset = row + x * 4u;
+            rgba.ga = (uvec2(load_sample16(offset), load_sample16(offset + 2u)) + 128u) / 257u;
+        } else {
+            uint offset = row + x * 2u;
+            rgba.ga = uvec2(load_byte(offset), load_byte(offset + 1u));
+        }
+        rgba.rb = uvec2(rgba.g);
     } else {
-        uint offset = row + x * 4u * sample_bytes;
-        rgba = uvec4(expand_sample(load_sample(offset)), expand_sample(load_sample(offset + sample_bytes)),
-                     expand_sample(load_sample(offset + sample_bytes * 2u)),
-                     expand_sample(load_sample(offset + sample_bytes * 3u)));
+        // 16-bit RGBA: the 8-bit form takes the first branch.
+        uint offset = row + x * 8u;
+        rgba = (uvec4(load_sample16(offset), load_sample16(offset + 2u), load_sample16(offset + 4u),
+                      load_sample16(offset + 6u)) + 128u) / 257u;
     }
 
     // Over-blend onto a premultiplied destination: a transparent source leaves it unchanged and an opaque one

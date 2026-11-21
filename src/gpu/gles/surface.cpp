@@ -281,7 +281,7 @@ GpuStatus gpu_surface_present(GpuSurface* surface, u32 sync_interval, const GpuR
                                  gl::kColorBufferBit, gl::kNearest);
         }
         gl.glEnable(gl::kScissorTest);
-        c.applied_draw_framebuffer = 0xFFFFFFFFu;
+        c.applied_draw_framebuffer = kUnknown;
 
         // The compositor learns only what changed against what it shows (this frame's damage, not the catch-up).
         if (!now.full && !moved && d.egl.eglSwapBuffersWithDamage) {
@@ -307,6 +307,7 @@ GpuStatus gpu_surface_present(GpuSurface* surface, u32 sync_interval, const GpuR
     }
     if (d.trim_pending) {
         d.trim_pending = false;
+        gles::release_pack_text(d);
         heap_trim();
     }
     gles::poll_fences();

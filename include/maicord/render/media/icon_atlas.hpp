@@ -14,12 +14,15 @@ inline constexpr u32 kIconAtlasRows = 64;
 inline constexpr u32 kIconAtlasMaximumPixels = 255;
 
 // Dedicated R8 atlas for pack icons, separate from text so icon churn never
-// evicts glyphs. Cells are keyed by icon, variant, raster size and stroke.
+// evicts glyphs. Cells are keyed by icon, variant, raster size and stroke, and
+// found through `index`: each paint upload looks up every icon it draws.
 struct IconAtlas {
     GlyphAtlasGpu gpu;
     GlyphAtlasAllocator allocator;
     GlyphAtlasEntry entries[kIconAtlasEntries];
     GlyphAtlasRow rows[kIconAtlasRows];
+    GlyphAtlasIndex index;
+    u16 index_buckets[kIconAtlasEntries * 2];
     GlyphPathCommand commands[kIconMaximumOutlineCommands];
     u32 resolved_dpi;
     float resolved_weight;

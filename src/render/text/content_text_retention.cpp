@@ -17,8 +17,7 @@ u64 content_text_theme_signature(const Theme& theme) noexcept {
     // even with identical caller token values. Secondary ink always uses its token.
     // Palette edits and nonzero intensity changes do not change that policy.
     const bool gradient_ink = ui_background_active(theme);
-    const auto policy = hash64_counted_bytes(foreground, &theme.appearance, sizeof(theme.appearance));
-    return hash64_counted_bytes(policy, &gradient_ink, sizeof(gradient_ink));
+    return hash64_mix(hash64_mix(foreground, static_cast<u64>(theme.appearance)), gradient_ink);
 }
 
 bool content_text_retention_probe(ContentTextRetentionOwner* owner,

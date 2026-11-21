@@ -26,7 +26,6 @@ struct D3D11BackgroundFxOwner {
     float layer_opacity; // the paint layer's group opacity, set by the draw loop
     u32 drawn[kD3D11BackgroundFxCanvases];
     u32 drawn_count;
-    u32 draws_last_frame;
 };
 
 // Picks the frame's built-in effect (or none): `suppressed` when a package effect replaces it. False only on a

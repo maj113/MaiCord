@@ -284,6 +284,7 @@ with the area's design and test notes.
   error codes `account_media.cpp` maps are the exceptions. A new GPU operation is declared in
   `include/maicord/gpu/api.hpp`, defined inline in `gpu/d3d11/api.inl` and out of line in `src/gpu/gles`; the Windows wrapper
   must compile to the call it replaces (compare per object with the previous commit, not whole executables: LTO moves code).
+  A creation call that fills a description runs once per resource and is out of line on both (`src/gpu/d3d11/resources.cpp`).
 - **Shaders.** [The twins' README](src/render/shaders/gles/README.md#keeping-a-twin-in-step) has the steps for changing an
   HLSL shader with its GLSL twin. A change to a shader or to the ui quads, glyph or media scenes renews the PNGs under
   `tests/gpu/golden` from Direct3D 11 with `tools/update_gpu_goldens.py`; the Linux renders must match them within the

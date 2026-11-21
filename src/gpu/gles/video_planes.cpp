@@ -169,7 +169,7 @@ void retire_plane(VideoPlane* plane) noexcept {
 void forget_unit_texture(GpuContext& c, u32 name) noexcept {
     for (u32& applied : c.applied_unit_texture)
         if (applied == name)
-            applied = 0xFFFFFFFFu;
+            applied = kUnknown;
 }
 
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
@@ -253,7 +253,7 @@ bool video_plane_realize(const void* object) noexcept {
         plane->uploaded = generation;
         ok = check_error("video plane upload") == kGpuOk;
     }
-    if (saved != 0xFFFFFFFFu)
+    if (saved != kUnknown)
         gl.glBindTexture(gl::kTexture2d, saved);
     c.applied_unit_texture[0] = saved;
     if (create) {

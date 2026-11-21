@@ -18,10 +18,10 @@ const void* pack_message_bytes(Arena& arena,const void* source,u32 count,usize s
     void* target=arena_allocate(&arena,size*count,alignment);
     if(target)copy_bytes(target,source,size*count);return target;
 }
-template<class T> ConstSlice<T> pack_message_slice(Arena& arena,ConstSlice<T> source) noexcept {
+template<class T> inline ConstSlice<T> pack_message_slice(Arena& arena,ConstSlice<T> source) noexcept {
     return {static_cast<const T*>(pack_message_bytes(arena,source.data,source.count,sizeof(T),alignof(T))),source.count};
 }
-void compact_geometry(Arena& arena,NativeMessageGeometry& geometry) noexcept {
+inline void compact_geometry(Arena& arena,NativeMessageGeometry& geometry) noexcept {
     if(arena.offset>16*1024){
         // All destinations move down within the same arena, in allocation order.
         // Publish only after packing; no caller can retain these private views.
@@ -53,7 +53,7 @@ bool take_position_spans(Arena& arena,const MessageTextCommand& command,ConstSli
     *styles={spans.data,count};
     return true;
 }
-bool acquire_native(MessageHitTestCacheOwner& owner,const MessageTextCommand& command,const TextSystem& source,float width,float height,u32 units) noexcept {
+inline bool acquire_native(MessageHitTestCacheOwner& owner,const MessageTextCommand& command,const TextSystem& source,float width,float height,u32 units) noexcept {
     if(!source.native_text||!source.native_format||command.styles.count>kTextStyleSpanMaximum||(command.styles.count&&!command.styles.data))return false;
     auto system=source;
     system.tracking=0;system.independent_letters=false;system.fixed_weight=false;system.message_hit_policy=true;
@@ -114,7 +114,7 @@ bool native_position(const MessageHitTestCacheOwner& owner,float x,float y,u32* 
     const u32 byte=geometry.bytes[point.source_position];if(byte==0xffff)return false;*position=byte;return true;
 }
 
-bool cache_matches(const MessageHitTestCacheOwner& owner, const MessageTextCommand& command,
+inline bool cache_matches(const MessageHitTestCacheOwner& owner, const MessageTextCommand& command,
                    const TextSystem& text_system, u32 command_index, float width, float height) noexcept {
     return owner.geometry && text_system.native_text && text_system.native_format &&
            owner.native_format == native_text_format_identity(text_system) &&
@@ -163,12 +163,12 @@ constexpr bool emoji_text(const MessageTextCommand& command) noexcept {
     return command.measurement_kind == reply || command.measurement_kind == content ||
            command.measurement_kind == embed || command.measurement_kind == component;
 }
-bool emoji_semantic(const MessageMarkdownSemantic& semantic) noexcept {
+inline bool emoji_semantic(const MessageMarkdownSemantic& semantic) noexcept {
     return semantic.kind == MessageMarkdownSemanticKind::custom_emoji ||
            semantic.kind == MessageMarkdownSemanticKind::regional_flag;
 }
 // Cheap rejection before any layout: no emoji semantic and no emoji run.
-bool has_emoji(const MessageTextCommand& command) noexcept {
+inline bool has_emoji(const MessageTextCommand& command) noexcept {
     for (u32 i = 0; i < command.semantics.count; ++i)
         if (emoji_semantic(command.semantics[i]))
             return true;
@@ -176,7 +176,7 @@ bool has_emoji(const MessageTextCommand& command) noexcept {
     TextEmojiRange range{};
     return text_emoji_next(command.text, &cursor, &range) == TextEmojiNext::range;
 }
-u32 style_at(const MessageTextCommand& command, u32 byte) noexcept {
+inline u32 style_at(const MessageTextCommand& command, u32 byte) noexcept {
     u32 flags = 0;
     for (u32 i = 0; i < command.styles.count; ++i) {
         const auto& span = command.styles[i];
@@ -186,7 +186,7 @@ u32 style_at(const MessageTextCommand& command, u32 byte) noexcept {
     return flags;
 }
 // The shaping cluster at a source position, when the emoji font draws all of it.
-bool emoji_cluster(const MessageHitTestCacheOwner& owner, const NativeMessageGeometry& geometry,
+inline bool emoji_cluster(const MessageHitTestCacheOwner& owner, const NativeMessageGeometry& geometry,
                    const MessageTextCommand& command, u32 unit, u32* first, u32* end) noexcept {
     NativeParagraphHitMetric cluster{};
     float caret = 0;
@@ -204,7 +204,7 @@ bool emoji_cluster(const MessageHitTestCacheOwner& owner, const NativeMessageGeo
             return range.first_byte <= *first && *end <= range.end_byte;
     return false;
 }
-MessageEmojiHit command_emoji(MessageHitTestCacheOwner* owner, const MessageTextCommand& command,
+inline MessageEmojiHit command_emoji(MessageHitTestCacheOwner* owner, const MessageTextCommand& command,
                               const TextSystem& text_system, u32 command_index, float x, float y) noexcept {
     if (!has_emoji(command) || !acquire_layout(owner, command, text_system, command_index))
         return {};

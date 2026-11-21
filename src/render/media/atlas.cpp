@@ -216,7 +216,7 @@ bool media_atlas_forget(MediaAtlas* atlas, MediaAssetKey key) noexcept {
 }
 
 // A key the profile pools hold: their index + 1, else 0 (the general region).
-static u8 media_atlas_pool(const MediaAtlas& atlas, const MediaAssetKey& key, u16 width,
+static inline u8 media_atlas_pool(const MediaAtlas& atlas, const MediaAssetKey& key, u16 width,
                            u16 height) noexcept {
     if (key.kind != MediaAssetKind::profile_image)
         return 0;

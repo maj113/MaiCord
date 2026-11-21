@@ -20,31 +20,32 @@ GpuStatus video_frame_gpu_present(VideoFrameGpu* gpu, GpuDevice* device,
     const u32 height = gpu_video_frame_reduced(frame.height, step);
     const u32 output_width = gpu_video_frame_output_width(frame, step);
     const u32 output_height = gpu_video_frame_output_height(frame, step);
-    D3D11_TEXTURE2D_DESC input{};
+    // The Get* calls fill their whole output (a device child always has a device and a view its resource).
+    D3D11_TEXTURE2D_DESC input;
     frame.texture->GetDesc(&input);
     if (input.Format != DXGI_FORMAT_NV12 || input.MipLevels != 1 ||
         frame.subresource >= input.ArraySize ||
         !gpu_video_frame_geometry_valid(frame, input.Width, input.Height)) return E_INVALIDARG;
-    ID3D11Device* source_device = nullptr;
+    ID3D11Device* source_device;
     frame.texture->GetDevice(&source_device);
     const bool same_device = source_device == device;
-    com_release(source_device);
+    source_device->Release();
     if (!same_device) return E_INVALIDARG;
-    D3D11_UNORDERED_ACCESS_VIEW_DESC output_view{};
+    D3D11_UNORDERED_ACCESS_VIEW_DESC output_view;
     destination->GetDesc(&output_view);
     if (output_view.ViewDimension != D3D11_UAV_DIMENSION_TEXTURE2D ||
         output_view.Texture2D.MipSlice != 0 ||
         output_view.Format != DXGI_FORMAT_R8G8B8A8_UNORM) return E_INVALIDARG;
-    ID3D11Resource* resource = nullptr;
+    ID3D11Resource* resource;
     destination->GetResource(&resource);
-    ID3D11Texture2D* output = nullptr;
+    ID3D11Texture2D* output;
     GpuStatus status = resource->QueryInterface(__uuidof(ID3D11Texture2D),
         reinterpret_cast<void**>(&output));
-    com_release(resource);
+    resource->Release();
     if (FAILED(status)) return status;
-    D3D11_TEXTURE2D_DESC target{};
+    D3D11_TEXTURE2D_DESC target;
     output->GetDesc(&target);
-    com_release(output);
+    output->Release();
     if (target.Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
         x > target.Width || output_width > target.Width - x ||
         y > target.Height || output_height > target.Height - y) return E_INVALIDARG;

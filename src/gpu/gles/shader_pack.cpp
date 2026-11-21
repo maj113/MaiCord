@@ -48,79 +48,55 @@ u32 pack_index(ShaderId id) noexcept {
     return static_cast<u32>(id);
 }
 
-constexpr u32 kUnknown = 0xFFFFFFFFu;
+// The inflated pack (GpuDevice::pack_text): one heap block of the deflate workspace, the text and room for the
+// inflater's fast path past it (an output of the exact size decodes its last 274 bytes, kFastOutputMargin of
+// deflate.cpp, through the slow path). The pack is one solid stream, so a shader's text needs every byte before it: the
+// first shader made since the last present inflates it whole and the shaders made until that present take their text
+// from it. gles::release_pack_text frees it.
+constexpr u32 kPackCapacity = kGlesShaderPackBytes + 512u;
+static_assert([]() constexpr {
+    for (const auto& entry : kGlesShaders)
+        if (entry.raw_bytes == 0 || entry.raw_bytes > kGlesShaderMaximumBytes || entry.offset > kGlesShaderPackBytes ||
+            entry.raw_bytes > kGlesShaderPackBytes - entry.offset)
+            return false;
+    return true;
+}());
 
-// Inflates a packed GLSL text into heap scratch (deflate workspace, then the text and its terminator) and runs
-// `use(text, length)`; the driver copies the source, so nothing stays resident.
-template <typename Use>
-GpuStatus inflate_and_use(const u8* packed, u32 packed_bytes, u32 raw_bytes, Use use) noexcept {
-    auto* workspace = static_cast<DeflateWorkspace*>(heap_allocate(sizeof(DeflateWorkspace) + raw_bytes + 1));
-    if (!workspace)
-        return kGpuOutOfMemory;
-    char* text = reinterpret_cast<char*>(workspace + 1);
-    const DeflateInputSpan input{packed, packed_bytes};
-    GpuStatus result = kGpuFail;
-    if (zlib_inflate({&input, 1}, {reinterpret_cast<u8*>(text), raw_bytes}, raw_bytes, workspace).ok()) {
-        text[raw_bytes] = 0;
-        result = use(static_cast<const char*>(text), raw_bytes);
-    } else {
-        log_write(LogLevel::error, "gpu", "a packed shader does not inflate");
-    }
-    heap_free(workspace);
-    return result;
-}
-
-// The part of the inflated pack that one shader occupies, copied out as the stream goes by.
-struct PackExtract {
-    char* text;
-    u32 begin, end, position;
-};
-
-bool pack_extract(void* context, ConstSlice<u8> bytes) noexcept {
-    auto& extract = *static_cast<PackExtract*>(context);
-    const u32 first = extract.position, last = extract.position + bytes.count;
-    extract.position = last;
-    if (last > extract.begin && first < extract.end) {
-        const u32 from = first > extract.begin ? first : extract.begin, to = last < extract.end ? last : extract.end;
-        copy_bytes(extract.text + (from - extract.begin), bytes.data + (from - first), to - from);
-    }
-    return last < extract.end; // false ends the inflate: the shader is complete
-}
-
-// Inflates the pack from its start through a 128 KiB window and keeps only `entry`'s text (heap scratch: the deflate
-// workspace, the window, the text and its terminator) for `use(text, length)`; the driver copies the source, so
-// nothing stays resident.
-template <typename Use>
-GpuStatus inflate_pack_and_use(const GlesPackedShader& entry, Use use) noexcept {
-    auto* workspace = static_cast<DeflateWorkspace*>(
-        heap_allocate(sizeof(DeflateWorkspace) + kZlibWindowedMinimumBytes + entry.raw_bytes + 1));
-    if (!workspace)
-        return kGpuOutOfMemory;
-    u8* window = reinterpret_cast<u8*>(workspace + 1);
-    char* text = reinterpret_cast<char*>(window + kZlibWindowedMinimumBytes);
-    PackExtract extract{text, entry.offset, entry.offset + entry.raw_bytes, 0};
-    const DeflateInputSpan input{kGlesShaderPacked, sizeof(kGlesShaderPacked)};
-    zlib_inflate_windowed({&input, 1}, {window, kZlibWindowedMinimumBytes}, kGlesShaderPackBytes, pack_extract, &extract,
-                          workspace);
-    GpuStatus result = kGpuFail;
-    if (extract.position >= extract.end) { // stopped by the sink at the shader's end (the checksum is not reached)
-        text[entry.raw_bytes] = 0;
-        result = use(static_cast<const char*>(text), entry.raw_bytes);
-    } else {
-        log_write(LogLevel::error, "gpu", "a packed shader does not inflate");
-    }
-    heap_free(workspace);
-    return result;
-}
-
-// The GLSL of pack entry `index`, which must be of `stage`.
-template <typename Use>
-GpuStatus with_source(u32 index, u8 stage, const GlesPackedShader** out_entry, Use use) noexcept {
-    const GlesPackedShader& entry = kGlesShaders[index];
-    if (entry.stage != stage || entry.raw_bytes == 0 || entry.raw_bytes > kGlesShaderMaximumBytes)
+// The GLSL of `entry`, which must be of `stage`. Inflates the pack unless a shader made since the last present did.
+GpuStatus pack_source(GpuDevice& device, const GlesPackedShader& entry, u8 stage, const char** text) noexcept {
+    if (entry.stage != stage)
         return kGpuInvalidArgument;
-    *out_entry = &entry;
-    return inflate_pack_and_use(entry, use);
+    if (!device.pack_text) {
+        auto* block = static_cast<DeflateWorkspace*>(heap_allocate(sizeof(DeflateWorkspace) + kPackCapacity));
+        if (!block)
+            return kGpuOutOfMemory;
+        const DeflateInputSpan input{kGlesShaderPacked, sizeof(kGlesShaderPacked)};
+        if (!zlib_inflate({&input, 1}, {reinterpret_cast<u8*>(block + 1), kPackCapacity}, kGlesShaderPackBytes, block)
+                 .ok()) {
+            heap_free(block);
+            log_write(LogLevel::error, "gpu", "a packed shader does not inflate");
+            return kGpuFail;
+        }
+        device.pack_text = block;
+    }
+    *text = reinterpret_cast<const char*>(static_cast<DeflateWorkspace*>(device.pack_text) + 1) + entry.offset;
+    return kGpuOk;
+}
+
+// Takes a shader body from `slab` and fills it with `create`; a failed fill gives the body back.
+template <typename T, u32 Capacity, typename Create>
+__forceinline GpuStatus create_in_slab(GlesSlab<T, Capacity>& slab, T** shader, Create create) noexcept {
+    *shader = nullptr;
+    T* result = slab.allocate();
+    if (!result)
+        return kGpuOutOfMemory;
+    const GpuStatus status = create(result);
+    if (!gpu_ok(status)) {
+        slab.release(result);
+        return status;
+    }
+    *shader = result;
+    return kGpuOk;
 }
 
 void log_info(const gl::Api& gl, bool program, u32 object, const char* what) noexcept {
@@ -138,7 +114,7 @@ void log_info(const gl::Api& gl, bool program, u32 object, const char* what) noe
 
 namespace gles {
 
-// Compiles `text` as a shader of `type` (a GL shader object in *name).
+// Compiles `text` as a shader of `type` (a GL shader object in *name). The driver copies the text.
 GpuStatus compile_text(GpuDevice* device, gl::Enum type, const char* text, u32 length, u32 identity, u32* name) noexcept {
     gl::Api& gl = device->gl;
     *name = gl.glCreateShader(type);
@@ -157,24 +133,20 @@ GpuStatus compile_text(GpuDevice* device, gl::Enum type, const char* text, u32 l
     return kGpuFail;
 }
 
-// One shader of the pack by table index (a stage 0 vertex or 1 pixel shader).
-GpuStatus create_packed(GpuDevice* device, u32 index, gl::Enum type, u32* name, const GlesPackedShader** entry) noexcept {
-    return with_source(index, type == gl::kVertexShader ? 0 : 1, entry, [&](const char* text, u32 length) noexcept {
-        return compile_text(device, type, text, length, index, name);
-    });
-}
-
+// A vertex (stage 0) or pixel (stage 1) shader of the pack.
 GpuStatus create_shader(GpuDevice* device, ShaderId id, gl::Enum type, GlesShader* shader) noexcept {
     if (id >= ShaderId::count)
         return kGpuInvalidArgument;
-    const GlesPackedShader* entry = nullptr;
-    u32 name = 0;
-    const GpuStatus status = create_packed(device, pack_index(id), type, &name, &entry);
+    const u32 index = pack_index(id);
+    const GlesPackedShader& entry = kGlesShaders[index];
+    const char* text = nullptr;
+    GpuStatus status = pack_source(*device, entry, type == gl::kVertexShader ? 0 : 1, &text);
+    if (gpu_ok(status))
+        status = compile_text(device, type, text, entry.raw_bytes, index, &shader->name);
     if (!gpu_ok(status))
         return status;
-    shader->name = name;
-    shader->rows = kGlesBindings + entry->binding_first;
-    shader->row_count = entry->binding_count;
+    shader->rows = kGlesBindings + entry.binding_first;
+    shader->row_count = entry.binding_count;
     shader->id = id;
     return kGpuOk;
 }
@@ -269,19 +241,25 @@ GpuStatus create_blob_shader(GpuDevice* device, ConstSlice<u8> payload, u8 stage
             return kGpuInvalidArgument;
         shader->owned_rows[row] = {bytes[0], bytes[1], bytes[2], bytes[3]};
     }
-    u32 name = 0;
-    const gl::Enum type = stage == kGlslStageVertex ? gl::kVertexShader : gl::kFragmentShader;
-    const GpuStatus status =
-        inflate_and_use(entry.packed, entry.packed_bytes, entry.raw_bytes, [&](const char* text, u32 length) noexcept {
-            if (!glsl_text_acceptable(text, length)) {
-                log_write(LogLevel::error, "gpu", "a package shader holds text the host does not accept");
-                return kGpuInvalidArgument;
-            }
-            return compile_text(device, type, text, length, 0xFFFFu, &name);
-        });
+    // The text lives in heap scratch after the deflate workspace until the driver has copied it.
+    auto* workspace = static_cast<DeflateWorkspace*>(heap_allocate(sizeof(DeflateWorkspace) + entry.raw_bytes));
+    if (!workspace)
+        return kGpuOutOfMemory;
+    char* text = reinterpret_cast<char*>(workspace + 1);
+    const DeflateInputSpan input{entry.packed, entry.packed_bytes};
+    GpuStatus status = kGpuFail;
+    if (!zlib_inflate({&input, 1}, {reinterpret_cast<u8*>(text), entry.raw_bytes}, entry.raw_bytes, workspace).ok()) {
+        log_write(LogLevel::error, "gpu", "a packed shader does not inflate");
+    } else if (!glsl_text_acceptable(text, entry.raw_bytes)) {
+        log_write(LogLevel::error, "gpu", "a package shader holds text the host does not accept");
+        status = kGpuInvalidArgument;
+    } else {
+        status = compile_text(device, stage == kGlslStageVertex ? gl::kVertexShader : gl::kFragmentShader, text,
+                              entry.raw_bytes, 0xFFFFu, &shader->name);
+    }
+    heap_free(workspace);
     if (!gpu_ok(status))
         return status;
-    shader->name = name;
     shader->rows = shader->owned_rows;
     shader->row_count = entry.binding_count;
     shader->id = ShaderId::count;
@@ -295,40 +273,36 @@ GpuStatus create_compute_program(GpuDevice* device, ShaderId id, GlesShader* sha
     // shaders, and a driver compiles a program again for each (a pipeline state on Direct3D 12, LLVM code on llvmpipe).
     const u32 index = pack_index(id);
     GlesComputeProgram& shared = device->compute_programs[index];
-    const GlesPackedShader* entry = &kGlesShaders[index];
+    const GlesPackedShader& entry = kGlesShaders[index];
     if (shared.refs == 0) {
         gl::Api& gl = device->gl;
-        u32 program = 0;
-        const GpuStatus status = with_source(index, 2, &entry, [&](const char* text, u32 length) noexcept {
-            u32 object = 0;
-            const GpuStatus compiled = compile_text(device, gl::kComputeShader, text, length, static_cast<u32>(id), &object);
-            if (!gpu_ok(compiled))
-                return compiled;
-            program = gl.glCreateProgram();
-            gl.glAttachShader(program, object);
-            gl.glLinkProgram(program);
-            gl.glDetachShader(program, object);
-            gl.glDeleteShader(object);
-            gl::Int linked = 0;
-            gl.glGetProgramiv(program, gl::kLinkStatus, &linked);
-            if (!linked) {
-                log_info(gl, true, program, "a compute program did not link");
-                log_u64(LogLevel::error, "gpu", "shader_id", static_cast<u32>(id));
-                gl.glDeleteProgram(program);
-                program = 0;
-                return kGpuFail;
-            }
-            return kGpuOk;
-        });
+        const char* text = nullptr;
+        u32 object = 0;
+        GpuStatus status = pack_source(*device, entry, 2, &text);
+        if (gpu_ok(status))
+            status = compile_text(device, gl::kComputeShader, text, entry.raw_bytes, static_cast<u32>(id), &object);
         if (!gpu_ok(status))
             return status;
+        const u32 program = gl.glCreateProgram();
+        gl.glAttachShader(program, object);
+        gl.glLinkProgram(program);
+        gl.glDetachShader(program, object);
+        gl.glDeleteShader(object);
+        gl::Int linked = 0;
+        gl.glGetProgramiv(program, gl::kLinkStatus, &linked);
+        if (!linked) {
+            log_info(gl, true, program, "a compute program did not link");
+            log_u64(LogLevel::error, "gpu", "shader_id", static_cast<u32>(id));
+            gl.glDeleteProgram(program);
+            return kGpuFail;
+        }
         shared = {program, 1};
     } else {
         ++shared.refs;
     }
     shader->name = shared.name;
-    shader->rows = kGlesBindings + entry->binding_first;
-    shader->row_count = entry->binding_count;
+    shader->rows = kGlesBindings + entry.binding_first;
+    shader->row_count = entry.binding_count;
     shader->id = id;
     return kGpuOk;
 }
@@ -393,59 +367,27 @@ GpuStatus gpu_vertex_shader_create(GpuDevice* device, ShaderId id, ConstSlice<Gp
 }
 
 GpuStatus gpu_pixel_shader_create(GpuDevice* device, ShaderId id, GpuPixelShader** shader) {
-    *shader = nullptr;
-    GpuPixelShader* result = device->pixel_shaders.allocate();
-    if (!result)
-        return kGpuOutOfMemory;
-    const GpuStatus status = create_shader(device, id, gl::kFragmentShader, result);
-    if (!gpu_ok(status)) {
-        device->pixel_shaders.release(result);
-        return status;
-    }
-    *shader = result;
-    return kGpuOk;
+    return create_in_slab(device->pixel_shaders, shader, [&](GlesShader* result) noexcept {
+        return create_shader(device, id, gl::kFragmentShader, result);
+    });
 }
 
 GpuStatus gpu_vertex_shader_create_blob(GpuDevice* device, ConstSlice<u8> payload, GpuVertexShader** shader) {
-    *shader = nullptr;
-    GpuVertexShader* result = device->vertex_shaders.allocate();
-    if (!result)
-        return kGpuOutOfMemory;
-    const GpuStatus status = create_blob_shader(device, payload, kGlslStageVertex, result);
-    if (!gpu_ok(status)) {
-        device->vertex_shaders.release(result);
-        return status;
-    }
-    *shader = result;
-    return kGpuOk;
+    return create_in_slab(device->vertex_shaders, shader, [&](GlesShader* result) noexcept {
+        return create_blob_shader(device, payload, kGlslStageVertex, result);
+    });
 }
 
 GpuStatus gpu_pixel_shader_create_blob(GpuDevice* device, ConstSlice<u8> payload, GpuPixelShader** shader) {
-    *shader = nullptr;
-    GpuPixelShader* result = device->pixel_shaders.allocate();
-    if (!result)
-        return kGpuOutOfMemory;
-    const GpuStatus status = create_blob_shader(device, payload, kGlslStagePixel, result);
-    if (!gpu_ok(status)) {
-        device->pixel_shaders.release(result);
-        return status;
-    }
-    *shader = result;
-    return kGpuOk;
+    return create_in_slab(device->pixel_shaders, shader, [&](GlesShader* result) noexcept {
+        return create_blob_shader(device, payload, kGlslStagePixel, result);
+    });
 }
 
 GpuStatus gpu_compute_shader_create(GpuDevice* device, ShaderId id, GpuComputeShader** shader) {
-    *shader = nullptr;
-    GpuComputeShader* result = device->compute_shaders.allocate();
-    if (!result)
-        return kGpuOutOfMemory;
-    const GpuStatus status = create_compute_program(device, id, result);
-    if (!gpu_ok(status)) {
-        device->compute_shaders.release(result);
-        return status;
-    }
-    *shader = result;
-    return kGpuOk;
+    return create_in_slab(device->compute_shaders, shader, [&](GlesShader* result) noexcept {
+        return create_compute_program(device, id, result);
+    });
 }
 
 namespace {

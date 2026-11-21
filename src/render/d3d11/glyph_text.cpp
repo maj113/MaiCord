@@ -507,7 +507,7 @@ bool append_color_glyph_run(D3D11GlyphTextOwner* owner, GpuContext* context,
             auto& hint = color.foreground_hints[(glyph.index ^ (face_id * 31u)) & 255u];
             const u64 base_key = key;
             if ((hint & 0x7fffffffu) == identity && (hint & 0x80000000u)) {
-                key = hash64_bytes(base_key, &text_color, sizeof(text_color)) | (1ull << 63);
+                key = hash64_words(base_key, &text_color, sizeof(text_color)) | (1ull << 63);
                 allocation = glyph_atlas_find_indexed(&owner->allocator, atlas_index(owner), key);
             }
             if (!allocation.ok()) {
@@ -518,7 +518,7 @@ bool append_color_glyph_run(D3D11GlyphTextOwner* owner, GpuContext* context,
                     return false;
                 hint = identity | (uses_foreground ? 0x80000000u : 0);
                 if (uses_foreground) {
-                    key = hash64_bytes(base_key, &text_color, sizeof(text_color)) | (1ull << 63);
+                    key = hash64_words(base_key, &text_color, sizeof(text_color)) | (1ull << 63);
                     allocation = glyph_atlas_find_indexed(&owner->allocator, atlas_index(owner), key);
                 }
             }
@@ -620,7 +620,8 @@ bool d3d11_glyph_text_append_solid(const TextDecoration& decoration, float origi
 
 // Why the last d3d11_glyph_text_append returned false (0: it did not): the rebuild's failure log names it.
 u32 g_append_failure;
-bool append_fail(u32 cause) noexcept {
+// Out of line: the failure sites of an append then end in one shared call, not each in a store of its own.
+__declspec(noinline) bool append_fail(u32 cause) noexcept {
     g_append_failure = cause;
     return false;
 }
@@ -716,18 +717,13 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                              ansi_text_tag_glyphs(*request.text, request.source, request.styles);
     u16 ansi_code = kAnsiColorNone;
     Color ansi_color{};
-    // The tiles this call met, by atlas key, as the quad's edges in DIPs from the
-    // pen and its texture coordinates.
+    // The tiles this call met, by atlas key (0: none, as a glyph's face is never 0), as the quad's edges in DIPs
+    // from the pen and its texture coordinates. The keys lie apart from the tiles, so a few wide stores clear them.
     struct GlyphTile {
         float left, top, right, bottom, u0, v0, u1, v1;
     };
-    struct RecentGlyph {
-        u64 key;
-        GlyphTile tile;
-    };
-    RecentGlyph recent_glyphs[64];
-    for (RecentGlyph& recent : recent_glyphs)
-        recent.key = 0;
+    u64 recent_keys[64]{};
+    GlyphTile recent_tiles[64];
     for (u32 run_index = 0; run_index < request.text->run_count; ++run_index) {
         const TextRun& run = request.text->runs[run_index];
         if ((run.style_flags & text_style_custom_emoji) != 0) {
@@ -785,8 +781,8 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
             const u64 key = run_key | (static_cast<u64>(bin) << 32) | glyph.index;
             // Glyphs repeat within a block: a tile met earlier in this call needs no atlas lookup (only an
             // eviction or a reset changes a tile, and either ends the call).
-            RecentGlyph& recent = recent_glyphs[(key * 0x9E3779B97F4A7C15ull) >> 58];
-            if (recent.key != key) {
+            const u32 slot = static_cast<u32>((key * 0x9E3779B97F4A7C15ull) >> 58);
+            if (recent_keys[slot] != key) {
                 auto allocation = glyph_atlas_find_indexed(&owner->allocator, index, key);
                 GlyphRasterBounds bounds{};
                 if (allocation.ok()) {
@@ -835,20 +831,20 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                         return append_fail(12);
                     }
                 }
-                recent.key = key;
-                recent.tile = {static_cast<float>(bounds.left) * inverse_scale,
-                               static_cast<float>(bounds.top) * inverse_scale,
-                               static_cast<float>(bounds.right) * inverse_scale,
-                               static_cast<float>(bounds.bottom) * inverse_scale,
-                               static_cast<float>(allocation.x) * texel.u,
-                               static_cast<float>(allocation.y) * texel.v,
-                               static_cast<float>(allocation.x + allocation.width) * texel.u,
-                               static_cast<float>(allocation.y + allocation.height) * texel.v};
+                recent_keys[slot] = key;
+                recent_tiles[slot] = {static_cast<float>(bounds.left) * inverse_scale,
+                                      static_cast<float>(bounds.top) * inverse_scale,
+                                      static_cast<float>(bounds.right) * inverse_scale,
+                                      static_cast<float>(bounds.bottom) * inverse_scale,
+                                      static_cast<float>(allocation.x) * texel.u,
+                                      static_cast<float>(allocation.y) * texel.v,
+                                      static_cast<float>(allocation.x + allocation.width) * texel.u,
+                                      static_cast<float>(allocation.y + allocation.height) * texel.v};
             }
             if (*request.count >= request.capacity) {
                 return append_fail(13);
             }
-            const GlyphTile& tile = recent.tile;
+            const GlyphTile& tile = recent_tiles[slot];
             const float baseline_x = (origin_x_pixels + static_cast<float>(whole)) * inverse_scale;
             const float baseline_y = baseline_y_pixels * inverse_scale - glyph.ascender_offset;
             GlyphQuad& quad = request.output[(*request.count)++];

@@ -8,8 +8,6 @@ namespace {
 
 using namespace gles;
 
-constexpr u32 kUnknown = 0xFFFFFFFFu;
-
 template <typename T, u32 N>
 void forget_pointer(T* (&array)[N], const T* released) noexcept {
     for (u32 index = 0; index < N; ++index)
@@ -145,14 +143,13 @@ GpuStatus gpu_texture_create(GpuDevice* device, const GpuTextureDesc& desc, cons
     GpuContext& context = gles::context();
     gl.glGenTextures(1, &result->name);
     bind_scratch_texture(context, result->name);
+    // One immutable level: the effective base and maximum levels are both 0 whatever the parameters say (ES 3.1, 8.17).
     gl.glTexStorage2D(gl::kTexture2d, 1, info.internal, static_cast<gl::Sizei>(desc.width),
                       static_cast<gl::Sizei>(desc.height));
     gl.glTexParameteri(gl::kTexture2d, gl::kTextureMinFilter, gl::kNearest);
     gl.glTexParameteri(gl::kTexture2d, gl::kTextureMagFilter, gl::kNearest);
     gl.glTexParameteri(gl::kTexture2d, gl::kTextureWrapS, gl::kClampToEdge);
     gl.glTexParameteri(gl::kTexture2d, gl::kTextureWrapT, gl::kClampToEdge);
-    gl.glTexParameteri(gl::kTexture2d, gl::kTextureBaseLevel, 0);
-    gl.glTexParameteri(gl::kTexture2d, gl::kTextureMaxLevel, 0);
     if (desc.format == GpuFormat::bgra8) {
         gl.glTexParameteri(gl::kTexture2d, gl::kTextureSwizzleR, static_cast<gl::Int>(gl::kBlue));
         gl.glTexParameteri(gl::kTexture2d, gl::kTextureSwizzleB, static_cast<gl::Int>(gl::kRed));

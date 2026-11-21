@@ -128,9 +128,8 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
                                  bool* atlas_invalidated, bool search_result = false,
                                  bool force_new_batch = false,
                                  const MessageTextSelectionSpan* selection = nullptr) noexcept;
-ContentTextRetentionKey content_text_retention_key(const D3D11Renderer& renderer, u32 shown, const Theme& theme,
-                                                   u64 shell_signature, u64 popup_signature,
-                                                   bool include_messages) noexcept;
+// The glyph inputs of the shell beyond its projection, as one hash: a shell signature mixed with it keys the shell.
+u64 retention_shell_inputs(const D3D11Renderer& renderer, u32 shown) noexcept;
 bool measure_content_search(D3D11Renderer* renderer) noexcept;
 bool measure_message_search(D3D11Renderer* renderer, u32 shown) noexcept;
 bool measure_media_picker(D3D11Renderer* renderer, u32 shown) noexcept;

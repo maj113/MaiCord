@@ -240,18 +240,17 @@ u64 shell_segment_key(const RendererPresentationStamp& stamp, const MessageCompo
     // The composer's caret and selection reach the chrome as geometry; the
     // stamp sees them only through content text, which is a timeline input.
     u64 key = hash64_mix(stamp.shell, stamp.shell_count);
-    key = hash64_counted_bytes(key, composer.selections.data,
-                               composer.selections.count * static_cast<u32>(sizeof(UiRect)));
-    key = hash64_counted_bytes(key, &composer.caret, sizeof(composer.caret));
+    key = hash64_words(key, composer.selections.data, composer.selections.count * static_cast<u32>(sizeof(UiRect)));
+    key = hash64_words(key, &composer.caret, sizeof(composer.caret));
     key = hash64_mix(key, (composer.geometry_active ? 1u : 0u) | (composer.caret_visible ? 2u : 0u));
-    key = hash64_counted_bytes(key, composer.composition.data,
-                               composer.composition.count * static_cast<u32>(sizeof(TextCompositionMark)));
+    key = hash64_words(key, composer.composition.data,
+                       composer.composition.count * static_cast<u32>(sizeof(TextCompositionMark)));
     for (u32 i = 0; i < composer.chips.count; ++i) {
-        key = hash64_counted_bytes(key, &composer.chips[i].key, 2 * static_cast<u32>(sizeof(UiRect)));
+        key = hash64_words(key, &composer.chips[i].key, 2 * static_cast<u32>(sizeof(UiRect)));
         key = hash64_mix(key, composer.chips[i].flags);
     }
-    key = hash64_counted_bytes(key, &paint.scrollbar_viewport, sizeof(paint.scrollbar_viewport));
-    key = hash64_counted_bytes(key, &paint.scrollbar_hot.track, sizeof(paint.scrollbar_hot.track));
+    key = hash64_words(key, &paint.scrollbar_viewport, sizeof(paint.scrollbar_viewport));
+    key = hash64_words(key, &paint.scrollbar_hot.track, sizeof(paint.scrollbar_hot.track));
     key = hash64_mix(key, static_cast<u64>(paint.scrollbar_hot.state));
     return key | 1;
 }
@@ -510,9 +509,10 @@ bool build_timeline_media(D3D11Renderer* renderer, u32 shown, const Theme& theme
                 return layout_step_failed(__LINE__);
             for (u32 i = 0; i < renderer->message_text->command_count; ++i) {
                 const auto& command = renderer->message_text->commands[i];
+                if (!ui_rect_intersects(command.rectangle, message_scene->viewport))
+                    continue;
                 MessageInteractionLayout interaction;
-                if (ui_rect_intersects(command.rectangle, message_scene->viewport) &&
-                    message_interaction_layout(*message_scene, command, *renderer->user_store,
+                if (message_interaction_layout(*message_scene, command, *renderer->user_store,
                                                renderer->message_measure_cache, theme, &interaction)) {
                     if (!message_interaction_paint(interaction, command, theme, &renderer->paint_stream))
                         return layout_step_failed(__LINE__);
@@ -527,10 +527,8 @@ bool build_timeline_media(D3D11Renderer* renderer, u32 shown, const Theme& theme
                     continue;
                 }
                 MessageAuthorLayout header;
-                if (!ui_rect_intersects(command.rectangle, message_scene->viewport) ||
-                    !message_author_layout(*message_scene, command, *renderer->chat_state,
-                                           *renderer->user_store, renderer->message_measure_cache, theme,
-                                           &header) ||
+                if (!message_author_layout(*message_scene, command, *renderer->chat_state, *renderer->user_store,
+                                           renderer->message_measure_cache, theme, &header) ||
                     (!header.badge.label.bytes && !header.plugin.badge.label.bytes && !header.decoration_count))
                     continue;
                 if (!ui_plugin_slot_badge_paint(header.plugin, message_scene->widgets, theme, &renderer->paint_stream))
@@ -575,7 +573,8 @@ bool build_timeline_media(D3D11Renderer* renderer, u32 shown, const Theme& theme
                                    theme.avatar_placeholder))
                 return layout_step_failed(__LINE__);
         }
-        for (u32 index = 0; index < message_scene->count; ++index) {
+        // A compact row shows no reference avatar: the loop skips the record lookups of every row.
+        for (u32 index = 0; !message_scene->display.compact && index < message_scene->count; ++index) {
             if (renderer->media_quad_count >= kRendererMediaQuadCapacity) {
                 break;
             }
@@ -587,7 +586,7 @@ bool build_timeline_media(D3D11Renderer* renderer, u32 shown, const Theme& theme
                 message && rich_store ? message_rich_store_find(*rich_store, message->id) : nullptr;
             const UiLayoutNode* body = message_scene_layout_node(*message_scene, row.body);
             const UiLayoutNode* reply = message_scene_layout_node(*message_scene, row.reply);
-            if (message_scene->display.compact || !rich || rich->message_revision != message->revision ||
+            if (!rich || rich->message_revision != message->revision ||
                 !message_rich_has_header(*rich) ||
                 (rich->reference.state == GatewayMessageReferenceState::available &&
                  message_rich_reply_leading(rich->reference) != MessageReplyLeading::avatar) ||

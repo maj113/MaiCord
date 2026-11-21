@@ -36,7 +36,8 @@ struct GlyphVertexInput {
 struct GlyphVertexOutput {
     float4 position : SV_Position;
     float2 texture_coordinate : TEXCOORD0;
-    float4 color : COLOR0;
+    // Constant over the glyph quad: not interpolated.
+    nointerpolation float4 color : COLOR0;
     nointerpolation float4 texture_bounds : TEXCOORD1;
     // xy: atlas scale; z: glyph-uniform flash or travel, evaluated per corner.
     nointerpolation float3 glyph_parameters : TEXCOORD2;

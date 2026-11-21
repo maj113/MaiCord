@@ -402,8 +402,8 @@ void run_case(GpuDevice* device, GpuContext* context, GpuSrv* glyphs, const Case
         given = glyphs;
         gpu_retain(given);
     }
-    const EffectSelectResult selected = d3d11_effect_select(&owner, device, context, spec, settings,
-                                                            gpu_adapter_key(device), given, kWidth, kHeight);
+    const EffectSelectResult selected =
+        d3d11_effect_select(&owner, device, context, spec, settings, given, kWidth, kHeight);
     if (selected.state == EffectSelect::rejected)
         gpu_release(given);
     check(selected.state == EffectSelect::changed, "the effect is selected");

@@ -44,7 +44,6 @@ bool d3d11_background_fx_begin_frame(D3D11BackgroundFxOwner* owner, GpuDevice* d
         return false;
     owner->source = BackgroundFxSource::none;
     owner->drawn_count = 0;
-    owner->draws_last_frame = 0;
     owner->vertex_constants_bound = false;
     owner->layer_opacity = 1;
     const bool builtin = !suppressed && background_fx_builtin_mask(theme.background.effect) &&
@@ -76,9 +75,8 @@ bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, GpuContext* context
         return false;
     auto& frame = owner->frame;
     const float scale = owner->frame_pixel_scale;
-    if (!ui_coordinate_valid(canvas.left) || !ui_coordinate_valid(canvas.top) ||
-        !ui_coordinate_valid(canvas.right) || !ui_coordinate_valid(canvas.bottom) ||
-        !(canvas.right > canvas.left && canvas.bottom > canvas.top))
+    if (!(ui_coordinate_valid(canvas.left) & ui_coordinate_valid(canvas.top) & ui_coordinate_valid(canvas.right) &
+          ui_coordinate_valid(canvas.bottom) & ui_rect_has_area(canvas)))
         return false;
     frame.canvas[0] = canvas.left;
     frame.canvas[1] = canvas.top;
@@ -108,7 +106,6 @@ bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, GpuContext* context
     const float blend_factor[4]{factor, factor, factor, factor};
     gpu_set_blend(context, owner->blend_state, blend_factor);
     gpu_draw_instanced(context, 4, instances, 0, 0);
-    ++owner->draws_last_frame;
     return true;
 }
 

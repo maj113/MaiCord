@@ -169,8 +169,8 @@ EffectSelectResult renderer_select_effect(D3D11Renderer* renderer, const Backgro
         (spec.uses & effect_use_glyphs) && !effect_glyph_grid_build(renderer, &glyphs))
         return {E_FAIL, EffectSelect::rejected};
     const EffectSelectResult result = d3d11_effect_select(
-        &renderer->effect, renderer->graphics.device, renderer->graphics.context, spec, settings,
-        renderer->adapter_key, glyphs, renderer->width, renderer->height + renderer->caption_height);
+        &renderer->effect, renderer->graphics.device, renderer->graphics.context, spec, settings, glyphs,
+        renderer->width, renderer->height + renderer->caption_height);
     if (result.state == EffectSelect::rejected)
         gpu_release(glyphs);
     if (result.state == EffectSelect::changed || result.state == EffectSelect::refused) {
@@ -374,10 +374,13 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
     }
     if (renderer->has_presented)
         renderer_note_text_effect_damage(renderer, clock_monotonic_milliseconds());
-    const RendererPresentationStamp current = renderer_capture_presentation_stamp(*renderer, theme);
+    RendererPresentationStamp current = renderer_capture_presentation_stamp(*renderer, theme);
+    // The shell beneath a modal is redrawn offscreen first; the modal's own
+    // stream then rebuilds over it and presents in full.
+    const bool backdrop_stale = renderer_settings_backdrop_stale(renderer, theme);
     if (renderer->has_presented &&
         (!renderer->login_visible || d3d11_renderer_login_form_text(*renderer)) &&
-        !renderer->begin_frame_permit && !renderer_settings_backdrop_stale(renderer, theme) &&
+        !renderer->begin_frame_permit && !backdrop_stale &&
         renderer_presentation_stamp_equal(current, renderer->retained_presentation) &&
         presentation_damage_empty(renderer->presentation_damage) && !renderer_typing_dots_pending(*renderer) &&
         !d3d11_renderer_caption_pending(renderer, theme)) {
@@ -398,6 +401,13 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
     }
     const bool first_paint = renderer->painted_frames == 0;
     const i64 paint_begin = first_paint ? clock_now() : 0;
+    if (backdrop_stale) {
+        if (!renderer_refresh_settings_backdrop(renderer, theme)) {
+            note_device_failure(renderer);
+            return false;
+        }
+        current = renderer_capture_presentation_stamp(*renderer, theme);
+    }
     if (!d3d11_renderer_paint_layout(renderer, theme, current)) {
         note_device_failure(renderer);
         return false;

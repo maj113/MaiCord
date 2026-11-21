@@ -29,7 +29,7 @@ union D3D11EffectStage {
 struct D3D11EffectTiming {
     GpuTimer timer;
     u64 identity, frame_ms;
-    bool begun, pending;
+    bool pending;
 };
 
 // The package effect pass: one offscreen render of the package's pixel shader (or of its pass graph, all passes
@@ -61,7 +61,7 @@ struct D3D11EffectOwner {
     u32 target_width, target_height; // allocated
     u32 used_width, used_height;     // rendered (the viewport)
     // Selection.
-    u64 identity, adapter_key;
+    u64 identity;
     u32 uses;
     float knobs[kEffectKnobRows][4];
     EffectSettings settings;
@@ -102,9 +102,8 @@ struct EffectSelectResult {
 // The window size in pixels (content plus caption) is what the cost probe extrapolates to.
 // `glyph_view` is a ready glyph grid the owner adopts (null without effect_use_glyphs).
 EffectSelectResult d3d11_effect_select(D3D11EffectOwner*, GpuDevice*, GpuContext*,
-                                       const BackgroundEffectSpec&, const EffectSettings&, u64 adapter_key,
-                                       GpuSrv* glyph_view, u32 window_width,
-                                       u32 window_height) noexcept;
+                                       const BackgroundEffectSpec&, const EffectSettings&, GpuSrv* glyph_view,
+                                       u32 window_width, u32 window_height) noexcept;
 // Back to no effect. True when one was selected.
 bool d3d11_effect_clear(D3D11EffectOwner*) noexcept;
 // The pointer in window pixels (negative: none); the effect sees it only when it declared the pointer and the

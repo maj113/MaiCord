@@ -252,7 +252,6 @@ struct RendererPaintDiff {
     RendererPresentationStamp structure;
     u64 text_signature;
     u64 layout_signature;
-    u32 partial_rebuilds;
     bool pending;
     bool valid;
 };
@@ -332,8 +331,6 @@ struct D3D11Renderer {
     IconAtlas icon_atlas;
     PickerGlyphCache* picker_glyph_cache;
     ShapedTextCache* shaped_text_cache;
-    // Diagnostic A/B switch; shaping results are otherwise reused across rebuilds.
-    bool shaped_text_cache_disabled;
     const LoginScene* login_scene;
     QrCode login_qr_code;
     MediaAtlas* media_atlas;
@@ -405,6 +402,10 @@ struct D3D11Renderer {
     UiThreadBrowserScene* thread_browser_scene;
     u64 interaction_text_thread_browser_publication;
     u32 interaction_text_thread_browser_revision;
+    // A page in place of the chat column and the member list (the Server Hub): its scene and the channel-list row
+    // it belongs to, which shows as selected and names the header.
+    const UiStoreScene* content_page;
+    u64 content_page_row;
     const UiQuickSwitcherScene* quick_switcher_scene;
     u32 interaction_text_quick_switcher_revision;
     const UiMessageForwardScene* message_forward_scene;
@@ -499,7 +500,7 @@ struct D3D11Renderer {
     RendererTypingDots typing_dots;
     Win32Rect present_dirty_rect;
     // Flip-sequential rotates between two independently retained back buffers.
-    // `previous_buffer_damage` is the logical damage submitted on the prior
+    // `previous_buffer_damage_rect` is the logical damage submitted on the prior
     // Present; it must be repainted into the next buffer before that buffer is
     // displayed, even when the current BeginFrame contains no new mutation.
     Win32Rect previous_buffer_damage_rect;
@@ -523,16 +524,13 @@ struct D3D11Renderer {
     u32 media_instance_uploads;
     u32 text_instance_uploads;
     u32 paint_instance_uploads;
-    // Instance bytes written to the GPU (paint, glyph and media streams).
-    u64 paint_upload_bytes, text_upload_bytes, media_upload_bytes;
+    // Instance bytes written to the GPU (paint and glyph streams).
+    u64 paint_upload_bytes, text_upload_bytes;
     u32 paint_stream_builds;
-    u32 paint_stream_reuses;
     u32 media_source_refreshes;
-    u32 media_source_upload_skips;
     u32 full_present_draws;
     u32 partial_present_draws;
     u32 unchanged_present_skips;
-    u32 idle_begin_frame_presents;
     u64 partial_present_pixels;
     u32 media_overlay_paint_first_batch;
     u32 profile_foreground_first_batch, profile_controls_first_batch;
@@ -701,7 +699,7 @@ struct D3D11Renderer {
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
 #if defined(_WIN32)
-static_assert(sizeof(D3D11Renderer) == 126096);
+static_assert(sizeof(D3D11Renderer) == 127928);
 #endif
 
 // Starts hardware device and draw-pipeline creation on a worker at process
@@ -773,6 +771,8 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept;
 bool renderer_bind_ui_scene(D3D11Renderer* renderer, const UiScene* scene) noexcept;
 bool renderer_bind_thread_header(D3D11Renderer* renderer, const UiThreadHeader* header) noexcept;
 bool renderer_bind_thread_browser_scene(D3D11Renderer* renderer, UiThreadBrowserScene* scene) noexcept;
+// Null scene: no content page.
+bool renderer_bind_content_page(D3D11Renderer* renderer, const UiStoreScene* scene, u64 row) noexcept;
 bool renderer_bind_audio_scene(D3D11Renderer* renderer, const UiAudioScene* scene) noexcept;
 bool renderer_bind_poll_scene(D3D11Renderer*, const UiPollScene*) noexcept;
 bool renderer_bind_poll_voters_scene(D3D11Renderer*, const UiPollVotersScene*) noexcept;
@@ -947,6 +947,8 @@ inline constexpr u16 renderer_text_measure_revision(const D3D11Renderer& rendere
 }
 bool renderer_text_measure_backend(void* context, const UiTextMeasureRequest& request,
                                    UiTextMeasureValue* value) noexcept;
+// A text build without measure failures ends the failure run: each later failure logs again.
+void renderer_text_measure_failures_settled() noexcept;
 bool renderer_rebuild_content_text(D3D11Renderer* renderer, const Theme& theme) noexcept;
 // Synchronize retained interaction glyphs after the host's final surface
 // publication. Unchanged account frames and standalone login text stay cheap.

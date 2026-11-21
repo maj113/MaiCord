@@ -3,7 +3,7 @@
 namespace maicord {
 namespace {
 
-bool bounded_float(float value, float limit) noexcept {
+inline bool bounded_float(float value, float limit) noexcept {
     return value == value && value >= -limit && value <= limit;
 }
 

@@ -431,8 +431,7 @@ bool start_controller(D3D11EffectOwner* owner) noexcept {
 
 EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, GpuDevice* device, GpuContext* context,
                                        const BackgroundEffectSpec& spec, const EffectSettings& settings,
-                                       u64 adapter_key, GpuSrv* glyph_view, u32 window_width,
-                                       u32 window_height) noexcept {
+                                       GpuSrv* glyph_view, u32 window_width, u32 window_height) noexcept {
     if (!spec.identity || !spec.bytecode.data || !spec.bytecode.count || !effect_settings_valid(settings) ||
         (spec.uses & ~static_cast<u32>(effect_use_all)) || static_cast<u8>(spec.blend) > 2 || !window_width ||
         !window_height)
@@ -493,7 +492,6 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, GpuDevice* devic
     owner->graph = graph ? *graph : EffectGraph{};
     owner->selected = true;
     owner->identity = spec.identity;
-    owner->adapter_key = adapter_key;
     owner->uses = spec.uses;
     owner->settings = settings;
     copy_bytes(owner->knobs, spec.knobs, sizeof(owner->knobs));
@@ -530,7 +528,7 @@ bool d3d11_effect_clear(D3D11EffectOwner* owner) noexcept {
     owner->graph = {};
     owner->selected = owner->probed = false;
     owner->active = false;
-    owner->identity = owner->adapter_key = 0;
+    owner->identity = 0;
     owner->uses = 0;
     owner->step = 0;
     reset_value(&owner->budget);
@@ -655,9 +653,9 @@ bool d3d11_effect_draw(D3D11EffectOwner* owner, GpuContext* context, UiRect canv
     for (u32 i = 0; i < owner->drawn_count; ++i)
         if (owner->drawn[i] == quad_index)
             return false;
-    if (owner->drawn_count == kD3D11EffectCanvases || !ui_coordinate_valid(canvas.left) ||
-        !ui_coordinate_valid(canvas.top) || !ui_coordinate_valid(canvas.right) ||
-        !ui_coordinate_valid(canvas.bottom) || !(canvas.right > canvas.left && canvas.bottom > canvas.top))
+    if (owner->drawn_count == kD3D11EffectCanvases ||
+        !(ui_coordinate_valid(canvas.left) & ui_coordinate_valid(canvas.top) & ui_coordinate_valid(canvas.right) &
+          ui_coordinate_valid(canvas.bottom) & ui_rect_has_area(canvas)))
         return false;
     owner->drawn[owner->drawn_count++] = quad_index;
     // A DIP maps to a window pixel, then to a share of the window, then into the part of the allocation drawn.

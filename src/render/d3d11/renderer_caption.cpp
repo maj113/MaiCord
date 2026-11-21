@@ -2,7 +2,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
-#include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/render/media/atlas.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/widgets/icon.hpp"
@@ -93,7 +93,7 @@ struct RendererCaption {
     RECT tooltip_pixels;
     // The uploaded quads, reused while appearance, theme and the atlas cells
     // they sample are unchanged.
-    Theme built_theme;
+    u64 built_theme_serial; // renderer_theme_serial
     u64 built_key;
     u32 builds, draws;
     u32 title_glyphs, tooltip_glyphs, tab_glyphs;
@@ -116,46 +116,41 @@ float snap_pixel(float dip, float scale) noexcept {
     return static_cast<float>(static_cast<i32>(dip * scale + .5f)) / scale;
 }
 
+// The stamp, keys and text seed below are only compared in memory, so they hash words, not bytes.
 u64 appearance_stamp(const D3D11Renderer& renderer, const RendererCaption& caption,
                      const Theme& theme) noexcept {
     const UiCaptionBarState& s = caption.state;
-    u64 hash = kHash64Seed;
-    const u32 state[9]{static_cast<u32>(s.hovered),
-                       static_cast<u32>(s.pressed),
-                       s.active,
-                       s.maximized,
-                       static_cast<u32>(s.update),
-                       s.settings,
-                       static_cast<u32>(s.frame * 96.0f),
-                       static_cast<u32>(s.tooltip),
-                       static_cast<u32>(s.tooltip_entrance * 255.0f)};
-    hash = hash64_bytes(hash, state, sizeof(state));
-    // Whole percent steps of download progress.
-    hash = hash64_mix(hash, static_cast<u64>(s.progress * 100.0f));
-    hash = hash64_mix(hash, s.tabs ? ui_tab_strip_stamp(*s.tabs) : 0);
-    hash = hash64_counted_bytes(hash, caption.title, caption.title_bytes);
-    hash = hash64_mix(hash, static_cast<u64>(caption.title_glyph));
-    hash = hash64_bytes(hash, &caption.title_image, sizeof(caption.title_image));
+    // One block of every scalar input: no padding, so each byte is an input.
+    struct {
+        u32 values[27];
+        Color colors[2];
+    } inputs{{static_cast<u32>(s.hovered), static_cast<u32>(s.pressed), s.active, s.maximized,
+              static_cast<u32>(s.update), s.settings, static_cast<u32>(s.frame * 96.0f),
+              static_cast<u32>(s.tooltip), static_cast<u32>(s.tooltip_entrance * 255.0f),
+              // Whole percent steps of download progress.
+              static_cast<u32>(s.progress * 100.0f), static_cast<u32>(caption.title_glyph),
+              // The backdrop gradient spans caption and content.
+              renderer.width, renderer.caption_height, renderer.height, renderer.dpi, caption.icon_extent,
+              static_cast<u32>(caption.scrim.red * 1000.0f), static_cast<u32>(caption.scrim.green * 1000.0f),
+              static_cast<u32>(caption.scrim.blue * 1000.0f), static_cast<u32>(caption.scrim.alpha * 1000.0f),
+              static_cast<u32>(ui_icon_theme_weight(theme) * 1000.0f)},
+             {theme.base_lowest, theme.text_primary}};
+    static_assert(sizeof(inputs) == 27 * sizeof(u32) + 2 * sizeof(Color));
     // A server icon draws once resident, from where the atlas holds it.
     if (media_asset_key_valid(caption.title_image) && renderer.media_atlas) {
         const MediaAtlasResult image = media_atlas_peek(renderer.media_atlas, caption.title_image);
-        const u32 place[6]{image.ok() ? 1u : 0u, image.x, image.y, image.width, renderer.media_gpu.width,
-                           renderer.media_gpu.height};
-        hash = hash64_bytes(hash, place, sizeof(place));
+        u32* place = inputs.values + 21;
+        place[0] = image.ok() ? 1u : 0u;
+        place[1] = image.x;
+        place[2] = image.y;
+        place[3] = image.width;
+        place[4] = renderer.media_gpu.width;
+        place[5] = renderer.media_gpu.height;
     }
-    // The backdrop gradient spans caption and content.
-    const u32 geometry[5]{renderer.width, renderer.caption_height, renderer.height, renderer.dpi,
-                          caption.icon_extent};
-    hash = hash64_bytes(hash, geometry, sizeof(geometry));
-    hash = hash64_bytes(hash, &theme.background, sizeof(theme.background));
-    hash = hash64_bytes(hash, &theme.tokens.caption, sizeof(theme.tokens.caption));
-    hash = hash64_bytes(hash, &theme.base_lowest, sizeof(theme.base_lowest));
-    hash = hash64_bytes(hash, &theme.text_primary, sizeof(theme.text_primary));
-    const u32 scrim[4]{static_cast<u32>(caption.scrim.red * 1000.0f), static_cast<u32>(caption.scrim.green * 1000.0f),
-                       static_cast<u32>(caption.scrim.blue * 1000.0f), static_cast<u32>(caption.scrim.alpha * 1000.0f)};
-    hash = hash64_bytes(hash, scrim, sizeof(scrim));
-    hash = hash64_mix(hash, static_cast<u64>(ui_icon_theme_weight(theme) * 1000.0f));
-    return hash64_bytes(hash, &theme.scale, sizeof(theme.scale));
+    u64 hash = hash64_words(kHash64Seed, &inputs, sizeof(inputs));
+    hash = hash64_mix(hash, s.tabs ? ui_tab_strip_stamp(*s.tabs) : 0);
+    hash = hash64_words(hash, caption.title, caption.title_bytes);
+    return hash64_words(hash, &caption.title_image, sizeof(caption.title_image));
 }
 
 u64 build_key(const D3D11Renderer& renderer, const RendererCaption& caption) noexcept {
@@ -163,30 +158,20 @@ u64 build_key(const D3D11Renderer& renderer, const RendererCaption& caption) noe
         renderer.glyph_text.allocator.evicted_entries, renderer.glyph_text.allocator.full_resets,
         renderer.icon_atlas.allocator.evicted_entries, renderer.icon_atlas.allocator.full_resets,
         static_cast<u32>(renderer.glyph_text.ready) | static_cast<u32>(renderer.icon_atlas.ready) << 1};
-    return hash64_bytes(hash64_mix(kHash64Seed, caption.stamp), atlases, sizeof(atlases));
+    return hash64_words(hash64_mix(kHash64Seed, caption.stamp), atlases, sizeof(atlases));
 }
 
 // What the glyph atlas has evicted: quads made before it may point at rows since reused.
 u64 atlas_key(const D3D11Renderer& renderer) noexcept {
     const u32 atlas[3]{renderer.glyph_text.allocator.evicted_entries, renderer.glyph_text.allocator.full_resets,
                        renderer.glyph_text.ready};
-    return hash64_bytes(kHash64Seed, atlas, sizeof(atlas));
-}
-
-bool same_theme(const Theme& a, const Theme& b) noexcept {
-    static_assert(sizeof(Theme) % sizeof(u64) == 0 && alignof(Theme) >= alignof(u64));
-    const auto* x = reinterpret_cast<const u64*>(&a);
-    const auto* y = reinterpret_cast<const u64*>(&b);
-    u64 difference = 0;
-    for (u32 i = 0; i < sizeof(Theme) / sizeof(u64); ++i)
-        difference |= x[i] ^ y[i];
-    return !difference;
+    return hash64_words(kHash64Seed, atlas, sizeof(atlas));
 }
 
 u64 caption_text_seed(const RendererCaption& caption) noexcept {
     // The icon's room limits the text.
-    const u64 seed = hash64_counted_bytes(kHash64Seed, caption.title, caption.title_bytes);
-    return hash64_bytes(hash64_mix(seed, static_cast<u64>(caption.title_glyph)), &caption.title_image,
+    const u64 seed = hash64_words(kHash64Seed, caption.title, caption.title_bytes);
+    return hash64_words(hash64_mix(seed, static_cast<u64>(caption.title_glyph)), &caption.title_image,
                         sizeof(caption.title_image));
 }
 
@@ -375,7 +360,7 @@ bool append_tabs(D3D11Renderer* renderer, RendererCaption* caption, const Theme&
                 continue;
             }
             const u64 key = hash64_mix(
-                hash64_mix(hash64_mix(hash64_counted_bytes(atlas, text.data, text.bytes),
+                hash64_mix(hash64_mix(hash64_words(atlas, text.data, text.bytes),
                                       static_cast<u64>(place[i].limit * 64.0f)),
                            static_cast<u64>((strip.area.top + strip.area.bottom) * 64.0f)),
                 renderer->dpi);
@@ -705,13 +690,16 @@ bool d3d11_renderer_caption_pending(D3D11Renderer* renderer, const Theme& theme)
     if (!renderer->caption_height || !caption)
         return false;
     const u64 stamp = appearance_stamp(*renderer, *caption, theme);
-    // Any other theme change (tooltip, backdrop tiers) restyles the bar too.
-    if (stamp != caption->stamp || (caption->built && !same_theme(caption->built_theme, theme))) {
+    // A theme change restyles the bar (backdrop, tooltip, every tier): the draw builds it again.
+    const bool restyled = caption->built_theme_serial != renderer_theme_serial(theme);
+    if (restyled)
+        caption->built = false;
+    if (stamp != caption->stamp || restyled) {
         caption->stamp = stamp;
         caption->dirty = true;
         const u64 text_key =
             hash64_mix(hash64_mix(hash64_mix(caption_text_seed(*caption), renderer->width), renderer->dpi),
-                       hash64_bytes(kHash64Seed, &theme.scale, sizeof(theme.scale)));
+                       hash64_words(kHash64Seed, &theme.scale, sizeof(theme.scale)));
         // A server icon turning resident narrows the text's room too.
         if (text_key != caption->text_key || media_asset_key_valid(caption->title_image)) {
             caption->text_key = text_key;
@@ -740,8 +728,8 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
     auto& pipeline = renderer->pipeline;
     UiCaptionBarLayout layout = caption_layout(*renderer, *caption, theme);
     const float scale = static_cast<float>(renderer->dpi) / 96.0f;
-    if (!caption->built || caption->built_key != build_key(*renderer, *caption) ||
-        !same_theme(caption->built_theme, theme)) {
+    // A theme change cleared `built` in d3d11_renderer_caption_pending above.
+    if (!caption->built || caption->built_key != build_key(*renderer, *caption)) {
         caption->built = false;
         u32 glyph_count = 0, tooltip_glyphs = 0;
         UiRect image{};
@@ -779,7 +767,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         caption->tooltip_glyphs = tooltip_glyphs;
         // Keyed after the build: its own glyph and icon rasters may evict.
         caption->built_key = build_key(*renderer, *caption);
-        copy_bytes(&caption->built_theme, &theme, sizeof(Theme));
+        caption->built_theme_serial = renderer_theme_serial(theme);
         caption->built = true;
         ++caption->builds;
     }

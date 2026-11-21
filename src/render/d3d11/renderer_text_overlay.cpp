@@ -15,7 +15,9 @@ namespace renderer_text_detail {
 
 // Glyph inputs beyond the projection (appearance and thread header revisions,
 // a hovered name effect, composer styles and selection) key the shell exactly.
-u64 retention_shell_signature(const D3D11Renderer& renderer, u32 shown, u64 shell_signature) noexcept {
+// Out of line: its lookups would otherwise widen the frame of the whole build.
+__declspec(noinline) u64 retention_shell_inputs(const D3D11Renderer& renderer, u32 shown) noexcept {
+    u64 shell_signature = kHash64Seed;
     const bool settings_active = (shown & d3d11_surface_settings_page) != 0;
     const bool friends_active =
         !settings_active && d3d11_renderer_active(renderer.friends_scene);
@@ -57,36 +59,14 @@ u64 retention_shell_signature(const D3D11Renderer& renderer, u32 shown, u64 shel
         }
     }
     if (composer && composer->active)
-        shell_signature = hash64_counted_bytes(shell_signature, composer->display_styles,
-                                               composer->display_style_count * sizeof(TextStyleSpan));
+        shell_signature = hash64_words(shell_signature, composer->display_styles,
+                                       composer->display_style_count * sizeof(TextStyleSpan));
     if (composer && composer->model && composer->model->focused &&
         composer->display_anchor != composer->display_caret) {
         shell_signature = hash64_mix(shell_signature, composer->display_anchor);
         shell_signature = hash64_mix(shell_signature, composer->display_caret);
     }
     return shell_signature;
-}
-
-ContentTextRetentionKey content_text_retention_key(const D3D11Renderer& renderer, u32 shown, const Theme& theme,
-                                                   u64 shell_signature, u64 popup_signature,
-                                                   bool include_messages) noexcept {
-    const bool login_form = d3d11_renderer_login_form_text(renderer);
-    if (!login_form)
-        shell_signature = retention_shell_signature(renderer, shown, shell_signature);
-    include_messages = include_messages && !login_form;
-    const MessageTextPresentation* presentation = renderer.message_text;
-    return ContentTextRetentionKey{
-        shell_signature,
-        include_messages && presentation ? presentation->projection_signature : 0,
-        popup_signature,
-        hash64_mix(content_text_theme_signature(theme),
-                   typography_source_identity(renderer.glyph_text.system)),
-        include_messages ? renderer.message_text_selection.signature : 0,
-        renderer.dpi,
-        renderer.glyph_text.allocator.evicted_entries,
-        renderer.glyph_text.allocator.full_resets,
-        include_messages,
-    };
 }
 
 // Friends search borrows composer_layout while the main chat content is

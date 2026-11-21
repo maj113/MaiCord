@@ -69,9 +69,22 @@ BatchDraw batch_draw(F* function) noexcept {
             }};
 }
 
+// Keeps, in order, the layers that change how their batches draw: a non-empty
+// range with a factor or a pose. The others leave every draw as it is.
+u32 moving_layers(LayerBatchRange* layers, u32 count) noexcept {
+    u32 kept = 0;
+    for (u32 index = 0; index < count; ++index) {
+        const LayerBatchRange& layer = layers[index];
+        if (layer.first < layer.end &&
+            (layer.opacity != 1 || layer.scale != 1 || layer.shift_x != 0 || layer.shift_y != 0))
+            layers[kept++] = layer;
+    }
+    return kept;
+}
+
 // Split only at a moving surface's existing batch boundaries. Geometry and
 // instance buffers remain retained; one existing frame constant serves paint,
-// glyphs and media. Identity layers use the original draw ranges directly.
+// glyphs and media. `layers` holds only moving layers (moving_layers).
 bool draw_opacity_batches(D3D11Renderer* renderer, u32 first, u32 end, const LayerBatchRange* layers,
                           u32 layer_count, float& current_opacity, BatchDraw draw) noexcept {
     if (first == end)
@@ -80,17 +93,13 @@ bool draw_opacity_batches(D3D11Renderer* renderer, u32 first, u32 end, const Lay
         u32 next = end;
         LayerBatchRange bound{first, end, 1};
         for (u32 index = 0; index < layer_count; ++index) {
+            // The setters keep opacity in [0, 1] and scale in (0, 1]; the modal's scale is at most 1.1.
             const LayerBatchRange& layer = layers[index];
-            const float value = layer.opacity >= 0 && layer.opacity <= 1 ? layer.opacity : 1;
-            const float factor = layer.scale > 0 && layer.scale <= 2 ? layer.scale : 1;
-            const bool shifted = layer.shift_x != 0 || layer.shift_y != 0;
-            if ((value == 1 && factor == 1 && !shifted) || layer.first >= layer.end)
-                continue;
             if (first >= layer.first && first < layer.end) {
-                bound.opacity *= value;
-                if (factor != 1)
-                    bound.scale = factor, bound.origin_x = layer.origin_x, bound.origin_y = layer.origin_y;
-                if (shifted)
+                bound.opacity *= layer.opacity;
+                if (layer.scale != 1)
+                    bound.scale = layer.scale, bound.origin_x = layer.origin_x, bound.origin_y = layer.origin_y;
+                if (layer.shift_x != 0 || layer.shift_y != 0)
                     bound.shift_x = layer.shift_x, bound.shift_y = layer.shift_y;
                 next = minimum(next, layer.end);
             } else if (first < layer.first) {
@@ -1376,7 +1385,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         range.end = end;
         return range;
     };
-    const LayerBatchRange paint_layers[10]{
+    LayerBatchRange paint_layers[10]{
         {0, modal_paint_first, modal_progress},
         {modal_paint_first, modal_paint_end, modal_opacity, modal_scale, modal_x, modal_y},
         profile(renderer->profile_paint_first_batch, renderer->profile_paint_end_batch),
@@ -1388,7 +1397,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         forum(forum_current ? form_paint : paint_batch_count,
               forum_current ? renderer->forum_paint_end_batch : paint_batch_count),
         tooltip(form_paint, paint_batch_count)};
-    const LayerBatchRange text_layers[8]{
+    LayerBatchRange text_layers[8]{
         {0, modal_text_end, modal_opacity, modal_scale, modal_x, modal_y},
         profile(renderer->profile_text_first_batch, renderer->profile_text_end_batch),
         gallery(gallery_text_first, gallery_text_end),
@@ -1398,7 +1407,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         forum(forum_current ? form_text : visible_text_end,
               forum_current ? renderer->forum_text_end_batch : visible_text_end),
         tooltip(form_text, visible_text_end)};
-    const LayerBatchRange media_layers[14]{
+    LayerBatchRange media_layers[14]{
         // Settings media move and fade with the modal: avatars, host page pictures, the choice popup's and the
         // dialogs' media, and the inline media of their text.
         {renderer->settings_page_media_first_batch, modal_media_end, modal_opacity, modal_scale, modal_x, modal_y},
@@ -1418,6 +1427,8 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         forum(first_of(RendererInlineMediaLayer::forum), end_of(RendererInlineMediaLayer::forum)),
         // The form layer's media under a shown tooltip are its emoji: they pop in with the box.
         tooltip(first_of(RendererInlineMediaLayer::form), end_of(RendererInlineMediaLayer::form))};
+    const u32 paint_moving = moving_layers(paint_layers, 10), text_moving = moving_layers(text_layers, 8),
+              media_moving = moving_layers(media_layers, 14);
     float current_opacity = 1;
     // Restores the identity layer and releases the stream's bindings; a failed
     // surface draw must not leave its factor bound for the next frame. The
@@ -1455,7 +1466,8 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                 tally(renderer->paint_stream.batches[i].quad_count);
             return draw_paint_batches(renderer, &submission, begin, limit, pixel_scale, damage);
         };
-        return draw_opacity_batches(renderer, first, end, paint_layers, 10, current_opacity, batch_draw(&draw));
+        return draw_opacity_batches(renderer, first, end, paint_layers, paint_moving, current_opacity,
+                                    batch_draw(&draw));
     };
     const auto text = [&, renderer](u32 first, u32 end, bool upload) noexcept {
         auto draw = [&, renderer](u32 begin, u32 limit) noexcept {
@@ -1463,7 +1475,8 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                 tally(renderer->content_text->batches[i].quad_count);
             return draw_gpu_text(renderer, &submission, theme, begin, limit, upload, damage);
         };
-        return draw_opacity_batches(renderer, first, end, text_layers, 8, current_opacity, batch_draw(&draw));
+        return draw_opacity_batches(renderer, first, end, text_layers, text_moving, current_opacity,
+                                    batch_draw(&draw));
     };
     const auto media = [&, renderer](u32 first, u32 end, bool upload) noexcept {
         auto draw = [&, renderer](u32 begin, u32 limit) noexcept {
@@ -1473,7 +1486,8 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
             upload = false;
             return ok;
         };
-        return draw_opacity_batches(renderer, first, end, media_layers, 14, current_opacity, batch_draw(&draw));
+        return draw_opacity_batches(renderer, first, end, media_layers, media_moving, current_opacity,
+                                    batch_draw(&draw));
     };
     const auto inline_media = [&, renderer](RendererInlineMediaLayer layer) noexcept {
         if (!inline_tail ||

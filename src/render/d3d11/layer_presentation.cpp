@@ -79,13 +79,12 @@ bool renderer_set_layer_opacity(D3D11Renderer* renderer, RendererLayerSurface su
     default:
         return false;
     }
-    const UiRect rectangle = surface_rectangle(*renderer, surface);
     opacity = opacity >= 0 && opacity <= 1 ? opacity : 1;
     if (*value == opacity)
         return false;
     *value = opacity;
     // Cover rounded antialiasing and the popup's existing exterior shadow.
-    damage_with_fringe(renderer, rectangle, 12);
+    damage_with_fringe(renderer, surface_rectangle(*renderer, surface), 12);
     return true;
 }
 

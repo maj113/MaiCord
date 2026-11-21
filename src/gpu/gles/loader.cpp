@@ -91,16 +91,10 @@ bool string_has_word(const char* list, const char* word) noexcept {
     return false;
 }
 
+// OpenGL ES 3 keeps the space-separated list of glGetString(GL_EXTENSIONS) (only desktop core profiles dropped it): one
+// call per query, where glGetStringi takes one for each extension the driver has.
 bool has_extension(const gl::Api& api, const char* name) noexcept {
-    gl::Int count = 0;
-    api.glGetIntegerv(gl::kNumExtensions, &count);
-    const u32 length = c_string_length(name);
-    for (gl::Int index = 0; index < count; ++index) {
-        const char* extension = reinterpret_cast<const char*>(api.glGetStringi(gl::kExtensions, static_cast<u32>(index)));
-        if (extension && c_string_length(extension) == length && bytes_equal(extension, name, length))
-            return true;
-    }
-    return false;
+    return string_has_word(reinterpret_cast<const char*>(api.glGetString(gl::kExtensions)), name);
 }
 
 } // namespace maicord::gles

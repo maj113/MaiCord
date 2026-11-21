@@ -37,22 +37,10 @@ uint load_word(uint offset) {
     return word;
 }
 
-uint load_sample(uint offset) {
-    return bit_depth == 16u
-               ? (load_byte(offset) << 8u) | load_byte(offset + 1u)
-               : load_byte(offset);
-}
-
-uint expand_sample(uint sample) {
-    // Bit depth is uniform; keep unused integer divisions off the 8-bit path.
-    uint result = sample;
-    [branch] if (bit_depth != 8u) {
-        [branch] if (bit_depth == 16u)
-            result = (sample + 128u) / 257u;
-        else
-            result = sample * 255u / ((1u << bit_depth) - 1u);
-    }
-    return result;
+// A big-endian 16-bit sample. (sample + 128) / 257 scales it to 8 bits with
+// rounding.
+uint load_sample16(uint offset) {
+    return (load_byte(offset) << 8u) | load_byte(offset + 1u);
 }
 
 uint packed_sample(uint row, uint x) {
@@ -72,9 +60,11 @@ void png_expand(uint3 dispatch_id : SV_DispatchThreadID) {
     // Rows of raw RGBA8 (color type 7) carry no filter byte.
     const uint row = dispatch_id.y * row_stride +
                      (color_type == 7u || color_type == 8u ? 0u : 1u);
-    const uint sample_bytes = bit_depth == 16u ? 2u : 1u;
     uint4 rgba = uint4(0u, 0u, 0u, 255u);
 
+    // The bit depth is uniform: each type branches on it before its loads, so
+    // a pixel reads and scales only the samples of its depth. Color types 2,
+    // 4 and 6 have 8 or 16 bits a sample (png_format_valid).
     // 8-bit RGBA rows (PNG color type 6, raw color type 7): one word per pixel
     // instead of four byte loads.
     [branch] if (color_type == 7u || (color_type == 6u && bit_depth == 8u)) {
@@ -82,41 +72,55 @@ void png_expand(uint3 dispatch_id : SV_DispatchThreadID) {
         rgba = uint4(packed & 255u, (packed >> 8u) & 255u,
                      (packed >> 16u) & 255u, packed >> 24u);
     } else if (color_type == 0u) {
-        const uint gray = bit_depth < 8u
-                              ? packed_sample(row, x)
-                              : load_sample(row + x * sample_bytes);
-        const uint expanded = expand_sample(gray);
+        uint gray, expanded;
+        [branch] if (bit_depth == 16u) {
+            gray = load_sample16(row + x * 2u);
+            expanded = (gray + 128u) / 257u;
+        } else [branch] if (bit_depth == 8u) {
+            gray = load_byte(row + x);
+            expanded = gray;
+        } else {
+            gray = packed_sample(row, x);
+            expanded = gray * 255u / ((1u << bit_depth) - 1u);
+        }
         rgba.rgb = expanded;
         rgba.a = gray == transparent_gray ? 0u : 255u;
     } else if (color_type == 2u) {
-        const uint offset = row + x * 3u * sample_bytes;
-        const uint red = load_sample(offset);
-        const uint green = load_sample(offset + sample_bytes);
-        const uint blue = load_sample(offset + sample_bytes * 2u);
-        rgba.rgb = uint3(expand_sample(red), expand_sample(green),
-                         expand_sample(blue));
-        rgba.a = red == transparent_red && green == transparent_green &&
-                         blue == transparent_blue
-                     ? 0u
-                     : 255u;
+        uint3 samples;
+        [branch] if (bit_depth == 16u) {
+            const uint offset = row + x * 6u;
+            samples = uint3(load_sample16(offset), load_sample16(offset + 2u), load_sample16(offset + 4u));
+            rgba.rgb = (samples + 128u) / 257u;
+        } else {
+            const uint offset = row + x * 3u;
+            samples = uint3(load_byte(offset), load_byte(offset + 1u), load_byte(offset + 2u));
+            rgba.rgb = samples;
+        }
+        rgba.a = all(samples == uint3(transparent_red, transparent_green, transparent_blue)) ? 0u : 255u;
     } else if (color_type == 3u || color_type == 8u) {
-        const uint index = bit_depth < 8u
-                               ? packed_sample(row, x)
-                               : load_byte(row + x);
+        uint index;
+        [branch] if (bit_depth < 8u) {
+            index = packed_sample(row, x);
+        } else {
+            index = load_byte(row + x);
+        }
         const uint packed = index < palette_count ? palette_rgba[index] : 0u;
         rgba = uint4(packed & 255u, (packed >> 8u) & 255u,
                      (packed >> 16u) & 255u, packed >> 24u);
     } else if (color_type == 4u) {
-        const uint offset = row + x * 2u * sample_bytes;
-        const uint gray = expand_sample(load_sample(offset));
-        rgba.rgb = gray;
-        rgba.a = expand_sample(load_sample(offset + sample_bytes));
+        [branch] if (bit_depth == 16u) {
+            const uint offset = row + x * 4u;
+            rgba.ga = (uint2(load_sample16(offset), load_sample16(offset + 2u)) + 128u) / 257u;
+        } else {
+            const uint offset = row + x * 2u;
+            rgba.ga = uint2(load_byte(offset), load_byte(offset + 1u));
+        }
+        rgba.rb = rgba.g;
     } else {
-        const uint offset = row + x * 4u * sample_bytes;
-        rgba = uint4(expand_sample(load_sample(offset)),
-                     expand_sample(load_sample(offset + sample_bytes)),
-                     expand_sample(load_sample(offset + sample_bytes * 2u)),
-                     expand_sample(load_sample(offset + sample_bytes * 3u)));
+        // 16-bit RGBA: the 8-bit form takes the first branch.
+        const uint offset = row + x * 8u;
+        rgba = (uint4(load_sample16(offset), load_sample16(offset + 2u), load_sample16(offset + 4u),
+                      load_sample16(offset + 6u)) + 128u) / 257u;
     }
 
     // Over-blend onto a premultiplied destination: a transparent source leaves

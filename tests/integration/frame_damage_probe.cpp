@@ -12,6 +12,10 @@
 #include "maicord/app/chat/messages/view_runtime.hpp"
 #include "maicord/media/image/gif.hpp"
 #include "maicord/ui/media/picker.hpp"
+#include "maicord/media/core/asset.hpp"
+#include "maicord/media/image/png.hpp"
+#include "maicord/ui/media/image_viewer.hpp"
+#include "maicord/ui/media/zoom_lens.hpp"
 #include "maicord/sys/d3d11.hpp"
 
 namespace maicord::ui_probe_detail {
@@ -356,6 +360,63 @@ bool frame_damage_ui_probe() noexcept {
     if (!probe_resize_surface(width, height) || !renderer_set_background_phase(&r, 0) ||
         !rebuild_probe_content_text() || !gate.check(theme, stage))
         return false;
+    // The magnifier over the image viewer: each move, zoom step and size step keeps the frame's structure, so
+    // the frame repaints only the lens where it was and where it is.
+    stage = 9;
+    const float dips = 96.0f / static_cast<float>(r.dpi);
+    const UiRect viewport{0, 0, static_cast<float>(r.width) * dips, static_cast<float>(r.height) * dips};
+    PngImage picture{};
+    u8 pixels[16 * (32 * 4 + 1)]{};
+    for (u32 y = 0; y < 16; ++y)
+        for (u32 x = 0; x < 32; ++x) {
+            const u32 offset = y * 129 + 1 + x * 4;
+            pixels[offset + (x < 16 ? 0 : 2)] = 240;
+            pixels[offset + 1] = static_cast<u8>(y * 16);
+            pixels[offset + 3] = 255;
+        }
+    const auto key = media_asset_attachment(991993, MediaAttachmentFormat::png, MediaResolutionTier::px2048);
+    UiImageViewer viewer{};
+    if (!png_image_configure(&picture, 32, 16, 8, 6) ||
+        !renderer_upload_png_scanlines(&r, key, picture, {pixels, sizeof(pixels)}).ok() ||
+        !ui_image_viewer_open(&viewer, viewport, {1024, 512}))
+        return Gate::fail(stage, 0);
+    UiZoomLens lens{};
+    ui_zoom_lens_configure(&lens, 4, 12, false);
+    const float middle_x = (viewer.image.left + viewer.image.right) * .5f;
+    const float middle_y = (viewer.image.top + viewer.image.bottom) * .5f;
+    lens.active = true;
+    lens.pointer = {middle_x, middle_y};
+    struct CloseViewer {
+        D3D11Renderer& r;
+        ~CloseViewer() noexcept {
+            r.zoom_lens = nullptr;
+            r.image_viewer = nullptr;
+            r.retained_presentation.valid = false;
+        }
+    } close{r};
+    r.image_viewer = &viewer;
+    r.image_viewer_key = key;
+    r.zoom_lens = &lens;
+    if (!rebuild_probe_content_text() || !gate.check(theme, stage) || !r.zoom_lens_source.ready)
+        return Gate::fail(stage, 1);
+    // The swap chain flips two buffers, so the frame after a full frame repaints all of the other buffer. Every
+    // later move is a partial frame.
+    u32 partial_before = 0;
+    for (u32 step = 0; step < 8; ++step) {
+        lens.pointer = {middle_x + (step < 4 ? 9.f : -9.f) * static_cast<float>(step % 4 + 1),
+                        middle_y + 3.f * static_cast<float>(step)};
+        if (step == 5)
+            ui_zoom_lens_wheel(&lens, 120, false);
+        if (step == 6)
+            ui_zoom_lens_wheel(&lens, -120, true);
+        ++lens.revision;
+        if (!rebuild_probe_content_text() || !gate.check(theme, stage) || !r.zoom_lens_source.ready)
+            return Gate::fail(stage, 2);
+        if (!step)
+            partial_before = gate.partial;
+    }
+    if (gate.partial - partial_before != 7)
+        return Gate::fail(stage, 3);
     log_u64(LogLevel::info, "probe", "frame_damage_frames", gate.frames);
     log_u64(LogLevel::info, "probe", "frame_damage_partial_frames", gate.partial);
     // At least the animated emoji's frames must have been partial frames to judge.

@@ -35,7 +35,8 @@ namespace {
 u32 g_layout_failed_line = 0;
 } // namespace
 namespace renderer_layout_detail {
-bool layout_step_failed(u32 line) noexcept {
+// Out of line: the failure sites of a build then end in one shared call, not each in a store of its own.
+__declspec(noinline) bool layout_step_failed(u32 line) noexcept {
     g_layout_failed_line = line;
     return false;
 }
@@ -1274,26 +1275,23 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         if (browser_active)
             remove_covered_shell_paint(&renderer->paint_stream, renderer->thread_browser_scene->panel);
     }
-    const ShellPresentationRegions chrome_regions = shell;
     const MessageScene* message_scene = renderer->message_scene;
     const bool messages_visible = !content_hidden && message_scene && message_scene->active;
+    // The thread header takes the top of the message view; the shell segment keeps the chrome's regions.
+    UiRect message_view = shell.message_view;
     if (!content_hidden && d3d11_renderer_active(renderer->thread_header)) {
         const auto& header = *renderer->thread_header;
-        if (!renderer->ui_scene || header.manager != &renderer->ui_scene->widgets || !renderer->chat_state ||
+        const UiRect& bar = header.geometry.rectangle;
+        if (header.manager != &renderer->ui_scene->widgets || !renderer->chat_state ||
             header.view.thread_id != renderer->chat_state->selected_channel_id ||
-            header.geometry.rectangle.left != shell.message_view.left ||
-            header.geometry.rectangle.top != shell.message_view.top ||
-            header.geometry.rectangle.right != shell.message_view.right ||
-            header.geometry.rectangle.bottom > shell.message_view.bottom)
+            ((bar.left != message_view.left) | (bar.top != message_view.top) | (bar.right != message_view.right) |
+             (bar.bottom > message_view.bottom)))
             return layout_step_failed(__LINE__);
-        shell.message_view.top = header.geometry.rectangle.bottom;
+        message_view.top = bar.bottom;
     }
     if (!content_hidden &&
         (!message_scene || (!message_scene->active && ui_rect_has_area(message_scene->viewport)) ||
-         (message_scene->active && (message_scene->viewport.left != shell.message_view.left ||
-                                    message_scene->viewport.top != shell.message_view.top ||
-                                    message_scene->viewport.right != shell.message_view.right ||
-                                    message_scene->viewport.bottom != shell.message_view.bottom)))) {
+         (message_scene->active && !ui_rect_equal(message_scene->viewport, message_view)))) {
         return layout_step_failed(__LINE__);
     }
 
@@ -1302,6 +1300,9 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (!segment_replayed) {
     if (renderer->guild_rail_scene->active && renderer->chat_state &&
         renderer->media_atlas && renderer->media_gpu.texture_view) {
+        // The hovered row, found once: resolving a handle scans the rows.
+        const GuildRailRowWidget* hovered_row =
+            guild_rail_scene_resolve(*renderer->guild_rail_scene, renderer->guild_rail_scene->widgets.hovered);
         for (u32 index = 0; index < renderer->guild_rail_scene->count; ++index) {
             if (renderer->media_quad_count >= kRendererMediaQuadCapacity) {
                 break;
@@ -1321,8 +1322,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             if (!guild || !layout || guild->icon_variant == 0 || guild->icon_hash_bytes == 0) {
                 continue;
             }
-            const bool hovered = guild_rail_scene_resolve(*renderer->guild_rail_scene,
-                                                          renderer->guild_rail_scene->widgets.hovered) == &row;
+            const bool hovered = hovered_row == &row;
             const MediaAtlasResult allocation = guild_icon_rail_allocation(renderer->media_atlas, *guild, hovered);
             if (!allocation.ok()) {
                 continue;
@@ -1348,8 +1348,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     // header included: cover-fit in its fixed 130 DIP area, clipped by its
     // sliding container and faded with the list's scroll. The header glass is
     // the same picture blurred under the header while scrolled or hovered.
-    if (renderer->guild_banner && renderer->ui_scene && renderer->shell_navigation_scene &&
-        renderer->shell_navigation_scene->banner_inset > 0 && renderer->media_atlas &&
+    if (renderer->guild_banner && renderer->shell_navigation_scene->banner_inset > 0 && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
         const auto& shell_scene = *renderer->ui_scene;
         const UiLayoutNode* sidebar = ui_scene_node(shell_scene, UiSemantic::channel_sidebar);
@@ -1376,7 +1375,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         }
     }
 
-    if (d3d11_renderer_active(renderer->shell_navigation_scene) &&
+    if (renderer->shell_navigation_scene->active &&
         renderer->chat_state && renderer->user_store && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
         const auto& scene = *renderer->shell_navigation_scene;
@@ -1425,7 +1424,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             }
         }
         const auto* header_channel =
-            renderer->ui_scene && renderer->ui_scene->view == UiShellView::private_channels
+            renderer->ui_scene->view == UiShellView::private_channels
                 ? chat_state_store_find_channel(*renderer->chat_state,
                                                    renderer->chat_state->selected_channel_id)
                 : nullptr;
@@ -1594,7 +1593,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     }
 
     if (segment_key)
-        shell_segment_capture(renderer, segment_key, chrome_regions);
+        shell_segment_capture(renderer, segment_key, shell);
     } // !segment_replayed
 
     if (!build_timeline_media(renderer, shown, theme, message_scene, messages_visible, content_hidden))
@@ -1610,20 +1609,17 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         return layout_step_failed(__LINE__);
     }
     // Rail mention badges and their cutout ring sit above the server icons.
-    if (renderer->ui_scene &&
-        !shell_presentation_build_guild_rail_overlay(*renderer->ui_scene, renderer->guild_rail_scene, theme,
+    if (!shell_presentation_build_guild_rail_overlay(*renderer->ui_scene, renderer->guild_rail_scene, theme,
                                                      &renderer->paint_stream))
         return layout_step_failed(__LINE__);
     // The server banner's header scrim, glass edge and dropdown sit above its picture.
-    if (renderer->ui_scene &&
-        !shell_presentation_build_guild_banner_overlay(*renderer->ui_scene, renderer->navigation_view,
+    if (!shell_presentation_build_guild_banner_overlay(*renderer->ui_scene, renderer->navigation_view,
                                                        renderer->shell_navigation_scene, theme,
                                                        &renderer->paint_stream,
                                                        ShellTextMeasure{renderer->chat_state,
                                                                         renderer->message_measure_cache}))
         return layout_step_failed(__LINE__);
-    if (renderer->navigation_view && renderer->navigation_view->private_rows &&
-        renderer->ui_scene) {
+    if (renderer->navigation_view && renderer->navigation_view->private_rows) {
         const auto& rows = *renderer->navigation_view->private_rows;
         const auto* navigation = ui_scene_node(*renderer->ui_scene, UiSemantic::channel_navigation);
         const u64 selected = renderer->chat_state && !renderer->navigation_view->friends_mode
@@ -2338,8 +2334,8 @@ BuildMarks build_marks(const D3D11Renderer& renderer) noexcept {
     u64 hash = kHash64Seed;
     for (const auto* edit : geometry) {
         const u32 selections = minimum<u32>(edit->selection_count, 48);
-        hash = hash64_bytes(hash, &edit->text, sizeof(edit->text) + sizeof(edit->caret));
-        hash = hash64_bytes(hash64_mix(hash, edit->selection_count), edit->selections, selections * sizeof(UiRect));
+        hash = hash64_words(hash, &edit->text, sizeof(edit->text) + sizeof(edit->caret));
+        hash = hash64_words(hash64_mix(hash, edit->selection_count), edit->selections, selections * sizeof(UiRect));
     }
     marks.values[13] = hash;
     return marks;
@@ -2347,22 +2343,19 @@ BuildMarks build_marks(const D3D11Renderer& renderer) noexcept {
 
 bool retained_root_is_opaque(const D3D11Renderer& renderer, float viewport_width,
                              float viewport_height) noexcept {
-    if (renderer.paint_stream.count == 0 || renderer.paint_stream.batch_count == 0 ||
-        renderer.paint_stream.clip_count == 0) {
+    if (renderer.paint_stream.count == 0 || renderer.paint_stream.batch_count == 0)
         return false;
-    }
     const PaintQuad& root = renderer.paint_stream.quads[0];
     const PaintBatch& batch = renderer.paint_stream.batches[0];
-    if (batch.clip_index >= renderer.paint_stream.clip_count) {
+    // An empty clip list fails here too.
+    if (batch.clip_index >= renderer.paint_stream.clip_count)
         return false;
-    }
     const PaintClip& clip = renderer.paint_stream.clips[batch.clip_index];
     // The viewport size is derived from pixels and DPI; /fp:fast may round that
     // quotient one ulp above the layout's own edge, so compare with a tolerance
     // far below a physical pixel rather than exactly.
     constexpr float kEdgeTolerance = 1.0f / 64.0f;
-    return batch.first_quad == 0 && batch.quad_count != 0 &&
-           batch.clip_index < renderer.paint_stream.clip_count && root.left <= 0.0f && root.top <= 0.0f &&
+    return batch.first_quad == 0 && batch.quad_count != 0 && root.left <= 0.0f && root.top <= 0.0f &&
            root.right + kEdgeTolerance >= viewport_width && root.bottom + kEdgeTolerance >= viewport_height &&
            root.fill.alpha >= 1.0f && root.radius == 0.0f && clip.left <= 0.0f && clip.top <= 0.0f &&
            clip.right + kEdgeTolerance >= viewport_width && clip.bottom + kEdgeTolerance >= viewport_height;
@@ -2387,16 +2380,8 @@ bool d3d11_renderer_build_paint(D3D11Renderer* renderer, const Theme& theme) noe
 
 bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
                                  const RendererPresentationStamp& current) noexcept {
-    // The shell beneath a modal is redrawn offscreen first; the modal's own
-    // stream then rebuilds over it and presents in full.
-    RendererPresentationStamp refreshed{};
+    // renderer_present refreshed a stale settings backdrop and captured `current` after it.
     const RendererPresentationStamp* stamp = &current;
-    if (renderer_settings_backdrop_stale(renderer, theme)) {
-        if (!renderer_refresh_settings_backdrop(renderer, theme))
-            return false;
-        refreshed = renderer_capture_presentation_stamp(*renderer, theme);
-        stamp = &refreshed;
-    }
     renderer->present_required = false;
     renderer->present_full = false;
     renderer->present_logical_damage_valid = false;

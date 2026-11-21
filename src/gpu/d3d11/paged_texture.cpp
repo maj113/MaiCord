@@ -73,9 +73,8 @@ GpuStatus gpu_paged_texture_create(GpuDevice* device, const GpuPagedTextureDesc&
     paged->page_rows = desc.page_rows;
     paged->pages = desc.pages;
     paged->band_rows = band_rows;
-    // A tile is 64 KiB: 128 x 128 texels of 4 bytes, 256 x 256 of 1.
-    const u32 tile_width = texel == 1 ? 256u : 128u;
-    paged->tiles_across = (desc.width + tile_width - 1u) / tile_width;
+    // A tile is square, as many texels wide as a band has rows (gpu_paged_commit_rows).
+    paged->tiles_across = (desc.width + band_rows - 1u) / band_rows;
     D3D11_TEXTURE2D_DESC description{};
     description.Width = desc.width;
     description.Height = height;
@@ -144,7 +143,7 @@ GpuStatus gpu_paged_texture_commit(GpuContext* context, GpuPagedTexture* paged, 
         return S_OK;
     }
     // Tiled Resources Tier 1, the device floor, comes with Direct3D 11.2's context.
-    ID3D11DeviceContext2* tiles = nullptr;
+    ID3D11DeviceContext2* tiles;
     context->QueryInterface(__uuidof(ID3D11DeviceContext2), reinterpret_cast<void**>(&tiles));
     HRESULT result = S_OK;
     const u32 first_band = page * (paged->page_rows / paged->band_rows);
@@ -156,7 +155,7 @@ GpuStatus gpu_paged_texture_commit(GpuContext* context, GpuPagedTexture* paged, 
                 description.ByteWidth = static_cast<UINT>(pool_bytes(*paged, slot + 1u));
                 description.Usage = D3D11_USAGE_DEFAULT;
                 description.MiscFlags = D3D11_RESOURCE_MISC_TILE_POOL;
-                ID3D11Device* device = nullptr;
+                ID3D11Device* device;
                 context->GetDevice(&device);
                 result = device->CreateBuffer(&description, nullptr, &paged->pool);
                 device->Release();

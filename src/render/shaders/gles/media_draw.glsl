@@ -1,13 +1,15 @@
-// twin: src/render/shaders/media_draw.hlsl 242fc176160e619d
+// twin: src/render/shaders/media_draw.hlsl 075d8f185d1074b8
 // Media quads: media_vertex (STAGE_VS) and media_pixel (STAGE_PS). The atlases are paged surfaces: here each draw
 // binds the one page its quads sample, and their v is in that page's rows (the renderer splits draws per page).
 
 layout(location = 0) V2F vec2 v_uv; // atlas coordinate, already decoded
-layout(location = 1) V2F float v_opacity;
-layout(location = 2) V2F vec2 v_local;
-layout(location = 3) V2F vec3 v_shape;
-layout(location = 4) V2F vec4 v_clip_local;
-layout(location = 5) V2F float v_clip_radius;
+layout(location = 1) V2F vec2 v_local;
+// Values constant over the quad are not interpolated: the half extent and corner radius of the quad, its opacity, then
+// those of the rounded clip.
+layout(location = 2) flat V2F vec3 v_shape;
+layout(location = 3) flat V2F float v_opacity;
+layout(location = 4) V2F vec2 v_clip_local;
+layout(location = 5) flat V2F vec3 v_clip_shape;
 // Spoiler blur: standard deviation in layout units; and the atlas the quad samples (0 primary, 1 animation cache, 2
 // preview). Then the decoded half-texel-inset source rectangle every blur tap stays inside.
 layout(location = 6) flat V2F vec2 v_blur_source;
@@ -49,8 +51,8 @@ void main() {
     vec2 extent = (rect.zw - rect.xy) * 0.5;
     v_local = (corner * 2.0 - 1.0) * extent;
     v_shape = vec3(extent, params.y);
-    v_clip_local = vec4(position - (rounded_clip.xy + rounded_clip.zw) * 0.5, (rounded_clip.zw - rounded_clip.xy) * 0.5);
-    v_clip_radius = params.z;
+    v_clip_local = position - (rounded_clip.xy + rounded_clip.zw) * 0.5;
+    v_clip_shape = vec3((rounded_clip.zw - rounded_clip.xy) * 0.5, params.z);
     v_blur_source = vec2(max(params.w, 0.0), uv_rect.x < 0.0 ? 1.0 : uv_rect.y < 0.0 ? 2.0 : 0.0);
     v_bounds = vec4(min(first, last), max(first, last));
 }
@@ -121,9 +123,9 @@ void main() {
         float aa = max(fwidth(dist), 0.25);
         coverage = 1.0 - smoothstep(-aa, aa, dist);
     }
-    if (v_clip_radius > 0.0) {
-        float radius = min(v_clip_radius, min(v_clip_local.z, v_clip_local.w));
-        vec2 q = abs(v_clip_local.xy) - v_clip_local.zw + radius;
+    if (v_clip_shape.z > 0.0) {
+        float radius = min(v_clip_shape.z, min(v_clip_shape.x, v_clip_shape.y));
+        vec2 q = abs(v_clip_local) - v_clip_shape.xy + radius;
         float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
         float aa = max(fwidth(dist), 0.25);
         coverage *= 1.0 - smoothstep(-aa, aa, dist);

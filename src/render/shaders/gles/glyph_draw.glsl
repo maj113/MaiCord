@@ -1,4 +1,4 @@
-// twin: src/render/shaders/glyph_draw.hlsl 8c5ec127d19bb101
+// twin: src/render/shaders/glyph_draw.hlsl a85a89f64d12838e
 // Text quads and text effects: glyph_vertex (STAGE_VS) and glyph_pixel (STAGE_PS). The atlases are paged surfaces
 // (see media_draw.glsl): each draw binds the page its quads sample, and their v is in that page's rows.
 
@@ -9,7 +9,8 @@ struct TextEffect {
 };
 
 layout(location = 0) V2F vec2 v_uv;
-layout(location = 1) V2F vec4 v_color;
+// Constant over the glyph quad: not interpolated.
+layout(location = 1) flat V2F vec4 v_color;
 layout(location = 2) flat V2F vec4 v_bounds;
 // xy: atlas scale; z: glyph-uniform flash or travel, evaluated per corner.
 layout(location = 3) flat V2F vec3 v_glyph;

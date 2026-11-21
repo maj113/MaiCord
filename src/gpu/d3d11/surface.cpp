@@ -17,7 +17,7 @@ GpuStatus failure(GpuSurface* surface, const char* stage, HRESULT native_error) 
 }
 
 HRESULT create_target(GpuDevice* device, GpuSurface* surface) noexcept {
-    ID3D11Texture2D* back_buffer = nullptr;
+    ID3D11Texture2D* back_buffer;
     const HRESULT acquired = surface->swap_chain->GetBuffer(
         0, __uuidof(ID3D11Texture2D),
         reinterpret_cast<void**>(&back_buffer));
@@ -26,7 +26,7 @@ HRESULT create_target(GpuDevice* device, GpuSurface* surface) noexcept {
     }
     const HRESULT created = device->CreateRenderTargetView(
         back_buffer, nullptr, &surface->target);
-    com_release(back_buffer);
+    back_buffer->Release();
     return created;
 }
 
@@ -36,14 +36,12 @@ GpuStatus gpu_surface_create(GpuDevice* device, const GpuSurfaceDesc& desc, GpuS
     if (!device || !desc.window || surface->swap_chain || surface->target || surface->frame_latency_waitable) {
         return E_INVALIDARG;
     }
-    HRESULT result = S_OK;
-
-    IDXGIDevice* dxgi_device = nullptr;
+    IDXGIDevice* dxgi_device;
     IDXGIAdapter* adapter = nullptr;
     IDXGIFactory2* factory = nullptr;
     // Every Direct3D 11 device is an IDXGIDevice.
     device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgi_device));
-    result = dxgi_device->GetAdapter(&adapter);
+    HRESULT result = dxgi_device->GetAdapter(&adapter);
     if (SUCCEEDED(result)) {
         result = adapter->GetParent(__uuidof(IDXGIFactory2),
                                     reinterpret_cast<void**>(&factory));
@@ -51,7 +49,7 @@ GpuStatus gpu_surface_create(GpuDevice* device, const GpuSurfaceDesc& desc, GpuS
     if (FAILED(result)) {
         com_release(factory);
         com_release(adapter);
-        com_release(dxgi_device);
+        dxgi_device->Release();
         return failure(surface, "dxgi_factory_unavailable", result);
     }
 
@@ -94,13 +92,13 @@ GpuStatus gpu_surface_create(GpuDevice* device, const GpuSurfaceDesc& desc, GpuS
     }
     com_release(factory);
     com_release(adapter);
-    com_release(dxgi_device);
+    dxgi_device->Release();
     if (FAILED(result)) {
         return failure(surface, "direct_composition_swap_chain_creation_failed", result);
     }
 
     // DXGI 1.3 (Windows 8.1) swap chains are IDXGISwapChain2.
-    IDXGISwapChain2* latency = nullptr;
+    IDXGISwapChain2* latency;
     surface->swap_chain->QueryInterface(__uuidof(IDXGISwapChain2), reinterpret_cast<void**>(&latency));
     // The maximum frame latency of a waitable swap chain is 1 by default.
     surface->frame_latency_waitable = latency->GetFrameLatencyWaitableObject();
@@ -116,11 +114,13 @@ GpuStatus gpu_surface_create(GpuDevice* device, const GpuSurfaceDesc& desc, GpuS
 }
 
 GpuStatus gpu_surface_resize(GpuSurface* surface, u32 width, u32 height) {
-    ID3D11Device* device = nullptr;
+    // A swap chain made on a device always has it, and the device its immediate context.
+    ID3D11Device* device;
     surface->swap_chain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&device));
-    ID3D11DeviceContext* context = nullptr;
+    ID3D11DeviceContext* context;
     device->GetImmediateContext(&context);
     context->OMSetRenderTargets(0, nullptr, nullptr);
+    context->Release();
     com_release(surface->target);
     HRESULT result = surface->swap_chain->ResizeBuffers(
         0, width, height, DXGI_FORMAT_UNKNOWN, kSwapChainFlags);
@@ -129,8 +129,7 @@ GpuStatus gpu_surface_resize(GpuSurface* surface, u32 width, u32 height) {
         // released view so a transient resize error cannot leave the surface
         // without a render target.
         const HRESULT restored = create_target(device, surface);
-        com_release(context);
-        com_release(device);
+        device->Release();
         if (FAILED(restored)) {
             log_write(LogLevel::error, "render", "create_render_target_failed");
             return restored;
@@ -141,8 +140,7 @@ GpuStatus gpu_surface_resize(GpuSurface* surface, u32 width, u32 height) {
     surface->buffer_width = width;
     surface->buffer_height = height;
     result = create_target(device, surface);
-    com_release(context);
-    com_release(device);
+    device->Release();
     if (FAILED(result)) {
         log_write(LogLevel::error, "render", "create_render_target_failed");
         return result;

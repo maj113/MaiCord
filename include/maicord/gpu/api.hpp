@@ -2,7 +2,7 @@
 
 // The backend-neutral GPU interface: a thin, D3D11-shaped immediate-mode API of free functions over the pointer
 // handles of maicord/gpu/gpu.hpp. Every function is implemented by the build's backend (src/gpu/<backend>); on
-// Direct3D 11 each is one inline call and no object changes size, on OpenGL ES each is a few GL calls over a state
+// Direct3D 11 a command is one inline call and no object changes size, on OpenGL ES each is a few GL calls over a state
 // tracker. Nothing here is virtual: the backend is chosen at compile time.
 //
 // Conventions shared by every backend:
@@ -17,7 +17,8 @@
 #include "maicord/os/wait.hpp"
 
 // Direct3D 11 defines the functions marked MAICORD_GPU_INLINE inline in maicord/gpu/d3d11/api.inl (included at the end
-// of this header), so each compiles to the D3D11 call it wraps; other backends define them out of line.
+// of this header), so each compiles to the D3D11 call it wraps; other backends define them out of line. The creation
+// calls that fill a description run once per resource and are out of line on every backend.
 #if defined(_WIN32)
 #define MAICORD_GPU_INLINE __forceinline
 #else
@@ -171,21 +172,19 @@ MAICORD_GPU_INLINE GpuStatus gpu_format_check(GpuDevice* device, GpuFormat forma
 
 // ---- Resources -------------------------------------------------------------------------------------------
 
-MAICORD_GPU_INLINE GpuStatus gpu_buffer_create(GpuDevice* device, const GpuBufferDesc& desc, const void* initial,
-                                               GpuBuffer** buffer);
-MAICORD_GPU_INLINE GpuStatus gpu_texture_create(GpuDevice* device, const GpuTextureDesc& desc,
-                                                const GpuInitialData* initial, GpuTexture** texture);
+GpuStatus gpu_buffer_create(GpuDevice* device, const GpuBufferDesc& desc, const void* initial, GpuBuffer** buffer);
+GpuStatus gpu_texture_create(GpuDevice* device, const GpuTextureDesc& desc, const GpuInitialData* initial,
+                             GpuTexture** texture);
 MAICORD_GPU_INLINE GpuStatus gpu_srv_create(GpuDevice* device, GpuTexture* texture, const GpuViewDesc& desc,
                                             GpuSrv** view);
-MAICORD_GPU_INLINE GpuStatus gpu_srv_create(GpuDevice* device, GpuBuffer* buffer, const GpuViewDesc& desc,
-                                            GpuSrv** view);
+GpuStatus gpu_srv_create(GpuDevice* device, GpuBuffer* buffer, const GpuViewDesc& desc, GpuSrv** view);
 MAICORD_GPU_INLINE GpuStatus gpu_uav_create(GpuDevice* device, GpuTexture* texture, GpuUav** view);
-MAICORD_GPU_INLINE GpuStatus gpu_uav_create(GpuDevice* device, GpuBuffer* buffer, u32 elements, GpuUav** view);
+GpuStatus gpu_uav_create(GpuDevice* device, GpuBuffer* buffer, u32 elements, GpuUav** view);
 MAICORD_GPU_INLINE GpuStatus gpu_rtv_create(GpuDevice* device, GpuTexture* texture, GpuRtv** view);
-MAICORD_GPU_INLINE GpuStatus gpu_sampler_create(GpuDevice* device, const GpuSamplerDesc& desc, GpuSampler** sampler);
-MAICORD_GPU_INLINE GpuStatus gpu_blend_create(GpuDevice* device, const GpuBlendDesc& desc, GpuBlend** blend);
+GpuStatus gpu_sampler_create(GpuDevice* device, const GpuSamplerDesc& desc, GpuSampler** sampler);
+GpuStatus gpu_blend_create(GpuDevice* device, const GpuBlendDesc& desc, GpuBlend** blend);
 // Solid fill, no culling, scissor test on.
-MAICORD_GPU_INLINE GpuStatus gpu_raster_create(GpuDevice* device, GpuRaster** raster);
+GpuStatus gpu_raster_create(GpuDevice* device, GpuRaster** raster);
 
 // A paged texture: `width` x `page_rows * pages` texels whose rows are backed by memory page by page and never move,
 // so an atlas takes new rows without copying anything and returns rows it no longer uses. Direct3D 11 makes one tiled

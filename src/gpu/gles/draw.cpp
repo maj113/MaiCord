@@ -6,13 +6,18 @@ namespace {
 
 using namespace gles;
 
-constexpr u32 kUnknown = 0xFFFFFFFFu;
 constexpr u32 kVertexStage = 0, kPixelStage = 1, kComputeStage = 2;
 
 constexpr u32 stage_index(GpuStage stage) noexcept {
     static_assert(static_cast<u32>(GpuStage::vertex) == kVertexStage && static_cast<u32>(GpuStage::pixel) == kPixelStage &&
                   static_cast<u32>(GpuStage::compute) == kComputeStage);
     return static_cast<u32>(stage);
+}
+
+// Bit equality of a requested and an applied 16-byte state (a viewport, a scissor, a blend factor) on every draw: the
+// compiler expands it to one vector compare, where bytes_equal is a call and a loop.
+inline bool same_16_bytes(const void* left, const void* right) noexcept {
+    return __builtin_memcmp(left, right, 16) == 0;
 }
 
 void bind_unit(GpuContext& context, u32 unit, u32 texture, u32 sampler) noexcept {
@@ -111,14 +116,14 @@ bool apply_graphics(GpuContext& context, u32 first_instance) noexcept {
         gl.glBindFramebuffer(gl::kFramebuffer, framebuffer);
         context.applied_draw_framebuffer = framebuffer;
     }
-    if (!context.applied_viewport_valid || !bytes_equal(context.viewport, context.applied_viewport, sizeof(float) * 4)) {
+    if (!context.applied_viewport_valid || !same_16_bytes(context.viewport, context.applied_viewport)) {
         gl.glViewport(static_cast<gl::Int>(context.viewport[0] + 0.5f), static_cast<gl::Int>(context.viewport[1] + 0.5f),
                       static_cast<gl::Sizei>(context.viewport[2] + 0.5f),
                       static_cast<gl::Sizei>(context.viewport[3] + 0.5f));
         copy_bytes(context.applied_viewport, context.viewport, sizeof(float) * 4);
         context.applied_viewport_valid = true;
     }
-    if (!context.applied_scissor_valid || !bytes_equal(&context.scissor, &context.applied_scissor, sizeof(GpuRect))) {
+    if (!context.applied_scissor_valid || !same_16_bytes(&context.scissor, &context.applied_scissor)) {
         const gl::Sizei width = context.scissor.right > context.scissor.left ? context.scissor.right - context.scissor.left : 0;
         const gl::Sizei height = context.scissor.bottom > context.scissor.top ? context.scissor.bottom - context.scissor.top : 0;
         gl.glScissor(context.scissor.left, context.scissor.top, width, height);
@@ -127,7 +132,7 @@ bool apply_graphics(GpuContext& context, u32 first_instance) noexcept {
     }
     if (!context.applied_blend_valid || context.applied_blend != context.blend ||
         (context.blend && context.blend->desc.enable &&
-         !bytes_equal(context.blend_factor, context.applied_blend_factor, sizeof(float) * 4))) {
+         !same_16_bytes(context.blend_factor, context.applied_blend_factor))) {
         if (context.blend && context.blend->desc.enable) {
             gl::Enum source, destination, source_alpha, destination_alpha;
             blend_factors(context.blend->desc, &source, &destination, &source_alpha, &destination_alpha);
@@ -207,7 +212,7 @@ u32 graphics_program(GpuContext* context) noexcept {
         for (u32 index = 1; index < kGlesProgramCacheSize; ++index)
             d.programs[index - 1] = d.programs[index];
         --d.program_count;
-        context->applied_program = 0xFFFFFFFFu;
+        context->applied_program = kUnknown;
     }
     d.programs[d.program_count++] = entry;
     return entry.name;
