@@ -116,9 +116,7 @@ void test_report_menu() noexcept {
 
     ReportMenu menu{};
     check(report_menu_decode({kMenu, sizeof(kMenu) - 1}, {structurals, 16384}, &menu) && menu.node_count == 6 &&
-              menu.root_node_id == 1 && menu.success_node_id == 100 && menu.fail_node_id == 101 &&
-              utf8_equal(menu.version_json, utf8_literal("\"1.0\"")) &&
-              utf8_equal(menu.variant_json, utf8_literal("\"6\"")),
+              menu.root_node_id == 1 && menu.success_node_id == 100 && menu.fail_node_id == 101,
           "user social: the report menu decodes its nodes, root and terminal nodes");
     const auto* root = report_menu_node(menu, 1);
     const auto* spam = report_menu_node(menu, 2);

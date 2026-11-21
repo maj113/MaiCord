@@ -176,9 +176,7 @@ void test_permission_prefix(void (*check)(bool, const char*) noexcept) noexcept 
         semantic_unchanged(true) && prefix.reserve.calls == 0,
         "permission prefix: invalid reserved bindings publish neither bank callback metadata nor writes");
     check(chat_state_store_bind_permissions_reserved(&state, {prefix.roles, 8}, {prefix.overwrites, 8}, reserve_prefix, &prefix.reserve) &&
-        state.roles == prefix.roles && state.overwrites == prefix.overwrites && state.role_backed_count == 0 &&
-        state.overwrite_backed_count == 0 && state.permission_reserve == reserve_prefix &&
-        state.permission_reserve_context == &prefix.reserve && suffix_untouched(),
+        state.role_backed_count == 0 && state.overwrite_backed_count == 0 && suffix_untouched(),
         "permission prefix: nonnull zero-backed banks bind without touching any reserved slot");
     prefix_before = prefix;
     check(!chat_state_store_bind_permissions_reserved(&state, {prefix.roles, 8}, {prefix.overwrites, 8}, reserve_prefix, &prefix.reserve) &&
@@ -389,7 +387,7 @@ void test_permission_prefix(void (*check)(bool, const char*) noexcept) noexcept 
     check(common && new_role && common->self_assigned && !new_role->self_assigned,
         "permission prefix: successful replacement retains common assignment and does not assign new IDs");
     const Utf8View common_name = common ? chat_state_store_role_name(state, *common) : Utf8View{};
-    check(common && common->name_bytes == old_common.name_bytes && common->name_offset == old_common.name_offset &&
+    check(common && common->name_bytes == old_common.name_bytes &&
         common_name.bytes == 6 && bytes_equal(common_name.data, "Common", 6),
         "permission prefix: empty common-role name preserves resident bytes and offset without compaction");
     check(!chat_state_store_find_role(state, 20, 22),
@@ -498,8 +496,7 @@ void test_permission_prefix(void (*check)(bool, const char*) noexcept) noexcept 
         "permission prefix: direct full-bank writers reject before callback names shifts or owner mutation");
 
     check(initialize(false), "permission prefix: fixed binder compatibility fixture initializes");
-    bool fixed = state.role_backed_count == 8 && state.overwrite_backed_count == 8 &&
-        state.permission_reserve == nullptr && state.permission_reserve_context == nullptr;
+    bool fixed = state.role_backed_count == 8 && state.overwrite_backed_count == 8;
     for (u32 i = 0; i < 8; ++i) fixed = fixed && role_equal(prefix.roles[i], {}) && overwrite_equal(prefix.overwrites[i], {});
     check(fixed && chat_state_store_prepare_permissions(&state, 8, 8),
         "permission prefix: fixed binder zeroes complete banks and marks full capacity backed without callback");
@@ -510,8 +507,8 @@ void test_permission_prefix(void (*check)(bool, const char*) noexcept) noexcept 
     check(initialize(true, false) && chat_state_store_upsert_guild(&state,
         {20, utf8_literal("Legacy"), GuildMutationKind::create, 999}).ok() &&
         chat_state_store_upsert_channel(&state, {200, 20, 0, utf8_literal("Legacy"), 0, 0, 0}).ok() &&
-        chat_state_store_upsert_role(&state, {20, 20, kPrefixBase, utf8_literal("Ignored")}) && state.roles == nullptr &&
-        state.overwrites == nullptr && state.role_count == 0 &&
+        chat_state_store_upsert_role(&state, {20, 20, kPrefixBase, utf8_literal("Ignored")}) &&
+        state.role_count == 0 &&
         chat_state_store_channel_visible(state, *chat_state_store_find_channel(state, 200)) && suffix_untouched(),
         "permission prefix: existing unbound fixed caller keeps accepted no-op role and visibility compatibility");
 }

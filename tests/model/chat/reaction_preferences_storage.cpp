@@ -3,6 +3,7 @@
 #include "../../support/test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/released_memory.hpp"
 
 namespace maicord::reaction_preference_storage_test {
 u32 failures;
@@ -43,15 +44,16 @@ void ownership() noexcept {
     check(reaction_preferences_toggle_section(&store, 16, 1007).ok() &&
         !reaction_preferences_section_collapsed(store, 16, 1007) && reaction_preferences_section_collapsed(store, 16, 2254),
         "reaction storage: removing first guild retains the final shifted identity");
+    const auto expanded = memory_mark(base);
     for (u32 i = 0; i < kReactionPreferenceCollapsedGuildCapacity - 1; ++i)
         check(reaction_preferences_toggle_section(&store, 16, 2000 + i).ok(), "reaction storage: every retained guild can expand");
-    check(!store.collapsed_guild_count && !store.collapsed_guilds.arena.base && vm(base, MEM_FREE) &&
+    check(!store.collapsed_guild_count && !store.collapsed_guilds.arena.base && memory_released(expanded) &&
         reaction_preferences_is_favorite_emoji(store, reaction_emoji_unicode(4)) && reaction_preferences_section_collapsed(store, 1),
         "reaction storage: last expansion releases the bank without losing favorite or Unicode section state");
     check(reaction_preferences_toggle_section(&store, 16, 1007).ok(), "reaction storage: collapse can allocate again after complete expansion");
-    base = store.collapsed_guilds.arena.base;
+    const auto released = memory_mark(store.collapsed_guilds.arena.base);
     reaction_preferences_release(&store);
-    check(!store.next_sequence && !store.collapsed_guild_count && !store.collapsed_guilds.arena.base && vm(base, MEM_FREE),
+    check(!store.next_sequence && !store.collapsed_guild_count && !store.collapsed_guilds.arena.base && memory_released(released),
         "reaction storage: explicit account release frees the bank and clears preference ownership");
     reaction_preferences_release(&store);
     check(reaction_preferences_initialize(&store), "reaction storage: released account owner can be initialized afresh");
@@ -82,8 +84,9 @@ void commit_failure() noexcept {
     if (mapping) check(CloseHandle(mapping) != FALSE, "reaction storage: fault mapping handle closes");
     check(reaction_preferences_toggle_section(&store, 16, 42).ok() && reaction_preferences_section_collapsed(store, 16, 42),
         "reaction storage: restoring the original reservation allows retry of the same guild identity");
+    const auto retried = memory_mark(original);
     reaction_preferences_release(&store);
-    check(vm(original, MEM_FREE), "reaction storage: retry owner releases its original VM reservation");
+    check(memory_released(retried), "reaction storage: retry owner releases its original VM reservation");
 }
 } // namespace maicord::reaction_preference_storage_test
 

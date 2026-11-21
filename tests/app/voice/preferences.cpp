@@ -113,21 +113,20 @@ void test_record(Check check) noexcept {
 void test_binding(Check check) noexcept {
     static VoicePreferences p;
     p = voice_preferences_defaults();
-    SettingValue value{};
-    bool ok = voice_settings_read(p, SettingBinding::voice_sensitivity, &value) &&
-              value.choice == kVoiceDefaultSensitivity && voice_settings_read(p, SettingBinding::voice_processing, &value) &&
-              value.checked && voice_settings_read(p, SettingBinding::voice_push_to_talk_release, &value) &&
-              value.choice == 2;
-    check(ok, "Voice settings binding: defaults read as -50 dB, processing on and a 20 ms release");
-    ok = voice_settings_write(&p, SettingBinding::voice_input_mode, {false, 1}) &&
+    SettingValue release{}, sensitivity{}, mode{};
+    bool ok = voice_settings_write(&p, SettingBinding::voice_input_mode, {false, 1}) &&
          p.audio.mode == VoiceInputMode::push_to_talk &&
          voice_settings_write(&p, SettingBinding::voice_push_to_talk_release, {false, 25}) &&
          p.audio.push_to_talk_release_ms == 250 && voice_settings_write(&p, SettingBinding::voice_sensitivity, {false, 63}) &&
          p.audio.sensitivity == 63 && voice_settings_write(&p, SettingBinding::voice_output_volume, {false, 200}) &&
          p.audio.output_gain_percent == 200 && voice_settings_write(&p, SettingBinding::voice_auto_sensitivity, {false, 0}) &&
          !p.audio.auto_sensitivity && voice_settings_write(&p, SettingBinding::voice_push_to_talk_key, {false, 0x05}) &&
-         p.audio.push_to_talk_key == 0x05;
-    check(ok, "Voice settings binding: mode, release delay, sensitivity, volume, automatic and key write through");
+         p.audio.push_to_talk_key == 0x05 &&
+         voice_settings_read(p, SettingBinding::voice_push_to_talk_release, &release) && release.choice == 25 &&
+         voice_settings_read(p, SettingBinding::voice_sensitivity, &sensitivity) && sensitivity.choice == 63 &&
+         voice_settings_read(p, SettingBinding::voice_input_mode, &mode) && mode.checked;
+    check(ok, "Voice settings binding: mode, release delay, sensitivity, volume, automatic and key write "
+              "through and read back");
     const auto before = p;
     ok = !voice_settings_write(&p, SettingBinding::voice_input_volume, {false, 201}) &&
          !voice_settings_write(&p, SettingBinding::voice_sensitivity, {false, 101}) &&

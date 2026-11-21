@@ -88,7 +88,7 @@ void test_crop_layout() noexcept {
           "a tall banner keeps its width as the mask width");
     check(output_is(image_crop_output(s), 0, 824, 1000, 353, 1000, 353, 1), "a tall banner crops a centred 17:6 strip");
     s = image_crop_begin(ImageCropUse::banner, 4000, 1000, 1000, 350);
-    check(close_to(s.mask_width, kImageCropMaximumMaskWidth), "the banner mask is at most 432 wide");
+    check(close_to(s.mask_width, 432), "the banner mask is at most 432 wide");
 }
 
 void test_crop_interaction() noexcept {
@@ -96,12 +96,12 @@ void test_crop_interaction() noexcept {
     image_crop_pan(&s, 500, 1000);
     check(s.offset_x == 0 && close_to(s.offset_y, 87.5f), "panning clamps to the covered range");
     image_crop_set_zoom(&s, 3);
-    check(s.zoom == kImageCropMaximumZoom && close_to(image_crop_bound_x(s), 87.5f) && close_to(image_crop_bound_y(s), 262.5f),
+    check(s.zoom == 2 && close_to(image_crop_bound_x(s), 87.5f) && close_to(image_crop_bound_y(s), 262.5f),
           "zoom clamps to 2 and widens the bounds");
     image_crop_pan(&s, 1000, 1000);
     check(close_to(s.offset_x, 87.5f) && close_to(s.offset_y, 262.5f), "zoomed pans reach the zoomed bounds");
     image_crop_set_zoom(&s, 0.5f);
-    check(s.zoom == kImageCropMinimumZoom && s.offset_x == 0 && close_to(s.offset_y, 87.5f),
+    check(s.zoom == 1 && s.offset_x == 0 && close_to(s.offset_y, 87.5f),
           "zooming out re-clamps the offset");
     check(image_crop_edited(s), "an offset counts as an edit");
     image_crop_reset(&s);

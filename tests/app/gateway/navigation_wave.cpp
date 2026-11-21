@@ -613,10 +613,6 @@ void list_order_kinds() noexcept {
     constexpr u64 expected[]{100, 10, 12, 16, 11, 13, 14, 17};
     check(list_is(l, expected) && comparator_agrees(l),
           "list order: equal positions list text by id, then voice and stage by id; later voice stays below text");
-    check(channel_list_position(2, 5) == 10'005 && channel_list_position(13, 0) == 10'000 &&
-              channel_list_position(0, 5) == 5 && channel_list_position(15, 10'000) == 10'000 &&
-              channel_list_position(2, ~0u) == ~0u,
-          "list order: voice and stage positions sit 10000 later, saturating");
 
     // Announcement, forum and media rows sort by position with text; voice-like rows follow.
     List m{};

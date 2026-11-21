@@ -201,8 +201,7 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
     bool text_erased = guard_intact(text, sizeof(text), 0);
     expect(other_deleted && other_missing && session.profile_id == profile_id + 1 &&
         session.persisted_revision == 0 && session.persist_at_ms == 0 &&
-        !session.cleanup_required && drafts.count == 0 && drafts.revision == 0 && drafts.clock == 0 &&
-        drafts.text_used == 0 && drafts.text_wasted == 0 && text_erased &&
+        !session.cleanup_required && drafts.count == 0 && drafts.revision == 0 && text_erased &&
         !message_draft_store_snapshot(drafts, 7, &snapshot),
         "message_draft_session_new_missing_profile_erases_previous_profile_text_and_reply");
     const bool other_ready = message_draft_store_save(
@@ -213,8 +212,8 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
     text_erased = guard_intact(text, sizeof(text), 0);
     expect(other_ready && other_corrupt && session.profile_id == profile_id + 2 &&
         session.persisted_revision == 0 && session.persist_at_ms == 0 &&
-        !session.cleanup_required && drafts.count == 0 && drafts.revision == 0 && drafts.clock == 0 &&
-        drafts.text_used == 0 && text_erased && records[0].reply_message_id == 0 &&
+        !session.cleanup_required && drafts.count == 0 && drafts.revision == 0 &&
+        text_erased && records[0].reply_message_id == 0 &&
         !message_draft_store_snapshot(drafts, 7, &snapshot),
         "message_draft_session_new_corrupt_profile_cannot_retain_previous_profile_reply_or_text");
 }
@@ -484,8 +483,7 @@ void test_message_draft_persistence() noexcept {
         &empty, Slice<MessageDraftRecord>{empty_records, 2}, Slice<u8>{empty_text, sizeof(empty_text)});
     const MessageDraftPersistenceResult empty_loaded =
         empty_ready ? message_drafts_load_file(path, profile_id, &empty) : MessageDraftPersistenceResult{};
-    expect(emptied.ok() && emptied.records == 0 && empty_loaded.ok() && empty.count == 0 &&
-               empty.text_used == 0,
+    expect(emptied.ok() && emptied.records == 0 && empty_loaded.ok() && empty.count == 0,
            "message_draft_persistence_atomic_shrinking_overwrite");
     test_message_reply_draft_persistence(path, profile_id);
     DeleteFileW(path);

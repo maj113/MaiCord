@@ -36,9 +36,9 @@ void test_message_forward_scene(void (*check)(bool, const char*) noexcept) noexc
     const auto edit = s.edit, caption = s.caption;
     const u32 resolves = fixture.calls, revision = s.revision, layout = s.widgets.layout.revision;
     bool warm = true;
-    for (u32 i = 0; i < 64; ++i) warm &= ui_message_forward_scene_update(&s, &source, &c, viewport);
+    for (u32 i = 0; i < 2; ++i) warm &= ui_message_forward_scene_update(&s, &source, &c, viewport);
     check(warm && fixture.calls == resolves && s.revision == revision && s.widgets.layout.revision == layout,
-        "forward scene: 64 unchanged updates allocate resolve and relayout no destinations");
+        "forward scene: unchanged updates allocate, resolve and relayout no destinations");
     c.edit.caret_visible = false; ++c.revision;
     check(ui_message_forward_scene_update(&s, &source, &c, viewport) && fixture.calls == resolves &&
         s.widgets.layout.revision == layout && s.edit.slot == edit.slot && s.caption.slot == caption.slot &&

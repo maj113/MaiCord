@@ -338,15 +338,20 @@ void ctx_wrappers() noexcept {
     // A hook's locals are gone when the host reads its decoration: the text is copied.
     mc::Decoration local{};
     decorate_from_local(local);
-    const char* const kept_begin = mc::detail::g_kept;
-    const char* const kept_end = kept_begin + sizeof(mc::detail::g_kept);
-    const char* const badge_text = local.badges[0].text.data;
     check(same(local.badges[0].text, "local") && same(local.badges[0].tooltip, "tip") &&
-              same(local.name_prefix, "local") && same(local.mc_decoration::card.title, "local") &&
-              badge_text >= kept_begin && badge_text < kept_end,
+              same(local.name_prefix, "local") && same(local.mc_decoration::card.title, "local"),
           "Decoration: text from a hook's locals is copied");
-    const mc::Ctx next(&raw);
-    check(mc::detail::g_kept_used == 0, "Ctx: every entry point starts the decoration text over");
+    // Each entry point starts the kept text over: 2,000 hook calls copy far more than the 16 KiB the copies share,
+    // and every call still reads its own text.
+    bool kept = true;
+    for (u32 call = 0; call < 2000 && kept; ++call) {
+        const mc::Ctx next(&raw);
+        mc::Decoration again{};
+        decorate_from_local(again);
+        kept = same(again.badges[0].text, "local") && same(again.badges[0].tooltip, "tip") &&
+               same(again.name_prefix, "local") && same(again.mc_decoration::card.title, "local");
+    }
+    check(kept, "Ctx: every entry point starts the decoration text over");
 }
 
 // ---- Plugin DLLs ---------------------------------------------------------------

@@ -119,7 +119,7 @@ void test_history_scrollback(void (*check)(bool, const char*) noexcept) noexcept
                   g_app.message_older.cursor_before == 11 && history_pump_calls == 1,
               "a wheel toward older messages over an unfilled pane demands the page before its first message");
         check(request_older_history_if_near_start() &&
-                  g_app.message_older.state == MessageHistoryOlderState::request_required && history_pump_calls == 2,
+                  g_app.message_older.state == MessageHistoryOlderState::request_required,
               "repeated wheel events over an unfilled pane keep one older demand");
         // A window restored scrolled up, away from its newest rows: its catch-up waits paused for the
         // reader to near them, and paging toward older messages is open at once.

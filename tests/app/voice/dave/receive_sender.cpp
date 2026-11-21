@@ -109,7 +109,7 @@ void boundaries(Check check, KdfSha256Workspace& workspace) noexcept {
     memset(output, 0xa5, sizeof(output));
     check(dave_receive_sender_open(sender, {102, 202}, workspace, {nullptr, 1}, 99, {}, {}).error ==
                   DaveSenderError::identity_mismatch &&
-              sender.last_now_ms == 1,
+              dave_receive_sender_collect(sender, identity, 1) == DaveSenderError::none,
           "DAVE stale-call delivery is rejected before parsing or touching epoch clock");
     check(dave_receive_sender_transition(sender, {101, 203}, 65537, {material, 16}, 2, 10).error ==
               DaveSenderError::identity_mismatch,

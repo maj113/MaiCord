@@ -1,6 +1,7 @@
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/model/guild/thread_member_store.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/released_memory.hpp"
 
 namespace maicord {
 namespace thread_storage_probe {
@@ -93,8 +94,9 @@ void test_thread_storage(void (*check)(bool, const char*) noexcept) noexcept {
         thread_member_store_select(&f.store, 7, 70) && snapshot(&f, 1) && f.reserve_calls == calls &&
         f.banks[0].arena.committed == first_highwater && f.banks[1].arena.committed == second_highwater,
         "thread scope reset and small replacement reuse committed highwater without further VM commitment");
+    const MemoryMark banks[]{memory_mark(first), memory_mark(second)};
     release(&f);
-    check(state(first, MEM_FREE) && state(second, MEM_FREE),
+    check(memory_released(banks[0]) && memory_released(banks[1]),
         "thread storage release frees both OS reservations");
     release(&f);
 }

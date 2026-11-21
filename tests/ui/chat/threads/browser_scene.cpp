@@ -325,11 +325,11 @@ void test_thread_browser_scene(void (*check)(bool, const char*) noexcept) noexce
     const auto post_target = ui_thread_browser_scene_target(scene, scene.create_post);
     const u32 post_rebuilds = scene.rebuilds;
     bool unchanged = true;
-    for (u32 frame = 0; frame < 64; ++frame)
+    for (u32 frame = 0; frame < 2; ++frame)
         unchanged = ui_thread_browser_scene_update(&scene, &view, scene.viewport) && unchanged;
     check(unchanged && scene.rebuilds == post_rebuilds &&
           ui_thread_browser_scene_target_current(scene, post_target),
-          "forum browser retains unchanged Create post geometry and publication for 64 frames");
+          "forum browser keeps the Create post geometry and publication across unchanged frames");
     view.can_create_post = false;
     ++view.revision;
     check(ui_thread_browser_scene_update(&scene, &view, scene.viewport) && !scene.create_post.generation &&

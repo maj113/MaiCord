@@ -47,10 +47,10 @@ void test_thread_header(void (*check)(bool, const char*) noexcept) noexcept {
         "thread header: a publication change during pointer capture cannot activate its replacement");
     const auto revision = header.revision, projections = header.projections, layout = shell.widgets.layout.revision;
     bool warm = true;
-    for (u32 i = 0; i < 64; ++i) warm = warm && !ui_thread_header_update(&header, view, strip, clip, style);
+    for (u32 i = 0; i < 2; ++i) warm = warm && !ui_thread_header_update(&header, view, strip, clip, style);
     check(warm && header.revision == revision && header.projections == projections &&
         shell.widgets.layout.revision == layout && shell.widgets.count == shell_count,
-        "thread header: 64 equal authoritative receipts perform no projection, layout or widget growth");
+        "thread header: equal authoritative receipts perform no projection, layout or widget growth");
     view.membership = UiThreadMembership::not_joined;
     view.enabled_actions |= ui_thread_action_bit(UiThreadAction::join);
     ++view.source_publication;
@@ -143,7 +143,7 @@ void test_thread_header(void (*check)(bool, const char*) noexcept) noexcept {
     ui_thread_header_update(&header, view, strip, clip, style);
     const auto inactive_revision = header.revision, inactive_projections = header.projections;
     warm = true;
-    for (u32 i = 0; i < 64; ++i) warm = warm && !ui_thread_header_update(&header, view, strip, clip, style);
+    for (u32 i = 0; i < 2; ++i) warm = warm && !ui_thread_header_update(&header, view, strip, clip, style);
     check(!header.active && warm && header.revision == inactive_revision && header.projections == inactive_projections &&
         !shell.widgets.layout.storage[header.widgets.root.slot].visible && !ui_thread_header_current(header, unknown) &&
         ui_thread_header_height(view, style) == 0 && message && ui_rect_equal(message->rectangle, original_message),

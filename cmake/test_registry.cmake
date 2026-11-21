@@ -3352,13 +3352,23 @@ maicord_test(MaiCordOpusEncoderTests ENTRY maicord_opus_encoder_tests_entry
     INCLUDES tests
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_opus_encoder)
-# Decoder coverage streams (tests/fixtures/opus_decoder_vectors.inc), range-exact with pinned PCM.
+# Decoder coverage streams (tests/fixtures/opus_decoder_vectors.inc): range-exact, libopus's SILK PCM bit for bit,
+# the rest against libopus's decode (median segment SNR).
 maicord_test(MaiCordOpusDecoderVectorTests ENTRY maicord_opus_decoder_vector_tests_entry
     SOURCES tests/media/audio/opus_decoder_vectors.cpp
     LIBS maicord_media_codec
     INCLUDES tests
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_opus_decoder_vectors)
+# RFC 8251 conformance of the Opus decoder: the official vectors through upstream's opus_compare and a PSNR floor.
+# Opt-in: MAICORD_OPUS_VECTORS names the extracted vector directory (CONTRIBUTING.md); skipped (77) without it.
+maicord_test(MaiCordOpusConformanceTests ENTRY maicord_opus_conformance_entry
+    SOURCES tests/media/audio/opus_conformance.cpp
+    LIBS maicord_media_codec
+    INCLUDES tests
+    BUNDLE MaiCordCodecUnitTests
+    TIMEOUT 600 TEST maicord_opus_conformance)
+set_tests_properties(maicord_opus_conformance PROPERTIES SKIP_RETURN_CODE 77)
 # Voice messages: the Ogg Opus writer, recorder, waveform, upload/message
 # bodies, gating, the composer flow and the module with a synthetic microphone.
 maicord_test(MaiCordVoiceMessageTests ONLY WINDOWS ENTRY maicord_voice_message_tests_entry

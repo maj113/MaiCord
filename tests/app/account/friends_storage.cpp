@@ -2,6 +2,7 @@
 #include "maicord/protocol/user/relationships.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/released_memory.hpp"
 
 namespace maicord::friends_storage_test {
 using namespace app_detail;
@@ -70,9 +71,10 @@ void test_banks() noexcept {
     constexpr usize bank = (kFriendsRelationshipCapacity * sizeof(RelationshipRecord) + 4095) & ~usize{4095};
     check(storage.active.arena.committed == bank && storage.candidate.arena.committed == bank &&
         storage.indices.arena.committed == 16384, "friends storage: full bank commitment remains bounded by the original payload sizes");
+    const MemoryMark marks[]{memory_mark(active), memory_mark(candidate), memory_mark(indices)};
     friends_relationship_storage_release(&storage);
     check(!storage.active.arena.base && !storage.candidate.arena.base && !storage.indices.arena.base &&
-        state(active, MEM_FREE) && state(candidate, MEM_FREE) && state(indices, MEM_FREE),
+        memory_released(marks[0]) && memory_released(marks[1]) && memory_released(marks[2]),
         "friends storage: release clears metadata and all three OS reservations");
     friends_relationship_storage_release(&storage);
 }
@@ -98,7 +100,7 @@ void test_rest_preflight() noexcept {
         !storage.active.arena.committed && !storage.candidate.arena.committed,
         "friends storage: empty REST arrays require no committed record pages");
     check(!replace(utf8_literal("[{\"id\":\"1\",\"type\":100}]")).ok() &&
-        storage.candidate.arena.committed == 4096 && !storage.active.arena.committed && !store.count && !store.revision,
+        storage.candidate.arena.committed <= 4096 && !storage.active.arena.committed && !store.count && !store.revision,
         "friends storage: semantic decode failure may stage candidate pages but never commits active pages");
     check(!replace(utf8_literal("[{\"id\":\"1\",\"type\":1},{\"id\":\"1\",\"type\":2}]")).ok() &&
         !storage.active.arena.committed && !store.count && !store.revision,

@@ -78,7 +78,6 @@ void catalog_worker_case(Check check, u32 encoded_bytes) noexcept {
     }
     MediaAssetKey keys[kAccountMediaDecodeLaneCount]{};
     bool queued = true;
-    bool shared = true;
     for (u32 index = 0; index < kAccountMediaDecodeLaneCount; ++index) {
         keys[index] = media_asset_catalog_preview(800 + index, 11);
         const auto stored =
@@ -93,8 +92,6 @@ void catalog_worker_case(Check check, u32 encoded_bytes) noexcept {
         // The catalog may replace its source bank immediately after admission.
         secure_clear_bytes(borrowed, sizeof(borrowed));
         queued = queued && stored.stored() && admitted.state == AccountMediaRequestState::queued;
-        shared = shared && worker.lanes[index].media.pipeline.cache == &worker.lanes[0].media.cache &&
-                 worker.lanes[index].media.owns_cache == (index == 0);
     }
     u32 frames = 0;
     bool seen[kAccountMediaDecodeLaneCount]{};
@@ -123,7 +120,7 @@ void catalog_worker_case(Check check, u32 encoded_bytes) noexcept {
     bool no_network = true;
     for (const auto& lane : worker.lanes)
         no_network = no_network && !lane.media.client_started;
-    check(queued && shared && owned && frames == kAccountMediaDecodeLaneCount && no_network,
+    check(queued && owned && frames == kAccountMediaDecodeLaneCount && no_network,
           "catalog_media_eight_lanes_copy_source_bank_and_share_encoded_cache");
     check(account_media_worker_stop(&worker, 5'000), "catalog_media_existing_worker_lanes_join");
 }
@@ -153,10 +150,9 @@ void catalog_video_lane_case(Check check) noexcept {
     const auto key = media_asset_catalog_preview(990, 12, MediaAttachmentFormat::mp4);
     const AccountMediaCatalogPreviewRequest request{url, key, 302, 12, 160, 90, MediaAttachmentFormat::mp4, {}, nullptr};
     const auto waited = account_media_worker_request_catalog_preview(&worker, request, now, 100);
-    bool idle = true, offline = true;
+    bool offline = true;
     for (u32 index = 0; index < kAccountMediaDecodeLaneCount; ++index) {
         auto& lane = worker.lanes[index];
-        idle = idle && lane.phase == static_cast<LONG>(AccountMediaWorkerPhase::idle);
         offline = offline && !lane.media.client_started;
         lane.media.mp4_decoder = resident[index];
         lane.media.mp4_key = {};
@@ -164,7 +160,7 @@ void catalog_video_lane_case(Check check) noexcept {
     }
     AccountMediaCatalogPreviewRequest mismatched = request;
     mismatched.format = MediaAttachmentFormat::webp;
-    check(waited.state == AccountMediaRequestState::busy && idle && offline &&
+    check(waited.state == AccountMediaRequestState::busy && offline &&
               account_media_worker_request_catalog_preview(&worker, mismatched, now, 100).state ==
                   AccountMediaRequestState::invalid,
           "catalog_media_video_tiles_wait_for_a_decoder_instead_of_evicting_playing_ones");

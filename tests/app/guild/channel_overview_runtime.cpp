@@ -213,8 +213,8 @@ void run() noexcept {
     check(send() && owner->controller.request_id == submitted_id &&
               g_app.details_request_owner == MessageHistoryRequestOwner::channel_overview &&
               !response(submitted_id + 1) && response(submitted_id) && owner->controller.authoritative &&
-              owner->models[0].text == owner->controller.draft.name &&
-              owner->models[1].text == owner->controller.draft.topic,
+              utf8_equal(message_composer_text(owner->models[0]), utf8_literal("general")) &&
+              utf8_equal(message_composer_text(owner->models[1]), utf8_literal("Initial topic")),
           "Overview runtime: exact fetch receipt publishes authoritative borrowed editor banks");
     focus({UiSettingsTargetKind::control, page_key, 1});
     check(text_input_select(application_channel_overview_edit_target(), {7, 7}) ==
@@ -234,8 +234,7 @@ void run() noexcept {
           "Overview runtime: actual bounded text callback marks alias-edited draft dirty against baseline");
     const auto name_target = application_channel_overview_edit_target();
     focus({UiSettingsTargetKind::control, page_key, 2});
-    check(!text_input_ready(name_target) && text_input_ready(application_channel_overview_edit_target()) &&
-              application_channel_overview_edit_model() == &owner->models[1],
+    check(!text_input_ready(name_target) && text_input_ready(application_channel_overview_edit_target()),
           "Overview runtime: switching inline field retires old native text ownership without changing its "
           "bytes");
     focus({UiSettingsTargetKind::control, page_key, 1});

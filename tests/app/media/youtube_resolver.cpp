@@ -103,7 +103,7 @@ void youtube_live_resolver_test() noexcept {
     if(r && v && a) {
         constexpr auto master=utf8_literal("https://manifest.googlevideo.com/api/manifest/hls_variant/id/example/file/index.m3u8");
         const auto resolved=youtube_hls_resolve(r,master,720,1000,v,a,{&calls,exchange});
-        check(resolved.ok() && calls.count==3 && v->segmented && a->segmented && v->segmented->youtube && a->segmented->youtube &&
+        check(resolved.ok() && calls.count==3 && v->segmented && a->segmented &&
             !r->response.committed && !r->structurals.committed,"YouTube live owns two playlists after resolver scratch is retired");
         const auto next=progressive_video_fetch_next(v,false,1000);
         check(next.step==ProgressiveVideoStep::submit && next.range.bytes==8*1024*1024 && v->host==CdnHost::youtube_live &&

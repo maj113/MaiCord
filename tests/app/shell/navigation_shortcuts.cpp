@@ -238,11 +238,9 @@ void test_navigation_shortcuts(void (*check)(bool, const char*) noexcept) noexce
     const auto hidden_guild_source = guild_rail_scene_update(&rail, &view, {}, 0);
     const auto hidden_channel_source = shell_navigation_scene_update(&navigation, &view, {}, 0);
     check(hidden_guild_source.ok() && hidden_channel_source.ok() &&
-              rail.source_revision == view.guild_revision &&
-              navigation.source_revision == view.channel_revision &&
               rail.widgets.generation == rail_generation &&
               navigation.widgets.generation == navigation_generation,
-          "inactive navigation refreshes borrowed source metadata without rematerialization");
+          "inactive navigation takes a source change without rematerialization");
     check(guild_rail_scene_update(&rail, nullptr, {}, 0).ok() &&
               shell_navigation_scene_update(&navigation, nullptr, {}, 0).ok() && !rail.focused_guild_id &&
               !navigation.focused_channel_id && rail.widgets.generation == rail_generation &&

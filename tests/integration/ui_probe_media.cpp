@@ -2,6 +2,7 @@
 #include "probe_capture.hpp"
 #include "../support/media_fixture.hpp"
 #include "../fixtures/webp_fixture.hpp"
+#include "../../src/render/text/shaped_text_cache.hpp"
 
 namespace maicord {
 namespace ui_probe_detail {

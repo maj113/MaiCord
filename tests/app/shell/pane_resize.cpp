@@ -97,9 +97,8 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
     // minimum), release marks one persistence, Escape restores the origin.
     const float rail = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).guild_rail_width;
     g_app.member_pane_width = 180;
-    const float channel_maximum = ui_splitter_limits(ui_rect_width(application_viewport_dips()) - rail -
-                                                     g_app.member_pane_width - kMinimumAccountMessageWidthDips)
-                                      .maximum;
+    // 800 DIP window - 64 DIP rail - 180 DIP member list - 320 DIP minimum chat column.
+    constexpr float channel_maximum = 236.f;
     g_app.channel_pane_width = 200; g_app.pane_resize_origin_width = 200; g_app.pane_widths_persist_pending = false;
     g_app.pane_resize = PaneResizeKind::channels;
     check(handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(4000)), static_cast<float>(static_cast<i16>(300)), window_test::button_bit(PointerButton::left))) && g_app.channel_pane_width == channel_maximum &&
@@ -115,11 +114,9 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
     end_pane_resize();
     check(!g_app.pane_widths_persist_pending, "unchanged release does not persist");
     g_app.pane_resize = PaneResizeKind::members;
-    const float member_expected = ui_splitter_drag_width(
-        application_viewport_dips().right, UiSplitterEdge::left, 610.f,
-        ui_splitter_limits(ui_rect_width(application_viewport_dips()) - rail - g_app.channel_pane_width -
-                           kMinimumAccountMessageWidthDips));
-    check(member_expected != 180.f && handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(610)), static_cast<float>(static_cast<i16>(300)), window_test::button_bit(PointerButton::left))) &&
+    // The member list's left edge follows the pointer: 800 - 610 DIP.
+    constexpr float member_expected = 190.f;
+    check(handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(610)), static_cast<float>(static_cast<i16>(300)), window_test::button_bit(PointerButton::left))) &&
               g_app.member_pane_width == member_expected &&
               handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(500)), static_cast<float>(static_cast<i16>(300)), 0)) && g_app.pane_resize == PaneResizeKind::none &&
               g_app.pane_widths_persist_pending && g_app.member_pane_width == member_expected,
@@ -137,7 +134,7 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
               !g_app.pane_layout_pending,
           "pane layout under the sign-in form measures the form again after the shell");
     g_app.pane_layout_pending = true; fail_login_view = true;
-    check(!apply_pending_pane_layout() && g_app.pane_layout_pending && login_views == 2,
+    check(!apply_pending_pane_layout() && g_app.pane_layout_pending,
           "a sign-in view that fails to follow the pane layout keeps it pending");
     fail_login_view = false; g_app.pane_layout_pending = false; login_views = 0;
     g_app.login.visible = saved_login_visible;

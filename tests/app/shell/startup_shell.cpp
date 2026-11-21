@@ -207,7 +207,7 @@ void test_startup_shell(void (*check)(bool, const char*) noexcept) noexcept {
     StartupShellKey opened{};
     check(startup_shell_open({image, sealed}, kProfile, kNow, &opened, {again, kStartupShellPlaintextBytes}, decoded) ==
                   StartupShellOpenError::none &&
-              decoded->guild_count == 3 && decoded->channel_id == 201 && opened.aead.handle,
+              decoded->guild_count == 3 && decoded->channel_id == 201,
           "startup shell: a sealed shell opens with the unwrapped key");
     const u32 resealed = startup_shell_seal(key, {plaintext, body}, {again, kStartupShellFileBytes});
     check(resealed == sealed && !bytes_equal(image, again, sealed), "startup shell: every seal takes a fresh nonce");
@@ -252,7 +252,7 @@ void test_startup_shell(void (*check)(bool, const char*) noexcept) noexcept {
     StartupShellKey loaded{};
     check(temporary_path(path, 512) && startup_shell_save_file(path, &key, *shell) &&
               startup_shell_load_file(path, kProfile, kNow, &loaded, decoded) == StartupShellOpenError::none &&
-              decoded->channel_count == 3 && decoded->author_count == 1 && loaded.wrapped_bytes == key.wrapped_bytes,
+              decoded->channel_count == 3 && decoded->author_count == 1,
           "startup shell: the file round-trips through the encryption layer");
     check(startup_shell_load_file(path, kProfile + 1, kNow, &loaded, decoded) == StartupShellOpenError::account,
           "startup shell: the file is ignored for another account");

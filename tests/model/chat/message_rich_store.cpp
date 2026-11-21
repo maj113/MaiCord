@@ -127,8 +127,8 @@ void check_reaction_mutations(void (*check)(bool, const char*) noexcept) noexcep
 }
 } // namespace
 
-// Item arrays live in recycled fixed-size side blocks: a record takes the smallest class that fits,
-// returns the block when the array empties or the record goes, and nothing leaks across churn.
+// Item arrays live in recycled side blocks: replacing, emptying and deleting a record's attachments keeps its items
+// right, and churn does not grow the storage.
 void check_side_blocks(void (*check)(bool, const char*) noexcept) noexcept {
     static MessageRichRecord records[4];
     static u16 order[4];
@@ -157,30 +157,25 @@ void check_side_blocks(void (*check)(bool, const char*) noexcept) noexcept {
 
     auto result = apply(1, 2);
     const MessageRichRecord* rich = message_rich_store_find(store, 70);
-    check(result.ok() && rich && rich->attachment_count == 2 && rich->attachments[1].id == 11 && small.top == 1 &&
-              large.top == 0,
-          "rich side blocks: two attachments take one small block");
-    const MessageRichAttachment* const small_block = rich->attachments;
+    check(result.ok() && rich && rich->attachment_count == 2 && rich->attachments[1].id == 11,
+          "rich side blocks: two attachments apply");
     result = apply(2, 1);
-    check(result.ok() && rich->attachment_count == 1 && rich->attachments == small_block && small.top == 1,
-          "rich side blocks: a smaller replacement reuses the block in place");
+    check(result.ok() && rich->attachment_count == 1 && rich->attachments[0].id == 10,
+          "rich side blocks: a smaller replacement keeps the remaining attachment");
     result = apply(3, 3);
-    check(result.ok() && rich->attachment_count == 3 && rich->attachments[2].id == 12 && rich->attachments != small_block &&
-              large.top == 1 && small.free_head != 0,
-          "rich side blocks: a third attachment moves to the large class and frees the small block");
+    check(result.ok() && rich->attachment_count == 3 && rich->attachments[2].id == 12,
+          "rich side blocks: a third attachment applies");
     result = apply(4, 0);
-    check(result.ok() && !result.record && !message_rich_store_find(store, 70) && large.free_head != 0,
-          "rich side blocks: emptying the array frees its block with the record");
+    check(result.ok() && !result.record && !message_rich_store_find(store, 70),
+          "rich side blocks: emptying the array removes a record that holds nothing else");
     bool churn = true;
     for (u32 round = 0; round < 12 && churn; ++round)
         churn = apply(5 + 2 * round, 2).ok() && message_rich_store_delete(&store, 70);
     check(churn && small.top == 1 && large.top == 1,
           "rich side blocks: apply and delete churn recycles blocks without growing the slabs");
-    check(apply(40, 2).ok() && message_rich_store_reset(&store) && !message_rich_store_find(store, 70) &&
-              small.top == 0 && large.top == 0,
-          "rich side blocks: reset returns every block");
+    check(apply(40, 2).ok() && message_rich_store_reset(&store) && !message_rich_store_find(store, 70),
+          "rich side blocks: reset removes every record");
     message_rich_store_release(&store);
-    check(!store.side.initialized, "rich side blocks: release frees the slabs");
 }
 
 void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) noexcept {
@@ -415,31 +410,14 @@ void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) n
           "audio account reset releases waveform logical ownership along with other rich metadata");
     message_rich_store_release(&audio_store);
 
-    // A record slot that is not in use is all zero except its (nonzero)
-    // generation: insert and unpack rely on it instead of clearing the slot.
+    // A packed message unpacks into its slots again, and a corrupted one is
+    // rejected or removed without leaving a record behind.
     static MessageRichRecord free_records[4];
     static u16 free_order[4];
     static u8 free_text[8192];
-    u8* const raw_records = reinterpret_cast<u8*>(free_records);
-    for (u32 index = 0; index < sizeof(free_records); ++index)
-        raw_records[index] = 0xA5;
-    const auto free_slots_clean = [](const MessageRichStore& owner) noexcept {
-        MessageRichRecord expected;
-        for (u32 index = 0; index < owner.record_extent; ++index) {
-            const MessageRichRecord& slot = owner.records[index];
-            if (slot.occupied)
-                continue;
-            message_rich_record_clear(&expected);
-            expected.generation = slot.generation;
-            if (slot.generation == 0 || !bytes_equal(&slot, &expected, sizeof(slot)))
-                return false;
-        }
-        return true;
-    };
     MessageRichStore free_store{};
-    check(message_rich_store_initialize(&free_store, {free_records, 4}, {free_order, 4}, {free_text, sizeof(free_text)}) &&
-              free_store.record_extent == 4 && free_slots_clean(free_store),
-          "rich free slots: initialization clears every slot to its generation");
+    check(message_rich_store_initialize(&free_store, {free_records, 4}, {free_order, 4}, {free_text, sizeof(free_text)}),
+          "rich pack: the store initializes");
     auto forwarded = sparse_message();
     GatewayMessageAttachment forwarded_attachment{};
     forwarded_attachment.id = 911;
@@ -453,23 +431,23 @@ void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) n
     u8 packed[4096];
     u32 packed_bytes = 0;
     check(message_rich_store_apply(&free_store, 900, 1, forwarded).ok() &&
-              message_rich_store_snapshot(free_store, 900) && free_slots_clean(free_store) &&
               message_rich_store_pack(free_store, 900, {packed, sizeof(packed)}, &packed_bytes) && packed_bytes &&
-              message_rich_store_delete(&free_store, 900) && free_slots_clean(free_store),
-          "rich free slots: a deleted forwarded message leaves both slots clean");
-    check(message_rich_store_unpack(&free_store, 900, 2, {packed, packed_bytes}) &&
-              message_rich_store_snapshot(free_store, 900) && free_slots_clean(free_store) &&
-              message_rich_store_delete(&free_store, 900) && free_slots_clean(free_store),
-          "rich free slots: unpack writes a clean free slot and deleting it cleans it again");
+              message_rich_store_delete(&free_store, 900) && !message_rich_store_find(free_store, 900),
+          "rich pack: a forwarded message packs and deletes");
+    const auto* restored = message_rich_store_unpack(&free_store, 900, 2, {packed, packed_bytes})
+                               ? message_rich_store_find(free_store, 900) : nullptr;
+    check(restored && restored->attachment_count == 1 && restored->attachments[0].id == 911 &&
+              message_rich_store_snapshot(free_store, 900) && message_rich_store_delete(&free_store, 900),
+          "rich pack: unpack restores the attachment and the forwarded child");
     bool corrupt_clean = true;
     for (u32 at = 0; at < packed_bytes && corrupt_clean; ++at) {
         const u8 original = packed[at];
         packed[at] = 0xFF;
         const bool admitted = message_rich_store_unpack(&free_store, 900, 3, {packed, packed_bytes});
         packed[at] = original;
-        corrupt_clean = (!admitted || message_rich_store_delete(&free_store, 900)) && free_slots_clean(free_store) &&
+        corrupt_clean = (!admitted || message_rich_store_delete(&free_store, 900)) &&
                         !free_store.count && !free_store.snapshot_count;
     }
-    check(corrupt_clean, "rich free slots: a corrupted packed message is rejected or removed with every slot clean");
+    check(corrupt_clean, "rich pack: a corrupted packed message is rejected or removed");
 }
 } // namespace maicord

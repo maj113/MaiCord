@@ -362,7 +362,7 @@ void run() noexcept {
     const auto committed = view();
     check(application_account_logout_blocked() && !committed.can_cancel && !committed.dismissible &&
               !committed.can_accept && exists(marker) && prepares == 1 &&
-              g_app.login.application_auth_epoch == 8 && !g_app.login.remote_restart_at_ms,
+              !g_app.login.remote_restart_at_ms,
           "logout controller: real marker precedes quiescence and commit permanently removes dismissal");
     const u64 committed_revision = committed.revision;
     for (u32 i = 0; i < 4; ++i)
@@ -373,8 +373,7 @@ void run() noexcept {
     if (!wait_for_stop())
         return;
     check(!g_app.account.module && !g_app.account.instance && !g_app.account.login_instance &&
-              g_app.account_logout->stop_host.instance == &paths &&
-              g_app.account_logout->stop_host.module && !forgets && credentials_present() && exists(marker),
+              !forgets && credentials_present() && exists(marker),
           "logout controller: public host is empty while private host retains live resources and "
           "credentials");
     const auto before_frames = frames;

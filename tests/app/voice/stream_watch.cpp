@@ -155,11 +155,9 @@ void watch_view(Check check) noexcept {
     check(stream_watch_view(snapshot, a, 1000, 9000).state == StreamWatchState::none &&
               stream_watch_notice(GatewayStreamEnd::stopped, {}) == StreamWatchNotice::none,
           "stream watch: stopping or leaving the channel ends silently");
-    // Notices and their copy line up with the scene's.
-    check(static_cast<u8>(StreamWatchNotice::interrupted) == static_cast<u8>(UiCallStreamNotice::interrupted) &&
-              bytes_equal(ui_call_stream_notice_text(UiCallStreamNotice::ended).data, "The stream has ended", 20) &&
+    check(bytes_equal(ui_call_stream_notice_text(UiCallStreamNotice::ended).data, "The stream has ended", 20) &&
               !ui_call_stream_notice_text(UiCallStreamNotice::none).bytes,
-          "stream watch: notices match the call view's copy");
+          "stream watch: the call view names an ended stream and shows nothing without a notice");
 }
 
 UiCallParticipant stream_tile(u64 id, const char* name, UiCallStream state) noexcept {

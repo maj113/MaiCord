@@ -15,6 +15,7 @@
 #include "../../fixtures/webp_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/time.hpp"
+#include "../../support/released_memory.hpp"
 
 namespace maicord {
 namespace {
@@ -3050,11 +3051,10 @@ void test_account_media_long_animated_webp() noexcept {
                        "long_webp_invalid_frame_beyond_old_limit_still_rejected");
             }
         }
-        void* extended = media.animated_webp_workspace
-                             ? media.animated_webp_workspace->extended_frames.data : nullptr;
+        const auto extended = memory_mark(media.animated_webp_workspace
+                                              ? media.animated_webp_workspace->extended_frames.data : nullptr);
         expect(account_media_stop(&media, 5'000), "long_webp_media_shutdown");
-        MEMORY_BASIC_INFORMATION memory{};
-        expect(extended && VirtualQuery(extended, &memory, sizeof(memory)) && memory.State == MEM_FREE,
+        expect(memory_released(extended),
                "long_webp_extended_metadata_released");
     }
     VirtualFree(encoded, 0, MEM_RELEASE);

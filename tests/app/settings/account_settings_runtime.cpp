@@ -83,7 +83,7 @@ void test_application_account_settings_connection_runtime(void (*check)(bool, co
 
     g_app.account.status.required_action = AccountRequirement::verify_email;
     check(application_settings_synchronize() && shows("Discord needs something from you") && card(&c, &p) &&
-              utf8_equal(c.description, account_requirement_notice(AccountRequirement::verify_email)) &&
+              utf8_equal(c.description, utf8_literal("Verify your email in Discord before sending.")) &&
               p.variant == UiSettingsVariant::critical && !application_account_settings_pending(0),
           "account settings connection: a pending requirement names what Discord needs");
     g_app.account.status.required_action = AccountRequirement::none;

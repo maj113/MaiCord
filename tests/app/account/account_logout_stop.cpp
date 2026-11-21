@@ -45,13 +45,10 @@ AccountHostStopResult held_stop(AccountHost* host, u32 timeout, u64 monotonic, u
 }
 
 bool idle(const AccountLogoutStopOwner& owner) noexcept {
-    return !owner.thread && !owner.host && !owner.stop && !owner.timeout_ms &&
-        !owner.monotonic_now_ms && !owner.unix_now_ms && owner.result.ok() &&
-        !owner.result.account_status.profile_id && !owner.result.login_status.user_id;
+    return !account_logout_stop_owned(owner) && !account_logout_stop_notification(owner);
 }
-bool same_live(const AccountLogoutStopOwner& owner, HANDLE thread, AccountHost* host) noexcept {
-    return reinterpret_cast<HANDLE>(owner.thread) == thread && owner.host == host && owner.stop == held_stop &&
-        owner.timeout_ms == 250 && owner.monotonic_now_ms == 1234 && owner.unix_now_ms == 5678;
+bool same_live(const AccountLogoutStopOwner& owner, HANDLE thread, AccountHost*) noexcept {
+    return account_logout_stop_owned(owner) && account_logout_stop_notification(owner) == thread;
 }
 void cleanup(HeldStop* held, void (*check)(bool, const char*) noexcept) noexcept {
     if (!held) return;

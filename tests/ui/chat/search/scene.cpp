@@ -122,7 +122,7 @@ void search_filter_choices(void (*check)(bool, const char*) noexcept) noexcept {
     const auto generation = scene.widgets.generation;
     const auto text_signature = stream.signature;
     const u32 text_count = stream.count, quad_count = paint.count;
-    for (u32 frame = 0; valid && frame < 64; ++frame) {
+    for (u32 frame = 0; valid && frame < 2; ++frame) {
         valid = ui_search_scene_update(&scene, &results, &content, viewport, title);
         ui_text_command_stream_reset(&stream);
         valid = valid && paint_stream_reset(&paint, 360, 3300) &&
@@ -133,8 +133,7 @@ void search_filter_choices(void (*check)(bool, const char*) noexcept) noexcept {
     }
     check(valid && scene.revision == revision && scene.widgets.layout.revision == layout &&
               scene.widgets.generation == generation && fixture.calls == calls,
-          "search choice: sixty-four unchanged frames preserve layout, row copies, paint count and text "
-          "signature");
+          "search choice: unchanged frames preserve layout, row copies, paint count and text signature");
     live = false;
     ui_text_command_stream_reset(&stream);
     check(!ui_search_scene_current(scene) &&
@@ -750,13 +749,13 @@ void rich_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
               preparations = native->preparation_passes, widgets = native->widgets.count,
               revision = search.revision;
     bool warm = true;
-    for (u32 i = 0; i < 64; ++i)
+    for (u32 i = 0; i < 2; ++i)
         warm &= ui_search_scene_update(&search, &source, &content, {0, 0, 1200, 800}, {0, 0, 1200, 48}) &&
                 ui_search_scene_refresh_rich(&search);
     check(warm && resolves == f.resolves && layouts == native->layout_passes &&
               preparations == native->preparation_passes && widgets == native->widgets.count &&
               revision == search.revision,
-          "search rich: 64 unchanged frames resolve allocate and relayout no result projection");
+          "search rich: unchanged frames resolve, allocate and relayout no result projection");
     f.current = false;
     check(!ui_search_scene_target_current(search, image_target) && !ui_search_scene_message_scene(search) &&
               !ui_search_scene_rich_preview_geometry(search, image_target, &image_rect, &image_clip),

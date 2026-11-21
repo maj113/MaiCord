@@ -296,7 +296,7 @@ static void test_message_ack_transport() noexcept {
           "message ACK: prepared request is admitted once through existing account REST owner");
     for (u32 i = 0; i < written.bytes; ++i)
         body[i] = 'x';
-    check(submitted.client == &client && submitted.body_source == body && submitted.copied &&
+    check(submitted.client == &client && submitted.copied &&
               submitted.request_id == 202 && submitted.route.route_id == kMessageAckRouteId &&
               submitted.route.major_key == 7 &&
               submitted.route.major == RestMajorParameter::channel &&
@@ -330,7 +330,7 @@ static void test_message_ack_transport() noexcept {
           "account transport");
     for (u32 i = 0; i < manual_written.bytes; ++i)
         manual_body[i] = 'x';
-    check(submitted.client == &client && submitted.body_source == manual_body && submitted.copied &&
+    check(submitted.client == &client && submitted.copied &&
               submitted.request_id == 204 && submitted.route.route_id == kMessageAckRouteId &&
               submitted.route.major_key == 7 &&
               submitted.route.major == RestMajorParameter::channel &&

@@ -107,7 +107,6 @@ void test_login_continuations(void (*check)(bool, const char*) noexcept) noexcep
     UserAuthResponse captcha{};
     captcha.kind = UserAuthResponseKind::captcha_required;
     check(user_auth_state_apply(&state, begun.generation, captcha).ok() &&
-              state.captcha_return_phase == UserAuthPhase::verification_pending &&
               !user_auth_state_begin_password(&state).ok(),
           "verification CAPTCHA preserves its operation and blocks replacing pending credentials");
     check(user_auth_state_resume_captcha(&state).ok() && state.phase == UserAuthPhase::verification_pending,

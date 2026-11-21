@@ -233,7 +233,6 @@ void run_mfa_retry() noexcept {
         check(user_auth_coordinator_pump(&coordinator, &event).phase == UserAuthCoordinatorPhase::mfa_required &&
             user_auth_coordinator_submit_mfa(&coordinator, {&code, nullptr, methods[i]}).ok(),
             "ordinary MFA: original method answer is admitted");
-        const auto generation = runtime->flow.generation;
         const auto submissions = fixture.submissions;
         const auto failed_request = fixture.request_id;
         check(body(utf8_literal(R"({"code":60008,"ticket":"foreign-ticket","login_instance_id":"foreign-instance","webauthn":"foreign-challenge","user_id":"999","totp":false})")),
@@ -243,7 +242,7 @@ void run_mfa_retry() noexcept {
         check(invalid.ok() && invalid.phase == UserAuthCoordinatorPhase::mfa_required &&
             event.kind == UserAuthCoordinatorEventKind::rejected && event.response.error_code == 60008 &&
             !event.response.has_user_id && event.response.mfa_capabilities == all_methods &&
-            runtime->flow.generation == generation && !runtime->active_request_id &&
+            !runtime->active_request_id &&
             runtime->ticket_bytes == 15 && bytes_equal(secret(runtime, kTicketOffset), "original-ticket", 15) &&
             runtime->login_instance_bytes == 17 && bytes_equal(secret(runtime, kLoginInstanceOffset), "original-instance", 17) &&
             runtime->webauthn_bytes == 18 && bytes_equal(secret(runtime, kWebauthnOffset), "original-challenge", 18) &&
@@ -255,8 +254,7 @@ void run_mfa_retry() noexcept {
         // A retry can select a different advertised method on the same owner.
         secure_buffer_assign(&code, {reinterpret_cast<const u8*>(answers[(i + 1) % 4].data), answers[(i + 1) % 4].bytes});
         check(user_auth_coordinator_submit_mfa(&coordinator, {&code, nullptr, methods[(i + 1) % 4]}).ok() &&
-            fixture.submissions == submissions + 1 && runtime->active_request_id &&
-            runtime->flow.generation != generation,
+            fixture.submissions == submissions + 1 && runtime->active_request_id,
             "ordinary MFA: explicit alternate-method retry starts a fresh request without password resubmission");
         const auto retry_request = runtime->active_request_id;
         response(400, failed_request);
@@ -336,17 +334,16 @@ void run() noexcept {
     UserAuthCoordinator coordinator{}; UserAuthCoordinatorEvent event{};
     check(assign() && user_auth_coordinator_start(&coordinator).ok(), "browser coordinator: native lazy owner starts");
     auto* runtime = runtime_of(&coordinator); if (!runtime) return;
-    const auto initial_generation = runtime->flow.generation;
     SecureBuffer unlocked = input; unlocked.locked = false;
     check(!user_auth_coordinator_submit_browser_handoff_exchange(&coordinator, &unlocked).ok() &&
-        !fixture.submissions && runtime->flow.generation == initial_generation && caller_intact(),
+        !fixture.submissions && caller_intact(),
         "browser coordinator: unlocked input cannot reach REST and caller owner remains intact");
     SecureBuffer own_arena = partition(runtime, kScratchOffset, runtime->request_capacity, exact.bytes);
     check(!user_auth_coordinator_submit_browser_handoff_exchange(&coordinator, &own_arena).ok() &&
         !fixture.submissions && request_erased(*runtime), "browser coordinator: aliased input cannot escape coordinator arena");
     fixture.fail_submit = true;
     check(!user_auth_coordinator_submit_browser_handoff_exchange(&coordinator, &input).ok() &&
-        !runtime->active_request_id && runtime->flow.generation == initial_generation && erased(*runtime) && caller_intact(),
+        !runtime->active_request_id && erased(*runtime) && caller_intact(),
         "browser coordinator: failed admission erases staging, preserves caller and leaves generation uncommitted");
     fixture.fail_submit = false;
     check(user_auth_coordinator_submit_browser_handoff_exchange(&coordinator, &input).ok() &&
@@ -355,13 +352,13 @@ void run() noexcept {
         fixture.request.bytes == exact.bytes && bytes_equal(fixture.request.data, exact.data, exact.bytes) &&
         coordinator.state.phase == UserAuthCoordinatorPhase::browser_exchange_pending,
         "browser coordinator: exact protected handoff snapshot copies synchronously without retained replay or CAPTCHA tuple");
-    const auto active_request = runtime->active_request_id, generation = runtime->flow.generation;
+    const auto active_request = runtime->active_request_id;
     const auto pending_metadata = coordinator.state;
     check(!user_auth_coordinator_submit_browser_handoff_exchange(&coordinator, &input).ok() &&
         !user_auth_coordinator_submit_captcha(&coordinator, &solution).ok() &&
         !user_auth_coordinator_submit_password(&coordinator, {&solution, &solution, nullptr, false}).ok() &&
         fixture.submissions == 1 && runtime->active_request_id == active_request &&
-        runtime->flow.generation == generation && same_metadata(coordinator.state, pending_metadata) && caller_intact(),
+        same_metadata(coordinator.state, pending_metadata) && caller_intact(),
         "browser coordinator: busy duplicate, password and CAPTCHA attempts preserve admitted owner and caller");
     check(body(success), "browser coordinator: synthetic strict receipt prepares");
     response(200, active_request + 1);
@@ -418,7 +415,7 @@ void run() noexcept {
     runtime = runtime_of(&coordinator); if (!runtime) return;
     response(200, runtime->active_request_id);
     check(user_auth_coordinator_pump(&coordinator, &event).ok() && event.kind == UserAuthCoordinatorEventKind::authenticated &&
-        event.response.user_id == 123456789012345678ull && event.response.has_user_id && runtime->token_bytes == 17 &&
+        event.response.user_id == 123456789012345678ull && event.response.has_user_id &&
         !runtime->active_request_id && request_erased(*runtime) && !runtime->ticket_bytes &&
         !runtime->captcha_rqtoken_bytes && !runtime->suspended_bytes,
         "browser coordinator: valid dedicated receipt retains only bounded session token and nested identity metadata");

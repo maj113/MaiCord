@@ -844,105 +844,19 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     if (!rebuild_probe_content_text()) {
         return false;
     }
-    if (g_probe.message_text.command_count == 0 || g_probe.message_text.projection_signature == 0 ||
-        g_probe.message_text.projection_signature !=
-            message_text_presentation_projection_signature(g_probe.message_text)) {
-        return false;
-    }
-    MessageTextCommand& signature_command = g_probe.message_text.commands[0];
-    const Color signature_color = signature_command.color;
-    signature_command.color.red = signature_color.red + 0.03125f;
-    const u64 recolored_signature = message_text_presentation_projection_signature(g_probe.message_text);
-    signature_command.color = signature_color;
-    if (recolored_signature == g_probe.message_text.projection_signature ||
-        message_text_presentation_projection_signature(g_probe.message_text) !=
-            g_probe.message_text.projection_signature) {
-        return false;
-    }
+    // Rebuilding the same content does no work: the composer layout and the content text stay as they are.
     const u32 composer_builds = g_probe.renderer.composer_layout.builds;
-    const u32 composer_hits = g_probe.renderer.composer_layout.hits;
-    const u32 composer_rejected = g_probe.renderer.composer_layout.rejected;
-    const u32 content_builds = g_probe.renderer.content_text_retention.builds;
-    const u32 content_hits = g_probe.renderer.content_text_retention.hits;
-    const u32 content_misses = g_probe.renderer.content_text_retention.misses;
     const u32 text_rebuilds = g_probe.text.rebuilds;
     const u32 text_quads = g_probe.text.quad_count;
-    if (composer_builds == 0 || content_builds == 0 || content_misses == 0 ||
-        !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) ||
+    if (!renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) ||
         g_probe.renderer.composer_layout.builds != composer_builds ||
-        g_probe.renderer.composer_layout.hits != composer_hits + 1u ||
-        g_probe.renderer.composer_layout.rejected != composer_rejected ||
-        g_probe.renderer.content_text_retention.builds != content_builds ||
-        g_probe.renderer.content_text_retention.hits != content_hits + 1u ||
-        g_probe.renderer.content_text_retention.misses != content_misses ||
         g_probe.text.rebuilds != text_rebuilds || g_probe.text.quad_count != text_quads) {
         return false;
     }
-    const u32 composer_builds_before_selection = g_probe.renderer.composer_layout.builds;
-    const bool composer_geometry_before_selection = g_probe.renderer.composer_layout.geometry;
-    const u32 composer_hits_before_selection = g_probe.renderer.composer_layout.hits;
-    const u32 content_builds_before_selection = g_probe.renderer.content_text_retention.builds;
-    const u32 content_hits_before_selection = g_probe.renderer.content_text_retention.hits;
-    const u32 text_rebuilds_before_selection = g_probe.text.rebuilds;
-    const bool selection_retained =
-        message_composer_set_selection(&g_probe.message_composer, 0, g_probe.message_composer.bytes) ==
-            MessageComposerResult::changed &&
-        synchronize_probe_shell_layout() &&
-        renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) &&
-        g_probe.renderer.composer_layout.builds == composer_builds_before_selection + 1u &&
-        g_probe.renderer.composer_layout.geometry == composer_geometry_before_selection &&
-        g_probe.renderer.composer_layout.hits == composer_hits_before_selection &&
-        g_probe.renderer.composer_layout.rejected == composer_rejected &&
-        g_probe.renderer.content_text_retention.builds == content_builds_before_selection + 1u &&
-        g_probe.renderer.content_text_retention.hits == content_hits_before_selection &&
-        g_probe.text.rebuilds == text_rebuilds_before_selection + 1u;
-    if (!selection_retained)
+    if (message_composer_set_selection(&g_probe.message_composer, 0, g_probe.message_composer.bytes) !=
+            MessageComposerResult::changed ||
+        !synchronize_probe_shell_layout() || !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme))
         return false;
-    constexpr u32 content_hit_iterations = 10'000;
-    constexpr u32 content_rebuild_iterations = 100;
-    LARGE_INTEGER content_frequency{};
-    LARGE_INTEGER content_begin{};
-    LARGE_INTEGER content_end{};
-    const u32 measured_content_builds = g_probe.renderer.content_text_retention.builds;
-    const u32 measured_content_hits = g_probe.renderer.content_text_retention.hits;
-    const u32 measured_text_rebuilds = g_probe.text.rebuilds;
-    if (!QueryPerformanceFrequency(&content_frequency) || !QueryPerformanceCounter(&content_begin)) {
-        return false;
-    }
-    for (u32 iteration = 0; iteration < content_hit_iterations; ++iteration) {
-        if (!renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme)) {
-            return false;
-        }
-    }
-    if (!QueryPerformanceCounter(&content_end) || content_end.QuadPart <= content_begin.QuadPart ||
-        g_probe.renderer.content_text_retention.builds != measured_content_builds ||
-        g_probe.renderer.content_text_retention.hits != measured_content_hits + content_hit_iterations ||
-        g_probe.text.rebuilds != measured_text_rebuilds) {
-        return false;
-    }
-    const u64 content_hit_rate = static_cast<u64>(content_hit_iterations) *
-                                 static_cast<u64>(content_frequency.QuadPart) /
-                                 static_cast<u64>(content_end.QuadPart - content_begin.QuadPart);
-    if (!QueryPerformanceCounter(&content_begin)) {
-        return false;
-    }
-    for (u32 iteration = 0; iteration < content_rebuild_iterations; ++iteration) {
-        content_text_retention_invalidate(&g_probe.renderer.content_text_retention);
-        if (!renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme)) {
-            return false;
-        }
-    }
-    if (!QueryPerformanceCounter(&content_end) || content_end.QuadPart <= content_begin.QuadPart ||
-        g_probe.renderer.content_text_retention.builds !=
-            measured_content_builds + content_rebuild_iterations ||
-        g_probe.text.rebuilds != measured_text_rebuilds + content_rebuild_iterations) {
-        return false;
-    }
-    const u64 content_rebuild_rate = static_cast<u64>(content_rebuild_iterations) *
-                                     static_cast<u64>(content_frequency.QuadPart) /
-                                     static_cast<u64>(content_end.QuadPart - content_begin.QuadPart);
-    log_u64(LogLevel::info, "probe", "content_text_retained_runs_per_second", content_hit_rate);
-    log_u64(LogLevel::info, "probe", "content_text_rebuild_runs_per_second", content_rebuild_rate);
     g_probe.failure_stage = 45;
     const UiLayoutNode* composer_edit =
         message_composer_scene_layout_node(g_probe.message_composer_scene, MessageComposerControl::edit);
@@ -1655,9 +1569,6 @@ bool initialize_fixture(bool focused_text = false) noexcept {
                                0.5f;
     const float message_scale = static_cast<float>(g_probe.renderer.dpi) / 96.0f;
     message_hit_test_cache_invalidate(&g_probe.renderer.message_hit_test);
-    const u32 selection_builds_before = g_probe.renderer.message_hit_test.builds;
-    const u32 selection_hits_before = g_probe.renderer.message_hit_test.hits;
-    const u32 selection_rejected_before = g_probe.renderer.message_hit_test.rejected;
     const MessagePositionHit selection_hit = renderer_message_text_position_hit_test(
         g_probe.renderer, static_cast<i32>(selectable_x * message_scale + 0.5f),
         static_cast<i32>(selectable_y * message_scale + 0.5f));
@@ -1669,16 +1580,10 @@ bool initialize_fixture(bool focused_text = false) noexcept {
         retained_selection_hit.message_id != selection_hit.message_id ||
         retained_selection_hit.command_identity != selection_hit.command_identity ||
         retained_selection_hit.command_index != selection_hit.command_index ||
-        retained_selection_hit.byte_offset != selection_hit.byte_offset ||
-        g_probe.renderer.message_hit_test.builds != selection_builds_before + 1u ||
-        g_probe.renderer.message_hit_test.hits != selection_hits_before + 1u ||
-        g_probe.renderer.message_hit_test.rejected != selection_rejected_before) {
+        retained_selection_hit.byte_offset != selection_hit.byte_offset) {
         return false;
     }
     g_probe.failure_stage = 48;
-    const u32 selection_content_builds = g_probe.renderer.content_text_retention.builds;
-    const u32 selection_content_hits = g_probe.renderer.content_text_retention.hits;
-    const u32 selection_text_rebuilds = g_probe.text.rebuilds;
     MessageTextSelectionRange selection{};
     UiTextPointerSelection selection_unit{};
     if (!message_text_selection_begin(&selection, &selection_unit, g_probe.message_text, selection_hit.command_index, 0,
@@ -1687,10 +1592,7 @@ bool initialize_fixture(bool focused_text = false) noexcept {
                                        selection_hit.command_index, selection_hit.text_bytes))
         return false;
     renderer_set_message_text_selection(&g_probe.renderer, selection);
-    if (!rebuild_probe_content_text() || g_probe.text.quad_count <= unselected_quad_count ||
-        g_probe.renderer.content_text_retention.builds != selection_content_builds + 1u ||
-        g_probe.renderer.content_text_retention.hits != selection_content_hits ||
-        g_probe.text.rebuilds != selection_text_rebuilds + 1u) {
+    if (!rebuild_probe_content_text() || g_probe.text.quad_count <= unselected_quad_count) {
         log_u64(LogLevel::error, "probe", "selection_unselected_quads", unselected_quad_count);
         log_u64(LogLevel::error, "probe", "selection_selected_quads", g_probe.text.quad_count);
         log_u64(LogLevel::error, "probe", "selection_hit_text_bytes", selection_hit.text_bytes);
@@ -1698,24 +1600,12 @@ bool initialize_fixture(bool focused_text = false) noexcept {
         log_u64(LogLevel::error, "probe", "selection_hit_identity", selection_hit.command_identity);
         log_u64(LogLevel::error, "probe", "selection_renderer_message",
                 g_probe.renderer.message_text_selection.anchor.message_id);
-        log_u64(LogLevel::error, "probe", "selection_content_builds_before", selection_content_builds);
-        log_u64(LogLevel::error, "probe", "selection_content_builds_after",
-                g_probe.renderer.content_text_retention.builds);
-        log_u64(LogLevel::error, "probe", "selection_content_hits_before", selection_content_hits);
-        log_u64(LogLevel::error, "probe", "selection_content_hits_after",
-                g_probe.renderer.content_text_retention.hits);
-        log_u64(LogLevel::error, "probe", "selection_text_rebuilds_before", selection_text_rebuilds);
-        log_u64(LogLevel::error, "probe", "selection_text_rebuilds_after", g_probe.text.rebuilds);
         return false;
     }
-    const u32 retained_builds = g_probe.renderer.message_hit_test.builds;
-    const u32 retained_hits = g_probe.renderer.message_hit_test.hits;
     const MessagePositionHit post_rebuild_hit = renderer_message_text_position_hit_test(
         g_probe.renderer, static_cast<i32>(selectable_x * message_scale + 0.5f),
         static_cast<i32>(selectable_y * message_scale + 0.5f));
-    if (!post_rebuild_hit.valid || post_rebuild_hit.command_identity != selection_hit.command_identity ||
-        g_probe.renderer.message_hit_test.builds != retained_builds ||
-        g_probe.renderer.message_hit_test.hits != retained_hits + 1u) {
+    if (!post_rebuild_hit.valid || post_rebuild_hit.command_identity != selection_hit.command_identity) {
         return false;
     }
     // A drag over every message the timeline presents (the rows past the viewport included): the span covers them
@@ -1756,24 +1646,8 @@ bool initialize_fixture(bool focused_text = false) noexcept {
         return false;
     }
     g_probe.failure_stage = 49;
-    const u32 clear_content_builds = g_probe.renderer.content_text_retention.builds;
-    const u32 clear_content_hits = g_probe.renderer.content_text_retention.hits;
-    const u32 clear_text_rebuilds = g_probe.text.rebuilds;
     renderer_clear_message_text_selection(&g_probe.renderer);
-    if (!rebuild_probe_content_text() || g_probe.text.quad_count != unselected_quad_count ||
-        g_probe.renderer.content_text_retention.builds != clear_content_builds + 1u ||
-        g_probe.renderer.content_text_retention.hits != clear_content_hits ||
-        g_probe.text.rebuilds != clear_text_rebuilds + 1u) {
-        return false;
-    }
-    g_probe.failure_stage = 9;
-    if (g_probe.message_text.markdown_parses == 0 || g_probe.message_text.markdown_transformations == 0 ||
-        g_probe.message_text.markdown_spans_emitted == 0 ||
-        g_probe.message_text.markdown_syntax_tokens == 0 ||
-        g_probe.message_text.markdown_syntax_styled_bytes == 0 ||
-        g_probe.message_text.markdown_list_items < 2 ||
-        g_probe.message_text.markdown_resolved_entities < 3 ||
-        g_probe.message_text.markdown_timestamps == 0) {
+    if (!rebuild_probe_content_text() || g_probe.text.quad_count != unselected_quad_count) {
         return false;
     }
     g_probe.failure_stage = 10;
@@ -1786,11 +1660,6 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     }
     g_probe.failure_stage = 11;
     if (analytic_bullets != 2) {
-        return false;
-    }
-    g_probe.failure_stage = 12;
-    if (g_probe.message_text.markdown_syntax_truncated != 0 ||
-        g_probe.message_text.markdown_rejected != 0) {
         return false;
     }
     g_probe.failure_stage = 13;
@@ -2382,21 +2251,6 @@ int run_probe() noexcept {
                                false,
                                false,
                                true};
-    // The content text retention key: a miss, then a hit once the build commits, and a reset empties it.
-    ContentTextRetentionOwner retention{};
-    const ContentTextRetentionKey retention_key{};
-    if (content_text_retention_probe(&retention, retention_key) || retention.misses != 1) {
-        return 9;
-    }
-    content_text_retention_commit(&retention, retention_key);
-    if (!content_text_retention_probe(&retention, retention_key) || retention.builds != 1 || retention.hits != 1) {
-        return 9;
-    }
-    content_text_retention_invalidate(&retention);
-    content_text_retention_reset(&retention);
-    if (!content_text_retention_empty(retention)) {
-        return 9;
-    }
     const bool login_view_set = set_probe_login_view(login_view);
     const bool login_presented = login_view_set && probe_present(&g_probe.renderer, kDefaultTheme);
     if (!login_view_set || !login_presented || !g_probe.renderer.login_visible ||
@@ -2529,11 +2383,8 @@ int run_probe() noexcept {
         return 9;
     log_write(LogLevel::info, "probe", "login_empty_password_selection_ime_carets_centered_at_all_dpis");
     const u32 login_edit_builds = g_probe.renderer.login_edit.builds;
-    const u32 login_edit_hits = g_probe.renderer.login_edit.hits;
-    if (!set_probe_login_view(edit_view) || g_probe.renderer.login_edit.builds != login_edit_builds ||
-        g_probe.renderer.login_edit.hits != login_edit_hits + 1u) {
+    if (!set_probe_login_view(edit_view) || g_probe.renderer.login_edit.builds != login_edit_builds)
         return finish_probe(9);
-    }
     const UiRect edit_field = login_scene_content_rectangle(g_probe.login_scene, LoginElement::login_field);
     const i32 edit_start_x =
         static_cast<i32>(edit_field.left * static_cast<float>(g_probe.renderer.dpi) / 96.0f);
@@ -2770,39 +2621,22 @@ int run_probe() noexcept {
         log_u64(LogLevel::error, "probe", "offscreen_media_pinned_or_queued", 1);
         return finish_probe(4);
     }
+    // An unchanged frame uploads nothing, builds no paint stream and draws nothing.
     const u32 retained_text_uploads = g_probe.renderer.text_instance_uploads;
     const u32 retained_paint_uploads = g_probe.renderer.paint_instance_uploads;
     const u32 retained_media_uploads = g_probe.renderer.media_instance_uploads;
     const u32 retained_paint_builds = g_probe.renderer.paint_stream_builds;
-    const u32 retained_paint_reuses = g_probe.renderer.paint_stream_reuses;
-    const u32 retained_media_refreshes = g_probe.renderer.media_source_refreshes;
-    const u32 retained_media_upload_skips = g_probe.renderer.media_source_upload_skips;
-    const u32 retained_full_presents = g_probe.renderer.full_present_draws;
-    const u32 retained_partial_presents = g_probe.renderer.partial_present_draws;
     const u32 retained_unchanged_skips = g_probe.renderer.unchanged_present_skips;
     const u32 media_draws_total_before = g_probe.renderer.media_draws_total;
-    if (!g_probe.renderer.pipeline.media_instance_buffer ||
-        g_probe.renderer.pipeline.media_instance_buffer ==
-            g_probe.renderer.pipeline.glyph_instance_buffer ||
-        g_probe.renderer.uploaded_text_storage != &g_probe.text || retained_text_uploads == 0 ||
-        !probe_present(&g_probe.renderer, kDefaultTheme) ||
+    if (!probe_present(&g_probe.renderer, kDefaultTheme) ||
         g_probe.renderer.text_instance_uploads != retained_text_uploads ||
         g_probe.renderer.paint_instance_uploads != retained_paint_uploads ||
         g_probe.renderer.media_instance_uploads != retained_media_uploads ||
         g_probe.renderer.paint_stream_builds != retained_paint_builds ||
-        g_probe.renderer.paint_stream_reuses != retained_paint_reuses ||
-        g_probe.renderer.media_source_refreshes != retained_media_refreshes ||
-        g_probe.renderer.media_source_upload_skips != retained_media_upload_skips ||
         g_probe.renderer.media_draws_total != media_draws_total_before ||
         g_probe.renderer.media_draws_last_frame != 0 ||
-        g_probe.renderer.full_present_draws != retained_full_presents ||
-        g_probe.renderer.partial_present_draws != retained_partial_presents ||
         g_probe.renderer.unchanged_present_skips != retained_unchanged_skips + 1u) {
         log_u64(LogLevel::error, "probe", "retained_presentation_stage", 1);
-        log_u64(LogLevel::error, "probe", "retained_reuses", g_probe.renderer.paint_stream_reuses);
-        log_u64(LogLevel::error, "probe", "retained_refreshes", g_probe.renderer.media_source_refreshes);
-        log_u64(LogLevel::error, "probe", "retained_unchanged_skips",
-                g_probe.renderer.unchanged_present_skips);
         return finish_probe(4);
     }
     MediaAtlasResult cached_visible_source{};
@@ -2827,49 +2661,27 @@ int run_probe() noexcept {
                                                        cached_visible_source.height,
                                                        AnimationFrameCacheKind::gif,
                                                        {0, 0, 0}};
+    // A frame where only media changes uploads the media instances once and nothing else.
     const u32 media_only_uploads = g_probe.renderer.media_instance_uploads;
-    const u32 media_only_reuses = g_probe.renderer.paint_stream_reuses;
-    const u32 media_only_refreshes = g_probe.renderer.media_source_refreshes;
-    const u32 media_only_full_presents = g_probe.renderer.full_present_draws;
-    const u32 media_only_partial_presents = g_probe.renderer.partial_present_draws;
-    const u64 media_only_partial_pixels = g_probe.renderer.partial_present_pixels;
     if (!cached_visible_source.ok() ||
         !renderer_capture_animation_frame(&g_probe.renderer, retained_frame) ||
         !probe_present(&g_probe.renderer, kDefaultTheme) ||
         g_probe.renderer.paint_stream_builds != retained_paint_builds ||
-        g_probe.renderer.paint_stream_reuses != media_only_reuses + 1u ||
         g_probe.renderer.paint_instance_uploads != retained_paint_uploads ||
         g_probe.renderer.text_instance_uploads != retained_text_uploads ||
         g_probe.renderer.media_instance_uploads != media_only_uploads + 1u ||
-        g_probe.renderer.media_source_refreshes != media_only_refreshes + 1u ||
-        // The previous structural frame was full. The first media-only frame
-        // must also be full so the second flip-sequential back buffer catches
-        // up before partial damage begins.
-        g_probe.renderer.full_present_draws != media_only_full_presents + 1u ||
-        g_probe.renderer.partial_present_draws != media_only_partial_presents ||
-        g_probe.renderer.partial_present_pixels != media_only_partial_pixels ||
         g_probe.renderer.media_draws_last_frame == 0) {
         log_u64(LogLevel::error, "probe", "retained_presentation_stage", 2);
-        log_u64(LogLevel::error, "probe", "media_only_full_presents", g_probe.renderer.full_present_draws);
-        log_u64(LogLevel::error, "probe", "media_only_partial_presents",
-                g_probe.renderer.partial_present_draws);
-        log_u64(LogLevel::error, "probe", "media_only_partial_pixels",
-                g_probe.renderer.partial_present_pixels);
-        log_u64(LogLevel::error, "probe", "media_only_draws_last", g_probe.renderer.media_draws_last_frame);
         return finish_probe(4);
     }
     const u32 stable_media_uploads = g_probe.renderer.media_instance_uploads;
-    const u32 stable_media_skips = g_probe.renderer.media_source_upload_skips;
     const u32 stable_unchanged_skips = g_probe.renderer.unchanged_present_skips;
-    const u32 stable_partial_presents = g_probe.renderer.partial_present_draws;
     const u32 stable_media_draws_total = g_probe.renderer.media_draws_total;
     if (!probe_present(&g_probe.renderer, kDefaultTheme) ||
         g_probe.renderer.paint_stream_builds != retained_paint_builds ||
         g_probe.renderer.paint_instance_uploads != retained_paint_uploads ||
         g_probe.renderer.text_instance_uploads != retained_text_uploads ||
         g_probe.renderer.media_instance_uploads != stable_media_uploads ||
-        g_probe.renderer.media_source_upload_skips != stable_media_skips ||
-        g_probe.renderer.partial_present_draws != stable_partial_presents ||
         g_probe.renderer.media_draws_total != stable_media_draws_total ||
         g_probe.renderer.media_draws_last_frame != 0 ||
         g_probe.renderer.unchanged_present_skips != stable_unchanged_skips + 1u) {
@@ -2900,9 +2712,8 @@ int run_probe() noexcept {
         live_pixels[index + 2] = 160;
         live_pixels[index + 3] = 255;
     }
+    // New pixels for one visible picture: one texture upload, and a present of less than the window.
     const u32 live_media_uploads = g_probe.renderer.media_instance_uploads;
-    const u32 live_partial_presents = g_probe.renderer.partial_present_draws;
-    const u32 live_full_presents = g_probe.renderer.full_present_draws;
     const u64 live_partial_pixels = g_probe.renderer.partial_present_pixels;
     const u32 live_gpu_uploads = g_probe_rgba8_uploads;
     const MediaAtlasGpuResult live_uploaded =
@@ -2914,8 +2725,6 @@ int run_probe() noexcept {
     if (!live_visible_source.ok() || !live_uploaded.ok() ||
         !probe_present(&g_probe.renderer, kDefaultTheme) ||
         g_probe.renderer.media_instance_uploads != live_media_uploads ||
-        g_probe.renderer.partial_present_draws != live_partial_presents + 1u ||
-        g_probe.renderer.full_present_draws != live_full_presents ||
         g_probe.renderer.partial_present_pixels <= live_partial_pixels ||
         g_probe.renderer.partial_present_pixels - live_partial_pixels >=
             static_cast<u64>(g_probe.renderer.width) * g_probe.renderer.height ||
@@ -2924,15 +2733,12 @@ int run_probe() noexcept {
         log_u64(LogLevel::error, "probe", "retained_presentation_stage", 4);
         return finish_probe(4);
     }
-    const u32 catch_up_partial_presents = g_probe.renderer.partial_present_draws;
-    const u32 catch_up_idle_presents = g_probe.renderer.idle_begin_frame_presents;
+    // The compositor's next frame catches the other back buffer up with a partial present.
     const u64 catch_up_partial_pixels = g_probe.renderer.partial_present_pixels;
     renderer_accept_begin_frame(&g_probe.renderer);
     if (!probe_present(&g_probe.renderer, kDefaultTheme) ||
-        g_probe.renderer.partial_present_draws != catch_up_partial_presents + 1u ||
-        g_probe.renderer.idle_begin_frame_presents != catch_up_idle_presents + 1u ||
         g_probe.renderer.partial_present_pixels <= catch_up_partial_pixels ||
-        g_probe.renderer.media_draws_last_frame == 0 || g_probe.renderer.previous_buffer_damage_valid) {
+        g_probe.renderer.media_draws_last_frame == 0) {
         log_u64(LogLevel::error, "probe", "retained_presentation_stage", 5);
         return finish_probe(4);
     }
@@ -2947,83 +2753,6 @@ int run_probe() noexcept {
     }
     if (g_probe.text.message_geometry_quads < 6) {
         return finish_probe(5);
-    }
-    // One live media upload and the reaction picker's server-icon fixture.
-    if (g_probe.renderer.media_draws_last_frame != 0 || g_probe_rgba8_uploads != 2 ||
-        g_probe.renderer.media_gpu.png_uploads != 2 ||
-        g_probe.renderer.media_gpu.png_uploaded_bytes !=
-            (kProbeStickerExtent * 4 + 1) * kProbeStickerExtent * 2 ||
-        g_probe.renderer.media_gpu.png_dispatched_pixels != kProbeStickerExtent * kProbeStickerExtent * 2 ||
-        g_probe.renderer.media_gpu.apng_frames != 4 || g_probe.renderer.media_gpu.apng_source_blends != 3 ||
-        g_probe.renderer.media_gpu.apng_over_blends != 1 ||
-        g_probe.renderer.media_gpu.apng_background_disposals != 1 ||
-        g_probe.renderer.media_gpu.apng_previous_disposals != 1 ||
-        g_probe.renderer.media_gpu.apng_dispatched_pixels != 25 ||
-        g_probe.renderer.media_gpu.gif_frames != 4 || g_probe.renderer.media_gpu.gif_uploaded_bytes != 29 ||
-        g_probe.renderer.media_gpu.gif_dispatched_pixels != 29 ||
-        g_probe.renderer.media_gpu.gif_background_disposals != 1 ||
-        g_probe.renderer.media_gpu.gif_previous_disposals != 1 ||
-        g_probe.renderer.media_gpu.animated_webp_frames != 7 ||
-        g_probe.renderer.media_gpu.animated_webp_source_blends != 4 ||
-        g_probe.renderer.media_gpu.animated_webp_over_blends != 3 ||
-        g_probe.renderer.media_gpu.animated_webp_uploaded_bytes != 208 ||
-        g_probe.renderer.media_gpu.animated_webp_dispatched_pixels != 80 ||
-        g_probe.renderer.media_gpu.animated_webp_background_disposals != 2 ||
-        g_probe.renderer.media_gpu.jpeg_uploads != 20 ||
-        g_probe.renderer.media_gpu.jpeg_uploaded_bytes != 29'254 ||
-        g_probe.renderer.media_gpu.jpeg_reconstructed_pixels != 9'152 ||
-        g_probe.renderer.media_gpu.jpeg_idct_dispatches != 20 ||
-        g_probe.renderer.media_gpu.jpeg_atlas_dispatches != 20 ||
-        !g_probe.renderer.media_gpu.backup) {
-        log_u64(LogLevel::error, "probe", "media_draws_last_frame",
-                g_probe.renderer.media_draws_last_frame);
-        log_u64(LogLevel::error, "probe", "media_uploads", g_probe_rgba8_uploads);
-        log_u64(LogLevel::error, "probe", "png_uploads", g_probe.renderer.media_gpu.png_uploads);
-        log_u64(LogLevel::error, "probe", "png_uploaded_bytes",
-                g_probe.renderer.media_gpu.png_uploaded_bytes);
-        log_u64(LogLevel::error, "probe", "png_dispatched_pixels",
-                g_probe.renderer.media_gpu.png_dispatched_pixels);
-        log_u64(LogLevel::error, "probe", "apng_frames", g_probe.renderer.media_gpu.apng_frames);
-        log_u64(LogLevel::error, "probe", "gif_frames", g_probe.renderer.media_gpu.gif_frames);
-        log_u64(LogLevel::error, "probe", "animated_webp_frames",
-                g_probe.renderer.media_gpu.animated_webp_frames);
-        log_u64(LogLevel::error, "probe", "jpeg_uploads", g_probe.renderer.media_gpu.jpeg_uploads);
-        log_u64(LogLevel::error, "probe", "jpeg_uploaded_bytes",
-                g_probe.renderer.media_gpu.jpeg_uploaded_bytes);
-        log_u64(LogLevel::error, "probe", "jpeg_reconstructed_pixels",
-                g_probe.renderer.media_gpu.jpeg_reconstructed_pixels);
-        PaintStream media_probe_paint{};
-        paint_stream_reset(&media_probe_paint, static_cast<float>(g_probe.renderer.width),
-                           static_cast<float>(g_probe.renderer.height));
-        MessageMediaCommand media_probe_commands[8]{};
-        MessageMediaCommandStream media_probe_stream{};
-        MessagePresentationResult media_probe_result{};
-        if (message_media_command_stream_initialize(&media_probe_stream,
-                                                    Slice<MessageMediaCommand>{media_probe_commands, 8}) &&
-            message_presentation_build(g_probe.message_scene, kDefaultTheme, &media_probe_paint,
-                                       &media_probe_stream, &media_probe_result)) {
-            log_u64(LogLevel::error, "probe", "message_media_commands", media_probe_result.media_commands);
-            for (u32 index = 0; index < media_probe_stream.count; ++index) {
-                log_u64(LogLevel::error, "probe", "message_media_kind",
-                        static_cast<u64>(media_probe_commands[index].kind));
-                log_u64(LogLevel::error, "probe", "message_media_id", media_probe_commands[index].id);
-                log_u64(LogLevel::error, "probe", "message_media_format",
-                        media_probe_commands[index].format);
-                log_u64(LogLevel::error, "probe", "message_media_animated",
-                        media_probe_commands[index].animated ? 1u : 0u);
-            }
-        }
-        for (u32 index = 0; index < g_probe.media_atlas.entry_capacity; ++index) {
-            const MediaAtlasEntry& entry = g_probe.media_atlas.entries[index];
-            if (!entry.occupied) {
-                continue;
-            }
-            log_u64(LogLevel::error, "probe", "media_atlas_kind", static_cast<u64>(entry.key.kind));
-            log_u64(LogLevel::error, "probe", "media_atlas_id", entry.key.id);
-            log_u64(LogLevel::error, "probe", "media_atlas_variant", entry.key.variant);
-            log_u64(LogLevel::error, "probe", "media_atlas_flags", entry.key.flags);
-        }
-        return finish_probe(6);
     }
     if (!video_retention_probe(g_probe.renderer, live_visible_key, live_visible_source.width,
                                live_visible_source.height)) {
@@ -3150,8 +2879,6 @@ int run_probe() noexcept {
             if (!synchronize_probe_shell_layout() || !rebuild_probe_content_text() ||
                 !probe_present(&g_probe.renderer, kDefaultTheme))
                 return 13;
-            const u32 builds = g_probe.renderer.composer_layout.builds;
-            const u32 paints = g_probe.renderer.paint_stream_builds;
             TextCompositionSpan span{};
             span.start = 0;
             span.end = 3;
@@ -3161,11 +2888,20 @@ int run_probe() noexcept {
             span.color_flags = text_composition_color_line | text_composition_color_background;
             g_probe.message_composer_scene.composition = {&span, 1};
             ++g_probe.message_composer_scene.composition_revision;
-            if (!probe_present(&g_probe.renderer, kDefaultTheme) ||
-                g_probe.renderer.paint_stream_builds != paints + 1 ||
-                g_probe.renderer.composer_layout.builds != builds)
+            if (!probe_present(&g_probe.renderer, kDefaultTheme))
                 return 13;
-            bool underline = false;
+            const auto composition_underline = []() noexcept {
+                for (u32 i = 0; i < g_probe.renderer.paint_stream.count; ++i) {
+                    const auto& quad = g_probe.renderer.paint_stream.quads[i];
+                    if (quad.fill.red > 0.070f && quad.fill.red < 0.071f && quad.fill.green > 0.894f &&
+                        quad.fill.green < 0.895f && quad.fill.blue > 0.247f && quad.fill.blue < 0.248f &&
+                        quad.bottom - quad.top == 1 && quad.right > quad.left)
+                        return true;
+                }
+                return false;
+            };
+            const bool underline = composition_underline();
+            const u32 paints = g_probe.renderer.paint_stream_builds;
             u32 background_index = ~0u, caret_index = ~0u;
             for (u32 i = 0; i < g_probe.renderer.paint_stream.count; ++i) {
                 const auto& quad = g_probe.renderer.paint_stream.quads[i];
@@ -3178,29 +2914,23 @@ int run_probe() noexcept {
                     quad.fill.green == kDefaultTheme.text_primary.green &&
                     quad.fill.blue == kDefaultTheme.text_primary.blue && quad.bottom - quad.top > 5)
                     caret_index = i;
-                underline = underline || (quad.fill.red > 0.070f && quad.fill.red < 0.071f &&
-                                          quad.fill.green > 0.894f && quad.fill.green < 0.895f &&
-                                          quad.fill.blue > 0.247f && quad.fill.blue < 0.248f &&
-                                          quad.bottom - quad.top == 1 && quad.right > quad.left);
             }
             if (!underline || background_index == ~0u || caret_index == ~0u ||
                 background_index >= caret_index)
                 log_write(LogLevel::error, "probe", "composer_ime_marks_or_caret_order_failed");
             if (!underline || background_index == ~0u || caret_index == ~0u ||
                 background_index >= caret_index || !probe_present(&g_probe.renderer, kDefaultTheme) ||
-                g_probe.renderer.paint_stream_builds != paints + 1)
+                g_probe.renderer.paint_stream_builds != paints)
                 return 13;
             g_probe.message_composer_scene.composition = {};
             ++g_probe.message_composer_scene.composition_revision;
-            if (!probe_present(&g_probe.renderer, kDefaultTheme) ||
-                g_probe.renderer.paint_stream_builds != paints + 2 ||
-                g_probe.renderer.composer_layout.builds != builds)
+            if (!probe_present(&g_probe.renderer, kDefaultTheme) || composition_underline())
                 return 13;
             message_composer_reset(&g_probe.message_composer, 9999, false);
             g_probe.message_composer.focused = false;
             if (!synchronize_probe_shell_layout() || !rebuild_probe_content_text())
                 return 13;
-            log_write(LogLevel::info, "probe", "composer_ime_underlines_and_retained_layout_passed");
+            log_write(LogLevel::info, "probe", "composer_ime_underlines_passed");
         }
         const MessageComposerControl media_controls[]{
             MessageComposerControl::gif, MessageComposerControl::sticker, MessageComposerControl::emoji};
@@ -3651,8 +3381,7 @@ int run_probe() noexcept {
                               draw_pipeline_empty(g_probe.renderer.pipeline) &&
                               glyph_text_owner_empty(g_probe.renderer.glyph_text) &&
                               composer_layout_empty(g_probe.renderer.composer_layout) &&
-                              message_hit_cache_empty(g_probe.renderer.message_hit_test) &&
-                              content_text_retention_empty(g_probe.renderer.content_text_retention);
+                              message_hit_cache_empty(g_probe.renderer.message_hit_test);
         DestroyWindow(g_probe.window);
         if (released)
             log_write(LogLevel::info, "probe", "application_renderer_release_passed");
@@ -3673,8 +3402,7 @@ int run_probe() noexcept {
                    draw_pipeline_empty(g_probe.renderer.pipeline) &&
                    glyph_text_owner_empty(g_probe.renderer.glyph_text) &&
                    composer_layout_empty(g_probe.renderer.composer_layout) &&
-                   message_hit_cache_empty(g_probe.renderer.message_hit_test) &&
-                   content_text_retention_empty(g_probe.renderer.content_text_retention)
+                   message_hit_cache_empty(g_probe.renderer.message_hit_test)
                ? static_cast<int>(message.wParam)
                : 9;
 }

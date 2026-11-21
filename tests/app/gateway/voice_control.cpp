@@ -117,7 +117,7 @@ void test_gateway_voice_control(void (*check)(bool, const char*) noexcept) noexc
           "leave acknowledgement releases exactly the latest destination");
     state.channel_id = 23;
     gateway_voice_state(&voice, state, 135);
-    check(!voice.acknowledgement_deadline_ms && !gateway_voice_expire(&voice, 50000),
+    check(!gateway_voice_expire(&voice, 50000),
           "acknowledged state awaiting server allocation does not keep an expired timer");
     move.channel_id = 24;
     gateway_voice_request(&voice, move);
@@ -125,7 +125,7 @@ void test_gateway_voice_control(void (*check)(bool, const char*) noexcept) noexc
           "moving while waiting for server allocation cancels that negotiation first");
     gateway_voice_submitted(&voice, command, 50000);
     check(!gateway_voice_expire(&voice, 79999) && gateway_voice_expire(&voice, 80000) &&
-              !gateway_voice_expire(&voice, 80001) && !voice.acknowledgement_deadline_ms &&
+              !gateway_voice_expire(&voice, 80001) &&
               !gateway_voice_next(voice, &command) && voice.error == GatewayVoiceError::state_timeout,
           "leave timeout terminates once without a retry or zero-deadline loop");
 

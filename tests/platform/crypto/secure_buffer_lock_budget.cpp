@@ -2,6 +2,7 @@
 #include "maicord/sys/crypto.hpp"
 #include "maicord/sys/process_info.hpp"
 #include "../../support/test_output.hpp"
+#include "../../support/released_memory.hpp"
 
 // QA-only peer: the production implementation is separately linked into this
 // image, just as it is in MaiCord. No shipping test seam is introduced.
@@ -183,10 +184,6 @@ bool all_pages_locked(const SecureBuffer& buffer) noexcept {
     }
     return true;
 }
-bool released(void* address) noexcept {
-    MEMORY_BASIC_INFORMATION region{};
-    return address && VirtualQuery(address, &region, sizeof(region)) == sizeof(region) && region.State == MEM_FREE;
-}
 void real_peak() noexcept {
     SIZE_T initial_minimum = 0, initial_maximum = 0; DWORD initial_flags = 0;
     check(GetProcessWorkingSetSizeEx(GetCurrentProcess(), &initial_minimum, &initial_maximum, &initial_flags),
@@ -214,8 +211,8 @@ void real_peak() noexcept {
         peak_maximum == initial_maximum && peak_flags == initial_flags,
         "lock budget: recovery stays within cap and preserves maximum/enforcement flags");
     for (auto& buffer : buffers) {
-        void* address = buffer.data; secure_buffer_release(&buffer);
-        check(!buffer.data && !buffer.locked && buffer.capacity == 0 && buffer.bytes == 0 && released(address),
+        const auto address = memory_mark(buffer.data); secure_buffer_release(&buffer);
+        check(!buffer.data && !buffer.locked && buffer.capacity == 0 && buffer.bytes == 0 && memory_released(address),
             "lock budget: all peak virtual allocations release");
     }
     SIZE_T end_minimum = 0, end_maximum = 0; DWORD end_flags = 0;
@@ -244,9 +241,9 @@ DWORD WINAPI thread(void* parameter) noexcept {
     context.ok = result.ok() && all_pages_locked(context.buffer);
     SetEvent(context.ready);
     WaitForSingleObject(context.finish, INFINITE);
-    void* address = context.buffer.data;
+    const auto address = memory_mark(context.buffer.data);
     context.release(&context.buffer);
-    context.freed = released(address) && !context.buffer.data && !context.buffer.locked;
+    context.freed = memory_released(address) && !context.buffer.data && !context.buffer.locked;
     return context.ok && context.freed ? 0 : 1;
 }
 void real_concurrent_images() noexcept {

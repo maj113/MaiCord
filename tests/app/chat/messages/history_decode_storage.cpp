@@ -14,6 +14,7 @@
 #include "../../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
+#include "../../../support/released_memory.hpp"
 
 namespace maicord::history_decode_storage_test {
 using namespace app_detail;
@@ -316,8 +317,9 @@ void storage(AccountUiRuntime& ui, usize page) noexcept {
         }
     check(every_offset, "optional admission finds each key, escape and brace at every offset of a 16-byte step");
     measurement("MEASURE history_snapshot_additional_committed_bytes=", committed_bytes(owner) - before_committed);
+    const auto reservation = memory_mark(base);
     application_history_decode_storage_release(ui);
-    check(!owner.base && !committed_bytes(owner) && vm(base, MEM_FREE) &&
+    check(!owner.base && !committed_bytes(owner) && memory_released(reservation) &&
         arena_account(ArenaTag::storage).committed == account.committed &&
         arena_account(ArenaTag::storage).arenas == account.arenas,
         "history actual account bank release frees reservation and its storage account");
@@ -727,9 +729,9 @@ void run() noexcept {
     measurement("MEASURE history_storage_owner_bytes=", sizeof(HistoryDecodeStorage));
     storage(*owner, page); history(*owner); forwarded_history(*owner);
     send(*owner); send_lifecycle(*owner); edit(*owner); caption_edit(*owner);
-    const auto* base = owner->history_decode_storage.base;
+    const auto base = memory_mark(owner->history_decode_storage.base);
     application_history_decode_storage_release(*owner);
-    check(!owner->history_decode_storage.base && vm(base, MEM_FREE), "history final production owner releases active reservation");
+    check(!owner->history_decode_storage.base && memory_released(base), "history final production owner releases active reservation");
     g_app.account_ui = nullptr; g_app.account.instance = nullptr;
     g_app.account.status = {}; g_app.plugin_account_scope_serial = 0;
     VirtualFree(owner, 0, MEM_RELEASE);

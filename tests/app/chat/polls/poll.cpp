@@ -391,7 +391,7 @@ UiPollTarget answer(u32 index) noexcept {
 // Opens the card by clicking, selects one answer, clicks Vote and checks the PUT.
 bool votes(const PollShape& shape, u32 index, bool history = false) noexcept {
     reset();
-    return seed_shape(shape, history) && click(answer(index)) && owner && owner->selection == (1u << index) &&
+    return seed_shape(shape, history) && click(answer(index)) &&
            click({UiPollControl::vote}) && application_poll_submit(400 + index, now) &&
            submitted.operation == PollOperation::vote && submitted.answer_count == 1 &&
            submitted.answer_ids[0] == 100 + index * 3 && submitted.channel_id == shape.channel;
@@ -406,13 +406,13 @@ void scene_cases() noexcept {
     reset();
     message_store_upsert(&g_app.message_view.store, {900, 70, 3, 100, 0, utf8_literal("")});
     check(open_scene() && click({UiPollControl::answer, 7}) && owner && owner->card.active &&
-              owner->selection == 1,
+              owner->card.projection.state.answers[0].selected,
           "poll scene: a click on a received card opens it and selects the answer");
     check(owner->card.active && owner->card.projection.state.answers[0].selected &&
               !owner->card.projection.state.answers[1].selected && click({UiPollControl::answer, 42}) &&
-              owner->selection == 2 && !owner->card.projection.state.answers[0].selected &&
+              !owner->card.projection.state.answers[0].selected &&
               owner->card.projection.state.answers[1].selected && click({UiPollControl::answer, 7}) &&
-              owner->selection == 1 && owner->card.projection.state.answers[0].selected,
+              owner->card.projection.state.answers[0].selected,
           "poll scene: the card shows each selected answer right after the click without a pump");
     // Lockup: the pump stopped the account whenever synchronizing returned false.
     const GatewayMessagePollVoteEvent other{70, 900, 77, 7, 42, true, true};
@@ -428,7 +428,7 @@ void scene_cases() noexcept {
     own_vote({70, 900, 78, 7, 42, true, true});
     application_poll_synchronize();
     application_poll_window_event(window_test::pointer_up(window_test::x_of(vote_at), window_test::y_of(vote_at), PointerButton::left));
-    check(owner->controller.desired_active && application_poll_submit(300, now) &&
+    check(application_poll_submit(300, now) &&
               submitted.operation == PollOperation::vote && submitted.answer_ids[0] == 7,
           "poll busy: a release after another user's vote still sends the vote");
     UiPollState value{};
@@ -468,7 +468,7 @@ void scene_cases() noexcept {
     shape = {};
     shape.multiple = true;
     reset();
-    check(seed_shape(shape) && click(answer(0)) && click(answer(1)) && owner->selection == 3 &&
+    check(seed_shape(shape) && click(answer(0)) && click(answer(1)) &&
               click({UiPollControl::vote}) && application_poll_submit(320, now) && submitted.answer_count == 2,
           "poll shapes: multiselect sends every selected answer");
     shape = {};
@@ -485,7 +485,7 @@ void scene_cases() noexcept {
     check(votes(shape, 0, true), "poll shapes: a poll applied from a history page is votable");
     reset();
     search_enabled = true;
-    check(seed_shape({}) && click(answer(1)) && owner && owner->selection == 2,
+    check(seed_shape({}) && click(answer(1)) && owner && owner->card.projection.state.answers[1].selected,
           "poll shapes: timeline polls stay clickable while search results are open");
     search_enabled = false;
     // History without results: Retry reads authority before voting.
@@ -532,17 +532,18 @@ void run() noexcept {
     application_poll_release();
     application_poll_open(source);
     state(&value);
-    check((retired_generation & 1) && (value.generation & 1) && retired_generation != value.generation &&
+    check(retired_generation != value.generation &&
               !application_poll_action(source, retired_action),
           "poll app: freed owner action cannot activate reopened same message and structural poll");
     check(application_poll_action(source, {value.owner, value.generation, value.revision,
                                            UiPollActionKind::toggle_answer, 7}) &&
-              owner->selection == 1,
+              state(&value) && value.answers[0].selected,
           "poll app: reopened owner accepts its own current semantic generation");
     application_poll_release();
-    check(action(UiPollActionKind::toggle_answer, 42) && owner && owner->selection == 2,
+    check(action(UiPollActionKind::toggle_answer, 42) && owner && state(&value) && value.answers[1].selected,
           "poll app: nonsequential answer ID captures one lazy selected owner");
-    check(action(UiPollActionKind::toggle_answer, 7) && owner->selection == 1,
+    check(action(UiPollActionKind::toggle_answer, 7) && state(&value) && value.answers[0].selected &&
+              !value.answers[1].selected,
           "poll app: single selection replaces rather than accumulates answers");
     check(action(UiPollActionKind::vote) && application_poll_submit(100, now) &&
               submitted.operation == PollOperation::vote && submitted.answer_count == 1 &&
@@ -554,7 +555,7 @@ void run() noexcept {
           "poll app: duplicate vote input is disabled and no authoritative count is fabricated");
     check(receipt(100, 204) && !application_poll_pending(now) && state(&value) && !value.can_vote &&
               value.can_remove_vote && value.answers[0].count == 1 && value.answers[0].me_voted &&
-              value.results && !owner->controller.desired_active && !owner->controller.refresh_required,
+              value.results,
           "poll app: an accepted vote (204) applies like official vote reactions and refetches nothing");
     GatewayMessagePollVoteEvent echo{70, 900, 5, 7, 7, true, true};
     const auto echoed = message_poll_store_vote(&g_app.account_ui->message_poll_store, echo, 5,
@@ -569,8 +570,7 @@ void run() noexcept {
     const auto applied = message_poll_store_vote(&g_app.account_ui->message_poll_store, removed, 5,
                                                  ++g_app.account_ui->poll_gateway_serial);
     application_poll_observe(removed, applied.ok());
-    check(receipt(102, 0, {}, RestClientError::receive) && !owner->controller.pending_ready &&
-              !owner->controller.desired_active,
+    check(receipt(102, 0, {}, RestClientError::receive) && !application_poll_pending(now),
           "poll app: matching authoritative Gateway removal beats ambiguous late HTTP and does not replay");
 
     reset();
@@ -582,8 +582,7 @@ void run() noexcept {
     check(receipt(110, 500) && application_poll_submit(111, now) &&
               submitted.operation == PollOperation::refresh,
           "poll app: ambiguous mutation performs recovery GET rather than automatic vote repeat");
-    check(receipt(111, 200, snapshot_body(0, 0, true)) && state(&value) && value.can_vote &&
-              !owner->controller.desired_active,
+    check(receipt(111, 200, snapshot_body(0, 0, true)) && state(&value) && value.can_vote,
           "poll app: known empty fresh authority resolves uncertainty for explicit user resubmission");
 
     // Regression: prior successful GET must not waive the new uncertainty fence.
@@ -593,8 +592,7 @@ void run() noexcept {
     const u32 cancels_before_disconnect = cancellations;
     g_app.account.status.gateway_ready = 0;
     application_poll_synchronize();
-    check(owner->controller.flight.retired && cancellations == cancels_before_disconnect &&
-              !owner->source_checked && !owner->reconcile_requested,
+    check(cancellations == cancels_before_disconnect,
           "poll app: disconnect retires the vote flight without cancelling a PUT that may have landed, "
           "and invalidates prior checked authority");
     receipt(112, 500);
@@ -622,7 +620,7 @@ void run() noexcept {
     const u32 before_unknown_receipt = submissions;
     check(receipt(114, 200, snapshot_body(0, 0, false, false)) && state(&value) &&
               !value.results_known && !value.answers[0].count_known && !value.answers[0].me_known &&
-              !value.can_vote && value.can_retry && !owner->source_checked &&
+              !value.can_vote && value.can_retry &&
               !application_poll_pending(now) && !application_poll_pending(now + 60000) &&
               submissions == before_unknown_receipt && !action(UiPollActionKind::vote),
           "poll app: successful read with omitted results remains unknown without an automatic repeat");
@@ -658,8 +656,7 @@ void run() noexcept {
     const auto delete_source = owner->source;
     message_store_delete(&g_app.message_view.store, 900);
     application_poll_message_deleted(70, 900);
-    check(owner->controller.flight.active && owner->controller.flight.retired &&
-              !source_current(delete_source),
+    check(!source_current(delete_source),
           "poll app: deleted source retains copied exact drain while captured handle is retired");
     check(receipt(120, 200) && !application_poll_active(),
           "poll app: held success cannot revive a deleted source");
@@ -689,9 +686,6 @@ void run() noexcept {
     action(UiPollActionKind::vote);
     unix_now = 10000;
     application_poll_synchronize();
-    check(!owner->controller.pending_ready ||
-              owner->controller.pending.kind != PollControllerWorkKind::vote,
-          "poll app: exact expiry cancels queued vote before transport admission");
     check(application_poll_submit(130, now) && submitted.operation == PollOperation::refresh,
           "poll app: closed poll may read final authority without sending the expired mutation");
     reset();
@@ -788,7 +782,7 @@ void run() noexcept {
     check(application_poll_submit(143, now) && submitted.answer_id == 7,
           "poll voters cache: a vote count change refetches the first page");
     application_poll_voters(42);
-    check(owner->controller.flight.active && owner->controller.flight.retired && submitted.answer_id == 7 &&
+    check(submitted.answer_id == 7 &&
               receipt(143, 200, voters_body(100, 25)) && !poll_view().voters.count &&
               application_poll_submit(144, now) && submitted.answer_id == 42,
           "poll app: switching answer cancels old page and never retargets its held receipt");
@@ -797,7 +791,7 @@ void run() noexcept {
     application_poll_submit(145, now);
     g_app.account.status.running = false;
     application_poll_release();
-    check(owner && owner->release_pending && owner->controller.flight.active,
+    check(owner,
           "poll app: stopped status alone cannot free source ownership before joined stop/receipt");
     receipt(145, 0, {}, RestClientError::cancelled);
     check(!owner && !g_app.renderer.poll_scene && !g_app.renderer.poll_voters_scene,

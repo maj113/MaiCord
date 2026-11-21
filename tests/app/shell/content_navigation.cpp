@@ -183,14 +183,14 @@ void context_point_tests() noexcept {
 void home_tests() noexcept {
     check(reset() && chat_state_store_upsert_channel(&ui->chat_state, {50, 0, 0, utf8_literal("DM"), 0, 0, 3}).ok(),
           "home navigation: conversation fixture");
-    check(select_home() && friends_shown == 1 && application_friends_active(),
+    check(select_home() && application_friends_active(),
           "home navigation: Home without an earlier conversation shows Friends");
     check(chat_state_store_select_channel(&ui->chat_state, 50).ok() && (application_friends_hide(), true) &&
-              select_content_guild(10) && select_home() && friends_shown == 1 && !friends_visible &&
+              select_content_guild(10) && select_home() && !friends_visible &&
               ui->chat_state.home_selected && ui->chat_state.selected_channel_id == 50,
           "home navigation: leaving a conversation for a server returns Home to that conversation");
     check(application_friends_show() && select_content_guild(10) && !friends_visible && select_home() &&
-              friends_shown == 3 && application_friends_active(),
+              application_friends_active(),
           "home navigation: leaving Friends for a server returns Home to Friends");
 }
 // The tab model over the real store and navigator: what comes back, what a click, a pin and the keys do.

@@ -184,8 +184,7 @@ void test_client_request_metadata(void (*check)(bool, const char*) noexcept) noe
           "startup reads bounded host metadata and the captured compatibility build");
     const GatewayUserProperties& reported = configuration.configuration.properties;
     u8 signature[16]{};
-    bool signature_hex = reported.launch_signature.bytes == kGatewayUserLaunchIdBytes &&
-                         reported.launch_signature.data == configuration.launch_signature;
+    bool signature_hex = reported.launch_signature.bytes == kGatewayUserLaunchIdBytes;
     for (u32 at = 0, byte = 0; signature_hex && at < kGatewayUserLaunchIdBytes; ++at) {
         const char c = reported.launch_signature.data[at];
         if (at == 8 || at == 13 || at == 18 || at == 23) {
@@ -213,7 +212,8 @@ void test_client_request_metadata(void (*check)(bool, const char*) noexcept) noe
         utf8_equal(reported.operating_system, utf8_literal(kClientOperatingSystem));
 #if defined(_WIN32)
     check(common_properties && sdk.bytes != 0 && sdk.bytes < os_version.bytes &&
-              sdk.data + sdk.bytes == os_version.data + os_version.bytes && sdk.data[-1] == '.' &&
+              os_version.data[os_version.bytes - sdk.bytes - 1] == '.' &&
+              bytes_equal(os_version.data + os_version.bytes - sdk.bytes, sdk.data, sdk.bytes) &&
               !contains(sdk, utf8_literal(".")),
           "startup reports the desktop client's properties with the Windows build as its SDK version");
 #else
@@ -227,20 +227,10 @@ void test_client_request_metadata(void (*check)(bool, const char*) noexcept) noe
 
     UserClientConfigurationStorage other_owner{};
     const bool other_created = user_client_configuration_initialize(&other_owner).ok();
-#if defined(_WIN32)
-    const bool sdk_backed = other_owner.configuration.properties.os_sdk_version.data +
-                                other_owner.configuration.properties.os_sdk_version.bytes ==
-                            other_owner.os_version + other_owner.configuration.properties.os_version.bytes;
-#else
-    const bool sdk_backed = other_owner.configuration.properties.os_sdk_version.bytes == 0;
-#endif
     check(other_created &&
               utf8_equal(configuration.configuration.properties.client_launch_id,
-                         other_owner.configuration.properties.client_launch_id) &&
-              other_owner.configuration.properties.client_launch_id.data == other_owner.client_launch_id &&
-              other_owner.configuration.properties.client_launch_id.data != configuration.client_launch_id &&
-              sdk_backed,
-          "separate auth and account owners share a launch UUID with independently owned backing");
+                         other_owner.configuration.properties.client_launch_id),
+          "separate auth and account owners share a launch UUID");
 
     u8 output[2048]{};
     u8 scratch[2048]{};

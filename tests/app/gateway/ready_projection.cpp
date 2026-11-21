@@ -180,7 +180,7 @@ void nested_record_growth(void (*check)(bool, const char*) noexcept) noexcept {
                 !probe.guild_creates && result.degraded_route.event_error == GatewayEventDecodeError::duplicate_field :
             mode ? !result.ok() && !probe.admitted && !probe.complete &&
             (mode != 4 || result.interrupted && !index.calls && index.storage.arena.committed == 4096) :
-            result.ok() && probe.complete == 1 && probe.valid && index.calls == 5 &&
+            result.ok() && probe.complete == 1 && probe.valid &&
             index.storage.capacity == 32768 && index.storage.arena.committed == 128 * 1024 &&
             stable_storage_data<u32>(index.storage) == base && hash(input) == immutable,
             "READY nested index grows only on failed typed scans; denial and moved backing publish no prefix; "

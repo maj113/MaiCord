@@ -151,7 +151,6 @@ void test_forwarded_message_snapshots(void (*check)(bool, const char*) noexcept)
     MessageRichStore store{};
     check(message_rich_store_initialize(&store, {fixture.records, 8}, {fixture.order, 4},
                                         {fixture.owned_text, 8192}) &&
-              store.capacity == 4 && store.record_capacity == 8 &&
               message_rich_store_apply(&store, 900, 1, event).ok(),
           "forward snapshot admits full child body in same physical rich store");
     const auto* outer = message_rich_store_find(store, 900);
@@ -245,7 +244,7 @@ void test_forwarded_message_snapshots(void (*check)(bool, const char*) noexcept)
     u16 lazy_order[4]{};
     u8 lazy_text[8192]{};
     check(message_rich_store_initialize_owned_sparse(&lazy, &owned, 4, {lazy_order, 4}, {lazy_text, 8192}) &&
-              lazy.capacity == 4 && lazy.record_capacity == 8 && !owned.arena.committed &&
+              !owned.arena.committed &&
               !lazy.snapshot_count,
           "snapshot physical headroom reserves without committing child records");
     GatewayMessageEvent plain{};
@@ -349,7 +348,7 @@ void test_forwarded_message_snapshots(void (*check)(bool, const char*) noexcept)
     check(fields_written &&
               decode_audio_fields({reinterpret_cast<const char*>(fields), field_writer.used}) &&
               event.attachments[0].waveform.bytes == 344 &&
-              gateway_message_waveform_valid(event.attachments[0].waveform),
+              utf8_equal(event.attachments[0].waveform, {encoded, base64.bytes}),
           "audio waveform accepts exact 256-sample canonical boundary without inline attachment array");
     base64 = base64_encode({samples, 257}, {encoded, sizeof(encoded)});
     field_writer.used = 0;

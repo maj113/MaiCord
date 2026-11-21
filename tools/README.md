@@ -19,6 +19,7 @@ describes the build and test runs. [`perf/`](perf/README.md) and [`release/`](re
 | `report_binary_size.py` | The client's sections and largest code (`-SizeReport`, `--size-report`) |
 | `check_sources.py` | After a `-KeepIntermediates` build: parses changed files and the units that include a changed header |
 | `update_gpu_goldens.py` | Renews `tests/gpu/golden` from Direct3D 11 after a shader or scene change |
+| `generate_opus_decoder_references.py`, `opus_reference_decode.c` | Renews libopus's decode that `maicord_opus_decoder_vectors` compares with (`tests/fixtures/opus_decoder_vectors/references.bin`) |
 | `linux_memory_report.py PID` | Splits a running Linux client's resident memory by mapping |
 | `linux_portable_tests.py`, `linux_portable_tests.txt` | The portable test set that CI runs in distribution containers |
 | `maicord-plugin/` | The plugin and effect tool for plugin authors ([SDK](../include/maicord/sdk/README.md)) |

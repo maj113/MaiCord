@@ -314,8 +314,7 @@ bool device_owner_empty(const D3D11DeviceOwner& owner) noexcept {
     const GpuSurface& surface = owner.surface;
     return !owner.device && !owner.context && !owner.context1 && !surface.swap_chain &&
            !surface.composition_device && !surface.composition_target && !surface.composition_visual &&
-           !surface.target && !surface.frame_latency_waitable && surface.buffer_width == 0 &&
-           surface.buffer_height == 0 && surface.resize_buffer_reallocations == 0;
+           !surface.target && !surface.frame_latency_waitable;
 }
 
 } // namespace ui_probe_detail
@@ -351,7 +350,7 @@ bool draw_pipeline_empty(const D3D11DrawPipelineOwner& owner) noexcept {
            !owner.ui_instance_buffer && !owner.ui_frame_buffer && !owner.ui_rasterizer_state &&
            !owner.ui_blend_state && !owner.glyph_vertex_shader && !owner.glyph_pixel_shader &&
            !owner.media_pixel_shader && !owner.glyph_input_layout && !owner.glyph_instance_buffer &&
-           !owner.media_instance_buffer && !owner.glyph_sampler && owner.glyph_instance_capacity == 0;
+           !owner.media_instance_buffer && !owner.glyph_sampler;
 }
 
 bool draw_pipeline_ready(const D3D11Renderer& renderer) noexcept {
@@ -365,20 +364,14 @@ bool draw_pipeline_ready(const D3D11Renderer& renderer) noexcept {
 }
 
 bool glyph_text_owner_empty(const D3D11GlyphTextOwner& owner) noexcept {
-    bool faces_empty = owner.font_face_count == 0;
-    for (u32 index = 0; owner.font_faces && index < owner.font_face_capacity; ++index) {
-        faces_empty = faces_empty && !owner.font_faces[index].native_face.slot && owner.font_faces[index].id == 0 &&
-                      owner.font_faces[index].flags == 0;
-        faces_empty = faces_empty && owner.font_faces[index].empty_glyph_plus_one == 0;
-    }
+    bool faces_empty = true;
+    for (u32 index = 0; owner.font_faces && index < owner.font_face_capacity; ++index)
+        faces_empty = faces_empty && !owner.font_faces[index].native_face.slot;
     return !owner.color_batch && !owner.storage.base && !owner.system.native_text && !owner.system.native_fonts &&
-           owner.system.em_size == 0.0f && !owner.color_glyphs && !owner.title.glyphs &&
-           !owner.title.runs && !owner.title.clusters && !owner.allocator.entries &&
-           !owner.allocator.rows && !owner.gpu.texture && !owner.gpu.surface && !owner.gpu.texture_view &&
-           !owner.gpu.texture_uav && !owner.gpu.command_buffer && !owner.gpu.command_view &&
-           !owner.gpu.raster_shader && owner.gpu.dispatched_pixels == 0 &&
-           owner.gpu.dispatched_commands == 0 && owner.gpu.dispatch_count == 0 &&
-           owner.title_quad_count == 0 && owner.cache_builds == 0 && !owner.ready && faces_empty;
+           !owner.color_glyphs && !owner.title.glyphs && !owner.title.runs && !owner.title.clusters &&
+           !owner.allocator.entries && !owner.allocator.rows && !owner.gpu.texture && !owner.gpu.surface &&
+           !owner.gpu.texture_view && !owner.gpu.texture_uav && !owner.gpu.command_buffer &&
+           !owner.gpu.command_view && !owner.gpu.raster_shader && faces_empty;
 }
 
 bool glyph_text_owner_ready(const D3D11Renderer& renderer) noexcept {
@@ -393,27 +386,11 @@ bool glyph_text_owner_ready(const D3D11Renderer& renderer) noexcept {
 }
 
 bool message_hit_cache_empty(const MessageHitTestCacheOwner& owner) noexcept {
-    return !owner.geometry && !owner.native_format && !owner.storage.base && owner.message_id == 0 &&
-           owner.measurement_identity == 0 && owner.message_revision == 0 && owner.command_index == 0 &&
-           owner.utf16_units == 0 && owner.builds == 0 && owner.hits == 0 && owner.rejected == 0 &&
-           owner.width == 0.0f && owner.height == 0.0f && owner.em_size == 0.0f;
+    return !owner.geometry && !owner.native_format && !owner.storage.base;
 }
 
 bool composer_layout_empty(const TextEditLayoutOwner& owner) noexcept {
-    return !owner.geometry && !owner.format && owner.text_signature == 0 && owner.text_bytes == 0 &&
-           owner.anchor == 0 && owner.caret_offset == 0 && owner.utf16_units == 0 &&
-           owner.selection_count == 0 && owner.builds == 0 && owner.hits == 0 && owner.rejected == 0 &&
-           owner.origin_x == 0.0f && owner.origin_y == 0.0f && owner.width == 0.0f &&
-           owner.height == 0.0f && owner.em_size == 0.0f && !owner.active;
-}
-
-bool content_text_retention_empty(const ContentTextRetentionOwner& owner) noexcept {
-    const ContentTextRetentionKey& key = owner.key;
-    return !owner.valid && owner.builds == 0 && owner.hits == 0 && owner.misses == 0 &&
-           owner.invalidations == 0 && key.shell_signature == 0 && key.message_signature == 0 &&
-           key.popup_signature == 0 && key.theme_signature == 0 && key.selection_signature == 0 &&
-           key.dpi == 0 && key.atlas_evicted_entries == 0 && key.atlas_full_resets == 0 &&
-           !key.include_messages;
+    return !owner.geometry && !owner.format;
 }
 
 bool resize_stress_requested() noexcept {

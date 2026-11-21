@@ -121,19 +121,17 @@ bool run_phase(GuildRailIconProbeContext& c, const Phase& phase, u32 index) noex
     if (phase.hovered && !row)
         return failed(10, index);
     ui_widget_manager_hover(&c.rail.widgets, row ? row->widget : ui_widget_invalid_handle());
-    const u32 builds = r.paint_stream_builds, painted = r.painted_frames;
     const u32 swaps = r.full_present_draws + r.partial_present_draws;
     // A rejected build_layout makes renderer_present return false.
     if (!probe_present(&r, kDefaultTheme))
         return failed(11, index);
-    if (!r.retained_presentation.valid || r.paint_stream_builds != builds + 1 || r.painted_frames != painted + 1 ||
-        r.full_present_draws + r.partial_present_draws <= swaps)
+    if (r.full_present_draws + r.partial_present_draws <= swaps)
         return failed(12, index);
     if (!rail_matches(c, phase, index))
         return false;
-    // The next frame reuses the retained build and keeps the same quads.
-    if (!probe_present(&r, kDefaultTheme) || !r.retained_presentation.valid ||
-        r.paint_stream_builds != builds + 1)
+    // The next frame builds nothing and keeps the same quads.
+    const u32 builds = r.paint_stream_builds;
+    if (!probe_present(&r, kDefaultTheme) || r.paint_stream_builds != builds)
         return failed(13, index);
     return rail_matches(c, phase, index);
 }

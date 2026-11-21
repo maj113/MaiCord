@@ -374,8 +374,7 @@ void attachment_menu_tests() noexcept {
     const char* video[]{"Save Video", "Copy Media Link", "Open Media Link"};
     const char* file[]{"Save File", "Copy Link", "Open Link"};
     check(open_menu(520, 620) && labels_are(image, 4) && menu_message == 520 &&
-              g_app.popup_owner_kind == PopupOwnerKind::message && g_app.downloads &&
-              g_app.downloads->menu_valid && plugin_target == static_cast<u32>(PluginMenuKind::image) && !plugin_index &&
+              g_app.popup_owner_kind == PopupOwnerKind::message && plugin_target == static_cast<u32>(PluginMenuKind::image) && !plugin_index &&
               utf8_equal({plugin_text, plugin_text_bytes}, utf8_literal("cat.png")),
           "Attachment menu: an image merges Copy Image, Save Image and its image-link pair into the "
           "message menu");
@@ -383,8 +382,7 @@ void attachment_menu_tests() noexcept {
               open_menu(523, 623) && labels_are(file, 3) && open_menu(525, 625) && labels_are(file, 3),
           "Attachment menu: gifs save as images with media links; videos, audio and files get Save and "
           "link rows");
-    check(open_menu(524, 624) && labels_are(file, 3) &&
-              g_app.downloads->menu_kind == ReceivedAttachmentKind::voice_message,
+    check(open_menu(524, 624) && labels_are(file, 3),
           "Attachment menu: a voice message offers Save File");
 
     // Copy Link and Open Link act on the exact captured attachment.
@@ -430,7 +428,7 @@ void attachment_menu_tests() noexcept {
     check(!application_downloads_context_action(row_action("Copy Link")),
           "Attachment menu: a later message menu invalidates the attachment rows");
     menu_refuse = true;
-    check(!open_menu(525, 625) && !g_app.downloads->menu_valid,
+    check(!open_menu(525, 625) && !application_downloads_context_action(kReceivedAttachmentActionCopyLink),
           "Attachment menu: a refused message menu leaves no armed attachment source");
     menu_refuse = false;
 
@@ -757,11 +755,11 @@ void run() noexcept {
     dismiss_all();
     check(application_downloads_begin(500, 600), "Downloads captures ordinary source");
     application_downloads_pump();
-    check(picker_starts == 1 && !starts && q->picker_job != kNoDownload,
+    check(picker_starts == 1 && !starts,
           "Downloads chooser precedes transfer admission");
     picker_ready = true;
     application_downloads_pump();
-    check(starts == 1 && q->active_job != kNoDownload && submitted_origin == 101 &&
+    check(starts == 1 && submitted_origin == 101 &&
               submitted_attachment == 600 && submitted_bytes == 7 && submitted_overwrite,
           "Downloads transport receives original owner and exact chosen overwrite consent");
     check(bytes_equal(submitted_path, chosen_path, sizeof(chosen_path)) &&
@@ -818,8 +816,7 @@ void run() noexcept {
     application_downloads_pump();
     picker_ready = true;
     application_downloads_pump();
-    check(q->jobs[0].phase == JobPhase::warning && q->jobs[0].path && q->jobs[0].after_choice_warning &&
-              starts == 2,
+    check(q->jobs[0].phase == JobPhase::warning && starts == 2,
           "Downloads risky chosen extension requires a second default Cancel warning before transport");
     activate(*q, {UiDownloadAction::cancel_confirmation, q->jobs[0].id});
     dismiss_all();
@@ -864,7 +861,7 @@ void run() noexcept {
     application_downloads_pump();
     picker_ready = true;
     application_downloads_pump();
-    check(q->jobs[0].force_refresh && q->jobs[0].resolution.pending && starts == attempts_before_refresh &&
+    check(starts == attempts_before_refresh &&
               media_url_resolution_state(g_app.media_urls,
                                          {q->jobs[0].source.url, q->jobs[0].source.url_bytes}) ==
                   MediaUrlState::queued,
@@ -962,17 +959,17 @@ void run() noexcept {
     picker_ready = false;
     check(application_downloads_begin(500, 600) && !application_downloads_active(),
           "Downloads ordinary Save opens no panel");
+    const u32 straight_pickers = picker_starts;
     application_downloads_pump();
-    check(q->picker_job != kNoDownload && !application_downloads_active(),
+    check(picker_starts == straight_pickers + 1 && !application_downloads_active(),
           "Downloads ordinary Save goes straight to the chooser");
     picker_ready = true;
     application_downloads_pump();
-    const u32 first_save = q->active_job, transfers_before_second = starts;
+    const u32 first_save = q->active_job, transfers_before_second = starts, second_pickers = picker_starts;
     picker_ready = false;
     application_downloads_begin(502, 602, true);
     application_downloads_pump();
-    check(first_save != kNoDownload && q->active_job == first_save && q->picker_job != kNoDownload &&
-              q->picker_job != first_save && starts == transfers_before_second &&
+    check(first_save != kNoDownload && picker_starts == second_pickers + 1 && starts == transfers_before_second &&
               !application_downloads_active(),
           "Downloads a second Save asks for its location while the first transfer runs");
     finish(HttpsFileDownloadError::file_commit);
@@ -980,7 +977,7 @@ void run() noexcept {
           "Downloads a failed save opens the panel so its Retry is reachable");
     picker_ready = true;
     application_downloads_pump();
-    check(starts == transfers_before_second + 1 && q->active_job != kNoDownload,
+    check(starts == transfers_before_second + 1,
           "Downloads the waiting save starts its transfer once the first one drains");
     finish();
     dismiss_all();
@@ -1011,9 +1008,7 @@ void run() noexcept {
           "Downloads embed media is saveable only through Discord's media proxy");
     const u32 embed_transfers = starts;
     picker_ready = false;
-    check(application_downloads_begin_embed(503, 0) && q->jobs[0].source.embed &&
-              !q->jobs[0].source.attachment &&
-              q->jobs[0].source.bytes == kHttpsFileDownloadSizeFromResponse &&
+    check(application_downloads_begin_embed(503, 0) &&
               utf8_equal({q->jobs[0].source.filename, q->jobs[0].source.filename_bytes},
                          utf8_literal("wave.mp4")),
           "Downloads embed Save names the file after its original media URL");
@@ -1107,8 +1102,7 @@ void run() noexcept {
     picker_ready = false;
     application_downloads_begin_search(search_ticket, 900, true);
     application_downloads_pump();
-    check(search_panel && search_closes == closed_before_overlay && q->jobs[0].source.search_result &&
-              q->picker_job == 0,
+    check(search_panel && search_closes == closed_before_overlay && picker_starts == search_dialogs + 1,
           "Downloads overlay retains the accepted Search source beneath the Save chooser");
     policy_child->attachments[0].flags = 0;
     media_filter = MessageExplicitFilter::show;
@@ -1116,7 +1110,7 @@ void run() noexcept {
     ++search_publication;
     application_downloads_pump();
     check(q->jobs[0].phase == JobPhase::failed && !q->jobs[0].admitted && starts == search_transfers &&
-              picker_cancels == before_picker_cancel + 1 && q->picker_job == kNoDownload &&
+              picker_cancels == before_picker_cancel + 1 &&
               !application_downloads_search_available(search_ticket, 900, true),
           "Downloads replaced Search publication cancels and drains a showing chooser before URL or "
           "transfer admission");

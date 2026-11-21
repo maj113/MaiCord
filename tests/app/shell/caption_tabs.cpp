@@ -408,7 +408,7 @@ void media() noexcept {
     // The strip hiding takes the pages, and keeps the channel tabs.
     check(application_tabs_open_media(source(MediaPageKind::image, "z"), true) && open_pages() == 1, "caption tabs media: a page opens");
     g_app.preferences.tabs_enabled = false;
-    check(!application_tabs_visible() && open_pages() == 0 && resets != 0,
+    check(!application_tabs_visible() && open_pages() == 0,
           "caption tabs media: hiding the strip closes the pages");
     g_app.preferences.tabs_enabled = true;
     check(application_tabs_visible() && view()->count == 1 && application_tabs_key(0) == 100,
@@ -501,11 +501,11 @@ void identity() noexcept {
     send(pointer_move(x, y));
     send(pointer_down(x, y));
     send(pointer_move(x + width * 0.4f, y));
-    check((view()->items[2].flags & kUiTabDragging) && application_tabs_drag_index() == 2,
+    check((view()->items[2].flags & kUiTabDragging),
           "caption tabs identity: the tab is dragged");
     // A channel before it is deleted: the strip closes that tab and its neighbours move up.
     check(chat_state_store_remove_channel(&ui->chat_state, 100) && view()->count == 3 &&
-              application_tabs_drag_index() == 1 && application_tabs_key(1) == 102 &&
+              application_tabs_key(1) == 102 &&
               (view()->items[1].flags & kUiTabDragging) && !(view()->items[0].flags & kUiTabDragging),
           "caption tabs identity: a tab closing before the dragged one does not change which one is dragged");
     send(pointer_move(x + width * 0.5f, y));

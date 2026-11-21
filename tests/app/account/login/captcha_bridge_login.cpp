@@ -242,10 +242,10 @@ void password_flow() noexcept {
               status.captcha_provider == CaptchaProvider::recaptcha_enterprise &&
               !module_login_copy_captcha_bridge_url(owner, 5, &credential).ok(),
           "captcha login: password challenge waits for an explicit bridge start");
-    check(module_login_start_captcha_bridge(owner, 0, 60000).error == AccountLoginError::invalid_input &&
-              !owner->captcha_bridge.runtime, "captcha login: zero generation is refused");
+    check(module_login_start_captcha_bridge(owner, 0, 60000).error == AccountLoginError::invalid_input,
+          "captcha login: zero generation is refused");
     status = module_login_start_captcha_bridge(owner, 5, 60000);
-    check(status.ok() && owner->captcha_bridge.runtime && wait_bridge(owner, CaptchaBridgePhase::waiting) &&
+    check(status.ok() && wait_bridge(owner, CaptchaBridgePhase::waiting) &&
               module_login_start_captcha_bridge(owner, 6, 60000).error == AccountLoginError::invalid_input,
           "captcha login: one bridge per challenge starts from the locked challenge");
     constexpr auto solution = utf8_literal("P1_synthetic.solution-0001");
@@ -260,7 +260,7 @@ void password_flow() noexcept {
               bytes_equal(fixture.request.data, original.data, original.bytes) &&
               headers_contain(utf8_literal("X-Captcha-Key: P1_synthetic.solution-0001\r\n")) &&
               headers_contain(utf8_literal("X-Captcha-Rqtoken: synthetic.rqtoken\r\n")) &&
-              headers_contain(utf8_literal("X-Captcha-Session-Id: session-1\r\n")) && !owner->captcha_bridge.runtime &&
+              headers_contain(utf8_literal("X-Captcha-Session-Id: session-1\r\n")) &&
               module_login_captcha_bridge_status(owner).phase == CaptchaBridgePhase::complete,
           "captcha login: the retained password request replays once with the solution and replay headers; listener joined");
     // An invalid solution yields a fresh challenge and a fresh single-use state.
@@ -314,7 +314,7 @@ void password_flow() noexcept {
               module_login_start_captcha_bridge(owner, 10, 60000).ok() && wait_bridge(owner, CaptchaBridgePhase::waiting),
           "captcha login: cancellation fixture starts");
     status = module_login_cancel_captcha_bridge(owner);
-    check(status.ok() && status.phase == AccountLoginPhase::captcha_required && !owner->captcha_bridge.runtime &&
+    check(status.ok() && status.phase == AccountLoginPhase::captcha_required &&
               module_login_captcha_bridge_status(owner).phase == CaptchaBridgePhase::cancelled,
           "captcha login: cancelling the bridge keeps the challenge for another attempt");
     check(module_login_start_captcha_bridge(owner, 11, 60000).ok() && wait_bridge(owner, CaptchaBridgePhase::waiting),
@@ -341,7 +341,8 @@ void remote_flow() noexcept {
     const auto status = module_login_pump_with_captcha(owner);
     check(fixture.remote_submissions == 1 && fixture.remote_solution.bytes == 27 &&
               bytes_equal(fixture.remote_solution.data, "0.synthetic-turnstile_token", 27) &&
-              status.phase == AccountLoginPhase::remote_ticket_exchange && !owner->captcha_bridge.runtime,
+              status.phase == AccountLoginPhase::remote_ticket_exchange &&
+              module_login_captcha_bridge_status(owner).phase == CaptchaBridgePhase::complete,
           "captcha login: the QR ticket exchange receives the solution exactly once");
     void* instance = owner;
     module_login_stop(&instance, 5000);

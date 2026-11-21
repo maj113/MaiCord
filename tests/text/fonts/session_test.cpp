@@ -2,6 +2,7 @@
 #include "maicord/text/fonts/run.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
+#include "../../support/released_memory.hpp"
 namespace maicord {namespace {
 #include "../../generated/tt_probe_font.inc"
 constexpr u32 session_capacity=1024;
@@ -100,12 +101,12 @@ bool run() noexcept {
 }
 }}
 MAICORD_TEST_ENTRY(maicord_font_session_entry) {
-    using namespace maicord;bool ok=run();if(session){const auto* allocation=session;auto* fs=native_font_session_fonts(session);auto* is=native_font_session_instances(session);
+    using namespace maicord;bool ok=run();if(session){auto* fs=native_font_session_fonts(session);auto* is=native_font_session_instances(session);
         for(auto run:runs)if(run.slot)ok=native_font_run_release(native_font_session_runs(session),run)&&ok;
         if(alias.slot)ok=native_font_release(fs,alias)&&ok;if(instructed.slot)ok=native_font_instance_release(is,instructed)&&ok;
         for(u32 i=0;i<session_capacity;++i){if(faces[i].slot)ok=native_font_release(fs,faces[i])&&ok;if(instances[i].slot)ok=native_font_instance_release(is,instances[i])&&ok;}
-        ok=native_font_session_release(&session)&&ok;MEMORY_BASIC_INFORMATION region{};
-        ok=(VirtualQuery(allocation,&region,sizeof(region))==sizeof(region)&&region.State==MEM_FREE)&&ok;}
+        const auto allocation=memory_mark(session);
+        ok=native_font_session_release(&session)&&ok;ok=memory_released(allocation)&&ok;}
     for(u32 i=0;i<paths_created;++i)ok=DeleteFileW(paths[i])&&ok;
     print("checks=");number(checks);print(ok?" PASS native font session\n":" FAIL native font session\n");::maicord::test_process_exit(ok?0:1);
 }

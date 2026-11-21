@@ -7,6 +7,7 @@
 #include "../../support/account_module_fake.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/released_memory.hpp"
 
 namespace maicord::gif_favorites_runtime_test {
 using namespace app_detail;
@@ -18,7 +19,7 @@ u8 captured_patch[kGifFavoritesMaximumPatchBytes];
 u32 captured_bytes;
 FavoriteBank* watch_bank;
 bool callback_before_free;
-const void* transient_base;
+MemoryMark transient; // The conditional write's transient storage, marked during admission.
 usize transient_bytes;
 constexpr auto saved = utf8_literal("https://example.test/saved.gif");
 constexpr auto another = utf8_literal("https://example.test/new.gif");
@@ -26,10 +27,6 @@ constexpr auto third = utf8_literal("https://example.test/third.gif");
 constexpr auto source = utf8_literal("https://example.test/preview.gif");
 void check(bool pass, const char* message) noexcept {
     test_check(&failures, pass, message);
-}
-bool is_free(const void* pointer) noexcept {
-    Win32MemoryInformation memory{};
-    return VirtualQuery(pointer, memory.native(), sizeof(memory)) && memory.State == MEM_FREE;
 }
 struct Binary {
     u8 bytes[8192];
@@ -150,7 +147,7 @@ RestClientSubmitResult WINAPI submit(void*, AccountGifFavoritesOperation operati
         Win32MemoryInformation allocation{};
         check(VirtualQuery(patch.data, allocation.native(), sizeof(allocation)) && allocation.State == MEM_COMMIT,
               "conditional write holds owned transient storage during synchronous admission");
-        transient_base = allocation.AllocationBase;
+        transient = memory_mark(allocation.AllocationBase);
         transient_bytes = allocation.RegionSize;
     }
     check((operation == AccountGifFavoritesOperation::fetch && !patch.count) ||
@@ -313,7 +310,8 @@ void hover_interest() noexcept {
     check(quiet && cancels == before_close && submits == crossing_submits &&
               g_app.gif_favorites->request_id == 303 && application_gif_favorites_response_buffer().data == held.data,
           "hover interest: leaving and re-entering hover keeps the one admitted GET without a cancel or a resubmit");
-    check(complete(response(303), envelope(authority.view())) && is_free(held.data) &&
+    const auto held_mark = memory_mark(held.data);
+    check(complete(response(303), envelope(authority.view())) && memory_released(held_mark) &&
               application_gif_favorites_view().authoritative && application_gif_favorites_state(saved).confirmed &&
               !application_gif_favorites_next_wake(),
           "hover interest: the GET completes after the hover left and publishes its snapshot");
@@ -531,7 +529,7 @@ void run() noexcept {
               submitted_operation == AccountGifFavoritesOperation::update,
           "conditional favorite update serializes through primary API");
     check(
-        transient_base && transient_bytes < 16 * 1024 && is_free(transient_base),
+        transient_bytes < 16 * 1024 && memory_released(transient),
         "tiny mutation commits below 16 KiB transient scratch and JSON and releases both after admission");
     u32 required{};
     const auto patch = patch_proto(&required);
@@ -555,21 +553,22 @@ void run() noexcept {
     copy_bytes(held.data, updated.data, updated.bytes);
     watch_bank = g_app.gif_favorites->bank;
     callback_before_free = false;
-    const auto old_bank = watch_bank;
+    const auto old_bank = memory_mark(watch_bank);
     check(application_gif_favorites_response(response(102),
                                              {reinterpret_cast<const char*>(held.data), updated.bytes}) &&
               application_gif_favorites_state(another).confirmed &&
               !application_gif_favorites_state(another).pending &&
               application_gif_favorites_view().data_revision != original.data_revision &&
-              callback_before_free && is_free(old_bank) &&
+              callback_before_free && memory_released(old_bank) &&
               application_gif_favorites_response_buffer().data == held.data &&
               !application_gif_favorites_pending(1),
           "verified result swaps immutable bank with callback before borrowed old bank free and defers "
           "take buffer drain");
     watch_bank = nullptr;
     secure_clear_bytes(held.data, updated.bytes);
+    const auto held_buffer = memory_mark(held.data);
     application_gif_favorites_response_drained();
-    check(is_free(held.data) && !application_gif_favorites_response_buffer().data,
+    check(memory_released(held_buffer) && !application_gif_favorites_response_buffer().data,
           "take buffer remains writable for RAII erase then is freed by exact response drain");
     const bool bank_owned = g_app.gif_favorites && g_app.gif_favorites->bank && g_app.gif_favorites->bank->bytes;
     check(application_gif_favorites_toggle(saved, source, 160, 90, GifFavoriteFormat::image) &&
@@ -627,9 +626,10 @@ void run() noexcept {
               application_gif_favorites_response_buffer().data == closed_buffer.data,
           "closing keeps the admitted fetch in flight instead of cancelling it");
     const auto closed_snapshot = proto(25);
+    const auto closed_mark = memory_mark(closed_buffer.data);
     check(complete(response(108), envelope(closed_snapshot.view())) && application_gif_favorites_view().authoritative &&
               !application_gif_favorites_pending(~u64{0}) && !application_gif_favorites_next_wake() &&
-              is_free(closed_buffer.data),
+              memory_released(closed_mark),
           "the closed fetch publishes its snapshot and starts nothing more");
     ++g_app.account.status.frecency_settings_revision;
     application_gif_favorites_synchronize();
@@ -654,8 +654,9 @@ void run() noexcept {
               application_gif_favorites_response_buffer().data == before_switch.data,
           "account scope switch invalidates borrowed confirmed data retaining exact old take receipt");
     const auto foreign = proto(99, true, true);
+    const auto switched = memory_mark(before_switch.data);
     check(complete(response(111), envelope(foreign.view())) &&
-              !application_gif_favorites_view().records.count && is_free(before_switch.data) &&
+              !application_gif_favorites_view().records.count && memory_released(switched) &&
               g_app.gif_favorites->profile_id == g_app.account.status.profile_id,
           "old profile self completion drains without publishing into new scope");
     application_gif_favorites_release();
@@ -685,13 +686,12 @@ void run() noexcept {
     check(application_gif_favorites_submit(114, 1),
           "primary lane completion can retry busy admission normally");
     // Joined-account release may retire exact pending receipt directly.
-    const auto teardown_buffer = application_gif_favorites_response_buffer();
-    const void* queue = g_app.gif_favorites->queue;
-    const void* bank = g_app.gif_favorites->bank;
-    const void* owner = g_app.gif_favorites;
+    const MemoryMark teardown[]{memory_mark(application_gif_favorites_response_buffer().data),
+                                memory_mark(g_app.gif_favorites->queue), memory_mark(g_app.gif_favorites->bank),
+                                memory_mark(g_app.gif_favorites)};
     application_gif_favorites_release();
-    check(!g_app.gif_favorites &&
-              is_free(teardown_buffer.data) && is_free(queue) && is_free(bank) && is_free(owner),
+    check(!g_app.gif_favorites && memory_released(teardown[0]) && memory_released(teardown[1]) &&
+              memory_released(teardown[2]) && memory_released(teardown[3]),
           "joined teardown releases all owner queue confirmed and pending response commitments");
     load(115, 50, true, false);
     check(application_gif_favorites_toggle(third, source, 90, 90, GifFavoriteFormat::image) &&
@@ -759,7 +759,7 @@ void run() noexcept {
     static char long_text[base64_encoded_size(sizeof(long_patch.bytes))];
     const auto long_encoded = base64_encode(long_patch.view(), {long_text, sizeof(long_text)});
     check(required == 60 && long_encoded.ok() &&
-              gif_favorites_measure_base64({long_text, long_encoded.bytes}).ok() && is_free(transient_base),
+              gif_favorites_measure_base64({long_text, long_encoded.bytes}).ok() && memory_released(transient),
           "full catalog key emits complete valid protobuf and releases derived transient storage");
     application_gif_favorites_release();
     // A fetch required by an explicit queued change is account-owned, even if

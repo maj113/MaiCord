@@ -60,7 +60,8 @@ else()
     # (its cases ran about 15% faster with it optimized). The test code of the background theme probe, the frame damage
     # probe, the profile media fit test, the Arabic plan test, the glyph topology probe and the GPU stream encoder test
     # compares pixels or shaping plans in its own loops, and the media fixture encodes its pictures in its own loops:
-    # unoptimized it took most of their time (the background probe ran on the suite's longest GPU chain).
+    # unoptimized it took most of their time (the background probe ran on the suite's longest GPU chain). The Opus
+    # conformance test's opus_compare took 41 s unoptimized and 2 s optimized.
     set(maicord_optimized_test_sources "${CMAKE_CURRENT_SOURCE_DIR}/tests/app/media/received_attachment_open.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/native_app_line_test.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/native_app_line_scripts.cpp"
@@ -75,7 +76,8 @@ else()
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/platform/encode/stream_encoder_gpu_test.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/app/media/profile_media_fit.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/support/media_fixture.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/support/media_fixture_encoders.cpp")
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/support/media_fixture_encoders.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/media/audio/opus_conformance.cpp")
     set(maicord_unoptimized_sources)
     foreach(target IN LISTS maicord_test_targets)
         get_target_property(sources ${target} SOURCES)

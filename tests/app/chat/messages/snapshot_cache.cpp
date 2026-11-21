@@ -380,7 +380,7 @@ void test_message_snapshot_cache(void (*check)(bool, const char*) noexcept) noex
     for (u32 i = 0; heights_kept && i < kCount; ++i)
         heights_kept = ui_variable_list_item_units(g_live.list, i) == heights[i];
     check(ready && restored.status == MessageSnapshotRestoreStatus::restored && restored.count == kCount &&
-              same_rows(g_live, g_fresh) && g_live.timeline.reset_generation == reset_generation + 1,
+              same_rows(g_live, g_fresh) && g_live.timeline.reset_generation != reset_generation,
           "snapshot restore renders rows identical to a fresh load");
     check(heights_kept && g_live.timeline.scroll_units == scroll && !g_live.timeline.follow_bottom &&
               !message_snapshot_cache_find(g_cache, kChannel) && g_cache.used == 0 && !g_cache.pool.base,

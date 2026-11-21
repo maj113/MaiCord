@@ -4,6 +4,7 @@
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
+#include "../../support/released_memory.hpp"
 
 namespace maicord::account_permission_storage_test {
 using namespace app_detail;
@@ -133,9 +134,10 @@ void run() noexcept {
         prefix(owner->overwrite_storage, kChatStateOverwriteCapacity, page),
         "permission maximum admission commits both banks' full prefixes at their original caps");
     if (!maximum_admitted) { account_permission_storage_release(*owner); VirtualFree(owner, 0, MEM_RELEASE); return; }
+    const MemoryMark banks[]{memory_mark(roles), memory_mark(overwrites)};
     state = {}; account_permission_storage_release(*owner);
     check(!owner->role_storage.arena.base && !owner->overwrite_storage.arena.base &&
-        vm(roles, MEM_FREE) && vm(overwrites, MEM_FREE), "permission detached production owner releases both actual VM reservations");
+        memory_released(banks[0]) && memory_released(banks[1]), "permission detached production owner releases both actual VM reservations");
     account_permission_storage_release(*owner);
     RoleRecord fixed_roles[1]{}; PermissionOverwriteRecord fixed_overwrites[1]{};
     const bool fixed = initialize_model(*owner) && chat_state_store_bind_permissions(&state, {fixed_roles, 1}, {fixed_overwrites, 1});

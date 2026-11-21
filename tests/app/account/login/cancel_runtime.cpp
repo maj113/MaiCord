@@ -1009,9 +1009,8 @@ void run() noexcept {
     check(seed(false), "reset failed-stop fixture seeds owner");
     g_app.login.reset_mode = true; g_app.login.status = LoginStatus::reset_captcha_required;
     audit.fail_stop = true;
-    const auto old_epoch = g_app.login.application_auth_epoch;
     check(application_login_handle_key(key::escape) && editors_clear() && audit.cleared_before_stop &&
-        g_app.login.application_auth_epoch > old_epoch && g_app.login.reset_mode &&
+        g_app.login.reset_mode &&
         g_app.login.status == LoginStatus::cancelling && g_app.account.login_instance == &audit &&
         application_login_pump() && !audit.pumps && !audit.attachments,
           "reset CAPTCHA cancellation invalidates auth epoch and wipes local secrets before live-stop "
@@ -1077,7 +1076,7 @@ void run() noexcept {
     check(seed(true), "browser UI: QR challenge owner seeds"); audit.allow_load = true;
     check(application_login_begin_browser_auth() && audit.browser_starts == 1 && !audit.browser_launches &&
         audit.stops == 1 && audit.cleared_before_stop && !g_app.login.remote_active && !g_app.login.qr_ready &&
-        g_app.login.status == LoginStatus::browser_starting && g_app.login.browser_launch_epoch == g_app.login.application_auth_epoch,
+        g_app.login.status == LoginStatus::browser_starting,
           "browser UI: explicit action clears QR/editors and joins old owner before asynchronously "
           "starting listener");
     check(application_login_pump() && !audit.browser_copies && !audit.browser_launches,

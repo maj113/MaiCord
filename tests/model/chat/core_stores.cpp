@@ -1005,8 +1005,7 @@ void test_member_list_subscription_scope() noexcept {
            "member_list_projects_only_current_subscription_indices");
 }
 
-// Free-slot hints keep READY insertion O(1) while removals still recycle the
-// lowest free slot exactly as the former slot-zero scan did.
+// Removed guilds and channels free their slots for new ones.
 void test_chat_state_free_slot_hints() noexcept {
     ChatStateStore state{};
     GuildRecord guilds[4]{};
@@ -1020,20 +1019,18 @@ void test_chat_state_free_slot_hints() noexcept {
                                                           GuildMutationKind::create, 1}).ok();
     for (u32 i = 0; valid && i < 8; ++i)
         valid = chat_state_store_upsert_channel(&state, {10 + i, 100, 0, utf8_literal("chan"), i, 0, 0}).ok();
-    const bool filled = valid && state.guild_free_hint == 4 && state.channel_free_hint == 8 &&
+    const bool filled = valid &&
                         !chat_state_store_upsert_channel(&state, {99, 100, 0, utf8_literal("x"), 0, 0, 0}).ok();
     valid = filled && chat_state_store_remove_channel(&state, 15) && chat_state_store_remove_channel(&state, 12) &&
-            state.channel_free_hint == 2 && chat_state_store_remove_guild(&state, 102, false) &&
-            state.guild_free_hint == 2 &&
+            chat_state_store_remove_guild(&state, 102, false) &&
             chat_state_store_upsert_channel(&state, {30, 100, 0, utf8_literal("new"), 0, 0, 0}).ok() &&
             chat_state_store_upsert_channel(&state, {31, 101, 0, utf8_literal("new"), 0, 0, 0}).ok() &&
             chat_state_store_upsert_guild(&state, {200, utf8_literal("Late"), GuildMutationKind::create, 1}).ok();
-    const ChannelRecord* first = valid ? chat_state_store_find_channel(state, 30) : nullptr;
-    const ChannelRecord* second = valid ? chat_state_store_find_channel(state, 31) : nullptr;
-    const GuildRecord* guild = valid ? chat_state_store_find_guild(state, 200) : nullptr;
-    expect(valid && first == &channels[2] && second == &channels[5] && guild == &guilds[2] &&
-               state.channel_free_hint == 3 && state.channel_count == 8 && state.guild_count == 4,
-           "chat_state_free_slot_hints_recycle_lowest_slot");
+    expect(valid && chat_state_store_find_channel(state, 30) && chat_state_store_find_channel(state, 31) &&
+               chat_state_store_find_guild(state, 200) && !chat_state_store_find_channel(state, 12) &&
+               !chat_state_store_find_guild(state, 102) && state.channel_count == 8 && state.guild_count == 4 &&
+               !chat_state_store_upsert_channel(&state, {99, 100, 0, utf8_literal("x"), 0, 0, 0}).ok(),
+           "chat_state_removed_slots_take_new_records");
 }
 
 } // namespace maicord

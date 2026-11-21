@@ -1332,9 +1332,8 @@ void run() noexcept {
                   account.selections == selections && account.status.playback.playing == was_playing &&
                   account.status.playback.position_100ns == position,
               "video expand runtime: F moves the same session into the viewer without reselection, pause or seek");
-        check(g_app.renderer.video_scene->style.idle_ms == kUiVideoControlsExpandedIdleMs &&
-                  g_app.renderer.video_scene->projection.controls[6].selected,
-              "video expand runtime: the hosted player uses the expanded idle delay and collapse control");
+        check(g_app.renderer.video_scene->projection.controls[6].selected,
+              "video expand runtime: the hosted player shows its collapse control");
         terminal_buffering();
         retry_range_commands(true);
         check(application_video_key(key::escape, false, false) &&

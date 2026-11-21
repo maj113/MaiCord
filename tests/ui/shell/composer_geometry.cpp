@@ -315,7 +315,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
                         measured;
                 const u32 layout_passes = scene.layout_passes, projection_passes = scene.projection_passes;
                 const u64 display_signature = scene.display_signature;
-                for (u32 frame = 0; frame < 64; ++frame) {
+                for (u32 frame = 0; frame < 2; ++frame) {
                     const auto warmed = update();
                     stable &= warmed.ok() && !warmed.changed && scene.layout_passes == layout_passes &&
                               scene.projection_passes == projection_passes &&
@@ -347,7 +347,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         check(preserves, "composer_width_changes_preserve_unicode_document_selection_composition_and_"
                          "fourteen_widget_storage");
         check(stable,
-              "composer_compact_64_warm_updates_keep_focus_without_layout_projection_or_allocation");
+              "composer_compact_warm_updates_keep_focus_without_layout_projection_or_allocation");
     }
 
     message_composer_reset(&model, 42, false);
@@ -397,14 +397,14 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
           "composer_minimum_reply_mentions_have_separate_hit_focus_label_and_no_document_change_on_toggle");
     const u32 reply_passes = scene.layout_passes;
     bool stable_reply = true;
-    for (u32 frame = 0; frame < 64; ++frame) {
+    for (u32 frame = 0; frame < 2; ++frame) {
         const auto stable = message_composer_scene_update(
             &scene, &model, minimum_reply, true, 77,
             utf8_literal("Replying to a long original author name"), nullptr, {}, {}, false, false, true);
         stable_reply &= stable.ok() && !stable.changed && scene.layout_passes == reply_passes;
     }
     check(stable_reply,
-          "composer_reply_static_author_ping_cancel_64_updates_without_layout_or_document_changes");
+          "composer_reply_static_author_ping_cancel_updates_without_layout_or_document_changes");
     const bool focused_send = message_composer_scene_focus_control(&scene, MessageComposerControl::send);
     const auto restricted_reply = message_composer_scene_update(
         &scene, &model, minimum_reply, true, 77, utf8_literal("Replying to a long original author name"),

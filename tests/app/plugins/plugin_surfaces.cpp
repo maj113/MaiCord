@@ -71,6 +71,8 @@ void check(bool value, const char* label) noexcept {
 }
 
 constexpr u64 kSecondOwner = SURFACES_OWNER + 1;
+// Every call class gets this budget, which no loaded machine reaches, so ordinary calls never strike.
+constexpr u64 kRelaxedBudgetUs = 10'000'000;
 
 PluginEnableResult enable(PluginRuntime* runtime, const wchar_t* name) noexcept {
     return plugin_runtime_enable(runtime, {name, length(name)}, MC_PERM_KNOWN);
@@ -214,12 +216,16 @@ void test_budget(PluginBinding* binding) noexcept {
     check(prepare(message(20, "hide"), &fresh) && fresh.calls == 1 && decoration(20) && state->message_calls == calls + 1,
           "the next pass asks");
 
+    // Only here the decorate budget is 20 ms: the fixture's "slow" message sleeps 30 ms, so it always overruns.
+    PluginCallLedger* ledger = binding->runtime->ledger;
+    ledger->decorate_budget_us = 20'000;
     const u32 strikes = binding->strikes;
     prepare(message(21, "slow"));
     check(binding->strikes == strikes + 1 && !decoration(21), "a call over budget is a strike and its answer is dropped");
     const u32 slow_calls = state->message_calls;
     prepare(message(21, "slow"));
     check(state->message_calls == slow_calls, "an overrun is not asked again");
+    ledger->decorate_budget_us = kRelaxedBudgetUs;
 }
 
 void test_ring(PluginBinding* binding) noexcept {
@@ -737,8 +743,8 @@ void run() noexcept {
     wchar_t ledger_path[MAX_PATH];
     join(ledger_path, root.base, L"ledger.bin");
     const bool ledger_ready = plugin_call_ledger_open(&ledger, ledger_path, &leftover) && !leftover.present;
-    // Decorate calls get 20 ms here, so only the fixture's 30 ms "slow" message overruns, whatever the machine does.
-    ledger.decorate_budget_us = 20'000;
+    // test_budget lowers the decorate budget around its one slow call.
+    ledger.decorate_budget_us = ledger.pre_budget_us = ledger.event_budget_us = ledger.budget_us = kRelaxedBudgetUs;
     const PluginLoadResult opened =
         plugin_runtime_open(&runtime, {root.plugins, length(root.plugins)}, {root.data, length(root.data)}, &ledger);
     check(ledger_ready && opened.ok(), "the plugins directory is pinned");

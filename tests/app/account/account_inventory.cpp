@@ -153,7 +153,9 @@ AccountInventoryEntry entry(u64 user, u32 slot, u64 used, const char* name) noex
 
 void test_paths(Check check, const Profile& profile) noexcept {
     AccountPaths zero{}, three{};
-    check(profile.slot(0, &zero) && bytes_equal(&zero, &profile.root, sizeof(zero)),
+    check(profile.slot(0, &zero) && ends_with(zero.profile, L"\\accounts\\active.profile") &&
+              ends_with(zero.session, L"\\accounts\\active.session") &&
+              ends_with(zero.drafts, L"\\accounts\\active.drafts") && ends_with(zero.account_directory, L"\\accounts"),
           "account_inventory_slot0_is_single_profile_layout");
     check(profile.slot(3, &three) && ends_with(three.profile, L"\\accounts\\slot-3\\active.profile") &&
               ends_with(three.session, L"\\accounts\\slot-3\\active.session") &&

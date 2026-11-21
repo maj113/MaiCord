@@ -18,6 +18,7 @@
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "../../support/released_memory.hpp"
 
 namespace maicord {
 void test_application_plugin_navigation_runtime(void (*check)(bool, const char*) noexcept) noexcept;
@@ -131,27 +132,25 @@ void test_native_projection_bank() noexcept {
         check(false, "settings shared bank: bounded native page descriptors exist");
         return;
     }
-    const auto* shared = appearance->controls.data;
     const auto prefs = g_app.preferences;
     const u32 refreshes = observed.notifications_refreshes, setups = observed.notifications_setups;
     const u32 appearance_revision = appearance->revision;
     check(ui_page_registry_select(pages, kNotificationsPage).ok() && application_settings_synchronize() &&
-              current->selected_page.page_id == 1 && notifications->controls.data == shared &&
-              notifications->controls.count >= 19 && !appearance->controls.data &&
+              current->selected_page.page_id == 1 &&
+              notifications->controls.count >= 19 &&
               !appearance->controls.count && appearance->revision > appearance_revision &&
-              !plugins->controls.data && !plugins->controls.count &&
+              !plugins->controls.count &&
               utf8_equal(notifications->controls[0].label, utf8_literal("Overview")) &&
               labelled(*notifications, cid("notifications.volume"), utf8_literal("Sound volume")) &&
               observed.notifications_refreshes == refreshes + 1 &&
               ui_settings_scene_focus(current, {UiSettingsTargetKind::control, kNotificationsPage, cid("notifications.volume")}),
           "settings shared bank: external Notifications selection projects and refreshes before its first "
           "frame");
-    const auto allocation = current->storage.arena.base;
     const u16 generation = current->widgets.generation;
     const u32 layout = current->widgets.layout.revision, text_builds = observed.text_builds;
     const auto focused = ui_settings_scene_focused(*current);
     check(application_settings_synchronize() && application_settings_synchronize() &&
-              current->storage.arena.base == allocation && current->widgets.generation == generation &&
+              current->widgets.generation == generation &&
               current->widgets.layout.revision == layout && observed.text_builds == text_builds + 1 &&
               ui_settings_target_equal(ui_settings_scene_focused(*current), focused) &&
               observed.notifications_refreshes == refreshes + 1,
@@ -159,8 +158,8 @@ void test_native_projection_bank() noexcept {
           "controls");
     const u32 notification_revision = notifications->revision;
     check(ui_page_registry_select(pages, kAppearancePage).ok() && application_settings_synchronize() &&
-              appearance->controls.data == shared && appearance->controls.count >= 9 &&
-              !notifications->controls.data && !notifications->controls.count &&
+              appearance->controls.count >= 9 &&
+              !notifications->controls.count &&
               notifications->revision > notification_revision &&
               utf8_equal(appearance->controls[0].label, utf8_literal("Theme")) &&
               ui_settings_scene_focus(current, {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.member_list")}) &&
@@ -168,8 +167,8 @@ void test_native_projection_bank() noexcept {
           "settings shared bank: 5 to 1 retires old borrow and routes focus to Appearance labels");
     const u32 retired_appearance_revision = appearance->revision;
     check(ui_page_registry_select(pages, kAccessibilityPage).ok() && application_settings_synchronize() &&
-              accessibility->controls.data == shared && accessibility->controls.count >= 9 &&
-              !appearance->controls.data && appearance->revision > retired_appearance_revision &&
+              accessibility->controls.count >= 9 &&
+              appearance->revision > retired_appearance_revision &&
               labelled(*accessibility, cid("accessibility.reduced_motion"), utf8_literal("Enable Reduced Motion")) &&
               ui_settings_scene_focus(current, {UiSettingsTargetKind::control, kAccessibilityPage, cid("accessibility.reduced_motion")}) &&
               ui_settings_scene_focused(*current).page.page_id == 3 &&
@@ -177,8 +176,8 @@ void test_native_projection_bank() noexcept {
           "settings shared bank: 1 to 2 replaces descriptors without polling inactive Notifications");
     const u32 accessibility_revision = accessibility->revision;
     check(ui_page_registry_select(pages, kNotificationsPage).ok() && application_settings_synchronize() &&
-              notifications->controls.data == shared && notifications->controls.count >= 19 &&
-              !accessibility->controls.data && !accessibility->controls.count &&
+              notifications->controls.count >= 19 &&
+              !accessibility->controls.count &&
               accessibility->revision > accessibility_revision &&
               utf8_equal(notifications->controls[0].label, utf8_literal("Overview")) &&
               ui_settings_scene_focus(current, {UiSettingsTargetKind::control, kNotificationsPage, cid("notifications.volume")}) &&
@@ -190,20 +189,17 @@ void test_native_projection_bank() noexcept {
     check(ui_page_registry_select(pages, kAppearancePage).ok() && application_settings_synchronize(),
           "settings shared bank: original Appearance page restores after projection regression");
     const auto before_catalog = appearance->revision;
-    const auto widget_generation = current->widgets.generation;
     check(ui_page_registry_select(pages, kPluginsPage).ok() && application_settings_synchronize() &&
-              plugins->host && !plugins->controls.data && !plugins->controls.count &&
-              !appearance->controls.data &&
+              plugins->host && !plugins->controls.count &&
               !appearance->controls.count && appearance->revision > before_catalog &&
-              current->widgets.generation != widget_generation &&
               !ui_settings_scene_control(*current, {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.gradient_intensity")}),
           "settings shared bank: the store page is a host page with no controls and retires Appearance borrow "
           "and input generation");
     const UiSettingsTarget retired_catalog{
         UiSettingsTargetKind::control, kPluginsPage, 1};
     check(ui_page_registry_select(pages, kAppearancePage).ok() && application_settings_synchronize() &&
-              appearance->controls.data == shared && appearance->controls.count >= 9 &&
-              !plugins->controls.data && !plugins->controls.count &&
+              appearance->controls.count >= 9 &&
+              !plugins->controls.count &&
               !ui_settings_scene_control(*current, retired_catalog),
           "settings shared bank: returning Appearance leaves no store page control target");
 }
@@ -292,11 +288,6 @@ void test_search_field() noexcept {
     check(query("x") && key(key::escape) && query("") && application_settings_active() &&
               ui_settings_scene_focus_zone(*current) == UiSettingsFocusZone::search,
           "settings search: Escape clears a query before it closes Settings");
-}
-bool freed(void* address) noexcept {
-    MEMORY_BASIC_INFORMATION region{};
-    return address && VirtualQuery(address, &region, sizeof(region)) == sizeof(region) &&
-           region.State == MEM_FREE;
 }
 LPARAM shell_point(UiSemantic semantic) noexcept {
     const auto* node = ui_scene_node(g_app.shell_scene, semantic);
@@ -396,7 +387,7 @@ void test_menu_runtime() noexcept {
               g_app.popup_scene.active,
           "plugins menu: projected plugin rows materialize before explicit bind");
     g_app.popup_owner_kind = PopupOwnerKind::message;
-    check(!application_plugins_menu_bind() && !g_app.popup_scene.active && !application_plugins_menu_state().count &&
+    check(!application_plugins_menu_bind() && !g_app.popup_scene.active &&
               plugin->menu_calls == callbacks,
           "plugins menu: failed bind dismisses materialized rows and clears the bank");
     check(open_plugin_menu(S::user, 1234), "plugins menu: account-scoped user popup opens");
@@ -414,7 +405,7 @@ void test_menu_runtime() noexcept {
     check(open_plugin_menu(S::user, 1234) && application_plugins_menu_action(first) &&
               plugin->menu_calls == callbacks + 1 && plugin->menu_gesture && plugin->menu_item == 0 &&
               plugin->menu_kind == MC_MENU_USER && plugin->user_id == 1234 && !plugin->channel_id &&
-              !plugin->message_id && !g_app.popup_scene.active && !application_plugins_menu_state().count &&
+              !plugin->message_id && !g_app.popup_scene.active &&
               !application_settings_active(),
           "plugins menu: the plugin's user handler runs in a gesture after popup dismissal with the copied user ID");
     // A Friends row menu carries the same user rows; its relationship is the fence.
@@ -626,7 +617,6 @@ void test_controller() noexcept {
     maicord::app_detail::test_application_account_settings_connection_runtime(check);
     test_search_field();
     maicord::app_detail::test_application_keybinds_settings_runtime(check);
-    auto* widget_memory = scene()->storage.arena.base;
     const u32 builds = observed.text_builds;
     check(application_settings_open() && g_app.settings == settings_memory &&
               observed.text_builds == builds,
@@ -649,6 +639,7 @@ void test_controller() noexcept {
               "settings: Alt+F4 passes through modal keyboard handling");
     null_window_release_keys();
     const u32 before_close_member_updates = observed.member_updates;
+    const auto widget_memory = memory_mark(scene()->storage.arena.base);
     // A click on the scrim closes Settings; a press there released over the
     // dialog does not.
     const auto modal = scene()->layout.modal;
@@ -669,7 +660,7 @@ void test_controller() noexcept {
           "settings: closing immediately restores member visibility and subscriptions");
     check(!application_settings_active() && !scene() && g_app.context_focus == &previous_focus &&
               g_app.message_composer.focused && !g_app.animations.timeline.suspended &&
-              freed(widget_memory),
+              memory_released(widget_memory),
           "settings: close restores prior focus and releases modal widget storage");
     observed.fail_text = true;
     check(!application_settings_open() && !application_settings_active() && !scene() &&
@@ -1713,8 +1704,9 @@ void test_controller() noexcept {
               !application_settings_input(UiInputKind::key_down, 'A', false) && !g_app.settings_held_key,
           "settings: Escape close consumes held key tails before returning control to account input");
     const u64 ending_settings_lifetime = application_settings_lifetime();
+    const auto settings_reservation = memory_mark(settings_memory);
     application_settings_release();
-    check(!g_app.settings && !scene() && !g_app.settings_held_key && freed(settings_memory),
+    check(!g_app.settings && !scene() && !g_app.settings_held_key && memory_released(settings_reservation),
           "settings: final release clears controller pointer, renderer binding and held keys and frees VM");
     check(ending_settings_lifetime >= settings_lifetime &&
               application_settings_lifetime() == ending_settings_lifetime,

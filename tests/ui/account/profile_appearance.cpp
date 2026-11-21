@@ -1115,9 +1115,12 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
         }
         const auto* node = ui_widget_manager_layout_node(scene.widgets, username);
         bool precise = node != nullptr;
+        float ink_x = 0, ink_y = 0;
         if (node) {
             const auto layout = node->rectangle;
             const float y = (layout.top + layout.bottom) * .5f;
+            ink_x = layout.left + 8;
+            ink_y = y;
             const UiRect ink{layout.left + 2, y - 5, layout.left + 22, y + 5};
             precise = !profile_scene_hit_test(scene, layout.left + 8, y).generation;
             profile_scene_publish_text_hit(scene, {&scene.widgets, username}, layout, ink, layout);
@@ -1125,9 +1128,9 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
                       !profile_scene_hit_test(scene, layout.left + 8, y - 8).generation;
             auto stale = username;
             ++stale.generation;
-            const u32 hits = scene.text_hit_count;
+            // A stale owner's full-row ink is refused: the row outside the published ink stays empty.
             profile_scene_publish_text_hit(scene, {&scene.widgets, stale}, layout, layout, layout);
-            precise = precise && scene.text_hit_count == hits;
+            precise = precise && !profile_scene_hit_test(scene, layout.left + 8, y - 8).generation;
         }
         check(precise, "profile_inline_action_uses_clipped_owned_native_ink_not_full_name_row");
         const auto* avatar_node = ui_widget_manager_layout_node(scene.widgets, avatar);
@@ -1136,7 +1139,8 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
                           .slot == avatar.slot &&
                   profile_scene_action(scene, avatar) == ProfileAction::expand,
               "profile_avatar_opens_full_profile");
-        check(profile_scene_layout(&scene, scene.viewport, true) && scene.text_hit_count == 0,
+        check(node && profile_scene_layout(&scene, scene.viewport, true) &&
+                  !profile_scene_hit_test(scene, ink_x, ink_y).generation,
               "profile_relayout_discards_old_inline_ink_hits");
     }
     const auto previous = scene.rectangle;

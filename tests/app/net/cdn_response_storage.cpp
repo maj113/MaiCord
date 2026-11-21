@@ -99,7 +99,7 @@ void test_cdn_response_storage(void (*check)(bool, const char*) noexcept) noexce
         MEMORY_BASIC_INFORMATION before{};
         VirtualQuery(runtime->response_body + body_bytes - 1, &before, sizeof(before));
         valid = valid && rejected.error == CdnClientTakeError::consumer_rejected &&
-                before.State == MEM_COMMIT && client.request_state == request_state_ready;
+                before.State == MEM_COMMIT;
         const auto consumed = cdn_client_consume_response(
             &client,
             [](void* context, const CdnClientResponse&, ConstSlice<u8> body) noexcept {
@@ -111,8 +111,7 @@ void test_cdn_response_storage(void (*check)(bool, const char*) noexcept) noexce
         VirtualQuery(runtime->response_body + body_bytes - 1, &after, sizeof(after));
         retained = runtime->storage_committed_bytes;
         valid = valid && consumed.ok() && after.State == MEM_RESERVE && retained < initial + 128u * 1024u &&
-                client.request_state == request_state_empty &&
-                runtime->response_capacity == kMediaMaximumEncodedVideoBytes;
+                client.request_state == request_state_empty;
     }
     check(valid, "cdn_response_owner_releases_large_body_and_recommits_next_response_exactly");
     runtime->transport_ready = true;

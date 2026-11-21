@@ -113,7 +113,7 @@ inline void test_search_measurement() noexcept {
     g_app.renderer.dpi = 144;
     const u32 dpi_revision = search.source.revision;
     check(app_detail::measure_rows(search) && bank->measured_dpi == 144 &&
-              search.source.revision == dpi_revision + 1 && !app_detail::measure_rows(search),
+              search.source.revision != dpi_revision && !app_detail::measure_rows(search),
           "search measurement: DPI changes rebuild once then resume the cache fast path");
     measurement_text_owner.tracking = .25f;
     check(app_detail::measure_rows(search) && bank->measured_tracking == .25f &&

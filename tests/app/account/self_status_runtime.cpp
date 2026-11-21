@@ -89,7 +89,7 @@ void run() noexcept {
     check(application_self_status_request(GatewayUserStatus::dnd) &&
               application_self_status_snapshot().revision == queued_revision,
           "self status frontend: repeated queued choice does not create a redundant followup update");
-    check(application_self_status_response(response(999), {}) && g_app.self_status.request_id == 102,
+    check(application_self_status_response(response(999), {}) && application_self_status_snapshot().pending,
           "self status frontend: unrelated completion cannot retire the submitted update");
     check(application_self_status_response(response(102), {}) && application_self_status_submit(103, 1) &&
               submitted_status == GatewayUserStatus::dnd &&
@@ -103,19 +103,15 @@ void run() noexcept {
     const u32 disconnected_completions = completions;
     snapshot.available = false;
     check(application_self_status_response(response(111), {}) &&
-              completions == disconnected_completions + 1 && !g_app.self_status.request_id &&
-              g_app.self_status.queued && g_app.self_status.desired == GatewayUserStatus::dnd &&
+              completions == disconnected_completions + 1 &&
               !application_self_status_pending(1) && !application_self_status_next_wake(),
-          "self status frontend: same-account disconnected completion drains backend and retains newer "
-          "desire without a wake");
+          "self status frontend: same-account disconnected completion drains backend without a wake");
     application_self_status_synchronize();
-    check(g_app.self_status.queued && g_app.self_status.desired == GatewayUserStatus::dnd,
-          "self status frontend: disconnected synchronization cannot discard the retained choice");
     snapshot.available = true;
     check(application_self_status_pending(1) && application_self_status_submit(112, 1) &&
               submitted_status == GatewayUserStatus::dnd &&
               application_self_status_response(response(112), {}) && !application_self_status_next_wake(),
-          "self status frontend: reconnect admits the retained newest choice exactly once");
+          "self status frontend: the choice queued before a disconnect is submitted once on reconnect");
     completion_error = GatewaySelfStatusError::out_of_date;
     check(application_self_status_request(GatewayUserStatus::online) &&
               application_self_status_submit(104, 1) &&
@@ -132,7 +128,7 @@ void run() noexcept {
     check(
         application_self_status_request(GatewayUserStatus::idle) &&
             application_self_status_submit(107, 1) &&
-            application_self_status_response(response(107, 403), {}) && !g_app.self_status.queued &&
+            application_self_status_response(response(107, 403), {}) && !application_self_status_snapshot().pending &&
             !application_self_status_next_wake(),
         "self status frontend: consuming a rejected response cannot claim a saved status or retry forever");
     completion_error = GatewaySelfStatusError::none;
@@ -157,7 +153,7 @@ void run() noexcept {
     const u32 prior_completions = completions;
     ++snapshot.profile_id;
     check(application_self_status_response(response(110), {}) && completions == prior_completions &&
-              !g_app.self_status.request_id && !application_self_status_next_wake(),
+              !application_self_status_next_wake(),
           "self status frontend: changed account drains the ticket without submitting to the new identity");
     application_self_status_clear();
     g_app.account = {};

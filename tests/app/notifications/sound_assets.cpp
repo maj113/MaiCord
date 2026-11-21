@@ -3,6 +3,7 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/crypto.hpp"
 #include "../../support/test_output.hpp"
+#include "../../support/released_memory.hpp"
 
 namespace maicord {
 namespace {
@@ -29,10 +30,6 @@ bool readonly_pcm(const void* address,u32 bytes) noexcept {
     return address&&VirtualQuery(address,&region,sizeof(region))==sizeof(region)&&
         region.State==MEM_COMMIT&&region.Type==MEM_PRIVATE&&region.Protect==PAGE_READONLY&&
         region.BaseAddress==address&&region.RegionSize>=bytes;
-}
-bool freed(const void* address) noexcept {
-    MEMORY_BASIC_INFORMATION region{};
-    return address&&VirtualQuery(address,&region,sizeof(region))==sizeof(region)&&region.State==MEM_FREE;
 }
 
 }
@@ -66,11 +63,11 @@ void test_notification_sound_assets(void(*check)(bool,const char*) noexcept) noe
         "sound assets: invalid callback inputs preserve descriptor and lazy bank");
     NotificationAudioClip first{},third{},again{};
     const bool first_ok=notification_sound_asset_resolve(&bank,1,&first);
-    check(first_ok&&bank.frames[0]==11040&&first.samples.count==22080&&
+    check(first_ok&&first.samples.count==22080&&
         first.sample_rate==48000&&first.silence_frames==4800&&readonly_pcm(first.samples.data,44160)&&pcm_hash_hex(first,"3162e7907b056612cd095fe89643f946c93ba8414165e927b57b5bf0ba9f51fc")&&!bank.pcm[1],
         "sound assets: original ordinary alert resolves exact canonical 44160-byte PCM into private readonly VM");
     const bool third_ok=notification_sound_asset_resolve(&bank,2,&third);
-    check(third_ok&&bank.frames[1]==7200&&third.samples.count==14400&&
+    check(third_ok&&third.samples.count==14400&&
         third.sample_rate==48000&&third.silence_frames==4800&&readonly_pcm(third.samples.data,28800)&&pcm_hash_hex(third,"41431438a81d1b593e2f2242c9d0e7dee6e764f1692a1a0683b08c61c731dfd1"),
         "sound assets: original focused alert resolves exact canonical 28800-byte PCM into private readonly VM");
     check(first_ok&&third_ok&&first.samples.data!=third.samples.data&&
@@ -99,7 +96,7 @@ void test_notification_sound_assets(void(*check)(bool,const char*) noexcept) noe
         notification_sound_assets_volume(&bank,percent);float gain=-1,clamped=-1;
         const float expected=static_cast<float>(percent)/200.0f;
         const float expected_clamp=percent>100?1.0f:static_cast<float>(percent)/100.0f;
-        volumes=volumes&&bank.output_percent==static_cast<LONG>(percent)&&
+        volumes=volumes&&
             notification_sound_asset_gain(&bank,.5f,&gain)&&gain>=expected-.000001f&&gain<=expected+.000001f&&
             notification_sound_asset_gain(&bank,1.f,&clamped)&&clamped==expected_clamp;
     }
@@ -107,7 +104,9 @@ void test_notification_sound_assets(void(*check)(bool,const char*) noexcept) noe
     notification_sound_assets_volume(&bank,73);notification_sound_assets_volume(&bank,201);
     notification_sound_assets_volume(&bank,~0u);notification_sound_assets_volume(nullptr,100);
     float gain=9;u32 nan_bits=0x7FC00000;float nan{};copy_bytes(&nan,&nan_bits,sizeof(nan));
-    check(bank.output_percent==73&&!notification_sound_asset_gain(nullptr,.5f,&gain)&&
+    float kept=-1;
+    check(notification_sound_asset_gain(&bank,.5f,&kept)&&kept>=.365f-.000001f&&kept<=.365f+.000001f&&
+        !notification_sound_asset_gain(nullptr,.5f,&gain)&&
         !notification_sound_asset_gain(&bank,-.1f,&gain)&&!notification_sound_asset_gain(&bank,1.1f,&gain)&&
         !notification_sound_asset_gain(&bank,nan,&gain)&&!notification_sound_asset_gain(&bank,.5f,nullptr)&&gain==9,
         "sound assets: invalid percentages and nominal gains cannot change volume or output");
@@ -117,11 +116,11 @@ void test_notification_sound_assets(void(*check)(bool,const char*) noexcept) noe
     invalid_percent=invalid_percent&&!notification_sound_asset_gain(&bank,.5f,&gain)&&gain==9;
     check(invalid_percent,"sound assets: corrupt sampled volume fails without publishing gain");
     notification_sound_assets_volume(&bank,100);
-    const void* addresses[kNotificationSoundAssetCount]{};
-    for(u32 i=0;i<kNotificationSoundAssetCount;++i)addresses[i]=bank.pcm[i];
+    MemoryMark addresses[kNotificationSoundAssetCount]{};
+    for(u32 i=0;i<kNotificationSoundAssetCount;++i)addresses[i]=memory_mark(bank.pcm[i]);
     notification_sound_assets_release(&bank);
     bool all_freed=true;
-    for(u32 i=0;i<kNotificationSoundAssetCount;++i)all_freed=all_freed&&!bank.pcm[i]&&!bank.frames[i]&&!bank.rates[i]&&freed(addresses[i]);
+    for(u32 i=0;i<kNotificationSoundAssetCount;++i)all_freed=all_freed&&!bank.pcm[i]&&memory_released(addresses[i]);
     check(first_ok&&third_ok&&all_freed&&!bank.failed_mask,
         "sound assets: isolated owner release frees both original PCM allocations after no worker lifetime exists");
     notification_sound_assets_release(&bank);notification_sound_assets_release(nullptr);

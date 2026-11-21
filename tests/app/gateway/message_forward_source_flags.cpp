@@ -82,8 +82,7 @@ void test_message_forward_source_flags(void (*check)(bool, const char*) noexcept
         gateway_client_route_dispatch(envelope, {fixture.structurals, 256}, 16, {fixture.mailbox, 2048}, {ids, 2}, 2,
             &tts_routed, &payload, gateway_test_message_scratch()).ok() &&
         gateway_client_event_as_message(tts_routed, payload, rich, &event);
-    check(spoken && event.tts && event.forwarding_features == 0 &&
-              (tts_routed.message.forwarding_features & kGatewayClientMessageTts),
+    check(spoken && event.tts && event.forwarding_features == 0,
           "tts: a /tts message's flag crosses the mailbox and reads back as tts");
 }
 } // namespace maicord

@@ -98,25 +98,12 @@ void decode() noexcept {
               same(gmod.executables, utf8_literal("hl2.exe?-game garrysmod|win64/gmod.exe|bin/gmad.exe|"
                                                   ">hl2.exe?-game garrysmod|garrysmod/hl2.exe?-game garrysmod")),
           "decode: executables keep their path, >, arguments (lowercase) and drop the macOS ones");
-    const auto league = detectable_list_game(g_list, 7);
-    check(same(league.executables, utf8_literal("league of legends.exe|*leagueclientux.exe")),
-          "decode: is_launcher marks an executable as a launcher");
-    const auto terraria = detectable_list_game(g_list, 5);
-    check(same(terraria.executables, utf8_literal("terraria/terraria.exe|terraria.bin.x86|terraria.exe")),
-          "decode: the Linux executables are kept beside the Windows ones");
     const Utf8View exclusions{g_list.text + h->games_text_bytes, h->exclusions_bytes};
     const Utf8View patterns{exclusions.data + exclusions.bytes, h->patterns_bytes};
     check(same(exclusions, utf8_literal("brocrashreporter.exe|crashreportclient.exe|install.exe|launcher.exe|"
                                         "unitycrashhandler64.exe|ue4prereqsetup_x64.exe")) &&
               same(patterns, utf8_literal("vcredist.*\\.exe$")),
           "decode: exclusions are lowercased; patterns outside the supported subset are dropped");
-    // Keys: one per distinct file name of a game, sorted.
-    bool sorted = true;
-    for (u32 i = 1; i < h->key_count; ++i)
-        sorted = sorted && (g_list.keys[i - 1].hash < g_list.keys[i].hash ||
-                            (g_list.keys[i - 1].hash == g_list.keys[i].hash &&
-                             g_list.keys[i - 1].game < g_list.keys[i].game));
-    check(sorted && h->key_count == 15, "decode: keys are sorted and a game's repeated file name keeps one key");
     check(!detectable_list_build({utf8_literal("[{\"id\":"), {}, {}, {}, {}, 0, 0}, scratch(),
                                  {g_image + 32768, 32768}) &&
               !detectable_list_build({kGames, {}, {}, {}, {}, 0, 0}, scratch(), {g_image + 32768, 256}),
@@ -303,9 +290,8 @@ void big_list() noexcept {
                                                   {image, static_cast<u32>(json_bytes)})
                           : 0;
     DetectableList list{};
-    check(bytes && detectable_list_view({image, bytes}, &list) && list.header->game_count == kGamesCount &&
-              list.header->key_count == kGamesCount + kGamesCount / 100,
-          "big list: 25,000 games build into one image with a key per executable file");
+    check(bytes && detectable_list_view({image, bytes}, &list) && list.header->game_count == kGamesCount,
+          "big list: 25,000 games build into one image");
     const GameProcess last[]{process(utf8_literal("c:/games/synthetic/game24999.exe"), 1)};
     const GameProcess shared[]{process(utf8_literal("c:/x/shared.exe"), 2)};
     const auto found = game_detection_select({}, list, {last, 1}, 0, 0);

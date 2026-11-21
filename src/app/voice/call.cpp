@@ -202,6 +202,11 @@ u32 project_streams(u64 channel_id) noexcept {
         p.user_id = application_stream_tile(watched_owner);
         p.name = user_name(watched_owner);
         p.stream = tile_stream(watched.state);
+        // The cast needs StreamWatchNotice to keep the order of UiCallStreamNotice.
+        static_assert(static_cast<u8>(StreamWatchNotice::ended) == static_cast<u8>(UiCallStreamNotice::ended) &&
+                      static_cast<u8>(StreamWatchNotice::failed) == static_cast<u8>(UiCallStreamNotice::failed) &&
+                      static_cast<u8>(StreamWatchNotice::interrupted) ==
+                          static_cast<u8>(UiCallStreamNotice::interrupted));
         p.notice = static_cast<UiCallStreamNotice>(watched.notice);
         p.paused = watched.paused;
         p.viewers = watched.viewers;

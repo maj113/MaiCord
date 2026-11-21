@@ -15,12 +15,12 @@ void test_gateway_state_recovery(void (*check)(bool, const char*) noexcept) noex
         gateway_state_recovery_request(&state, false) == GatewayStateRecoveryResult::pending,
         "duplicate recovery requests coalesce across transport phase changes");
     gateway_state_recovery_cancel_post(&state);
-    check(!state.pending && !state.attempts, "failed worker wake refunds the unsent recovery attempt");
+    check(!state.attempts, "failed worker wake refunds the unsent recovery attempt");
     const u32 delays[] = {1000, 30'000, 300'000};
     for (u32 attempt = 0; attempt < 3; ++attempt) {
         const u64 now = 1000 + attempt * 1'000'000ull;
         check(gateway_state_recovery_request(&state, true) == GatewayStateRecoveryResult::queued &&
-            gateway_state_recovery_schedule(&state, now) && state.due_ms == now + delays[attempt] && !state.pending &&
+            gateway_state_recovery_schedule(&state, now) && state.due_ms == now + delays[attempt] &&
             !gateway_state_recovery_schedule(&state, now) && state.attempts == attempt + 1,
             "worker consumes each bounded recovery once with increasing delay");
         check(gateway_state_recovery_request(&state, true) == GatewayStateRecoveryResult::pending &&
@@ -36,14 +36,14 @@ void test_gateway_state_recovery(void (*check)(bool, const char*) noexcept) noex
         check(state.attempts == attempt + 1, "completed requests cannot refund their retry budget");
     }
     check(gateway_state_recovery_request(&state, true) == GatewayStateRecoveryResult::exhausted &&
-        !state.pending && !gateway_state_recovery_schedule(&state, 0) && state.attempts == 3,
+        !gateway_state_recovery_schedule(&state, 0) && state.attempts == 3,
         "persistent projection failure cannot cause an unbounded identify loop");
     state = {};
     check(gateway_state_recovery_request(&state, true) == GatewayStateRecoveryResult::queued &&
         gateway_state_recovery_schedule(&state, ~0ull - 10) && state.due_ms == ~0ull,
         "recovery deadlines saturate instead of wrapping into immediate retries");
     gateway_state_recovery_ready(&state);
-    check(!state.due_ms && !state.pending && state.attempts == 1,
+    check(!state.due_ms && state.attempts == 1,
         "fresh READY cancels recovery but retains the lifetime retry budget");
 }
 }

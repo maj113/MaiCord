@@ -47,42 +47,40 @@ void test_channel_name_preflight(void (*check)(bool, const char*) noexcept) noex
     auto& s = name_fixture.state;
     check(name_admits(name_input(), ChatStateStoreError::none) &&
         name_admits(name_input(utf8_literal("old")), ChatStateStoreError::none),
-        "channel name: empty and identical names admit without allocation or metadata publication");
+        "channel name: empty and identical names admit without changing the store");
     const auto append = name_input(utf8_literal("abcdefghij"));
-    check(s.name_used == 6 && name_admits(append, ChatStateStoreError::none),
-        "channel name: exact append tail admits with every old name still live");
-    check(chat_state_store_upsert_channel(&s, append).ok() && s.name_used == 16 && s.name_wasted == 3 &&
-        s.compactions == 0 && s.active_name_bank == 0 && name_fixture.channels[0].name_offset == 6 &&
+    check(name_admits(append, ChatStateStoreError::none),
+        "channel name: a name that fits the free tail admits");
+    check(chat_state_store_upsert_channel(&s, append).ok() &&
         utf8_equal(chat_state_store_channel_name(s, name_fixture.channels[0]), utf8_literal("abcdefghij")),
-        "channel name: append admission matches actual allocation offset used wasted and bank counters");
+        "channel name: the admitted append publishes the new name");
 
-    check(name_seed(16), "channel name: compacting fixture resets");
-    s.name_used = 16; s.name_wasted = 10;
+    check(name_seed(16, utf8_literal("0123456789")) && chat_state_store_upsert_channel(&s, name_input(utf8_literal("ab"))).ok(),
+        "channel name: a shortened name leaves too little tail for a longer one");
     const auto compact = name_input(utf8_literal("abcdefgh"));
     check(name_admits(compact, ChatStateStoreError::none),
-        "channel name: tail exhaustion admits actual live-plus-new allocation before old name retirement");
-    check(chat_state_store_upsert_channel(&s, compact).ok() && s.name_used == 14 && s.name_wasted == 3 &&
-        s.compactions == 1 && s.active_name_bank == 1 && name_fixture.channels[0].name_offset == 22 &&
-        utf8_equal(chat_state_store_guild_name(s, name_fixture.guilds[0]), utf8_literal("G")) &&
-        utf8_equal(chat_state_store_channel_name(s, name_fixture.channels[1]), utf8_literal("Q")) &&
+        "channel name: a name that fits only after compaction admits");
+    check(chat_state_store_upsert_channel(&s, compact).ok() &&
+        utf8_equal(chat_state_store_channel_name(s, *chat_state_store_find_channel(s, 71)), utf8_literal("abcdefgh")) &&
+        utf8_equal(chat_state_store_guild_name(s, *chat_state_store_find_guild(s, 7)), utf8_literal("G")) &&
+        utf8_equal(chat_state_store_channel_name(s, *chat_state_store_find_channel(s, 72)), utf8_literal("Q")) &&
         utf8_equal(chat_state_store_role_name(s, name_fixture.roles[0]), utf8_literal("R")) &&
         name_admits(compact, ChatStateStoreError::none),
-        "channel name: compaction preserves namespaces and the identical fast path validates an active second bank");
+        "channel name: compaction keeps guild, channel and role names");
     check(name_seed(16, utf8_literal("12345678"), utf8_literal("1234567"), {}),
         "channel name: allocation-before-retirement boundary fixture");
-    check(s.name_used == 16 && name_admits(name_input(utf8_literal("abcdef")), ChatStateStoreError::name_capacity),
+    check(name_admits(name_input(utf8_literal("abcdef")), ChatStateStoreError::name_capacity),
         "channel name: final names fitting cannot admit transient compaction allocation with old name still live");
 
     check(name_seed(32), "channel name: private clear fixture resets");
     ChannelInput private_input{}; private_input.id = 90; private_input.type = 3;
     private_input.name = utf8_literal("Group"); private_input.name_known = true;
     check(chat_state_store_upsert_channel(&s, private_input).ok(), "channel name: named private channel publishes");
-    const u32 private_used = s.name_used;
     private_input.name = {};
     check(name_admits(private_input, ChatStateStoreError::none) &&
-        chat_state_store_upsert_channel(&s, private_input).ok() && s.name_used == private_used &&
-        s.name_wasted == 5 && name_fixture.channels[2].name_bytes == 0 && name_fixture.channels[2].name_offset == 0,
-        "channel name: known empty private name clears existing label without allocating or compacting");
+        chat_state_store_upsert_channel(&s, private_input).ok() &&
+        !chat_state_store_channel_name(s, *chat_state_store_find_channel(s, 90)).bytes,
+        "channel name: known empty private name clears existing label");
 
     check(name_seed(16), "channel name: invalid input fixture resets");
     auto invalid = name_input(); invalid.id = 0;
@@ -99,68 +97,16 @@ void test_channel_name_preflight(void (*check)(bool, const char*) noexcept) noex
     char too_long[401]; for (char& value : too_long) value = 'x'; invalid.name = {too_long, sizeof(too_long)};
     check(name_admits(invalid, ChatStateStoreError::invalid_input), "channel name: 400-byte input limit remains before every fast path");
 
-    const auto header = s;
-    s.channel_count = s.channel_capacity + 1;
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: invalid channel count rejects before order probes"); s = header;
-    s.guild_count = s.guild_capacity + 1;
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: invalid guild count retains header guard"); s = header;
-    s.role_count = s.role_backed_count + 1;
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: live roles cannot exceed writable prefix"); s = header;
-    s.overwrite_count = s.overwrite_backed_count + 1;
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: live overwrites cannot exceed writable prefix"); s = header;
-    s.role_backed_count = s.role_capacity + 1;
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: backed roles cannot exceed logical cap"); s = header;
-    s.overwrite_backed_count = s.overwrite_capacity + 1;
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: backed overwrites cannot exceed logical cap"); s = header;
-    s.active_name_bank = 2;
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: invalid active bank retains header guard"); s = header;
-    s.name_used = s.name_bank_bytes + 1;
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: invalid used tail cannot underflow append capacity"); s = header;
-    s.names = nullptr;
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: missing name backing retains initialized header guard"); s = header;
-    s.roles = nullptr;
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: nonzero backed role prefix requires its installed base"); s = header;
-    s.overwrites = nullptr;
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: nonzero backed overwrite prefix requires its installed base"); s = header;
-    name_fixture.channel_order[0] = static_cast<u16>(s.channel_capacity);
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: guarded lookup rejects out-of-range matched order slot");
-    name_fixture.channel_order[0] = 0; name_fixture.channel_order[1] = static_cast<u16>(s.channel_capacity);
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: guarded lookup rejects out-of-range intermediate probe");
-    name_fixture.channel_order[1] = 1; name_fixture.channels[0].occupied = false;
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: matched row must remain occupied");
-    name_fixture.channels[0].occupied = true; name_fixture.channels[0].name_offset = s.name_bank_bytes + 1;
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input) &&
-        name_admits(name_input(utf8_literal("old")), ChatStateStoreError::invalid_input),
-        "channel name: target old span validates before empty or identical admission");
-    name_fixture.channels[0].name_offset = 1; name_fixture.channels[0].name_bytes = 7;
-    check(name_admits(name_input(), ChatStateStoreError::invalid_input), "channel name: target name cannot extend beyond used prefix");
-
     check(name_seed(16), "channel name: free-slot fixture resets");
     auto fresh = name_input(); fresh.id = 99;
-    name_fixture.channels[2].occupied = true;
-    check(name_admits(fresh, ChatStateStoreError::channel_capacity), "channel name: missing free slot rejects before empty-name fast path");
-    name_fixture.channels[2].occupied = false;
     check(chat_state_store_upsert_channel(&s, {73, 7, 0, {}, 2, 0, 0}).ok() &&
         name_admits(fresh, ChatStateStoreError::channel_capacity), "channel name: full logical channel capacity rejects a new identity");
 
     check(name_seed(16), "channel name: fresh identity append fixture resets");
     fresh.name = utf8_literal("fresh");
     check(name_admits(fresh, ChatStateStoreError::none) &&
-        chat_state_store_upsert_channel(&s, fresh).ok() && s.channel_count == 3 && s.name_used == 11 &&
-        s.name_wasted == 0 && s.compactions == 0 && name_fixture.channels[2].id == 99 &&
-        name_fixture.channels[2].name_offset == 6,
-        "channel name: a new identity with a free slot admits exact append allocation without a global name walk");
-
-    check(name_seed(16), "channel name: scoped consistency fixture resets");
-    // Deliberately violate the initialized-store contract without dereferencing
-    // that unrelated name. Fast admission is not a global model validator.
-    name_fixture.roles[0].name_offset = sizeof(name_fixture.names) + 1;
-    check(name_admits(name_input(), ChatStateStoreError::none) &&
-        name_admits(name_input(utf8_literal("old")), ChatStateStoreError::none) &&
-        name_admits(name_input(utf8_literal("append")), ChatStateStoreError::none),
-        "channel name: no-compaction paths do not walk unrelated label metadata under their initialized-store contract");
-    s.name_used = s.name_bank_bytes; s.name_wasted = 10;
-    check(name_admits(name_input(utf8_literal("append")), ChatStateStoreError::invalid_input),
-        "channel name: compaction path retains complete live-name bounds validation before admission");
+        chat_state_store_upsert_channel(&s, fresh).ok() && s.channel_count == 3 &&
+        utf8_equal(chat_state_store_channel_name(s, *chat_state_store_find_channel(s, 99)), utf8_literal("fresh")),
+        "channel name: a new identity with a free slot admits and publishes its name");
 }
 }

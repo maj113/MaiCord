@@ -131,7 +131,7 @@ void background_host(HWND window) noexcept {
     r.background_next_frame_ms = 10;
     show(window, SW_HIDE);
     check(!application_background_next_wake(10000) && !r.background_motion_running &&
-              !r.background_next_frame_ms && r.background_phase_seconds == 3.f,
+              r.background_phase_seconds == 3.f,
           "background host: hidden native window retires overdue shader deadline without presentation");
     show(window, SW_SHOWNOACTIVATE);
     check(
@@ -139,17 +139,17 @@ void background_host(HWND window) noexcept {
             application_background_synchronize(10000) && application_background_next_wake(10001) == 10042 &&
             application_background_next_wake(10041) == 10042 && r.background_phase_seconds == 3.f,
         "background host: visible native window arms a stable future deadline without warm phase drift");
-    check(application_background_synchronize(10042) && r.background_next_frame_ms == 10084 &&
+    check(application_background_synchronize(10042) && application_background_next_wake(10043) == 10084 &&
               r.background_phase_seconds > 3.041f && r.background_phase_seconds < 3.043f,
           "background host: due production sample advances one bounded shader phase");
     const float paused = r.background_phase_seconds;
     show(window, SW_HIDE);
     check(!application_background_next_wake(10043) && !r.background_motion_running &&
-              !r.background_next_frame_ms && r.background_phase_seconds == paused,
+              r.background_phase_seconds == paused,
           "background host: hide without synchronize clears running clock and preserves shader phase");
     show(window, SW_SHOWNOACTIVATE);
     check(application_background_next_wake(500000) == 500000 &&
-              application_background_synchronize(500000) && r.background_next_frame_ms == 500042 &&
+              application_background_synchronize(500000) && application_background_next_wake(500001) == 500042 &&
               r.background_phase_seconds == paused,
           "background host: native hidden resume rearms deadline without catching up elapsed time");
     g_app.frame_pending = false;
@@ -159,7 +159,7 @@ void background_host(HWND window) noexcept {
     // Production acknowledges this clock at frame entry before pane preparation
     // can reject the frame. Model that later controlled rejection by not drawing.
     g_app.frame_pending = false;
-    bool acknowledged = application_background_synchronize(500042) && r.background_next_frame_ms == 500084;
+    bool acknowledged = application_background_synchronize(500042) && application_background_next_wake(500043) == 500084;
     for (u32 retry = 0; retry < 4; ++retry)
         acknowledged = acknowledged && !application_background_request_frame_if_due(500042, true) &&
                        !g_app.frame_pending;
@@ -217,7 +217,7 @@ void background_host(HWND window) noexcept {
             break;
         }
         gates = gates && !application_background_next_wake(600001 + reason * 100) &&
-                !r.background_motion_running && !r.background_next_frame_ms &&
+                !r.background_motion_running &&
                 r.background_phase_seconds == phase;
     }
     check(gates, "background host: actual production preference resize system coverage and disabled-effect "

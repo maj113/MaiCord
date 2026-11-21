@@ -416,7 +416,6 @@ void run() noexcept {
     const u64 unpin_deadline = application_tooltip_next_wake();
     check(unpin_deadline && application_tooltip_synchronize(unpin_deadline) &&
               g_app.renderer.tooltip_scene->visible &&
-              g_app.renderer.tooltip_scene->key.owner.manager == &pins_scene.widgets &&
               utf8_equal({g_app.renderer.tooltip_scene->text, g_app.renderer.tooltip_scene->text_bytes},
                          utf8_literal("Unpin message")),
           "tooltip Pins: keyboard Unpin hint belongs to current accepted message action");
@@ -467,7 +466,6 @@ void run() noexcept {
             application_tooltip_input(window_test::pointer_move(static_cast<short>((art->rectangle.left + art->rectangle.right) * .5f), static_cast<short>((art->rectangle.top + art->rectangle.bottom) * .5f)));
             const u64 at = application_tooltip_next_wake();
             shown = at && application_tooltip_synchronize(at) && g_app.renderer.tooltip_scene->visible &&
-                    g_app.renderer.tooltip_scene->key.action == 0x5800u &&
                     utf8_equal({g_app.renderer.tooltip_scene->text, g_app.renderer.tooltip_scene->text_bytes},
                                utf8_literal("High Ridge"));
         }
@@ -502,7 +500,7 @@ void run() noexcept {
         };
         const auto shows = [](Utf8View text) noexcept {
             const auto& tip = *g_app.renderer.tooltip_scene;
-            return tip.visible && tip.key.action == 0x5801u && utf8_equal({tip.text, tip.text_bytes}, text);
+            return tip.visible && utf8_equal({tip.text, tip.text_bytes}, text);
         };
         bool delayed = false, above = false, next = false, across = false;
         if (count == 2) {

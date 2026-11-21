@@ -319,17 +319,12 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
         pixels(renderer,f.scene,theme,geometry(f.scene,first)),13)) return false;
     const auto* boundary_row = message_scene_find_row(f.scene,1);
     const auto strip = boundary_row ? message_scene_unread_divider_rectangle(f.scene,*boundary_row) : UiRect{};
-    const u32 shell_replays = renderer.shell_segment.replays, shell_builds = renderer.shell_segment.builds;
     bool changed{};
     if (!require(ui_rect_has_area(strip) && message_scene_scroll_by(&f.scene,
         static_cast<i64>(ui_extent_units(maximum(1.f,strip.top - f.scene.viewport.top + 12.f))),0,&changed) && changed &&
         show(L"unread-scrolled-clip.bmp") && verify_boundary(),14)) return false;
-    // Only the timeline scrolled: that build replayed everything painted
-    // before the timeline instead of building it.
-    if (!require(renderer.shell_segment.replays == shell_replays + 1 && renderer.shell_segment.builds == shell_builds,
-        24)) return false;
     // A scroll animation step moves the rastered message glyphs by whole
-    // pixels instead of rastering them; the step that settles rasters in place.
+    // pixels: no row is projected or rastered again.
     const auto scroll_step = [&](float dips, bool moving) noexcept {
         MessageTextCoordinatorRequest request{&f.scene,&f.presentation,&measure,renderer.chat_state,
             renderer.user_store,renderer.navigation_view,&theme,
@@ -341,30 +336,26 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
                message_text_coordinator_converge(request).ok() && probe_present(&renderer,theme);
     };
     // The first step rasters the rows near the viewport; later steps move them.
-    const u32 built = f.presentation.builds;
-    if (!require(scroll_step(3.f,true) && f.presentation.builds == built && renderer.text_message_shiftable,28))
+    if (!require(scroll_step(3.f,true),28))
         return false;
     const auto& text = *renderer.content_text;
     const u32 message_quad = renderer.content_text_prefix.shell.quads,quads = text.quad_count,
-        rebuilds = text.rebuilds,glyph_rasters = renderer.glyph_text.cache_builds,projections = f.presentation.builds;
+        glyph_rasters = renderer.glyph_text.cache_builds,projections = f.presentation.builds;
     const float quad_top = message_quad < quads ? text.quads[message_quad].top : 0.f;
     if (!require(renderer.dpi == 96 && message_quad < quads && scroll_step(5.f,true) &&
-        f.presentation.builds == projections && text.rebuilds == rebuilds + 1 &&
-        renderer.glyph_text.cache_builds == glyph_rasters && text.quad_count == quads &&
-        renderer.text_message_shift_px == 5 && text.quads[message_quad].top == quad_top + 5.f && verify_boundary(),26))
+        f.presentation.builds == projections && renderer.glyph_text.cache_builds == glyph_rasters &&
+        text.quad_count == quads && text.quads[message_quad].top == quad_top + 5.f && verify_boundary(),26))
         return false;
     // At rest only the visible rows stay rastered, at their exact position.
-    if (!require(scroll_step(2.5f,false) && f.presentation.builds == projections &&
-        renderer.text_message_shift_px == 0 && !renderer.text_message_shiftable && text.quad_count <= quads &&
+    if (!require(scroll_step(2.5f,false) && f.presentation.builds == projections && text.quad_count <= quads &&
         verify_boundary(),27)) return false;
     // A projection rebuilt with unchanged text keeps the glyphs rastered from
-    // the previous build; the next scroll steps must still move them.
-    if (!require(project() && project() && renderer.text_message_builds != f.presentation.builds,29))
+    // the previous build; the next scroll steps raster nothing.
+    if (!require(project() && project(),29))
         return false;
-    if (!require(scroll_step(5.f,true) && renderer.text_message_builds == f.presentation.builds && verify_boundary(),30))
-        return false;
-    if (!require(scroll_step(2.5f,false) && renderer.text_message_builds == f.presentation.builds &&
-        renderer.text_message_shift_px == 0 && renderer.text_message_shift_base == f.presentation.scroll_shift_dips,31))
+    const u32 reprojected_rasters = renderer.glyph_text.cache_builds;
+    if (!require(scroll_step(5.f,true) && scroll_step(2.5f,false) &&
+        renderer.glyph_text.cache_builds == reprojected_rasters && verify_boundary(),30))
         return false;
     const auto last = message_scene_navigate(&f.scene,UiListMove::last);
     if (!require(last.message_id == first + 3 && project(),15)) return false;

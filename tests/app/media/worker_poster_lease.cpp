@@ -1,15 +1,21 @@
 // Local video poster lease: real media-worker threads and cleanup APIs. Fake COM
 // objects control only the fence result and notification; the sparse source is
-// a real allocation. Wall-clock limits below only bound hangs.
+// a real allocation. The one wall-clock deadline below only bounds hangs.
 #include "maicord/app/media/account_media_worker.hpp"
 #include "../../../src/app/media/account_media_worker_internal.hpp"
 #include "maicord/app/media/progressive_video_fetch.hpp"
 #include "maicord/core/trace_record.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/crt.hpp"
+#include "../../support/released_memory.hpp"
 
 namespace maicord { namespace {
 u64 deadline{};
+// Milliseconds left before the hang bound; every wait in the test uses it.
+DWORD remaining() noexcept {
+    const u64 now = GetTickCount64();
+    return static_cast<DWORD>(now < deadline ? deadline - now : 1);
+}
 void fail(u32 line) noexcept {
     TraceRecord out("poster_lease_failure"); out.field("line", line);
     DWORD written{}; WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), out.text, out.used, &written, nullptr);
@@ -96,8 +102,7 @@ struct Harness {
         if (!worker) return;
         if (worker->initialized) {
             if (fake.event) SetEvent(fake.event);
-            const u64 now = GetTickCount64();
-            if (!account_media_worker_stop(worker, static_cast<u32>(now < deadline ? deadline - now : 1))) ExitProcess(2);
+            if (!account_media_worker_stop(worker, remaining())) ExitProcess(2);
         }
         VirtualFree(worker, 0, MEM_RELEASE);
     }
@@ -119,7 +124,7 @@ void retain_source(void*) noexcept {}
 void release_source(void*) noexcept {}
 ConstSlice<u8> no_read(void*, u64, Slice<u8>) noexcept { return {}; }
 const UploadSourceOps source_ops{retain_source, release_source, no_read};
-bool seed(Harness& h, u32 index, u64 serial, AccountMediaLocalPreviewRequest* token, const u8** sparse) noexcept {
+bool seed(Harness& h, u32 index, u64 serial, AccountMediaLocalPreviewRequest* token, MemoryMark* sparse) noexcept {
     auto& lane = h.worker->lanes[index]; CHECK(phase(lane) == AccountMediaWorkerPhase::idle);
     // A lane that completed a lease has started: admission starts a lane on its first command.
     CHECK(start_lane(h.worker, lane).ok() && lane.thread);
@@ -142,18 +147,17 @@ bool seed(Harness& h, u32 index, u64 serial, AccountMediaLocalPreviewRequest* to
     CHECK(progressive_source_initialize(&lane.media.progressive->source, 4096));
     static const u8 bytes[4096]{1};
     CHECK(progressive_source_write(&lane.media.progressive->source, 0, {bytes, sizeof(bytes)}));
-    *sparse = lane.media.progressive->source.base;
+    *sparse = memory_mark(lane.media.progressive->source.base);
     InterlockedExchange(&lane.local_retired, 0);
     *token = {}; token->key = lane.command.key; token->owner_scope = 700; token->owner_generation = 8; token->lease_serial = serial;
     InterlockedExchange(&lane.phase, static_cast<LONG>(AccountMediaWorkerPhase::leased));
     return true;
 }
-bool idle(Harness& h, u32 index, const u8* sparse) noexcept {
+bool idle(Harness& h, u32 index, const MemoryMark& sparse) noexcept {
     auto& lane = h.worker->lanes[index];
     while (phase(lane) != AccountMediaWorkerPhase::idle) { CHECK(GetTickCount64() < deadline); Sleep(1); }
     CHECK(!lane.media.progressive && !lane.media.owned_mp4_decoder.ready && !lane.poster_fence && !lane.poster_context);
-    MEMORY_BASIC_INFORMATION info{};
-    CHECK(VirtualQuery(sparse, &info, sizeof(info)) == sizeof(info) && info.State == MEM_FREE);
+    CHECK(memory_released(sparse));
     return true;
 }
 bool cancel(Harness& h, AccountMediaLocalPreviewRequest token) noexcept {
@@ -172,7 +176,7 @@ bool no_refs(Harness& h) noexcept {
     CHECK(h.fake.early_release == 0); return true;
 }
 bool ordinary_cases(Harness& h) noexcept {
-    AccountMediaLocalPreviewRequest token{}; const u8* sparse{};
+    AccountMediaLocalPreviewRequest token{}; MemoryMark sparse{};
     CHECK(seed(h, 0, 1, &token, &sparse));
     auto bad = token; ++bad.lease_serial;
     CHECK(account_media_worker_local_preview_uploaded(h.worker, bad).state == AccountMediaRequestState::invalid);
@@ -194,7 +198,7 @@ bool ordinary_cases(Harness& h) noexcept {
     // A hidden/skipped Present invokes no presented API and arms no event.
     CHECK(phase(lane) == AccountMediaWorkerPhase::poster_present_pending && h.fake.registrations == 0 && h.fake.signals == 0);
     CHECK(cancel(h, token) && idle(h, 0, sparse) && no_refs(h));
-    CHECK(WaitForSingleObject(h.worker->output_event, 2000) == WAIT_OBJECT_0);
+    CHECK(WaitForSingleObject(h.worker->output_event, remaining()) == WAIT_OBJECT_0);
     CHECK(h.worker->poster_present_mask == 0);
     const auto old = token;
     CHECK(seed(h, 0, 2, &token, &sparse));
@@ -216,7 +220,7 @@ bool failure_cases(Harness& h) noexcept {
     const Failure failures[]{Failure::create, Failure::signal, Failure::registration};
     u64 serial = 10;
     for (const auto failure : failures) {
-        AccountMediaLocalPreviewRequest token{}; const u8* sparse{};
+        AccountMediaLocalPreviewRequest token{}; MemoryMark sparse{};
         h.worker->poster_disabled_device = nullptr; h.fake.failure = failure;
         CHECK(seed(h, 0, serial++, &token, &sparse) && uploaded(h, token) && arm(h));
         auto& lane = h.worker->lanes[0];
@@ -232,7 +236,7 @@ bool failure_cases(Harness& h) noexcept {
 }
 bool pressure_case(Harness& h) noexcept {
     AccountMediaLocalPreviewRequest tokens[kAccountMediaDecodeLaneCount]{};
-    const u8* sparse[kAccountMediaDecodeLaneCount]{};
+    MemoryMark sparse[kAccountMediaDecodeLaneCount]{};
     for (u32 i = 0; i < kAccountMediaDecodeLaneCount; ++i)
         CHECK(seed(h, i, 100 + i, &tokens[i], &sparse[i]) && uploaded(h, tokens[i]));
     AccountMediaLocalPreviewRequest request{};
@@ -243,12 +247,12 @@ bool pressure_case(Harness& h) noexcept {
     CHECK(account_media_worker_request_local_preview(h.worker, request, 1, 1).state == AccountMediaRequestState::busy);
     CHECK(ReadAcquire(&h.worker->poster_admission_waiter) != 0);
     CHECK(cancel(h, tokens[0]) && idle(h, 0, sparse[0]));
-    CHECK(WaitForSingleObject(h.worker->output_event, 2000) == WAIT_OBJECT_0);
+    CHECK(WaitForSingleObject(h.worker->output_event, remaining()) == WAIT_OBJECT_0);
     for (u32 i = 1; i < kAccountMediaDecodeLaneCount; ++i) CHECK(cancel(h, tokens[i]) && idle(h, i, sparse[i]));
     CHECK(no_refs(h)); return true;
 }
 bool immediate_case(Harness& h) noexcept {
-    AccountMediaLocalPreviewRequest token{}; const u8* sparse{};
+    AccountMediaLocalPreviewRequest token{}; MemoryMark sparse{};
     h.fake.immediate = true;
     CHECK(seed(h, 0, 200, &token, &sparse) && uploaded(h, token) && arm(h));
     CHECK(idle(h, 0, sparse) && no_refs(h));
@@ -256,22 +260,20 @@ bool immediate_case(Harness& h) noexcept {
     return true;
 }
 bool timeout_case(Harness& h) noexcept {
-    AccountMediaLocalPreviewRequest token{}; const u8* sparse{};
+    AccountMediaLocalPreviewRequest token{}; MemoryMark sparse{};
     CHECK(seed(h, 0, 300, &token, &sparse) && uploaded(h, token) && arm(h));
     const HANDLE event = h.fake.event; DWORD flags{};
     CHECK(!account_media_worker_stop(h.worker, 5));
     CHECK(h.worker->initialized && GetHandleInformation(event, &flags));
     CHECK(h.worker->lanes[0].poster_registered && h.worker->lanes[0].media.progressive);
     CHECK(h.fake.fence.references == 2 && h.fake.context.references == 2);
-    CHECK(SetEvent(event) && account_media_worker_stop(h.worker, 2000)); h.fake.event = nullptr;
-    CHECK(!h.worker->initialized && no_refs(h));
-    MEMORY_BASIC_INFORMATION info{};
-    CHECK(VirtualQuery(sparse, &info, sizeof(info)) == sizeof(info) && info.State == MEM_FREE);
+    CHECK(SetEvent(event) && account_media_worker_stop(h.worker, remaining())); h.fake.event = nullptr;
+    CHECK(!h.worker->initialized && no_refs(h) && memory_released(sparse));
     return true;
 }
 bool simultaneous_stop_case(Harness& h) noexcept {
     CHECK(begin(h));
-    AccountMediaLocalPreviewRequest token{}; const u8* sparse{};
+    AccountMediaLocalPreviewRequest token{}; MemoryMark sparse{};
     CHECK(seed(h, 0, 400, &token, &sparse) && uploaded(h, token) && arm(h));
     auto& lane = h.worker->lanes[0];
     AcquireSRWLockExclusive(lane.poster_lock.native());
@@ -279,11 +281,9 @@ bool simultaneous_stop_case(Harness& h) noexcept {
     ReleaseSRWLockExclusive(lane.poster_lock.native());
     // The decode-loop stop poll reads the event at most once per clock tick, so it reports the stop within a few ticks.
     bool stop_seen = false;
-    for (u32 poll = 0; poll < 200 && !(stop_seen = account_media_worker_stop_requested(h.worker)); ++poll) Sleep(1);
-    CHECK(signaled && stop_seen && account_media_worker_stop(h.worker, 2000)); h.fake.event = nullptr;
-    CHECK(no_refs(h));
-    MEMORY_BASIC_INFORMATION info{};
-    CHECK(VirtualQuery(sparse, &info, sizeof(info)) == sizeof(info) && info.State == MEM_FREE);
+    while (!(stop_seen = account_media_worker_stop_requested(h.worker))) { CHECK(GetTickCount64() < deadline); Sleep(1); }
+    CHECK(signaled && stop_seen && account_media_worker_stop(h.worker, remaining())); h.fake.event = nullptr;
+    CHECK(no_refs(h) && memory_released(sparse));
     return true;
 }
 bool run() noexcept {
@@ -303,6 +303,7 @@ extern "C" void maicord_media_worker_poster_lease_entry() {
     HANDLE watcher = stopped ? CreateThread(nullptr, 0, maicord::watchdog, stopped, 0, nullptr) : nullptr;
     if (!watcher) ExitProcess(2);
     const bool ok = maicord::run(); SetEvent(stopped);
-    const bool joined = WaitForSingleObject(watcher, 100) == WAIT_OBJECT_0;
+    // The watchdog ends at once on `stopped`, or ends the process at its own bound.
+    const bool joined = WaitForSingleObject(watcher, INFINITE) == WAIT_OBJECT_0;
     CloseHandle(watcher); CloseHandle(stopped); ExitProcess(ok && joined ? 0 : 1);
 }

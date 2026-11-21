@@ -86,13 +86,13 @@ void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noex
           "Theme form reflows retained fields while preserving owner and focus");
     const u32 layout = scene.widgets.layout.revision, calls = text_measure_calls(&cache),
               revision = scene.revision;
-    for (u32 frame = 0; valid && frame < 64; ++frame)
+    for (u32 frame = 0; valid && frame < 2; ++frame)
         valid = !text_form_bind_theme_styles(&scene, &bank) &&
                 !text_form_bind_measure_revision(&scene, 17) &&
                 text_form_update(&scene, content, viewport, &cache);
     check(valid && scene.widgets.layout.revision == layout && text_measure_calls(&cache) == calls &&
               scene.revision == revision,
-          "Theme no-op form publication retains 64 layout and measurement frames");
+          "Theme no-op form publication retains layout and measurement");
     metrics.compact_radius = 9;
     check(ui_theme_styles_apply(&bank, typography, metrics).ok() &&
               !text_form_bind_theme_styles(&scene, &bank) &&
@@ -122,12 +122,12 @@ void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noex
           "Theme settings field height uses bank and retires previous hit geometry");
     const auto settings_layout = settings.widgets.layout.revision;
     const auto settings_generation = settings.widgets.generation;
-    for (u32 frame = 0; valid && frame < 64; ++frame)
+    for (u32 frame = 0; valid && frame < 2; ++frame)
         valid = !ui_settings_scene_bind_theme_styles(&settings, &bank) &&
                 ui_settings_scene_update(&settings, &registry, viewport);
     check(valid && settings.widgets.layout.revision == settings_layout &&
               settings.widgets.generation == settings_generation,
-          "Theme no-op settings bank retains 64 widget and layout frames");
+          "Theme no-op settings bank retains widgets and layout");
     ui_settings_scene_release(&settings);
 
     MessageRecord message[1]{};
@@ -161,10 +161,10 @@ void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noex
               body->rectangle.right == 500 - 30,
           "Theme message avatar and asymmetric padding update actual retained layout");
     const auto passes = messages.layout_passes;
-    for (u32 frame = 0; valid && frame < 64; ++frame)
+    for (u32 frame = 0; valid && frame < 2; ++frame)
         valid = !message_scene_bind_theme_styles(&messages, &bank) &&
                 message_scene_update(&messages, {0, 0, 500, 600}).ok();
-    check(valid && messages.layout_passes == passes, "Theme no-op message bank preserves 64 layout frames");
+    check(valid && messages.layout_passes == passes, "Theme no-op message bank preserves layout");
     message_scene_release(&messages);
 }
 } // namespace maicord

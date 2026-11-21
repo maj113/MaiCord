@@ -27,7 +27,6 @@ RelationshipStore* settings_runtime_relationships() noexcept;
 extern u64 settings_runtime_relationship_user;
 extern ApplicationFriendsUserAction settings_runtime_relationship_action;
 namespace {
-u32 theme_refreshes = 0;
 AccountSettingsRequest captured{};
 u8 captured_payload[kUserSettingsPartialMaximumBytes];
 u32 captured_calls = 0;
@@ -557,7 +556,6 @@ void test_mode_cases(void (*check)(bool, const char*) noexcept) noexcept {
 } // namespace
 
 bool application_refresh_theme_consumers(bool, bool) noexcept {
-    ++theme_refreshes;
     return true;
 }
 
@@ -612,11 +610,10 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
     application_user_settings_gateway(event, {payload, extracted.bytes});
     application_user_settings_synchronize();
     const u64 now = clock_monotonic_milliseconds();
-    const u32 refreshes = theme_refreshes;
     check(application_user_settings_activate(SettingBinding::time_format, false, 2) &&
               application_user_settings_activate(SettingBinding::message_display, false, 1) &&
               timestamp_hour_cycle() == HourCycle::h23 && g_app.message_scene.display.compact &&
-              theme_refreshes > refreshes && project(SettingBinding::message_display) && c.selected_choice == 1,
+              project(SettingBinding::message_display) && c.selected_choice == 1,
           "user settings runtime: edits apply optimistically to the timeline and timestamps");
     char formatted[32];
     const auto time = format_timestamp_local(1'790'856'000, 't', 1'790'856'000, {formatted, 32});

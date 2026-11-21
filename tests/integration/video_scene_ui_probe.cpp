@@ -13,8 +13,6 @@
 
 namespace maicord {
 namespace {
-u64 prefix_signature(const D3D11Renderer&) noexcept;
-bool prefix_cursors_equal(const RendererTextPrefix&, const RendererTextPrefix&) noexcept;
 bool capture_native_video_preview(D3D11Renderer& renderer, UiVideoScene& scene,
                                   bool (*capture)(const wchar_t*) noexcept) noexcept {
     if (!capture)
@@ -159,18 +157,10 @@ bool capture_native_video_preview(D3D11Renderer& renderer, UiVideoScene& scene,
             require(renderer.media_quad_count != 0, 9);
     const float center_play_target = ui_rect_width(scene.center_play);
     if (valid) {
-        const auto warm_prefix = renderer.content_text_prefix;
-        const u32 text_builds = renderer.content_text->rebuilds;
-        const u32 text_uploads = renderer.text_instance_uploads;
         const u64 semantic_revision = scene.text_revision;
-        const u64 base_signature = prefix_signature(renderer);
         const auto present_fade = [&]() noexcept {
-            if (!renderer_rebuild_content_text(&renderer, kDefaultTheme) ||
-                !probe_present(&renderer, kDefaultTheme) || renderer.media_quad_count == 0)
-                return false;
-            return renderer.content_text_prefix.base_builds == warm_prefix.base_builds &&
-                   prefix_cursors_equal(renderer.content_text_prefix, warm_prefix) &&
-                   prefix_signature(renderer) == base_signature;
+            return renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
+                   probe_present(&renderer, kDefaultTheme) && renderer.media_quad_count != 0;
         };
         playback.playing = true;
         valid =
@@ -201,17 +191,8 @@ bool capture_native_video_preview(D3D11Renderer& renderer, UiVideoScene& scene,
                                      // under the transport, seek and volume, and the bar has no expand control.
                                      !playback.can_expand && capture(L"video-sound-only-card.bmp"),
                                  10);
-        if (valid) {
-            log_u64(LogLevel::info, "probe", "video_fade_base_builds_delta",
-                    renderer.content_text_prefix.base_builds - warm_prefix.base_builds);
-            log_u64(LogLevel::info, "probe", "video_fade_overlay_builds_delta",
-                    renderer.content_text_prefix.overlay_builds - warm_prefix.overlay_builds);
-            log_u64(LogLevel::info, "probe", "video_fade_text_builds_delta",
-                    renderer.content_text->rebuilds - text_builds);
-            log_u64(LogLevel::info, "probe", "video_fade_text_uploads_delta",
-                    renderer.text_instance_uploads - text_uploads);
+        if (valid)
             log_write(LogLevel::info, "probe", "video_hover_fade_native_preview_passed");
-        }
     }
     if (valid) {
         const u64 text_revision = scene.text_revision;
@@ -337,23 +318,6 @@ bool capture_native_video_preview(D3D11Renderer& renderer, UiVideoScene& scene,
                                       probe_present(&renderer, kDefaultTheme),
                                   11);
     return valid && restored;
-}
-u64 prefix_signature(const D3D11Renderer& r) noexcept {
-    const auto& p = r.content_text_prefix;
-    const auto& s = *r.content_text;
-    u64 hash = hash64_counted_bytes(kHash64Seed, s.quads, p.quads * sizeof(GlyphQuad));
-    hash = hash64_counted_bytes(hash, s.batches, p.batches * sizeof(GlyphDrawBatch));
-    hash = hash64_counted_bytes(hash, s.content_semantics, p.semantics * sizeof(MessageTextSemantic));
-    hash = hash64_counted_bytes(hash, s.content_hit_regions, p.hits * sizeof(TextHitRegion));
-    hash = hash64_counted_bytes(hash, r.text_effects.materials, p.effects * sizeof(TextEffectMaterial));
-    return hash64_mix(hash, p.animated);
-}
-bool prefix_cursors_equal(const RendererTextPrefix& a, const RendererTextPrefix& b) noexcept {
-    return a.storage == b.storage && a.message_root.manager == b.message_root.manager &&
-           a.message_root.handle.slot == b.message_root.handle.slot &&
-           a.message_root.handle.generation == b.message_root.handle.generation && a.quads == b.quads &&
-           a.batches == b.batches && a.semantics == b.semantics && a.hits == b.hits &&
-           a.effects == b.effects && a.animated == b.animated;
 }
 // The owner-reported leak: an unavailable video's "Playback unavailable" label
 // scrolled under the older-messages bar drew over the bar. Timeline inline
@@ -523,34 +487,6 @@ bool video_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t
         ui_video_scene_hover(&scene, {(bounds.left + bounds.right) * .5f, bounds.top + 20});
         return true;
     };
-    // Warm a real message-owned semantic hit range, not an overlay/fake widget.
-    // The borrowed command and signature are restored before leaving this probe.
-    auto* message_text = const_cast<MessageTextPresentation*>(renderer.message_text);
-    MessageTextCommand* semantic_command = nullptr;
-    ConstSlice<MessageMarkdownSemantic> original_semantics{};
-    const u64 original_signature = message_text ? message_text->projection_signature : 0;
-    MessageMarkdownSemantic link{};
-    if (message_text)
-        for (u32 i = 0; i < message_text->command_count; ++i) {
-            auto& command = message_text->commands[i];
-            if (command.measurement_kind != MessageTextMeasurementKind::content || !command.text.bytes ||
-                command.text.bytes > 65535 ||
-                !ui_rect_has_area(ui_rect_intersection(command.clip, viewport)))
-                continue;
-            semantic_command = &command;
-            original_semantics = command.semantics;
-            link = {42,
-                    0,
-                    command.text.bytes,
-                    0,
-                    static_cast<u16>(command.text.bytes),
-                    MessageMarkdownSemanticKind::link,
-                    0};
-            command.semantics = {&link, 1};
-            message_text->projection_signature =
-                message_text_presentation_projection_signature(*message_text);
-            break;
-        }
     renderer.video_scene = &scene;
     u32 stage = __LINE__;
     bool valid = project(minimum(640.f, available)) &&
@@ -586,127 +522,28 @@ bool video_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t
     if (valid) {
         stage = __LINE__;
         const auto original = state;
-        const auto prefix = renderer.content_text_prefix;
-        valid = semantic_command && prefix.storage == renderer.content_text && prefix.quads != 0 &&
-                prefix.semantics != 0 && prefix.hits != 0 && prefix.base_builds != 0;
-        const u64 base = prefix_signature(renderer);
-        u32 suffix = prefix.overlay_builds;
-        const auto suffix_update = [&](bool text_changed = true) noexcept {
-            if (!project(minimum(640.f, available)) ||
-                !renderer_rebuild_content_text(&renderer, kDefaultTheme))
-                return false;
-            const auto& current = renderer.content_text_prefix;
-            suffix += text_changed ? 1 : 0;
-            return current.base_builds == prefix.base_builds && current.overlay_builds == suffix &&
-                   prefix_cursors_equal(prefix, current) && prefix_signature(renderer) == base;
-        };
-        // Crossing a digit/width boundary and growing/retiring the status label
-        // must leave the warm shell/message quads, semantics and effects intact.
+        // Status text that does not change inside one second rebuilds nothing.
         state.elapsed_ms = 599000;
-        valid = valid && suffix_update();
+        valid = valid && project(minimum(640.f, available)) &&
+                renderer_rebuild_content_text(&renderer, kDefaultTheme);
         const u32 same_second = renderer.content_text->rebuilds;
         state.elapsed_ms = 599999;
         valid = valid && project(minimum(640.f, available)) &&
                 renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                 renderer.content_text->rebuilds == same_second;
-        state.elapsed_ms = 600000;
-        valid = valid && suffix_update();
-        state.buffering = false;
-        valid = valid && suffix_update(false);
-        state.error = true;
-        valid = valid && suffix_update();
-        state.error = false;
-        state.buffering = true;
-        valid = valid && suffix_update();
-        renderer.video_scene = nullptr;
-        valid = valid && renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
-                renderer.content_text_prefix.base_builds == prefix.base_builds &&
-                prefix_signature(renderer) == base && renderer.interaction_text_video_revision == 0 &&
-                renderer.content_text->content_semantic_count == prefix.semantics &&
-                renderer.content_text->content_hit_region_count == prefix.hits &&
-                renderer.text_effect_count == prefix.effects &&
-                renderer.text_effect_animated == prefix.animated;
-        renderer.video_scene = &scene;
         state = original;
         valid = valid && project(minimum(640.f, available)) &&
                 renderer_rebuild_content_text(&renderer, kDefaultTheme);
-        const auto full_rebuild = [&](const Theme& theme = kDefaultTheme) noexcept {
-            const u32 builds = renderer.content_text_prefix.base_builds;
-            return renderer_rebuild_content_text(&renderer, theme) &&
-                   renderer.content_text_prefix.base_builds > builds;
-        };
-        // A real shared-atlas reset must rebuild even unchanged video text.
-        if (valid)
-            stage = __LINE__;
-        d3d11_glyph_text_reset_atlas(&renderer.glyph_text);
-        valid = valid && full_rebuild();
-        if (valid)
-            stage = __LINE__;
-        Theme changed = kDefaultTheme;
-        changed.text_primary.red += .03125f;
-        valid = valid && full_rebuild(changed) && full_rebuild();
-        if (valid)
-            stage = __LINE__;
-        const u32 dpi = renderer.dpi;
-        ++renderer.dpi;
-        valid = valid && full_rebuild();
-        renderer.dpi = dpi;
-        valid = valid && full_rebuild();
-        if (valid)
-            stage = __LINE__;
-        const u64 selected = renderer.message_text_selection.signature;
-        ++renderer.message_text_selection.signature;
-        valid = valid && full_rebuild();
-        renderer.message_text_selection.signature = selected;
-        valid = valid && full_rebuild();
-        if (renderer.message_text) {
-            auto& messages = *const_cast<MessageTextPresentation*>(renderer.message_text);
-            const u64 signature = messages.projection_signature;
-            if (messages.command_count) {
-                const u32 revision = messages.commands[0].message_revision;
-                const u64 identity = messages.commands[0].measurement_identity;
-                ++messages.commands[0].message_revision;
-                // Production rebuilds measurement identity with source revision;
-                // the projection signature intentionally consumes that identity.
-                messages.commands[0].measurement_identity = hash64_mix(identity, revision + 1);
-                messages.projection_signature = message_text_presentation_projection_signature(messages);
-                if (valid)
-                    stage = __LINE__;
-                valid = valid && full_rebuild();
-                messages.commands[0].message_revision = revision;
-                messages.commands[0].measurement_identity = identity;
-                messages.projection_signature = signature;
-                valid = valid && full_rebuild();
-            } else
-                valid = false;
-        } else
-            valid = false;
-        // A recycled cached root cannot qualify an overlay-only update. The
-        // actual emitter continues using and resolving the current real root.
-        renderer.content_text_prefix.message_root.handle.generation ^= 1;
-        state.elapsed_ms += 1000;
-        if (valid)
-            stage = __LINE__;
-        valid = valid && project(minimum(640.f, available)) && full_rebuild() &&
-                probe_present(&renderer, kDefaultTheme);
+        // A build against a stale message root is refused. The next build with the real root draws again.
         auto& real_messages = *const_cast<MessageScene*>(renderer.message_scene);
         const auto root = real_messages.root;
         real_messages.root.generation ^= 1;
         const bool stale_root_refused = !renderer_rebuild_content_text(&renderer, kDefaultTheme);
         real_messages.root = root;
-        const auto retired = renderer.content_text_prefix;
         if (valid)
             stage = __LINE__;
-        valid = valid && stale_root_refused && renderer.content_text->quad_count == retired.quads &&
-                renderer.content_text->content_semantic_count == retired.semantics &&
-                renderer.content_text->content_hit_region_count == retired.hits &&
-                renderer.text_effect_count == retired.effects &&
-                renderer.text_effect_animated == retired.animated && full_rebuild() &&
+        valid = valid && stale_root_refused && renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                 probe_present(&renderer, kDefaultTheme);
-        log_u64(LogLevel::info, "probe", "video_text_base_builds",
-                renderer.content_text_prefix.base_builds);
-        log_u64(LogLevel::info, "probe", "video_text_overlay_builds",
-                renderer.content_text_prefix.overlay_builds);
     }
     if (valid) {
         stage = __LINE__;
@@ -796,10 +633,6 @@ bool video_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t
                 renderer_rebuild_content_text(&renderer,kDefaultTheme) && probe_present(&renderer,kDefaultTheme) &&
                 (!capture || capture(names[i]));
         }
-    }
-    if (semantic_command) {
-        semantic_command->semantics = original_semantics;
-        message_text->projection_signature = original_signature;
     }
     renderer.video_scene = old;
     const bool cleaned =

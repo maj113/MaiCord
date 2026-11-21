@@ -355,15 +355,15 @@ void test_byte_queue() noexcept {
             clear_bytes(window, sizeof(window));
             ByteQueue current{window + offset, length + 1, 0, 0};
             ordered = byte_queue_append(&current, ConstSlice<u8>{payload, length}) && ordered;
-            ordered = current.end == length && maicord::bytes_equal(current.data, payload, length) && ordered;
+            const ConstSlice<u8> appended = byte_queue_readable(current);
+            ordered = appended.count == length && maicord::bytes_equal(appended.data, payload, length) && ordered;
             if (length != 0) {
                 ordered = byte_queue_consume(&current, 1) && ordered;
                 // Two incoming bytes require compaction of the resident suffix.
                 ordered = byte_queue_append(&current, ConstSlice<u8>{payload + 510, 2}) && ordered;
-                ordered = current.begin == 0 && current.end == length + 1 &&
-                          maicord::bytes_equal(current.data, payload + 1, length - 1) &&
-                          current.data[length - 1] == payload[510] &&
-                          current.data[length] == payload[511] && ordered;
+                const ConstSlice<u8> held = byte_queue_readable(current);
+                ordered = held.count == length + 1 && maicord::bytes_equal(held.data, payload + 1, length - 1) &&
+                          held[length - 1] == payload[510] && held[length] == payload[511] && ordered;
             }
             ordered = window[offset - 1] == 0 && window[offset + length + 1] == 0 && ordered;
         }

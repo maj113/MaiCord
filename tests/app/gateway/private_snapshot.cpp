@@ -32,16 +32,12 @@ void test_private_snapshot(void (*check)(bool, const char*) noexcept) noexcept {
     const auto* old = chat_state_store_find_channel(state, 10);
     const u32 old_slot = static_cast<u32>(old - state.channels);
     const u16 old_generation = old->generation;
-    const u32 old_waste = state.name_wasted;
     const usize committed = metadata.nickname_backing.committed;
-    void* nickname_base = metadata.nickname_backing.base;
     check(chat_state_store_clear_private_channels(&state) == 2 && state.channel_count == 1 &&
         chat_state_store_find_channel(state, 25) && !chat_state_store_find_channel(state, 10) &&
         !chat_state_store_find_channel(state, 30) && !metadata.count && !metadata.recipient_count && !metadata.nickname_count,
         "bulk reset compacts only private channels and clears all private metadata");
-    check(state.home_selected && !state.selected_channel_id && state.channel_order[1] == 0xFFFF &&
-        !state.channels[old_slot].occupied && state.channels[old_slot].generation != old_generation &&
-        state.name_wasted == old_waste + 10 && metadata.nickname_backing.base == nickname_base &&
+    check(state.home_selected && !state.selected_channel_id && state.channels[old_slot].generation != old_generation &&
         metadata.nickname_backing.committed == committed,
         "bulk reset invalidates identities and names while retaining Home and committed backing");
     const u32 mutation = state.channel_mutations, selection = state.selection_revision, revision = metadata.revision;

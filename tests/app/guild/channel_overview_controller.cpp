@@ -27,8 +27,7 @@ void test_channel_overview_controller(void (*check)(bool, const char*) noexcept)
           "authority");
     check(channel_overview_controller_open(&value, scope, true, true) && submit(value, 100) &&
               !channel_overview_controller_edit(&value, {utf8_literal("x"), {}, 0, 1, false}) &&
-              !channel_overview_controller_complete(&value, scope, 999, {}, &remote, 1) &&
-              value.request_id == 100,
+              !channel_overview_controller_complete(&value, scope, 999, {}, &remote, 1),
           "channel overview controller: loading locks edits and unrelated receipts cannot consume its "
           "exact ticket");
     check(channel_overview_controller_complete(&value, scope, 100, {}, &remote, 1) && value.authoritative &&
@@ -46,7 +45,7 @@ void test_channel_overview_controller(void (*check)(bool, const char*) noexcept)
           "channel overview controller: borrowed inline buffer edits compare against baseline without a "
           "third string bank");
     const auto prepared = channel_overview_controller_request(value, 1);
-    check(prepared.ready && prepared.patch.fields == 1 && prepared.patch.name.data == value.draft.name &&
+    check(prepared.ready && prepared.patch.fields == 1 && utf8_equal(prepared.patch.name, utf8_literal("renamed")) &&
               !channel_overview_controller_edit(&value, {utf8_literal("later"), {}, 0, 1, false}) &&
               !channel_overview_controller_reset(&value) && submit(value, 101),
           "channel overview controller: queued and submitted Save lock a dirty-only borrowed request until "
@@ -122,12 +121,12 @@ void test_channel_overview_controller(void (*check)(bool, const char*) noexcept)
     auto successor = scope;
     successor.account_scope = 2;
     channel_overview_controller_authority(&value, successor, true, true);
-    check(value.phase == ChannelOverviewPhase::retired && value.request_id == 110 &&
+    check(value.phase == ChannelOverviewPhase::retired &&
               !channel_overview_controller_open(&value, successor, true, true) &&
               !channel_overview_controller_complete(&value, successor, 110, {}, &remote, 10) &&
               channel_overview_controller_complete(
                   &value, scope, 110, {ChannelOverviewCompletionKind::cancelled}, nullptr, 10) &&
-              !value.request_id && !channel_overview_controller_next_wake(value),
+              !channel_overview_controller_next_wake(value),
           "channel overview controller: scope replacement preserves exact old-ticket drainage and forbids "
           "reuse until consumed");
     check(channel_overview_controller_open(&value, successor, true, true) && submit(value, 111) &&

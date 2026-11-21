@@ -64,7 +64,7 @@ void forum_parent_activity(void (*check)(bool, const char*) noexcept) noexcept {
     check(archive_dispatch(utf8_literal(R"({"op":0,"t":"THREAD_CREATE","d":{"id":"120","guild_id":"7","parent_id":"80","type":11,"owner_id":"1","newly_created":true,"name":"Own"}})")) &&
         archive_channel(80)->last_message_id == 120 && archive_channel(80)->last_read_message_id == 120 &&
         !archive_channel(80)->mention_count && !f.guild.mention_count &&
-        archive_channel(120)->thread_parent_creation_noted && archive_channel(80)->read_last_viewed == 70'000 &&
+        archive_channel(80)->read_last_viewed == 70'000 &&
         archive_channel(80)->read_flags == 0x80000005u,
         "forum reads: own creation resets parent cursor and counts while preserving server metadata");
     // Forum parents open a post browser rather than a selected message chat;
@@ -72,7 +72,7 @@ void forum_parent_activity(void (*check)(bool, const char*) noexcept) noexcept {
     check(archive_read(80, 90, 2, true) &&
         archive_dispatch(utf8_literal(R"({"op":0,"t":"THREAD_CREATE","d":{"id":"120","guild_id":"7","parent_id":"80","type":11,"owner_id":"1","newly_created":true,"name":"Own again"}})")) &&
         archive_channel(80)->last_read_message_id == 90 && archive_channel(80)->mention_count == 2 &&
-        !archive_channel(80)->read_mentions_incomplete && archive_channel(120)->thread_parent_creation_noted &&
+        !archive_channel(80)->read_mentions_incomplete &&
         archive_channel(80)->read_last_viewed == 70'000 && archive_channel(80)->read_flags == 0x80000005u,
         "forum reads: retained creation receipt prevents duplicate Gateway events erasing manual unread");
     check(archive_dispatch(utf8_literal(R"({"op":0,"t":"THREAD_CREATE","d":{"id":"140","guild_id":"7","parent_id":"80","type":11,"owner_id":"2","newly_created":true,"name":"Newer"}})")) &&
@@ -98,7 +98,7 @@ void forum_parent_activity(void (*check)(bool, const char*) noexcept) noexcept {
         "forum reads: media parents use the same latest-post and own-post ACK automation");
     check(chat_state_store_upsert_channel(&f.state, {181, 7, 0, utf8_literal("Text"), 0, 0, 0, 220, true}).ok() &&
         archive_dispatch(utf8_literal(R"({"op":0,"t":"THREAD_CREATE","d":{"id":"230","guild_id":"7","parent_id":"181","type":11,"owner_id":"1","newly_created":true,"name":"Text thread"}})")) &&
-        archive_channel(181)->last_message_id == 220 && !archive_channel(230)->thread_parent_creation_noted &&
+        archive_channel(181)->last_message_id == 220 &&
         !chat_state_store_note_thread(&f.state, 180, 230, 1),
         "forum reads: text parents and mismatched retained thread parents cannot use post automation");
     const Utf8View malformed[] = {
@@ -117,7 +117,9 @@ void forum_parent_activity(void (*check)(bool, const char*) noexcept) noexcept {
     check(!archive_apply(event, payload), "forum reads: unknown normalized channel-event flags reject before mutation");
     check(chat_state_store_remove_channel(&f.state, 120) &&
         chat_state_store_upsert_channel(&f.state, {120, 7, 80, utf8_literal("Recreated"), 0, 0, 11}).ok() &&
-        !archive_channel(120)->thread_parent_creation_noted,
+        archive_read(80, 90, 2, true) &&
+        archive_dispatch(utf8_literal(R"({"op":0,"t":"THREAD_CREATE","d":{"id":"120","guild_id":"7","parent_id":"80","type":11,"owner_id":"1","newly_created":true,"name":"Own once more"}})")) &&
+        archive_channel(80)->last_read_message_id == 120,
         "forum reads: deleting and recreating a retained thread resets its creation receipt");
 }
 }

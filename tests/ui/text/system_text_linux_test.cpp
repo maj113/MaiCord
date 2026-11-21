@@ -15,6 +15,7 @@
 #include "maicord/text/layout/paragraph_hits.hpp"
 #include "maicord/ui/text/native_text_candidate.hpp"
 #include "maicord/ui/text/text.hpp"
+#include "maicord/render/text/edit_layout.hpp"
 
 #include "../../support/test_output.hpp"
 #include "maicord/platform/font/system_font_locator.hpp"
@@ -311,6 +312,222 @@ void fallback_keeps_the_line_box(const TextSystem& system) noexcept {
     }
 }
 
+// Writes the family of the face that draws the first glyph of `shaped`, for the logs of other distributions.
+void write_first_family(TextSystem& system, const ShapedText& shaped) noexcept {
+    SystemFontName name{};
+    bool cbdt = false;
+    const NativeFontFace* face = nullptr;
+    char buffer[kSystemFontNameCapacity];
+    u32 used = 0;
+    if (shaped.run_count && run_family(system, shaped.runs[0], &name, &cbdt, &face))
+        for (; used < name.count && used < sizeof(buffer); ++used)
+            buffer[used] = name.units[used] < 128 ? static_cast<char>(name.units[used]) : '?';
+    test_write_bytes(buffer, used);
+}
+
+// Whether `shaped` holds real glyphs at full CJK width: the native fallback substitute of a refused text draws each
+// scalar as the narrow missing glyph of the interface font, the boxes the composer showed. The face that covers
+// `scalar` must not be the last-resort fixture (tests/fixtures/fonts/last_resort), whose glyphs are boxes too.
+bool full_width_glyphs(TextSystem& system, const ShapedText& shaped, u32 scalars, u32 scalar) noexcept {
+    bool real = shaped.glyph_count >= scalars && shaped.width >= scalars * system.em_size * 0.8f;
+    for (u32 i = 0; real && i < shaped.glyph_count; ++i)
+        real = shaped.glyphs[i].index != 0;
+    bool covers = false;
+    for (u32 r = 0; real && r < shaped.run_count; ++r) {
+        SystemFontName name{};
+        bool cbdt = false;
+        const NativeFontFace* face = nullptr;
+        u16 glyph = 0;
+        covers = covers || (run_family(system, shaped.runs[r], &name, &cbdt, &face) &&
+                            !starts_with(name, "MaiCord Last Resort") &&
+                            sfnt_cmap_glyph(face->cmap, scalar, 0, &glyph) == SfntStatus::ok && glyph != 0);
+    }
+    return real && covers;
+}
+
+TextEditMetric g_edit_selections[kTextEditSelectionCapacity];
+
+// Japanese in the message composer, as an input method types it: kana alone (the preedit before conversion), the
+// converted kanji and the committed mix. The composer lays its draft out through the edit field (text_edit_layout_measure
+// with the composer's options, the caret at the end of the preedit) and draws it with text_shape_utf8 in a one-line
+// box; a message lays out its hit geometry under the message policy and draws in a tall box. Both must draw the CJK
+// face at full width, in either order on one text system, as the client runs them.
+void composer_cjk(TextSystem& system) noexcept {
+    struct Case {
+        const char* name;
+        const char* text;
+        u32 scalars;
+        u32 scalar;
+    };
+    const Case cases[] = {
+        {"hiragana", "\xE3\x81\x8A\xE3\x81\xA3\xE3\x81\xB1\xE3\x81\x84", 4, 0x304A},
+        {"katakana", "\xE3\x82\xAA\xE3\x83\x83\xE3\x83\x91\xE3\x82\xA4", 4, 0x30AA},
+        {"kanji", "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E", 3, 0x65E5},
+        {"mixed", "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E\xE3\x81\xAE\xE3\x83\x86\xE3\x82\xB9\xE3\x83\x88", 7, 0x65E5},
+    };
+    for (u32 order = 0; order < 2; ++order) {
+        for (const Case& sample : cases) {
+            u32 bytes = 0;
+            while (sample.text[bytes])
+                ++bytes;
+            const Utf8View text{sample.text, bytes};
+            const float line = system.em_size * 1.5f;
+            bool edit_ok = false, composer_ok = false, message_ok = false;
+            const auto edit_field = [&]() noexcept {
+                TextEditLayoutOwner owner{};
+                owner.selections = g_edit_selections;
+                owner.selection_capacity = kTextEditSelectionCapacity;
+                const TextEditLayoutInput input{text, text_edit_signature(text), sample.scalars, sample.scalars, 0, 0,
+                                                600.0f, line, 262144.0f,
+                                                text_edit_layout_wrap | text_edit_layout_center_vertically |
+                                                    text_edit_layout_scroll_to_caret,
+                                                {}};
+                edit_ok = text_edit_layout_measure(&owner, input, system) && owner.geometry &&
+                          owner.caret.left >= sample.scalars * system.em_size * 0.8f;
+                text_edit_layout_release(&owner);
+                ShapedText shaped{};
+                check(shaped_text_initialize(&shaped, {g_storage.glyphs, kGlyphCapacity}, {g_storage.runs, kRunCapacity},
+                                             {g_storage.clusters, kGlyphCapacity}),
+                      "shaped_text_initialize");
+                composer_ok = text_shape_utf8(&system, {text, {}, 600.0f, line, TextWrapping::wrap, TextOverflow::clip},
+                                              &shaped).ok() &&
+                              full_width_glyphs(system, shaped, sample.scalars, sample.scalar);
+                test_write_text("  composer ");
+                test_write_text(sample.name);
+                test_write_text(": ");
+                write_first_family(system, shaped);
+                test_write_text("\n");
+                shaped_text_reset(&shaped);
+            };
+            const auto message = [&]() noexcept {
+                TextSystem hit_system = system;
+                hit_system.tracking = 0;
+                hit_system.message_hit_policy = true;
+                NativeParagraphHits geometry{};
+                NativeParagraphHitStorage retained{{g_hit_clusters, 256}, {g_hit_lines, 257}, {g_hit_advances, 1280},
+                                                   &geometry,             {g_hit_parts, 256}, {g_hit_runs, 256}};
+                TextMeasureResult measured{};
+                const bool hits = native_text_candidate_hits(hit_system, {text, {}, 600.0f, 100000.0f}, retained, &measured);
+                ShapedText shaped{};
+                check(shaped_text_initialize(&shaped, {g_storage.glyphs, kGlyphCapacity}, {g_storage.runs, kRunCapacity},
+                                             {g_storage.clusters, kGlyphCapacity}),
+                      "shaped_text_initialize");
+                message_ok = hits && text_shape_utf8(&system, {text, {}, 600.0f, 100000.0f}, &shaped).ok() &&
+                             full_width_glyphs(system, shaped, sample.scalars, sample.scalar);
+                shaped_text_reset(&shaped);
+            };
+            if (order) {
+                message();
+                edit_field();
+            } else {
+                edit_field();
+                message();
+            }
+            if (!composer_ok && !strict() && !message_ok) {
+                // A host without a CJK font shapes neither: required only with the Ubuntu packages.
+                test_write_text("  skipped composer_cjk ");
+                test_write_text(sample.name);
+                test_write_text("\n");
+                continue;
+            }
+            check(edit_ok, sample.name);
+            check(composer_ok, sample.name);
+            check(message_ok, sample.name);
+        }
+    }
+}
+
+// The composer cases with a CJK face as the primary face, as a desktop font or fontconfig's sans-serif can make it:
+// the variable CFF2 collection (NixOS, Fedora) or the static CFF one (Ubuntu), a face at index 0 and faces at a
+// later index. A family the host lacks is skipped.
+void composer_cjk_primary_faces(TextSystem& base) noexcept {
+    const char* const families[] = {"Noto Sans CJK JP", "Noto Sans CJK SC", "Noto Sans CJK KR", "Noto Sans Mono CJK JP"};
+    for (const char* family : families) {
+        u16 units[64];
+        u32 count = 0;
+        for (; family[count]; ++count)
+            units[count] = static_cast<u8>(family[count]);
+        TextSystem system = base;
+        if (!native_text_format_create(system.native_text,
+                                       {{units, count}, 0, {400, 5, 0}, system.em_size, system.em_size * 4, true},
+                                       &system.native_format) ||
+            !native_text_format_prepare(system.native_text, system.native_format)) {
+            test_write_text("  no primary face ");
+            test_write_text(family);
+            test_write_text("\n");
+            continue;
+        }
+        test_write_text("  primary face ");
+        test_write_text(family);
+        test_write_text("\n");
+        composer_cjk(system);
+    }
+}
+
+// With tests/fixtures/fonts/refused/fonts.conf the only face that covers Hiragana is one the engine cannot prepare.
+// The kana are then missing glyphs of the interface font, and the Latin letters keep their own glyphs: the native
+// layout itself succeeds, at the regular and the bold weight, in the line, styled, hit and edit-field paths. Before,
+// the whole text failed, and when the fallback substitutes failed too, one message took down every text of the view.
+void refused_fallback_face(TextSystem& base) noexcept {
+    // The base face is Zilla Slab, a static TrueType face: its bold is a simulation the engine draws. A CFF face of the
+    // set (Compagnon) has no bold the engine can simulate, and fontconfig may pick it as the interface face.
+    TextSystem system = base;
+    const u16 family[] = {'Z', 'i', 'l', 'l', 'a', ' ', 'S', 'l', 'a', 'b'};
+    const bool format = native_text_format_create(system.native_text, {{family, 10}, 0, {400, 5, 0}, 16.0f, 64.0f, true},
+                                                  &system.native_format) &&
+                        native_text_format_prepare(system.native_text, system.native_format);
+    check(format, "refused_face_base_format");
+    if (!format)
+        return;
+    // The interface face of this font set, for the log.
+    const wchar_t* ui = default_font_family(DefaultFont::ui);
+    test_write_text("  interface family: ");
+    for (u32 i = 0; ui && ui[i]; ++i) {
+        const char c = ui[i] < 128 ? static_cast<char>(ui[i]) : '?';
+        test_write_bytes(&c, 1);
+    }
+    test_write_text("\n");
+    // Bold Latin alone tells a bold base face that fails from a fallback face that fails.
+    {
+        const Utf8View latin = utf8_literal("Abc");
+        const TextStyleSpan style{0, latin.bytes, static_cast<u32>(text_style_bold)};
+        ShapedText shaped{};
+        check(shaped_text_initialize(&shaped, {g_storage.glyphs, kGlyphCapacity}, {g_storage.runs, kRunCapacity},
+                                     {g_storage.clusters, kGlyphCapacity}),
+              "shaped_text_initialize");
+        check(native_text_candidate_styled(system, {latin, {&style, 1}, 1000.0f, 1000.0f}, &shaped, nullptr),
+              "refused_face_bold_latin");
+        shaped_text_reset(&shaped);
+    }
+    const Utf8View text = utf8_literal("Abc \xE3\x81\x82\xE3\x81\x84\xE3\x81\x86");
+    for (u32 bold = 0; bold < 2; ++bold) {
+        const TextStyleSpan style{0, text.bytes, bold ? static_cast<u32>(text_style_bold) : 0u};
+        const ConstSlice<TextStyleSpan> styles{&style, bold};
+        ShapedText shaped{};
+        check(shaped_text_initialize(&shaped, {g_storage.glyphs, kGlyphCapacity}, {g_storage.runs, kRunCapacity},
+                                     {g_storage.clusters, kGlyphCapacity}),
+              "shaped_text_initialize");
+        const bool drawn = bold ? native_text_candidate_styled(system, {text, styles, 1000.0f, 1000.0f}, &shaped, nullptr)
+                                : native_text_candidate_line(system, {text, {}, 1000.0f, 1000.0f}, &shaped, nullptr);
+        check(drawn && shaped.glyph_count >= 7 && shaped.glyphs[0].index != 0, bold ? "refused_face_bold" : "refused_face");
+        shaped_text_reset(&shaped);
+        NativeParagraphHits geometry{};
+        NativeParagraphHitStorage retained{{g_hit_clusters, 256}, {g_hit_lines, 257}, {g_hit_advances, 1280},
+                                           &geometry,             {g_hit_parts, 256}, {g_hit_runs, 256}};
+        TextMeasureResult measured{};
+        check(native_text_candidate_hits(system, {text, styles, 1000.0f, 1000.0f}, retained, &measured) && measured.ok(),
+              bold ? "refused_face_bold_hits" : "refused_face_hits");
+        TextEditLayoutOwner owner{};
+        owner.selections = g_edit_selections;
+        owner.selection_capacity = kTextEditSelectionCapacity;
+        const TextEditLayoutInput input{text, text_edit_signature(text), 7, 7, 0, 0, 600.0f, 24.0f, 262144.0f,
+                                        text_edit_layout_wrap, styles};
+        check(text_edit_layout_measure(&owner, input, system) && owner.geometry,
+              bold ? "refused_face_bold_edit" : "refused_face_edit");
+        text_edit_layout_release(&owner);
+    }
+}
+
 bool run(const char* mode, const char* expected_family) noexcept {
     TextSystem system{};
     const wchar_t* ui = default_font_family(DefaultFont::ui);
@@ -329,6 +546,10 @@ bool run(const char* mode, const char* expected_family) noexcept {
         // name starts with argv[3] (the CJK order the user's language selects).
         const Sample han{"han_for_language", "\xE6\x97\xA5", 0x65E5, expected_family};
         shape(system, han, expected_family);
+        return g_failures == 0;
+    }
+    if (equal(mode, "--refused-face")) {
+        refused_fallback_face(system);
         return g_failures == 0;
     }
 
@@ -352,6 +573,8 @@ bool run(const char* mode, const char* expected_family) noexcept {
         shape(system, sample, sample.family_prefix);
     message_bold_emoji_statistics(system);
     fallback_keeps_the_line_box(system);
+    composer_cjk(system);
+    composer_cjk_primary_faces(system);
     return g_failures == 0;
 }
 

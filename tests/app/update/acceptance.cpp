@@ -141,7 +141,7 @@ void test_update_acceptance(void (*check)(bool, const char*) noexcept) noexcept 
     const auto bad_signature = admit(six);
     check(bad_signature.error == UpdateAcceptanceError::manifest && bad_signature.manifest_error == UpdateManifestError::signature &&
         bytes_equal(&policy, &untouched_policy, sizeof(policy)) && bytes_equal(&approved, &untouched_approved, sizeof(approved)) &&
-        bytes_equal(&owner, &untouched_owner, sizeof(owner)),
+        state_equal(owner.state, untouched_owner.state) && owner.lock == untouched_owner.lock,
         "acceptance: invalid publisher signature changes no state, global policy or approved manifest");
     check(sign(six) && admit(six).ok() && approved.version == 6 && policy.highest_accepted_version == 6 &&
         policy.has_accepted_manifest_digest && bytes_equal(policy.accepted_manifest_sha256, approved.manifest_sha256, 32) &&

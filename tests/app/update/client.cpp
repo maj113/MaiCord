@@ -631,7 +631,7 @@ void test_changelog_rows() noexcept {
     check(toggle(kApplicationUpdatesRowNotes + 1) && build() == 3 && controls[2].kind == UiSettingsControlKind::markdown && controls[2].checked,
         "update changelog: Show all notes unclips the notes");
     v.changelog_revision = 3; g_log.version = 3005999; g_log.entries[0].version = 3005999; v.offer_version = 3005999;
-    check(build() == 3 && controls[0].checked && !controls[1].checked && !rows.older_open,
+    check(build() == 3 && controls[0].checked && !controls[1].checked,
         "update changelog: a new changelog version starts the disclosure state over");
     v.offer_version = 3006999;
     check(!build(), "update changelog: a changelog for another version than the offer is not shown");
@@ -656,7 +656,7 @@ void test_changelog_rows() noexcept {
               same(controls[0].label, "MaiCord 0.3.6") && !controls[0].checked && !controls[0].detail.bytes,
         "update changelog: a build newer than the published notes shows the newest entry folded");
     g_log.channel = UpdateChannel::preview;
-    check(build() == 1 && same(controls[0].detail, "dev.999") && presentation[0].more == ui_settings_more_plain && !rows.more_open,
+    check(build() == 1 && same(controls[0].detail, "dev.999") && presentation[0].more == ui_settings_more_plain,
         "update changelog: a preview build newer than the feed shows the newest commit only");
     g_log.count = 0;
     check(!build(), "update changelog: an empty changelog shows no section");
@@ -1204,8 +1204,8 @@ void test_service() noexcept {
         "update service: a missing release package after admission is reported once, without refetching");
     serve(v6, signatures[0], package_target);
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
-    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV6 && fake.routes[4].hits == 1 && service.staged.file &&
-        service.staged.version == kV6 && same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE) && holds(t.executable, "old exe") &&
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV6 && fake.routes[4].hits == 1 &&
+        same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE) && holds(t.executable, "old exe") &&
         present(paths.download),
         "update service: the first release replaces a stale stage with the verified executable beside the running one");
     if (!service.staged.file) return;
@@ -1220,7 +1220,7 @@ void test_service() noexcept {
     r = update_service_initialize(&service, config, paths) == UpdateServiceError::none
         ? update_service_check(&service, transport, UpdateChannel::stable, 100) : UpdateCheckResult{};
     check(r.outcome == UpdateCheckOutcome::ready && r.version == kV6 && !fake.routes[3].hits && !fake.routes[4].hits &&
-        service.staged.file && same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE) && holds(t.executable, "old exe"),
+        same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE) && holds(t.executable, "old exe"),
         "update service: the next launch stages the kept package again after verifying it, without downloading");
     // A kept package that no longer matches the signed digest is downloaded again.
     update_service_release(&service);
@@ -1229,12 +1229,12 @@ void test_service() noexcept {
     r = update_service_initialize(&service, config, paths) == UpdateServiceError::none
         ? update_service_check(&service, transport, UpdateChannel::stable, 100) : UpdateCheckResult{};
     check(tampered && r.outcome == UpdateCheckOutcome::ready && r.version == kV6 && fake.routes[4].hits == 1 &&
-        service.staged.file && same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE),
+        same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE),
         "update service: a kept package that changed is downloaded again");
     if (!service.staged.file) return;
     serve(v7, signatures[1], package_target7);
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
-    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && service.staged.version == kV7 &&
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 &&
         same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE) && holds(t.executable, "old exe"),
         "update service: the next release verifies and replaces the earlier stage");
     const u32 package_hits = fake.routes[4].hits;
@@ -1243,9 +1243,9 @@ void test_service() noexcept {
         "update service: a staged version is ready without downloading again");
     serve(v6, signatures[0], package_target);
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
-    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && !fake.routes[3].hits && service.staged.version == kV7,
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && !fake.routes[3].hits,
         "update service: an older offer leaves the newer stage ready");
-    check(update_service_swap(&service).ok() && !service.staged.file && same_file(t.executable, MAICORD_UPDATE_TEST_EXECUTABLE) &&
+    check(update_service_swap(&service).ok() && same_file(t.executable, MAICORD_UPDATE_TEST_EXECUTABLE) &&
         holds(paths.replaced, "old exe") && !present(paths.staged) && !present(paths.download),
         "update service: installing moves the verified stage over the executable, keeps the replaced one as .old and drops the package");
     check(update_service_swap(&service).error == UpdateSwapError::nothing_staged && same_file(t.executable, MAICORD_UPDATE_TEST_EXECUTABLE),

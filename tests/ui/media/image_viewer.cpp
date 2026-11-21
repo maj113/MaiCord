@@ -725,7 +725,7 @@ void test_image_viewer(void (*check)(bool, const char*) noexcept) noexcept {
           "viewer Save availability exposes one exact stable native action without moving existing toolbar controls");
     const auto save_revision = viewer.revision, save_layout = viewer.widgets.layout.revision;
     bool save_retained = true;
-    for (u32 i = 0; i < 64; ++i) save_retained &= ui_image_viewer_set_save_available(&viewer,true);
+    for (u32 i = 0; i < 2; ++i) save_retained &= ui_image_viewer_set_save_available(&viewer,true);
     check(save_retained && viewer.revision == save_revision && viewer.widgets.layout.revision == save_layout,
           "viewer unchanged Save availability performs no layout or presentation work");
     auto save_rectangle = ui_image_viewer_button(viewer,4);

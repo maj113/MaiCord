@@ -558,6 +558,8 @@ void run() noexcept {
     wchar_t ledger_path[MAX_PATH];
     join(ledger_path, root.base, L"ledger.bin");
     const bool ledger_ready = plugin_call_ledger_open(&ledger, ledger_path, &leftover) && !leftover.present;
+    // No test here is about call budgets: give every class one no loaded machine reaches, so no call strikes.
+    ledger.decorate_budget_us = ledger.pre_budget_us = ledger.event_budget_us = ledger.budget_us = 10'000'000;
     const PluginLoadResult opened = plugin_runtime_open(&runtime, {root.plugins, length(root.plugins)},
                                                         {root.data, length(root.data)}, &ledger);
     check(ledger_ready && opened.ok(), "the plugins directory is pinned");

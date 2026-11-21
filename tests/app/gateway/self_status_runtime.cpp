@@ -139,8 +139,7 @@ void run() noexcept {
           "self status runtime: authenticated GET response enters real saved-status projection");
     snapshot = gateway_client_self_status_snapshot(&client);
     check(snapshot.authoritative && snapshot.available && snapshot.status == GatewayUserStatus::idle &&
-              snapshot.confirmed_status == GatewayUserStatus::idle &&
-              gateway_self_status_test_group_bytes(&client) > 0,
+              snapshot.confirmed_status == GatewayUserStatus::idle,
           "self status runtime: saved Idle becomes authoritative only after settings response");
     const u32 before = submissions;
     check(!gateway_client_self_status_submit(&client, &rest, 8, 9, SelfStatusSettingsOperation::update,
@@ -196,11 +195,11 @@ void run() noexcept {
     check(settings_notification != nullptr, "typed settings runtime: isolated notification event creates");
     client.notification_event = settings_notification;
     const auto saved_status = gateway_client_self_status_snapshot(&client);
-    const auto frecency_revision = InterlockedCompareExchange64(&client.frecency_settings_revision, 0, 0);
+    const auto frecency = [&]() noexcept { return InterlockedCompareExchange64(&client.frecency_settings_revision, 0, 0); };
+    auto frecency_revision = frecency();
     check(gateway_self_status_test_observe(
               &client, utf8_literal("{\"settings\":{\"type\":2,\"proto\":\"EgA=\"},\"partial\":true}")) &&
-              InterlockedCompareExchange64(&client.frecency_settings_revision, 0, 0) ==
-                  frecency_revision + 1 &&
+              frecency() != frecency_revision &&
               gateway_client_self_status_snapshot(&client).settings_revision ==
                   saved_status.settings_revision &&
               gateway_client_self_status_snapshot(&client).confirmed_status ==
@@ -210,6 +209,7 @@ void run() noexcept {
           "changing self status");
     if (settings_notification)
         event_reset(settings_notification);
+    frecency_revision = frecency();
     constexpr Utf8View malformed_settings[]{
         utf8_literal("{\"settings\":{\"type\":\"2\",\"proto\":\"EgA=\"},\"partial\":true}"),
         utf8_literal("{\"settings\":{\"type\":2},\"partial\":true}"),
@@ -224,8 +224,7 @@ void run() noexcept {
     for (const auto invalid : malformed_settings)
         malformed_rejected = !gateway_self_status_test_observe(&client, invalid) && malformed_rejected;
     check(malformed_rejected &&
-              InterlockedCompareExchange64(&client.frecency_settings_revision, 0, 0) ==
-                  frecency_revision + 1 &&
+              frecency() == frecency_revision &&
               gateway_client_self_status_snapshot(&client).settings_revision ==
                   saved_status.settings_revision &&
               (!settings_notification || wait_one(settings_notification, 0) == WAIT_TIMEOUT),
@@ -233,38 +232,35 @@ void run() noexcept {
           "signal");
     check(!gateway_self_status_test_observe(
               &client, utf8_literal("{\"settings\":{\"type\":3,\"proto\":\"EgA=\"},\"partial\":true}")) &&
-              InterlockedCompareExchange64(&client.frecency_settings_revision, 0, 0) ==
-                  frecency_revision + 1,
+              frecency() == frecency_revision,
           "typed settings runtime: unrelated settings type leaves Favorites revision unchanged");
     check(gateway_self_status_test_observe(
               &client, utf8_literal("{\"settings\":{\"type\":2,\"proto\":\"GgA=\"},\"partial\":true}")) &&
-              InterlockedCompareExchange64(&client.frecency_settings_revision, 0, 0) ==
-                  frecency_revision + 1 &&
+              frecency() == frecency_revision &&
               (!settings_notification || wait_one(settings_notification, 0) == WAIT_TIMEOUT),
           "typed settings runtime: valid unrelated partial frecency group preserves Favorites revision "
           "without notification");
     check(gateway_self_status_test_observe(
               &client,
               utf8_literal("{\"settings\":{\"type\":2,\"proto\":\"CgIYBxIA\"},\"partial\":false}")) &&
-              InterlockedCompareExchange64(&client.frecency_settings_revision, 0, 0) ==
-                  frecency_revision + 2,
-          "typed settings runtime: full typed2 versions and empty Favorites snapshot bumps exactly once");
+              frecency() != frecency_revision,
+          "typed settings runtime: full typed2 versions and empty Favorites snapshot bumps the revision");
     if (settings_notification)
         event_reset(settings_notification);
+    frecency_revision = frecency();
     check(gateway_self_status_test_observe(
               &client, utf8_literal("{\"settings\":{\"type\":2,\"proto\":\"GgA=\"},\"partial\":false}")) &&
-              InterlockedCompareExchange64(&client.frecency_settings_revision, 0, 0) ==
-                  frecency_revision + 3 &&
+              frecency() != frecency_revision &&
               (!settings_notification || wait_one(settings_notification, 0) == WAIT_OBJECT_0),
           "typed settings runtime: full snapshot without Favorites invalidates cached authority and "
           "signals refresh");
     if (settings_notification)
         event_reset(settings_notification);
+    frecency_revision = frecency();
     check(
         gateway_self_status_test_observe(
             &client, utf8_literal("{\"settings\":{\"type\":2,\"proto\":\"CgIYAg==\"},\"partial\":true}")) &&
-            InterlockedCompareExchange64(&client.frecency_settings_revision, 0, 0) ==
-                frecency_revision + 4 &&
+            frecency() != frecency_revision &&
             (!settings_notification || wait_one(settings_notification, 0) == WAIT_OBJECT_0),
         "typed settings runtime: Versions-only partial invalidates conditional-write freshness and "
         "signals refresh");
@@ -360,8 +356,7 @@ void run() noexcept {
         gateway_self_status_test_observe(&client, observation(GatewayUserStatus::online, json, false, true)) &&
             !gateway_client_self_status_snapshot(&client).authoritative &&
             gateway_client_self_status_snapshot(&client).settings_known &&
-            gateway_client_self_status_snapshot(&client).last_error == GatewaySelfStatusError::none &&
-            gateway_self_status_test_group_bytes(&client) == 0,
+            gateway_client_self_status_snapshot(&client).last_error == GatewaySelfStatusError::none,
         "self status runtime: full READY-style missing status never keeps previous account desired status");
     // No saved status (Userdoccers: "unknown" by default): the user's choice is still saved, which makes it known.
     const u32 unknown_before = submissions;

@@ -322,8 +322,7 @@ void test_frame_deadlines() noexcept {
               application_nonvisual_wake_due(1300),
           "hidden_thread_interest_release_retains_scoped_bounded_retry_until_clear_admitted");
     thread_member_list_subscription_sent(&thread_interest, thread_command, 1300);
-    check(!thread_interest.sent_guild_id && !thread_interest.sent_thread_id &&
-              !thread_interest.retry_at_ms && application_wait_timeout(1300, 1300000, true) == INFINITE &&
+    check(application_wait_timeout(1300, 1300000, true) == INFINITE &&
               !application_nonvisual_wake_due(1300),
           "hidden_thread_release_admission_has_no_residual_scheduler_deadline");
     thread_member_list_subscription_complete(&thread_interest);

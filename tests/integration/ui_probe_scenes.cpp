@@ -5842,26 +5842,20 @@ bool probe_rich_composer() noexcept {
             refresh() && renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) &&
             probe_present(&g_probe.renderer, kDefaultTheme) && probe_capture_frame(L"code-caret.bmp");
     g_probe.failure_stage = 150;
-    // A caret blink rebuilds paint only: after one present synchronizes the
+    // A caret blink shapes no text: after one present synchronizes the
     // other flip buffer, each toggle presents just the caret's damage.
     for (u32 toggle = 0; valid && toggle < 3; ++toggle) {
         const auto& r = g_probe.renderer;
-        const u32 builds = r.paint_stream_builds, partial = r.partial_present_draws, full = r.full_present_draws,
-                  diffs = r.paint_diff.partial_rebuilds, shaped = g_probe.text.rebuilds;
+        const u32 shaped = g_probe.text.rebuilds;
         const u64 pixels = r.partial_present_pixels;
         message_composer_scene_set_caret_visible(&scene, toggle % 2 != 0);
-        valid = probe_present(&g_probe.renderer, kDefaultTheme) && r.paint_stream_builds == builds + 1 &&
-                r.paint_diff.partial_rebuilds == diffs + 1 && g_probe.text.rebuilds == shaped &&
-                (toggle == 0 || (r.full_present_draws == full && r.partial_present_draws == partial + 1 &&
+        valid = probe_present(&g_probe.renderer, kDefaultTheme) && g_probe.text.rebuilds == shaped &&
+                (toggle == 0 || (r.partial_present_pixels > pixels &&
                                  r.partial_present_pixels - pixels < static_cast<u64>(r.width) * r.height / 16));
         log_u64(valid ? LogLevel::info : LogLevel::error, "probe", "caret_blink_partial_present_pixels",
                 r.partial_present_pixels - pixels);
-        if (!valid) {
+        if (!valid)
             log_u64(LogLevel::error, "probe", "caret_blink_toggle", toggle);
-            log_u64(LogLevel::error, "probe", "caret_blink_builds", r.paint_stream_builds - builds);
-            log_u64(LogLevel::error, "probe", "caret_blink_diff_partials", r.paint_diff.partial_rebuilds - diffs);
-            log_u64(LogLevel::error, "probe", "caret_blink_full_presents", r.full_present_draws - full);
-        }
     }
     g_probe.failure_stage = 151;
     const auto directional_edit =

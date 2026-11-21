@@ -82,8 +82,7 @@ void run() noexcept {
     ConstSlice<u8> body{};
     GatewayMessageEvent projected{};
     check(
-        route(create, &packed, &payload) && (packed.message.fields & gateway_message_field_pinned) &&
-            (packed.message.mention_flags & gateway_client_message_pinned) &&
+        route(create, &packed, &payload) &&
             gateway_client_notification_trim(packed, payload, &body_event, &body) &&
             gateway_client_event_as_message(body_event, body, &projected) && projected.pinned &&
             (projected.fields & gateway_message_field_pinned) && projected.mentions_current_user,

@@ -301,8 +301,8 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
               "settings pointer: native leave clears hover while preserving modal ownership");
     }
     bool changed = false;
-    const bool opened = open();
     const u32 initial = effect();
+    const bool opened = open();
     check(opened && g_app.popup_scene.item_count >= kBackgroundEffectCount &&
               (g_app.popup_scene.items[initial].flags & popup_item_checked) && effect() == initial,
           "choice runtime: Enter opens the list with the current value checked, without cycling or choosing");
@@ -366,9 +366,8 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
               !g_app.popup_scene.active && effect() == chosen,
           "choice runtime: switching pages drops the old borrowing window before text projection");
     check(open(), "choice runtime: the dropdown recaptures after native page selection");
-    const auto serial = g_app.plugin_account_scope_serial;
     application_plugins_account_scope_invalidated();
-    check(g_app.plugin_account_scope_serial == serial + 1 && !g_app.popup_scene.active &&
+    check(!g_app.popup_scene.active &&
               !g_app.popup_scene.items[0].label.data && effect() == chosen,
           "choice runtime: real account invalidation releases borrowed descriptors immediately");
     check(open(), "choice runtime: current account scope opens a new choice window");

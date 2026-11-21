@@ -225,7 +225,7 @@ void test_quick_switcher_controller(void (*check)(bool, const char*) noexcept) n
           "oversize quick query fails before copying into bounded storage");
     f.scope = newer_scope;
     f.sync({});
-    check(!f.controller.recent_count,
+    check(!f.controller.count || !f.controller.rows[0].recent,
           "account switch clears navigation history belonging to another account");
 
     // Real model admission feeds more than one hundred candidates; no result cursor silently grows storage.
@@ -243,8 +243,8 @@ void test_quick_switcher_controller(void (*check)(bool, const char*) noexcept) n
           "general quick switcher matches remain bounded to five ranked destinations");
     for (u32 i = 0; i < 10; ++i)
         quick_switcher_visit(&large.controller, large.scope, large.sources(), 1000 + i);
-    check(large.controller.recent_count == 8 && large.controller.recent_channels[0] == 1009 &&
-              large.controller.recent_channels[7] == 1002 && large.sync({}) && large.controller.count == 7,
-          "navigation history retains eight destinations and renders seven recent entries");
+    check(large.sync({}) && large.controller.count == 7 && large.controller.rows[0].target.id == 1009 &&
+              large.controller.rows[6].target.id == 1003,
+          "navigation history renders the seven newest recent entries, newest first");
 }
 } // namespace maicord

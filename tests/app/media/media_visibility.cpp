@@ -614,10 +614,8 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
               pump.pass(1'000, 1'100, 0, &repaint).request_visible_user_avatar_value(9, hash, &stop) &&
               identity_requests == before_hidden + 1,
           "avatar admission: matching visible author still admits its normal cold request");
-    check(media_asset_key_equal(last_identity_key, avatar) &&
-              last_identity_size == cdn_image_size(kCdnIdentityDisplayDips, g_app.renderer.dpi) &&
-              last_identity_size <= kCdnIdentityDefaultSize && (last_identity_size & (last_identity_size - 1)) == 0,
-          "avatar admission: the CDN size matches the 40-DIP avatar extent at the renderer DPI");
+    check(media_asset_key_equal(last_identity_key, avatar) && last_identity_size == 64,
+          "avatar admission: a 40-DIP avatar asks the CDN for the 64 px size");
     GuildRecord guild{};
     guild.id = 600;
     guild.occupied = true;

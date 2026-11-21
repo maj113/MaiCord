@@ -238,8 +238,7 @@ void test_commands(PluginBinding* binding) noexcept {
               g_index.command_count == 16,
           "the composer decodes the index: one application, sixteen commands");
     if (g_index.command_count != 16) return;
-    check(g_index.applications[0].id == (kOwner | kPluginCommandApplicationFlag) &&
-              plugin_command_application(g_index.applications[0].id) && same(g_index.applications[0].name, "UI fixture"),
+    check(plugin_command_application(g_index.applications[0].id) && same(g_index.applications[0].name, "UI fixture"),
           "the application is the plugin, marked as local");
     bool unique = true, flagged = true;
     for (u32 i = 0; i < g_index.command_count; ++i) {

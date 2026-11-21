@@ -232,7 +232,6 @@ bool glyph_text_owner_empty(const D3D11GlyphTextOwner& owner) noexcept;
 bool glyph_text_owner_ready(const D3D11Renderer& renderer) noexcept;
 bool message_hit_cache_empty(const MessageHitTestCacheOwner& owner) noexcept;
 bool composer_layout_empty(const TextEditLayoutOwner& owner) noexcept;
-bool content_text_retention_empty(const ContentTextRetentionOwner& owner) noexcept;
 bool resize_stress_requested() noexcept;
 bool run_resize_stress() noexcept;
 bool initialize_probe_renderer() noexcept;

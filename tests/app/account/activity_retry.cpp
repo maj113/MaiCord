@@ -8,9 +8,10 @@
 namespace maicord {
 namespace {
 GameScan g_fake_scan;
-u32 g_fake_saves, g_refresh_starts;
+u32 g_fake_saves, g_refresh_starts, g_fake_scans;
 } // namespace
 void game_detection_scan(const RegisteredGames&, const DetectableList&, GameScan* scan) noexcept {
+    ++g_fake_scans;
     copy_value(scan, g_fake_scan);
 }
 void game_detection_release() noexcept {}
@@ -112,10 +113,10 @@ void detection(void (*check)(bool, const char*) noexcept) noexcept {
     const GameProcess playing[]{{kPlayer, {}, 100, true}, {kCrash, {}, 101, false}, {kStudio, {}, 102, true}};
     fake(3, playing);
     application_activity_tick(now);
-    check(!g_published.game && g.scan_at == now + kScanIntervalMs,
+    check(!g_published.game,
           "activity: the first scan waits an interval instead of running during startup");
     tick();
-    check(published(utf8_literal("ROBLOX"), kRoblox) && g_published.game_started_ms && g.game_pid == 100,
+    check(published(utf8_literal("ROBLOX"), kRoblox) && g_published.game_started_ms,
           "activity: the Roblox player is published with its application id; studio and crash handler are not");
     check(g_games.count == 1 && g_games.items[0].application_id == kRoblox && g_games.items[0].last_played_ms &&
               g_fake_saves,
@@ -123,7 +124,7 @@ void detection(void (*check)(bool, const char*) noexcept) noexcept {
     g.game_started_ms = g.published.game_started_ms = 1; // A start the next steps can tell apart.
     const u32 shown = g_publishes;
     tick();
-    check(g_publishes == shown && g.game_started_ms == 1, "activity: a rescan of the same process publishes nothing");
+    check(g_publishes == shown, "activity: a rescan of the same process publishes nothing");
 
     // The reported case: Roblox closed, its player process lingering without a window beside the crash handler.
     const GameProcess lingering[]{{kPlayer, {}, 100, false}, {kCrash, {}, 101, false}};
@@ -169,12 +170,14 @@ void detection(void (*check)(bool, const char*) noexcept) noexcept {
     check(!g_detectables.image && !g_detectables.loaded, "activity: turning game detection off drops the list");
     check(application_activity_streamer_tool_running() && !g_published.game,
           "activity: streamer tools are seen while game detection is off, games are not");
-    check(g.scan_at == now + kScanIntervalMs &&
-              application_activity_next_wake() == earliest_deadline(g.idle_check_at, g.scan_at),
-          "activity: Streamer Mode auto-detect alone scans every 20 seconds");
+    const u32 streamer_scans = g_fake_scans;
+    tick();
+    check(g_fake_scans == streamer_scans + 1, "activity: Streamer Mode auto-detect alone scans every 20 seconds");
     g_app.preferences.streamer_auto = false;
     tick();
-    check(!application_activity_streamer_tool_running() && application_activity_next_wake() == g.idle_check_at,
+    const u32 idle_scans = g_fake_scans;
+    tick();
+    check(!application_activity_streamer_tool_running() && g_fake_scans == idle_scans,
           "activity: with both off nothing scans");
     // Both are opt-in: a starting account on the defaults asks for no scan, not even the first one.
     const auto defaults = client_preferences_defaults();

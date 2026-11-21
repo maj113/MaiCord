@@ -268,7 +268,7 @@ void test_model() noexcept {
     guild_member_search_set_page_size(&store, 25);
     check(store.page == 1 && store.page_size == 25, "members paging: a page size change with few members returns to page 1");
     guild_member_search_reset(&store, false);
-    check(!store.count && store.page == 1 && store.cursors_known && store.last_body_hash == 0x1234,
+    check(!store.count && store.page == 1 && store.cursors_known && !guild_member_search_begin(&store, q, 0x1234, 40),
           "members paging: a filter change keeps the last request for deduplication");
 }
 

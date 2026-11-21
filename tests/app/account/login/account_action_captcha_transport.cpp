@@ -57,16 +57,16 @@ void retry() noexcept {
         check(false, "action captcha: REST owner initializes offline");
         return;
     }
-    check(rest_client_arm_headers(&p.client, 777, bytes(kCaptcha)) && p.runtime->armed_request_id == 777,
+    check(rest_client_arm_headers(&p.client, 777, bytes(kCaptcha)),
           "action captcha: solved headers arm for one request ID");
-    check(p.send(776).ok() && !p.headers().count && p.runtime->armed_request_id == 777,
+    check(p.send(776).ok() && !p.headers().count,
           "action captcha: a different request carries no CAPTCHA headers and keeps the arm");
     p.drain();
     constexpr Utf8View context = utf8_literal("X-Context-Properties: eyJ4IjoxfQ==\r\n");
     check(p.send(777, bytes(context)).ok() && p.headers().count == context.bytes + kCaptcha.bytes &&
               contains(p.headers(), utf8_literal("X-Captcha-Key: P1_solved.token\r\n")) &&
               contains(p.headers(), utf8_literal("X-Captcha-Session-Id: 3f2a\r\n")) &&
-              contains(p.headers(), context) && !p.runtime->armed_request_id && !p.runtime->armed_headers_bytes,
+              contains(p.headers(), context),
           "action captcha: the retried request carries its own and the armed headers once");
     u8 head[16 * 1024]{};
     const auto written = write_rest_request_head(
@@ -83,14 +83,15 @@ void retry() noexcept {
     check(!rest_client_arm_headers(&p.client, 9, bytes(utf8_literal("Authorization: x\r\n"))) &&
               !rest_client_arm_headers(&p.client, 9, bytes(utf8_literal("X-Captcha-Key: a\nb\r\n"))) &&
               !rest_client_arm_headers(&p.client, 9, bytes(utf8_literal("X-Captcha-Key: \r\n"))) &&
-              !p.runtime->armed_request_id,
+              p.send(9).ok() && !p.headers().count,
           "action captcha: only allowlisted, single-line header values arm");
+    p.drain();
     check(p.send(10, bytes(utf8_literal("Cookie: a=b\r\n"))).error == RestClientSubmitError::invalid_input,
           "action captcha: submissions reject headers outside the allowlist");
     check(rest_client_arm_headers(&p.client, 11, bytes(kCaptcha)) &&
-              rest_client_arm_headers(&p.client, 0, {}) && !p.runtime->armed_request_id &&
-              !p.runtime->armed_headers_bytes,
+              rest_client_arm_headers(&p.client, 0, {}) && p.send(11).ok() && !p.headers().count,
           "action captcha: cancel disarms and erases the held solution");
+    p.drain();
     u8 line[64]{};
     check(rest_append_extra_header({line, 64}, 0, utf8_literal("X-Captcha-Key"),
                                    bytes(utf8_literal("t"))) == 18 &&

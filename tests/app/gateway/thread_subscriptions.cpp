@@ -107,13 +107,15 @@ void test_thread_subscriptions(void (*check)(bool, const char*) noexcept) noexce
     bad = thread(0, 71);
     check(invalid_unchanged(bad), "thread subscription needs a guild scope");
 
-    GatewaySubscriptionThreadOwner owner{}; GatewayGuildSubscription frame{};
-    check(gateway_subscription_thread_owner_prepare(owner, thread(7, 71), &frame) && !frame.clear_thread_guild_id && !owner.sent_guild_id,
+    GatewaySubscriptionThreadOwner owner{}; GatewayGuildSubscription frame{}, probe{};
+    check(gateway_subscription_thread_owner_prepare(owner, thread(7, 71), &frame) && !frame.clear_thread_guild_id,
         "untransmitted desired selection does not claim worker thread ownership");
     gateway_subscription_thread_owner_admit(&owner, frame);
-    check(owner.active && !owner.sent_guild_id, "admitted inflight thread frame has separate pending owner");
+    check(gateway_subscription_thread_owner_prepare(owner, thread(8, 81), &probe) && !probe.clear_thread_guild_id,
+        "admitted inflight thread frame has separate pending owner");
     gateway_subscription_thread_owner_complete(&owner, true);
-    check(owner.sent_guild_id == 7 && !owner.active, "completed transport write commits actual thread guild owner");
+    check(gateway_subscription_thread_owner_prepare(owner, thread(8, 81), &probe) && probe.clear_thread_guild_id == 7,
+        "completed transport write commits actual thread guild owner");
     check(gateway_subscription_thread_owner_prepare(owner, normal(7, 70), &frame) && !frame.thread_member_lists_present && !frame.clear_thread_guild_id,
         "same guild channel-only delta does not invent an absent thread clear field");
     gateway_subscription_thread_owner_admit(&owner, frame); gateway_subscription_thread_owner_complete(&owner, true);
@@ -126,11 +128,11 @@ void test_thread_subscriptions(void (*check)(bool, const char*) noexcept) noexce
     gateway_subscription_thread_owner_admit(&owner, frame);
     const auto latest = thread(9, 91);
     gateway_subscription_thread_owner_complete(&owner, true);
-    check(owner.sent_guild_id == 8 && gateway_subscription_thread_owner_prepare(owner, latest, &frame) && frame.clear_thread_guild_id == 8 && frame.guild_id == 9,
+    check(gateway_subscription_thread_owner_prepare(owner, latest, &frame) && frame.clear_thread_guild_id == 8 && frame.guild_id == 9,
         "completion of inflight old selection cannot erase cleanup required by newer desired guild");
     gateway_subscription_thread_owner_admit(&owner, frame);
     gateway_subscription_thread_owner_complete(&owner, false);
-    check(owner.sent_guild_id == 8 && !owner.active && gateway_subscription_thread_owner_prepare(owner, latest, &frame) && frame.clear_thread_guild_id == 8,
+    check(gateway_subscription_thread_owner_prepare(owner, latest, &frame) && frame.clear_thread_guild_id == 8,
         "failed send commits no new thread owner and retry retains old cleanup");
     reset_value(&owner);
     check(gateway_subscription_thread_owner_prepare(owner, latest, &frame) && !frame.clear_thread_guild_id,
@@ -140,13 +142,15 @@ void test_thread_subscriptions(void (*check)(bool, const char*) noexcept) noexce
     check(gateway_subscription_thread_owner_prepare(owner, channel, &frame) && frame.clear_thread_guild_id == 9 && frame.thread_member_lists_present && !frame.thread_id,
         "channel-only latest selection acquires explicit old thread cleanup from worker owner");
     gateway_subscription_thread_owner_admit(&owner, frame); gateway_subscription_thread_owner_complete(&owner, true);
-    check(!owner.sent_guild_id, "completed compound channel selection releases actual thread interest");
+    check(gateway_subscription_thread_owner_prepare(owner, thread(12, 121), &probe) && !probe.clear_thread_guild_id,
+        "completed compound channel selection releases actual thread interest");
     gateway_subscription_thread_owner_prepare(owner, thread(7, 71), &frame);
     gateway_subscription_thread_owner_admit(&owner, frame); gateway_subscription_thread_owner_complete(&owner, true);
     check(gateway_subscription_thread_owner_prepare(owner, thread(7, 0), &frame) && !frame.clear_thread_guild_id,
         "same guild explicit release clears current thread field without duplicate guild key");
     gateway_subscription_thread_owner_admit(&owner, frame); gateway_subscription_thread_owner_complete(&owner, true);
-    check(!owner.sent_guild_id, "same guild empty thread array releases owner only after completed transport write");
+    check(gateway_subscription_thread_owner_prepare(owner, thread(12, 121), &probe) && !probe.clear_thread_guild_id,
+        "same guild empty thread array releases owner only after completed transport write");
     bad = thread(7, 71); bad.clear_thread_guild_id = 8;
     frame = thread(11, 111);
     check(!gateway_subscription_thread_owner_prepare(owner, bad, &frame) && frame.guild_id == 11,

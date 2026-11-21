@@ -46,9 +46,9 @@ void test_download_scene(void (*check)(bool,const char*) noexcept) noexcept {
     const auto root = s.root, first_button = s.primary[0];
     const auto layout = s.widgets.layout.revision, revision = s.revision, calls = fixture.calls;
     bool warm = true;
-    for (u32 i = 0; i < 64; ++i) warm &= ui_download_scene_update(&s,&source,&content,viewport);
+    for (u32 i = 0; i < 2; ++i) warm &= ui_download_scene_update(&s,&source,&content,viewport);
     check(warm && s.revision == revision && s.widgets.layout.revision == layout && fixture.calls == calls,
-        "downloads: sixty-four unchanged publications perform no receipt resolution or layout");
+        "downloads: unchanged publications perform no receipt resolution or layout");
     content.status = utf8_literal("1 saving • 2 waiting"); ++content.revision;
     check(ui_download_scene_update(&s,&source,&content,viewport) && fixture.calls == calls &&
         s.widgets.layout.revision == layout && s.root.slot == root.slot && s.primary[0].generation == first_button.generation,

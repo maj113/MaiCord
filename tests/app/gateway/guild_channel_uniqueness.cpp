@@ -27,7 +27,7 @@ struct UniquenessModel {
     u16 guild_order[2], channel_order[kRows + 1];
     u8 names[65536];
 };
-UniquenessModel actual, expected, snapshot;
+UniquenessModel actual, snapshot;
 GatewayClientEvent event;
 u8 payload[kPayloadBytes], payload_snapshot[kPayloadBytes];
 u32 channel_offsets[kRows], used, rows, order;
@@ -118,62 +118,52 @@ bool build(u32 count, u32 sequence, bool names, bool emojis, bool high_ids = fal
     event.dispatch_payload_bytes = used;
     return true;
 }
-bool expected_model(bool resident) noexcept {
-    if (!reset(&expected, resident)) return false;
-    auto& state = expected.state;
-    if (!chat_state_store_upsert_guild(&state, {kGuild, utf8_literal("Bench"),
-        GuildMutationKind::create, kOwner}).ok()) return false;
-    chat_state_store_remove_guild_channels(&state, kGuild);
-    chat_state_store_remove_guild_roles(&state, kGuild);
-    if (!chat_state_store_upsert_role(&state, {kGuild, kGuild, kPermissions, utf8_literal("E"), 0}) ||
-        !chat_state_store_upsert_role(&state, {kRole, kGuild, kPermissions, utf8_literal("R"), 1})) return false;
-    for (u32 i = 0; i < rows; ++i) {
-        const auto value = wire_channel(i); char name[8]; channel_name(i, name);
-        if (!chat_state_store_upsert_channel(&state, {value.id, kGuild, 0, {name, value.name_bytes},
-            value.position, 0, 0, value.last_message_id, true, value.member_list_id,
-            value.member_list_id_known, true}).ok()) return false;
-    }
-    const u64 self_role = kRole;
-    if (!chat_state_store_set_self_roles(&state, kGuild, kOwner, kSelf, {&self_role, 1})) return false;
-    chat_state_store_recompute_guild_permissions(&state, kGuild);
-    if (emoji_output) {
-        u8 role_bytes[8]; byte_store_le64(role_bytes, kRole);
-        const CustomEmojiInput emojis[] = {{900, utf8_literal("spark"), {role_bytes, 8}, 1, custom_emoji_available, 0},
-            {901, utf8_literal("waves"), {role_bytes, 8}, 1, custom_emoji_available | custom_emoji_animated, 0}};
-        if (!chat_state_store_replace_guild_emojis(&state, kGuild, {emojis, 2})) return false;
-    }
-    return true;
+bool named_as(Utf8View name, const char* text, u32 bytes) noexcept {
+    return name.bytes == bytes && bytes_equal(name.data, text, bytes);
 }
-bool same_model() noexcept {
-    ChatStateStore normalized;
-    copy_bytes(&normalized, &expected.state, sizeof(normalized));
-    normalized.guilds = actual.state.guilds; normalized.channels = actual.state.channels;
-    normalized.roles = actual.state.roles; normalized.overwrites = actual.state.overwrites;
-    normalized.emojis = actual.state.emojis; normalized.emoji_roles = actual.state.emoji_roles;
-    normalized.guild_order = actual.state.guild_order; normalized.channel_order = actual.state.channel_order;
-    normalized.names = actual.state.names;
-    return bytes_equal(&actual.state, &normalized, sizeof(normalized)) &&
-        bytes_equal(actual.guilds, expected.guilds, sizeof(actual.guilds)) &&
-        bytes_equal(actual.channels, expected.channels, sizeof(actual.channels)) &&
-        bytes_equal(actual.roles, expected.roles, sizeof(actual.roles)) &&
-        bytes_equal(actual.overwrites, expected.overwrites, sizeof(actual.overwrites)) &&
-        bytes_equal(actual.emojis, expected.emojis, sizeof(actual.emojis)) &&
-        bytes_equal(actual.emoji_roles, expected.emoji_roles, sizeof(actual.emoji_roles)) &&
-        bytes_equal(actual.guild_order, expected.guild_order, sizeof(actual.guild_order)) &&
-        bytes_equal(actual.channel_order, expected.channel_order, sizeof(actual.channel_order)) &&
-        bytes_equal(actual.names, expected.names, sizeof(actual.names));
+// The applied GUILD_CREATE, read back row by row: the guild, its two roles, every wire channel with its own name,
+// position, last message and member list, the emojis and the untouched other guild. A resident row of the same ID
+// (channel 100001 "retire", role "O") shows the new values.
+bool applied_model() noexcept {
+    const auto& state = actual.state;
+    const auto* guild = chat_state_store_find_guild(state, kGuild);
+    const auto* everyone = chat_state_store_find_role(state, kGuild, kGuild);
+    const auto* role = chat_state_store_find_role(state, kGuild, kRole);
+    bool same = guild && guild->owner_id == kOwner && named_as(chat_state_store_guild_name(state, *guild), "Bench", 5) &&
+        everyone && named_as(chat_state_store_role_name(state, *everyone), "E", 1) &&
+        role && named_as(chat_state_store_role_name(state, *role), "R", 1) &&
+        chat_state_store_find_guild(state, 99) && chat_state_store_find_channel(state, 5000);
+    for (u32 i = 0; same && i < rows; ++i) {
+        const auto* channel = chat_state_store_find_channel(state, id_base + ordinal(i));
+        char name[8]; channel_name(i, name);
+        same = channel && channel->guild_id == kGuild && channel->position == i &&
+            channel->last_message_id == 1000000 + i && channel->member_list_id == 2000000 + i &&
+            (channel->effective_permissions & kPermissionSendMessages) &&
+            named_as(chat_state_store_channel_name(state, *channel), name, 8);
+    }
+    u32 listed = 0;
+    for (const auto* channel = chat_state_store_first_guild_channel(state, kGuild); channel;
+         channel = chat_state_store_next_guild_channel(state, *channel))
+        listed += channel->guild_id == kGuild;
+    const auto* spark = chat_state_store_find_emoji(state, 900);
+    const auto* waves = chat_state_store_find_emoji(state, 901);
+    const bool emojis = emoji_output
+        ? spark && waves && named_as(chat_state_store_emoji_name(*spark), "spark", 5) &&
+              named_as(chat_state_store_emoji_name(*waves), "waves", 5)
+        : !spark && !waves;
+    return same && listed == rows && emojis;
 }
 ChatStateApplyResult apply() noexcept {
     return chat_state_apply_gateway_event(&actual.state, event, {payload, used}, {});
 }
 bool success_case(u32 count, u32 sequence, bool emojis, bool resident = false, bool high = false) noexcept {
-    if (!build(count, sequence, true, emojis, high) || !reset(&actual, resident) || !expected_model(resident)) return false;
+    if (!build(count, sequence, true, emojis, high) || !reset(&actual, resident)) return false;
     copy_bytes(payload_snapshot, payload, used);
     const u32 selection_revision = actual.state.selection_revision;
     const auto result = apply();
     return result.ok() && result.guilds == 1 && result.roles == 2 && result.channels == count &&
         result.emojis == (emojis ? 2u : 0u) && result.overwrites == 0 &&
-        result.selection_changed == (actual.state.selection_revision != selection_revision) && same_model() &&
+        result.selection_changed == (actual.state.selection_revision != selection_revision) && applied_model() &&
         bytes_equal(payload_snapshot, payload, used);
 }
 ChatStateApplyResult last_rejection{};
@@ -228,7 +218,7 @@ void test_guild_channel_uniqueness(void (*check)(bool, const char*) noexcept) no
     const u32 counts[] = {0, 1, 64, kIdPrefix - 1, kIdPrefix, kIdPrefix + 1, kRows};
     for (u32 count : counts) for (u32 sequence = 0; sequence < 3; ++sequence)
         check(success_case(count, sequence, true), "guild uniqueness accepts exact/scratch-exceeding bounds and preserves all packet-order output");
-    check(success_case(73, 2, true, true), "guild uniqueness same-guild replacement preserves retired-slot generations and original mutation order");
+    check(success_case(73, 2, true, true), "guild uniqueness same-guild replacement overwrites the resident channel and role rows");
     check(success_case(64, 1, false, false, true), "guild uniqueness compares full-width maximum-range u64 IDs");
     check(duplicate_case(64, 1, 0) && duplicate_case(64, 32, 0) && duplicate_case(64, 63, 0),
         "guild uniqueness rejects adjacent/middle/late retained-prefix duplicates atomically");

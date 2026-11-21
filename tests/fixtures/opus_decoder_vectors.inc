@@ -4,11 +4,11 @@
 // libopus 1.6.1 (fixed point) from opus_voice_signal.hpp audio with forced
 // modes, bandwidths, frame sizes, channel coding, FEC and DTX; the multiframe
 // streams pack its single frames into code 1, 2 and 3 packets (with padding).
-// Digests: FNV-1a of the 48 kHz PCM16 that MaiCord's decoder produces, mono and
-// stereo output, the same on every system. SILK is integer arithmetic the format
-// defines, so the SILK-only streams without concealment are also libopus's PCM
-// bit for bit; CELT is single precision, where a digest pins this decoder's own
-// arithmetic.
+// Digests: FNV-1a of the 48 kHz PCM16 of libopus's fixed-point decoder, mono and stereo output, where MaiCord's
+// decoder must produce it bit for bit. That is the SILK-only streams whose losses SILK conceals as libopus does:
+// SILK is integer arithmetic that the format defines. A digest of 0 marks a stream that MaiCord decodes in its own
+// arithmetic (CELT is single precision, its concealment its own): the test compares it with libopus's decode in
+// references.bin (tools/generate_opus_decoder_references.py).
 #pragma once
 #include "maicord/core/base.hpp"
 
@@ -82,24 +82,29 @@ inline constexpr u8 kOpusDecoderVector15[]{
 inline constexpr u8 kOpusDecoderVector16[]{
 #embed "opus_decoder_vectors/kOpusDecoderVector16.bin"
 };
+// libopus's decode of the streams with digest 0: every fourth 480-sample segment, as a zlib stream
+// (tools/generate_opus_decoder_references.py).
+inline constexpr u8 kOpusDecoderReferences[]{
+#embed "opus_decoder_vectors/references.bin"
+};
 #pragma clang diagnostic pop
 inline constexpr OpusDecoderVector kOpusDecoderVectors[]{
     {"silk_nb_10ms_mono", kOpusDecoderVector0, 247, 14, 1, 0, {0x5029a6c3d7ed0d5aull, 0x698d636e5934c3f5ull}},
     {"silk_mb_20ms_stereo", kOpusDecoderVector1, 393, 10, 0, 0, {0x7c4c45ee796193d3ull, 0x5d6c157bd03bf125ull}},
-    {"silk_wb_40ms_mono_fec", kOpusDecoderVector2, 597, 8, 2, 1, {0x677862c0ad699b82ull, 0x0dfbda7d1adf2be5ull}},
+    {"silk_wb_40ms_mono_fec", kOpusDecoderVector2, 597, 8, 2, 1, {0, 0}},
     {"silk_wb_60ms_stereo_fec", kOpusDecoderVector3, 1282, 6, 1, 1, {0x9e5d9b1b8e060db8ull, 0x879c4d415e1b452dull}},
     {"silk_wb_20ms_dtx", kOpusDecoderVector4, 508, 24, 1, 0, {0xa10868a673bcb45bull, 0x819e66d206896655ull}},
-    {"hybrid_swb_10ms_stereo", kOpusDecoderVector5, 715, 14, 1, 0, {0xc17b8530dd710b83ull, 0x30eb21d3563ed3d5ull}},
-    {"hybrid_fb_20ms_mono_fec", kOpusDecoderVector6, 793, 12, 1, 1, {0x4a276abf45e821a8ull, 0xbd2ebb65439f77a2ull}},
-    {"celt_nb_2_5ms_mono", kOpusDecoderVector7, 444, 32, 1, 0, {0xe386684e2dd13cbaull, 0xa504801e5a75c461ull}},
-    {"celt_wb_5ms_stereo", kOpusDecoderVector8, 780, 20, 0, 0, {0x56beb9ed9d0c76adull, 0x7685f49995a4cb50ull}},
-    {"celt_swb_10ms_mono", kOpusDecoderVector9, 764, 14, 2, 0, {0xbe3e7ac7508c37e3ull, 0x584924bca58dd391ull}},
-    {"celt_fb_20ms_stereo", kOpusDecoderVector10, 1683, 10, 1, 0, {0xd09412327d7437f3ull, 0x588c2fbd3735875eull}},
-    {"switching_modes_mono", kOpusDecoderVector11, 1495, 18, 1, 0, {0x4e73eb3a76aa43bcull, 0xdea65acf9e781a29ull}},
-    {"switching_channels_stereo", kOpusDecoderVector12, 1415, 15, 0, 0, {0xe7ef1546ea3bb39bull, 0x29a360f068f4cf7cull}},
-    {"multiframe_celt_fb_20ms_mono", kOpusDecoderVector13, 2723, 10, 0, 0, {0x56b62eb955f75b21ull, 0x128fb74ec9afe115ull}},
-    {"multiframe_hybrid_swb_20ms_stereo", kOpusDecoderVector14, 2750, 10, 0, 0, {0xf7d4f7967a1a12d6ull, 0x2fd4c2bf3dd71943ull}},
+    {"hybrid_swb_10ms_stereo", kOpusDecoderVector5, 715, 14, 1, 0, {0, 0}},
+    {"hybrid_fb_20ms_mono_fec", kOpusDecoderVector6, 793, 12, 1, 1, {0, 0}},
+    {"celt_nb_2_5ms_mono", kOpusDecoderVector7, 444, 32, 1, 0, {0, 0}},
+    {"celt_wb_5ms_stereo", kOpusDecoderVector8, 780, 20, 0, 0, {0, 0}},
+    {"celt_swb_10ms_mono", kOpusDecoderVector9, 764, 14, 2, 0, {0, 0}},
+    {"celt_fb_20ms_stereo", kOpusDecoderVector10, 1683, 10, 1, 0, {0, 0}},
+    {"switching_modes_mono", kOpusDecoderVector11, 1495, 18, 1, 0, {0, 0}},
+    {"switching_channels_stereo", kOpusDecoderVector12, 1415, 15, 0, 0, {0, 0}},
+    {"multiframe_celt_fb_20ms_mono", kOpusDecoderVector13, 2723, 10, 0, 0, {0, 0}},
+    {"multiframe_hybrid_swb_20ms_stereo", kOpusDecoderVector14, 2750, 10, 0, 0, {0, 0}},
     {"multiframe_silk_wb_10ms_mono", kOpusDecoderVector15, 1065, 8, 0, 0, {0x39d98966271b7f70ull, 0x322020a8dac34595ull}},
-    {"multiframe_celt_wb_2_5ms_stereo", kOpusDecoderVector16, 912, 5, 0, 0, {0x51ece5cdb4fe8012ull, 0x2a83b150f2b45dc1ull}},
+    {"multiframe_celt_wb_2_5ms_stereo", kOpusDecoderVector16, 912, 5, 0, 0, {0, 0}},
 };
 } // namespace maicord

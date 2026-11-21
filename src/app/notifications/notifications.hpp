@@ -43,7 +43,7 @@ bool application_notifications_project(Application*, u64 guild_id, u64 channel_i
                                        const MessageNotificationSetting&) noexcept;
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
 struct ApplicationNotificationFixtureMetrics {
-    u32 guilds,overrides,threads; bool ready,live; u32 seen_count;
+    u32 guilds,overrides,threads; bool ready,live;
     u64 audio_epoch, audio_backend_epoch, sound_deadline;
     u32 audio_output_percent;
     bool audio_failed, audio_worker_started;

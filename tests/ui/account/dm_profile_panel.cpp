@@ -458,21 +458,21 @@ bool click(ProfileAction action) noexcept {
 void panel_cases() noexcept {
     auto& state = g_app.account_ui->chat_state;
     check(layout_shell(), "DM panel: shell with the profile slot");
-    const u32 first_builds = text_builds;
+    text_runs = 0;
     application_dm_profile_synchronize();
     auto* s = application_dm_profile_scene();
     check(s && g_app.renderer.dm_profile_panel == s && s->presentation == ProfilePresentation::panel &&
               near(ui_rect_width(s->rectangle), kUiDmProfilePanelWidth - 16) && s->phase == ProfilePhase::loading &&
               g_app.dm_profile_wake_ms == 1 && application_dm_profile_pending(10),
           "DM panel: showing a stale profile queues one fetch and wakes the scheduler");
-    check(text_builds == first_builds + 1 && text_runs > 0,
-          "DM panel text: the frame that shows the panel rebuilds the shell text with its runs");
+    check(text_runs > 0, "DM panel text: the frame that shows the panel draws its text runs");
+    const u32 shown_builds = text_builds;
     check(application_dm_profile_submit(500, 10) && reads == 1 && read_user == 123 && !read_guild &&
               !read_operation && !application_dm_profile_pending(20) && !g_app.dm_profile_wake_ms,
           "DM panel: one GET /users/123/profile, deduped while in flight");
     application_dm_profile_synchronize();
     check(!application_dm_profile_pending(30) && reads == 1, "DM panel: the next frame does not fetch again");
-    check(text_builds == first_builds + 1, "DM panel text: an unchanged panel leaves the shell text alone");
+    check(text_builds == shown_builds, "DM panel text: an unchanged panel leaves the shell text alone");
     response(200, utf8_literal(R"({"user":{"id":"123","username":"mai","global_name":"Mai","bio":"hello"},)"
                                R"("user_profile":{"bio":"hello","pronouns":"she/her"},)"
                                R"("mutual_guilds":[{"id":"7"},{"id":"8"}],"mutual_friends":[],)"
@@ -497,20 +497,17 @@ void panel_cases() noexcept {
     // Leaving for a server and coming back within the minute reuses the cache.
     state.home_selected = false;
     layout_shell();
-    const u32 builds = text_builds;
     application_dm_profile_synchronize();
     check(!application_dm_profile_scene() && !g_app.renderer.dm_profile_panel,
           "DM panel: a server channel hides it");
-    check(text_builds == builds + 1 && text_runs == 0,
-          "DM panel text: the frame that hides the panel rebuilds the shell text without its runs");
+    check(text_runs == 0, "DM panel text: the frame that hides the panel drops its text runs");
     state.home_selected = true;
     layout_shell();
     application_dm_profile_synchronize();
     check(application_dm_profile_scene() && !application_dm_profile_pending(40) && reads == 1 &&
               application_dm_profile_scene()->phase == ProfilePhase::ready,
           "DM panel: a fresh cached profile shows again without a fetch");
-    check(text_builds == builds + 2 && text_runs > 0,
-          "DM panel text: showing it again brings its runs back in the same frame");
+    check(text_runs > 0, "DM panel text: showing it again brings its runs back in the same frame");
     // The preference hides it; the shell stops offering the slot.
     g_app.preferences.dm_profile_visible = false;
     layout_shell();

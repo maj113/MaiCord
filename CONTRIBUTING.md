@@ -87,6 +87,7 @@ Overrides a user or an operator may want are not hooks: every build reads them, 
 | `MAICORD_SPELLCHECK_BACKEND=hunspell\|enchant` | Linux | Force the spell-check library |
 | `MAICORD_PLUGIN_DEV`, `MAICORD_EFFECT_DEV` | both | Developer Mode folders |
 | `MAICORD_FPS_TITLE=1` | both | Frame rate in the window title |
+| `MAICORD_OPUS_VECTORS=DIR` | both | Runs `maicord_opus_conformance` (else skipped): `DIR` is `opus_newvectors` from [opus_testvectors-rfc8251.tar.gz](https://opus-codec.org/docs/opus_testvectors-rfc8251.tar.gz). Run it for every change to the Opus decoder: `-Test -TestNames maicord_opus_conformance` (`--test --test-names` on Linux) |
 
 ### Linux integration runs
 

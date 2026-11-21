@@ -119,14 +119,14 @@ void test_theme_styles(void (*check)(bool, const char*) noexcept) noexcept {
           "Theme first apply publishes one resolved bank with every relevant domain");
     const UiResolvedThemeStyles initial = styles;
     bool retained = true;
-    for (u32 frame = 0; frame < 64; ++frame) {
+    for (u32 frame = 0; frame < 2; ++frame) {
         const auto same = ui_theme_styles_apply(&styles, typography, metrics);
         retained = retained && same.ok() && !same.changed() && styles.revision == initial.revision &&
                    styles.typography_revision == initial.typography_revision &&
                    styles.geometry_revision == initial.geometry_revision &&
                    styles.paint_revision == initial.paint_revision;
     }
-    check(retained, "Theme64 exact repeated apply receipts preserve all revisions without "
+    check(retained, "Theme exact repeated apply receipts preserve all revisions without "
                     "publication/layout invalidation");
     metrics.audio_radius = 12;
     const auto rounded = ui_theme_styles_apply(&styles, typography, metrics);

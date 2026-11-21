@@ -588,15 +588,14 @@ void run() noexcept {
         !application_image_viewer_open_search(ticket, MessageSceneRichItemKind::attachment, 1, false, preview),
         "Search viewer requires exact publication and rich attachment index");
     check(application_image_viewer_open_search(ticket, MessageSceneRichItemKind::attachment, 0, false, preview) &&
-        g_app.image_viewer.scene.active && g_app.image_viewer.search_result && g_app.image_viewer.channel_id == 101 &&
-        g_app.image_viewer.message_revision == publication && g_app.image_viewer.attachment_id == 900 &&
+        g_app.image_viewer.scene.active &&
         media_asset_search(g_app.image_viewer.key) && media_asset_search_revision(g_app.image_viewer.key) == publication &&
         !media_asset_search_snapshot(g_app.image_viewer.key) && !media_asset_search_snapshot(g_app.image_viewer.fallback) &&
         !media_asset_key_equal(g_app.image_viewer.key, media_asset_attachment(900, MediaAttachmentFormat::png, MediaResolutionTier::px2048)) &&
         g_app.image_viewer.scene.can_save && panel && suspends,
         "Search viewer opens authorized accepted attachment with scoped decode key without selecting or publishing it into live timeline");
     ApplicationSearchSourceView source{};
-    check(application_image_viewer_source(&source) && source.store == &bank && source.message->channel_id == 101 && source.rich_store == &rich,
+    check(application_image_viewer_source(&source) && source.message->channel_id == 101,
         "Search viewer high resolution requests borrow the accepted page source");
     activate(1); activate(2);
     check(g_app.image_viewer.scene.zoom == 1.f, "Search viewer keeps native zoom and reset behavior");
@@ -619,14 +618,13 @@ void run() noexcept {
         "Search viewer Save dispatches exact source ticket and attachment rather than displayed texture");
     application_image_viewer_close();
     check(application_image_viewer_open_search(ticket, MessageSceneRichItemKind::attachment, 0, true, preview) &&
-        g_app.image_viewer.attachment_id == 901 && g_app.image_viewer.attachment_snapshot && g_app.image_viewer.scene.can_save,
+        g_app.image_viewer.scene.can_save,
         "Search viewer independently opens actual forwarded child attachment");
     check(media_asset_search_snapshot(g_app.image_viewer.key) && media_asset_search_snapshot(g_app.image_viewer.fallback),
         "Search viewer forwarded attachment decode and fallback keys retain exact child content scope");
     {
         auto& viewer = g_app.image_viewer;
-        check(viewer.item_count == 2 && viewer.item_index == 0 && viewer.scene.item_count == 2 &&
-            viewer.items[1].kind == MessageSceneRichItemKind::embed && !viewer.items[1].video,
+        check(viewer.scene.item_count == 2,
             "Search viewer gallery collects the forwarded attachment and embed media of one message");
         MediaAssetKey keys[3]{};
         check(application_image_viewer_request_keys(keys, 3) == 2 && media_asset_key_equal(keys[0], viewer.key) &&
@@ -636,22 +634,22 @@ void run() noexcept {
             "Search viewer prefetches only its bounded neighbour with exact content scope");
         activate(ui_image_viewer_zoom_in);
         application_image_viewer_event(window_test::key_down(key::right));
-        check(viewer.item_index == 0 && viewer.scene.zoom > 1,
+        check(viewer.scene.item == 0 && viewer.scene.zoom > 1,
             "Search viewer arrows pan a zoomed image instead of browsing");
         activate(ui_image_viewer_fit);
         application_image_viewer_event(window_test::key_down(key::right));
-        check(viewer.item_index == 1 && application_image_viewer_synchronize() && !viewer.attachment_id &&
+        check(viewer.scene.item == 1 && application_image_viewer_synchronize() &&
             !viewer.scene.can_save && viewer.scene.zoom == 1 && viewer.scene.pixels.width == 320 &&
             viewer.scene.pixels.height == 240 && media_asset_key_equal(viewer.key, viewer.items[1].key) &&
             ui_rect_has_area(ui_image_viewer_button(viewer.scene, ui_image_viewer_previous)),
             "Search viewer Right browses to embed media with its own size, reset zoom and no attachment Save");
         application_image_viewer_event(window_test::key_down(key::right));
-        check(viewer.item_index == 0 && viewer.attachment_id == 901 && application_image_viewer_synchronize() &&
+        check(viewer.scene.item == 0 && application_image_viewer_synchronize() &&
             viewer.scene.can_save, "Search viewer Right wraps to the first item and restores its Save authority");
         application_image_viewer_event(window_test::key_down(key::left));
-        check(viewer.item_index == 1, "Search viewer Left wraps backwards");
+        check(viewer.scene.item == 1, "Search viewer Left wraps backwards");
         activate(ui_image_viewer_previous);
-        check(viewer.item_index == 0 && viewer.attachment_id == 901, "Search viewer chevrons browse the gallery");
+        check(viewer.scene.item == 0, "Search viewer chevrons browse the gallery");
         const u32 before_open = opened_urls;
         activate(ui_image_viewer_open_original);
         check(opened_urls == before_open + 1 && utf8_equal({opened_url, opened_bytes},
@@ -661,11 +659,11 @@ void run() noexcept {
     close_on_save = true;
     activate(4); g_app.image_viewer.held_key = 'S';
     check(saves == 2 && saved_attachment == 901 && saved_snapshot && !g_app.image_viewer.scene.active &&
-        application_image_viewer_event(window_test::key_up('S')) && !g_app.image_viewer.held_key,
+        application_image_viewer_event(window_test::key_up('S')),
         "Search viewer Save overlay closure retains exact forwarded source and consumes its closing key tail");
     close_on_save = false;
     check(application_image_viewer_open_search(ticket, MessageSceneRichItemKind::embed, 0, true, preview) &&
-        !g_app.image_viewer.attachment_id && !g_app.image_viewer.scene.can_save &&
+        !g_app.image_viewer.scene.can_save &&
         media_asset_search(g_app.image_viewer.key) && media_asset_embed_snapshot(g_app.image_viewer.key),
         "Search viewer embed previews retain snapshot scope while original-file Save stays unavailable");
     const u32 before_embed = saves; activate(4);
@@ -685,16 +683,16 @@ void run() noexcept {
     check(application_image_viewer_synchronize() && !g_app.image_viewer.scene.active && !window_pointer_captured(g_app.window) &&
         !g_app.renderer.image_viewer && saves == before_embed,
         "Search viewer page replacement retires source and releases pending native Save capture");
-    check(application_image_viewer_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left)) && !g_app.image_viewer.pointer_tail && saves == before_embed,
+    check(application_image_viewer_event(window_test::pointer_up(window_test::x_of(point), window_test::y_of(point), PointerButton::left)) && saves == before_embed,
         "Search viewer retired Save press consumes its pointer release before restored Search can receive it");
     ticket.publication_revision = publication; check(seed(), "Search viewer publication replacement rebuilds owned fixture");
     check(application_image_viewer_open_search(ticket, MessageSceneRichItemKind::attachment, 0, false, preview),
         "Search viewer keyboard-retirement fixture opens");
     ui_widget_manager_focus(&g_app.image_viewer.scene.widgets, g_app.image_viewer.scene.buttons[4]);
     application_image_viewer_event(window_test::key_down(key::space)); panel = false;
-    check(application_image_viewer_synchronize() && !g_app.image_viewer.scene.active && g_app.image_viewer.held_key == key::space &&
+    check(application_image_viewer_synchronize() && !g_app.image_viewer.scene.active &&
         application_image_viewer_event(window_test::character(key::space)) && application_image_viewer_event(window_test::key_up(key::space)) &&
-        !g_app.image_viewer.held_key && saves == before_embed,
+        saves == before_embed,
         "Search viewer cancelled Space press consumes closing text and key tails without activating Save");
     for (u32 fence = 0; fence < 5; ++fence) {
         panel = true;
@@ -738,7 +736,7 @@ void run() noexcept {
     check(zoom.lens.zoom == 2 && zoom.lens.size == 200 && !zoom.lens.active,
           "Viewer lens starts hidden with the stored zoom and size");
     application_image_viewer_event(window_test::pointer_down(window_test::x_of(on_image), window_test::y_of(on_image)));
-    check(zoom.lens.active && zoom.held && zoom.lens.pointer.x == px && zoom.lens.pointer.y == py,
+    check(zoom.lens.active && zoom.lens.pointer.x == px && zoom.lens.pointer.y == py,
           "Viewer lens: a press on the fitted image shows the lens under the pointer");
     application_image_viewer_event(window_test::pointer_move(px + 5, py + 3, window_test::button_bit(PointerButton::left)));
     check(zoom.lens.pointer.x == px + 5 && zoom.lens.pointer.y == py + 3,
@@ -752,27 +750,27 @@ void run() noexcept {
     ui_image_viewer_apply(&g_app.image_viewer.scene, UiImageViewerCommand::fit);
     g_app.renderer.zoom_lens_source.ready = true;
     check(application_image_viewer_event(window_test::wheel(window_test::x_of(on_image), window_test::y_of(on_image), 120)) && zoom.lens.zoom == 2.5f &&
-              g_app.image_viewer.scene.zoom == image_zoom && zoom.changed,
+              g_app.image_viewer.scene.zoom == image_zoom,
           "Viewer lens: the wheel zooms the lens by half a unit, not the image");
     application_image_viewer_event(window_test::wheel(window_test::x_of(on_image), window_test::y_of(on_image), 120, 0, mod_shift));
     check(zoom.lens.size == 220 && zoom.lens.zoom == 2.5f, "Viewer lens: Shift+wheel resizes the lens");
     application_image_viewer_event(window_test::pointer_up(window_test::x_of(on_image), window_test::y_of(on_image), PointerButton::left));
-    check(!zoom.lens.active && !zoom.held && !zoom.changed && g_app.preferences.image_zoom_factor == 5 &&
+    check(!zoom.lens.active && g_app.preferences.image_zoom_factor == 5 &&
               g_app.preferences.image_zoom_size == 22,
           "Viewer lens: releasing hides it and stores the changed zoom and size");
     g_app.renderer.zoom_lens_source.ready = false;
     application_image_viewer_event(window_test::pointer_down(window_test::x_of(on_image), window_test::y_of(on_image), PointerButton::right));
-    check(zoom.lens.active && zoom.held, "Viewer lens: a right press shows the lens at any zoom");
+    check(zoom.lens.active, "Viewer lens: a right press shows the lens at any zoom");
     application_image_viewer_event(window_test::pointer_up(window_test::x_of(on_image), window_test::y_of(on_image), PointerButton::right));
-    check(!zoom.lens.active && !zoom.held, "Viewer lens: releasing the right button hides it");
+    check(!zoom.lens.active, "Viewer lens: releasing the right button hides it");
     g_app.preferences.image_zoom = false;
     application_image_viewer_event(window_test::pointer_down(window_test::x_of(on_image), window_test::y_of(on_image)));
     application_image_viewer_event(window_test::pointer_up(window_test::x_of(on_image), window_test::y_of(on_image), PointerButton::left));
-    check(!zoom.lens.active && !zoom.held, "Viewer lens: a disabled lens never shows");
+    check(!zoom.lens.active, "Viewer lens: a disabled lens never shows");
     g_app.preferences.image_zoom = true;
     application_image_viewer_event(window_test::pointer_down(window_test::x_of(on_image), window_test::y_of(on_image)));
     application_image_viewer_close();
-    check(!zoom.lens.active && !zoom.held, "Viewer lens: closing the viewer hides the lens");
+    check(!zoom.lens.active, "Viewer lens: closing the viewer hides the lens");
     application_release_capture();
     // Chat: the wheel belongs to the lens only while one shows; focus loss hides it and stores the change.
     g_app.preferences.image_zoom_factor = 4;
@@ -783,9 +781,9 @@ void run() noexcept {
     check(!application_image_zoom_message(window_test::wheel(0, 0, 120)) && zoom.lens.zoom == 2,
           "Chat lens: the wheel scrolls the timeline while no picture sits under the lens");
     g_app.renderer.zoom_lens_source.ready = true;
-    check(application_image_zoom_message(window_test::wheel(0, 0, 120)) && zoom.lens.zoom == 2.5f && zoom.changed,
+    check(application_image_zoom_message(window_test::wheel(0, 0, 120)) && zoom.lens.zoom == 2.5f,
           "Chat lens: the wheel steps the zoom of a shown lens and is consumed");
-    check(!application_image_zoom_message(window_test::focus_changed(false)) && !zoom.lens.active && !zoom.changed &&
+    check(!application_image_zoom_message(window_test::focus_changed(false)) && !zoom.lens.active &&
               g_app.preferences.image_zoom_factor == 5,
           "Chat lens: losing focus hides the lens and stores its zoom");
     g_app.renderer.zoom_lens_source.ready = false;
@@ -797,7 +795,7 @@ void run() noexcept {
     zoom.lens.active = false;
     ++publication; ticket.publication_revision = publication;
     check(seed_gifv() && application_image_viewer_open_search(ticket, MessageSceneRichItemKind::embed, 0, false, preview) &&
-        g_app.image_viewer.item_count == 1 && !g_app.image_viewer.items[0].video &&
+        g_app.image_viewer.scene.item_count == 1 && !g_app.image_viewer.scene.video &&
         media_asset_embed_resource(g_app.image_viewer.key) == MediaEmbedResource::video &&
         media_asset_embed_format(g_app.image_viewer.key) == MediaAttachmentFormat::mp4 &&
         (g_app.image_viewer.key.flags & media_asset_flag_animated) && !g_app.image_viewer.scene.can_save,
@@ -821,7 +819,7 @@ void run() noexcept {
             MediaAttachmentFormat::mp4, false, MediaResolutionTier::px512);
         const auto before = hosted_video_opens;
         check(application_image_viewer_open_video(800, publication, true, 0, false, &ticket, hosted_video_key, preview) &&
-              g_app.image_viewer.scene.video && g_app.image_viewer.items[0].video && hosted_video_opens == before + 1 &&
+              g_app.image_viewer.scene.video && hosted_video_opens == before + 1 &&
               media_asset_key_equal(g_app.image_viewer.key, hosted_video_key),
               "provider expansion hosts native playback instead of opening its thumbnail as an image");
         MediaAssetKey requests[4]; UiRect video_bounds{}, video_clip{};

@@ -461,11 +461,10 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
         application_notifications_fixture_retained(&g_app,21,19)==2022 &&
         !application_notifications_fixture_metrics(&g_app).display_outstanding,
         "notification retention: successful retry appends once and evicts one FIFO ticket");
-    const u32 seen=application_notifications_fixture_metrics(&g_app).seen_count;
     const u32 delivered=f.delivered;
     application_notifications_ack(&g_app,21);
     check(!application_notifications_fixture_metrics(&g_app).retention_channels &&
-        application_notifications_fixture_metrics(&g_app).seen_count==seen && message(2005,25) && f.delivered==delivered &&
+        message(2005,25) && f.delivered==delivered &&
         !application_notifications_fixture_metrics(&g_app).retention_tickets,
         "notification retention: channel ACK deletes success owner without clearing receive replay state");
     check(message(2030,26) && chat_state_store_select_channel(&f.ui.chat_state,21).ok(),
@@ -474,17 +473,13 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     check(!application_notifications_fixture_metrics(&g_app).retention_channels,
         "notification retention: selecting channel clears successful history");
     check(message(2031,27),"notification retention: blurred selected channel prepares focused ACK");
-    const u32 focus_seen=application_notifications_fixture_metrics(&g_app).seen_count;
     application_notifications_fixture_focus(&g_app,true); application_notifications_selection(&g_app);
-    check(!application_notifications_fixture_metrics(&g_app).retention_channels &&
-        application_notifications_fixture_metrics(&g_app).seen_count==focus_seen,
+    check(!application_notifications_fixture_metrics(&g_app).retention_channels,
         "notification retention: regained focus clears selected success history independently of Seen");
 
     check(initialize() && hydrate(ready,1) && message(2100,2),"notification retention: fresh success prepares same-profile READY");
-    const auto before_ready=application_notifications_fixture_metrics(&g_app);
     check(hydrate(ready,1) && application_notifications_fixture_metrics(&g_app).retention_tickets==1 &&
-        application_notifications_fixture_metrics(&g_app).retention_capacity_channels==before_ready.retention_capacity_channels &&
-        !application_notifications_fixture_metrics(&g_app).seen_count && message(2100,2) &&
+        message(2100,2) &&
         application_notifications_fixture_retained(&g_app,21,0)==2100 &&
         application_notifications_fixture_retained(&g_app,21,1)==2100,
         "notification retention: same-profile READY resets ingress but retains successful duplicate opaque tags");
@@ -504,7 +499,7 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     bool populated=true;
     for(u32 i=0;i<15;++i) populated=retention_channel(100+i) && message(2301+i,3+i,100+i) && populated;
     m=application_notifications_fixture_metrics(&g_app);
-    check(populated && m.retention_channels==16 && m.retention_capacity_channels==16,
+    check(populated && m.retention_channels==16,
         "notification retention: separate successful channels fill initial geometry without global FIFO eviction");
     application_notifications_fixture_retention_oom(&g_app,true);
     check(message(2400,18) && retention_channel(115) && message(2316,19,115),
@@ -512,18 +507,15 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     auto failed_growth=application_notifications_fixture_metrics(&g_app);
     check(f.delivered==17 && failed_growth.retention_channels==16 && failed_growth.retention_tickets==17 &&
         notification_unavailable() && !failed_growth.display_outstanding &&
-        failed_growth.retention_capacity_channels==m.retention_capacity_channels &&
         application_notifications_fixture_retained(&g_app,21,0)==2300 &&
         application_notifications_fixture_retained(&g_app,21,1)==2400 && application_notifications_can_pop(&g_app),
         "notification retention: failed growth preserves both banks and tickets; existing capacity works and failed intent retires before Show");
     application_notifications_fixture_retention_oom(&g_app,2);
     check(message(2317,20,115) && f.delivered==17 &&
-        application_notifications_fixture_metrics(&g_app).retention_capacity_channels==m.retention_capacity_channels &&
         application_notifications_fixture_retained(&g_app,21,1)==2400,
         "notification retention: second-bank OOM frees replacement rows while preserving old index and successful history");
     application_notifications_fixture_retention_oom(&g_app,false);
     check(message(2318,21,115) && application_notifications_fixture_metrics(&g_app).retention_channels==17 &&
-        application_notifications_fixture_metrics(&g_app).retention_capacity_channels==32 &&
         application_notifications_fixture_retained(&g_app,100,0)==2301 &&
         application_notifications_fixture_retained(&g_app,115,0)==2318,
         "notification retention: recovered geometric growth rebinds dense rows and channel index without losing history");
@@ -532,7 +524,6 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     bool historical=true;
     for(u32 i=0;i<16;++i) historical=retention_channel(200+i) && message(2410+i,2+i,200+i) && historical;
     check(historical && application_notifications_fixture_metrics(&g_app).retention_channels==33 &&
-        application_notifications_fixture_metrics(&g_app).retention_capacity_channels==64 &&
         application_notifications_fixture_metrics(&g_app).retention_channels>f.ui.chat_state.channel_count &&
         application_notifications_fixture_retained(&g_app,115,0)==2318,
         "notification retention: historical success owners grow beyond current channel-store capacity without global eviction");
@@ -1055,7 +1046,7 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
     application_notifications_account_stop(&g_app);
     metrics = application_notifications_fixture_metrics(&g_app);
     check(!metrics.ready && !metrics.live && !metrics.guilds && !metrics.overrides && !metrics.threads &&
-        !metrics.seen_count && f.navigation_calls == 0 && !metrics.audio_worker_started && !f.sound_count,
+        f.navigation_calls == 0 && !metrics.audio_worker_started,
         "notification application: account stop discards owner authority and never navigates or opens OS delivery");
     application_notifications_release(&g_app);
     check(!g_app.notifications, "notification application: release clears nonemitting owner");

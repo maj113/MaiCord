@@ -108,13 +108,17 @@ void test_thread_members(void (*check)(bool, const char*) noexcept) noexcept {
     const u32 old_member_revision = f.members.revision;
     check(!decode(utf8_literal("{\"op\":0,\"t\":\"THREAD_MEMBER_LIST_UPDATE\",\"d\":{\"guild_id\":\"7\",\"thread_id\":\"70\",\"members\":[{\"user_id\":\"2\",\"presence\":{\"user\":{\"id\":\"3\"},\"status\":\"online\"}}]}}"), &event, &payload) && f.members.revision == old_member_revision,
         "presence embedded user identity mismatch fails before appearance hydration");
-    check(project(), "thread projection rebuilds before generation guard test");
-    for (u32 i = 0; i < f.projection.count; ++i) {
-        if (f.rows[i].user_id == 2 && f.rows[i].member_slot < f.members.capacity) {
-            ++f.members.records[f.rows[i].member_slot].generation;
-            check(!member_list_view_row(f.projection, i), "member slot generation prevents stale thread hit even without revision change");
-        }
-    }
+    check(project(), "thread projection rebuilds before the stale row test");
+    u32 member_row = f.projection.count;
+    for (u32 i = 0; i < f.projection.count && member_row == f.projection.count; ++i)
+        if (f.rows[i].user_id == 2 && f.rows[i].member_slot < f.members.capacity) member_row = i;
+    // The member leaves and another user takes the freed record before the projection rebuilds.
+    const bool replaced = member_row < f.projection.count && guild_member_store_remove(&f.members, 7, 2) &&
+        user_store_upsert(&f.users, 77, utf8_literal("Gamma"), utf8_literal("Gamma")).ok() &&
+        guild_member_store_upsert(&f.members, f.state, 7, 77, {}, {}, false, GuildMemberStatus::online).ok();
+    const auto* stale = replaced ? member_list_view_row(f.projection, member_row) : nullptr;
+    check(replaced && (!stale || stale->user_id != 2),
+        "a retained thread row for a member who left is not served from the reused member record");
     thread_member_store_reset_snapshot(&f.threads);
     check(!f.threads.known && thread_member_store_owns(f.threads, 7, 70), "fresh connection reset withdraws snapshot but preserves selected desired scope");
     check(user_store_upsert(&f.users, 50, utf8_literal("Named"), utf8_literal("Named")).ok() &&
@@ -133,7 +137,7 @@ void test_thread_members(void (*check)(bool, const char*) noexcept) noexcept {
     bool reverse_ok = true;
     for (u64 id = kThreadMemberMaximumIds; id; --id) reverse_ok &= thread_member_store_snapshot_append(&full, id);
     check(reverse_ok && thread_member_store_snapshot_commit(&full) && full.count == kThreadMemberMaximumIds && !full.incomplete &&
-        full.banks[full.active_bank][0] == 1 && full.banks[full.active_bank][kThreadMemberMaximumIds - 1] == kThreadMemberMaximumIds,
+        thread_member_store_contains(full, 1) && thread_member_store_contains(full, kThreadMemberMaximumIds),
         "reverse maximum snapshot sorts once and retains every distinct identity");
     u64 tiny_banks[2][3]{}; ThreadMemberStore tiny{};
     check(thread_member_store_initialize(&tiny, {tiny_banks[0], 3}, {tiny_banks[1], 3}) &&
@@ -148,7 +152,7 @@ void test_thread_members(void (*check)(bool, const char*) noexcept) noexcept {
     bool duplicates_ok = true;
     for (const u64 id : duplicate_sequence) duplicates_ok &= thread_member_store_snapshot_append(&tiny, id);
     check(duplicates_ok && thread_member_store_snapshot_commit(&tiny) && tiny.count == 3 && !tiny.incomplete &&
-        tiny.banks[tiny.active_bank][0] == 1 && tiny.banks[tiny.active_bank][2] == 3,
+        thread_member_store_contains(tiny, 1) && thread_member_store_contains(tiny, 2) && thread_member_store_contains(tiny, 3),
         "duplicates across full staging compact before true identity capacity is diagnosed");
     thread_member_store_snapshot_begin(&tiny, 7, 70);
     for (const u64 id : duplicate_sequence) thread_member_store_snapshot_append(&tiny, id);
@@ -157,7 +161,7 @@ void test_thread_members(void (*check)(bool, const char*) noexcept) noexcept {
         "distinct identity beyond compacted capacity marks snapshot incomplete");
     const u32 unchanged_count = tiny.count;
     ReserveProbe backing{0, 0, 2};
-    check(thread_member_store_set_reserve(&tiny, reserve_probe, &backing) && !backing.calls && !tiny.backed_count &&
+    check(thread_member_store_set_reserve(&tiny, reserve_probe, &backing) && !backing.calls &&
         thread_member_store_snapshot_begin(&tiny, 7, 70) && !backing.calls,
         "reserve callback is deferred until first bank write rather than scope selection");
     check(thread_member_store_snapshot_append(&tiny, 9) && thread_member_store_snapshot_append(&tiny, 8) &&

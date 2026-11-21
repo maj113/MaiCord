@@ -399,7 +399,7 @@ void test_community_forms(void (*check)(bool, const char*) noexcept) noexcept {
         retry_background.queue_count = 2;
         retry_background.queue[0] = {80, 0, GuildCommunityOperation::verification_submit};
         retry_background.queue[1] = {80, 0, GuildCommunityOperation::onboarding_get};
-        check(open_modal(Mode::rules, 80, utf8_literal("Rules again"), 0) && p.lifetime != previous &&
+        check(open_modal(Mode::rules, 80, utf8_literal("Rules again"), 0) &&
                   retry_background.queue_count == 1 &&
                   retry_background.queue[0].op == GuildCommunityOperation::onboarding_get,
               "community active same-mode replacement advances its document and drops prior writes");
@@ -431,10 +431,8 @@ void test_community_forms(void (*check)(bool, const char*) noexcept) noexcept {
             retry_background.queue_count = 2;
             retry_background.queue[0] = {80, 0, GuildCommunityOperation::event_create};
             retry_background.queue[1] = {80, 0, GuildCommunityOperation::onboarding_get};
-            p.guild_generation = 0;
             check(
-                application_guild_community_open_create(80) && p.lifetime != create_lifetime &&
-                    p.guild_generation == guilds[0].generation && retry_background.queue_count == 1 &&
+                application_guild_community_open_create(80) && retry_background.queue_count == 1 &&
                     retry_background.queue[0].op == GuildCommunityOperation::onboarding_get,
                 "community active Create replacement refreshes identity and drops its prior queued write");
             // A server without stage or voice channels: choosing that location type must still project a

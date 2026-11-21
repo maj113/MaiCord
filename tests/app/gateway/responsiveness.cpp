@@ -180,13 +180,14 @@ void test_presence_visibility(void (*check)(bool, const char*) noexcept) noexcep
 
     // Off-screen appearance and status changes update the model only.
     f.visible_user = 3;
-    const u32 user_revision = f.users.revision, member_revision = f.members.revision;
+    const u32 user_revision = f.users.revision, member_revision = f.members.revision,
+              presence_revision = f.members.presence_revision;
     const auto hidden = presence(f, 30, GatewayClientMemberListStatus::idle, utf8_literal("Playing A"));
     const auto* stored = guild_member_store_find(f.members, 7, 30);
     const auto* activity = user_appearance_find(f.users.appearance, 30, 7);
-    check(hidden.ok() && !hidden.repaint && !f.pump.presence_visible_dirty && f.pump.presence_offscreen == 1 &&
+    check(hidden.ok() && !hidden.repaint && !f.pump.presence_visible_dirty &&
               f.users.revision == user_revision && f.members.revision == member_revision &&
-              f.members.presence_revision == 1 && stored && stored->status == GuildMemberStatus::idle &&
+              f.members.presence_revision != presence_revision && stored && stored->status == GuildMemberStatus::idle &&
               activity && activity->activity.bytes == 9,
           "presence: off-screen member applies to the model without invalidating text");
 
@@ -224,11 +225,11 @@ void test_presence_visibility(void (*check)(bool, const char*) noexcept) noexcep
     const u8 mobile = client_status_with(0, ClientPlatform::mobile, ClientPlatformStatus::online);
     presence(f, 31, GatewayClientMemberListStatus::online, utf8_literal("Playing E"));
     f.pump.presence_visible_dirty = false;
-    const u32 offscreen = f.pump.presence_offscreen, platform_users = f.users.revision;
+    const u32 platform_users = f.users.revision;
     const auto hidden_platform =
         presence(f, 31, GatewayClientMemberListStatus::online, utf8_literal("Playing E"), mobile);
     check(hidden_platform.ok() && !hidden_platform.repaint && !f.pump.presence_visible_dirty &&
-              f.pump.presence_offscreen == offscreen + 1 && f.users.revision == platform_users &&
+              f.users.revision == platform_users &&
               user_store_client_status(f.users, 31) == mobile,
           "client status: an off-screen platform change updates the user without a repaint");
     presence(f, 3, GatewayClientMemberListStatus::online, utf8_literal("Playing B"));
@@ -264,14 +265,14 @@ void test_presence_coalescing(void (*check)(bool, const char*) noexcept) noexcep
     presence_coalescer_note(&coalescer, 1'000);
     presence_coalescer_note(&coalescer, 1'040);
     presence_coalescer_note(&coalescer, 1'149);
-    check(coalescer.flush_at_ms == 1'000 + kPresenceCoalesceMilliseconds &&
-              !presence_coalescer_take(&coalescer, 1'149),
+    check(!presence_coalescer_take(&coalescer, 1'149),
           "coalescer: changes inside the window join the first deadline");
-    check(presence_coalescer_take(&coalescer, 1'150) && coalescer.flush_at_ms == 0 &&
+    check(presence_coalescer_take(&coalescer, 1'150) &&
               !presence_coalescer_take(&coalescer, 1'151),
           "coalescer: one flush per window");
     presence_coalescer_note(&coalescer, 2'000);
-    check(coalescer.flush_at_ms == 2'150, "coalescer: the next change opens a new window");
+    check(!presence_coalescer_take(&coalescer, 2'149) && presence_coalescer_take(&coalescer, 2'150),
+          "coalescer: the next change opens a new window");
 }
 
 void test_wake_coalescing(void (*check)(bool, const char*) noexcept) noexcept {

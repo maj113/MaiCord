@@ -954,7 +954,6 @@ ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(
     ApplicationNotificationFixtureMetrics metrics{};
     metrics.guilds=n.settings.guild_count; metrics.overrides=n.settings.override_count;
     metrics.threads=n.settings.thread_count; metrics.ready=n.ready; metrics.live=n.live;
-    metrics.seen_count=n.seen_next;
     metrics.audio_epoch=n.audio_epoch; metrics.audio_backend_epoch=n.audio.epoch;
     notification_sound_throttle_deadline(n.sound_throttle,&metrics.sound_deadline);
     metrics.audio_failed=n.audio_failed;

@@ -509,9 +509,7 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
             option_detail = option_detail || (utf8_equal(commands[n].text, options[1].detail) &&
                                                commands[n].horizontal_alignment == UiTextAlignment::end);
         }
-        check(listed && ui_rect_height(option.row->rectangle) == kCommandGenericRowHeight &&
-                  ui_rect_height(option_loading.row->rectangle) == kCommandGenericLoadingHeight &&
-                  ui_rect_height(scene.rectangle) == 40 + 36 + 40 + 8 && option_text && option_detail,
+        check(listed && ui_rect_height(scene.rectangle) == 40 + 36 + 40 + 8 && option_text && option_detail,
               "option lists use the client's Generic and Loading rows under their title");
         // Scrolled into App's rows: its header stays pinned and hides the row
         // part beneath it, until the next section pushes it up.

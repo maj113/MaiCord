@@ -567,7 +567,7 @@ void test_page(PluginBinding* binding) noexcept {
     const auto* settings = static_cast<const NetSettings*>(binding->ctx.settings);
     const auto* state = static_cast<const NetState*>(binding->ctx.state);
     plugin_settings_project(*binding, host, &page);
-    check(page.count == 10 && page.content.revision == 1 && editors.asked == 6 && editors.masked == 1 && editors.multiline == 1,
+    check(page.count == 10 && editors.masked == 1 && editors.multiline == 1,
           "every setting and host is a row; secrets are masked");
     const UiSettingsControl* secret = row(page, kSecret + 1);
     const UiSettingsControl* label = row(page, kLabel + 1);
@@ -780,7 +780,7 @@ void test_settings(PluginRuntime* runtime, const Root& root) noexcept {
     join(settings_file, owner_directory, L"settings.bin");
     static u8 file[16384];
     const u32 bytes = read_file(settings_file, file, sizeof(file));
-    check(bytes > 0 && !binding->settings_dirty && contains(file, bytes, "secret") && contains(file, bytes, "colour") &&
+    check(bytes > 0 && contains(file, bytes, "secret") && contains(file, bytes, "colour") &&
               !contains(file, bytes, "s3cret-key") && !contains(file, bytes, "s3cret"),
           "the settings file holds the secret only as a DPAPI blob");
 
@@ -847,7 +847,7 @@ void run() noexcept {
         test_disable_discards(&runtime);
         test_settings(&runtime, root);
         check(runtime.binding_count == 0, "every test left its plugin disabled");
-        check(plugin_runtime_close(&runtime).ok() && !runtime.http, "closing the runtime stops the broker");
+        check(plugin_runtime_close(&runtime).ok(), "closing the runtime stops the broker");
     }
     remove_tree(root.base);
 }

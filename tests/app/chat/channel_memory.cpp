@@ -303,19 +303,12 @@ void test_channel_memory(void (*check)(bool, const char*) noexcept) noexcept {
     wchar_t path[512];
     ChannelMemory loaded{};
     const bool have_path = temporary_path(path, 512);
-    check(have_path && channel_memory_save_file(path, visits) && channel_memory_load_file(path, &loaded) &&
-              loaded.count == visits.count &&
-              channel_memory_latest(loaded)->channel_id == channel_memory_latest(visits)->channel_id,
-          "channel memory persists to a file");
-    if (have_path) {
-        ChannelMemory tab_loaded{};
-        check(channel_memory_save_file(path, tabbed) && channel_memory_load_file(path, &tab_loaded) &&
-                  tab_loaded.count == 1 && tab_loaded.tab_count == 3 && tab_loaded.tabs[2].channel_id == 30 &&
-                  tab_loaded.tabs[1].guild_id == 21 && tab_loaded.tabs[1].label_bytes == 5 &&
-                  bytes_equal(tab_loaded.tabs[1].label, "Other", 5),
-              "channel memory persists its tabs to a file");
-        DeleteFileW(path);
-    }
+    ChannelMemory tab_loaded{};
+    check(have_path && channel_memory_save_file(path, tabbed) && channel_memory_load_file(path, &tab_loaded) &&
+              tab_loaded.count == 1 && channel_memory_latest(tab_loaded)->channel_id == 201 &&
+              tab_loaded.tab_count == 3 && tab_loaded.tabs[2].channel_id == 30 && tab_loaded.tabs[1].guild_id == 21 &&
+              tab_loaded.tabs[1].label_bytes == 5 && bytes_equal(tab_loaded.tabs[1].label, "Other", 5),
+          "channel memory persists its entries and tabs to a file");
     if (have_path) {
         DeleteFileW(path);
         check(write_raw(path, "MCCM\x01\x05garbage", 13) && !channel_memory_load_file(path, &loaded) && loaded.count == 0,

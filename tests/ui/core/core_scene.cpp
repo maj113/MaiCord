@@ -1217,15 +1217,15 @@ void test_ui_scene() noexcept {
     revised_friends.navigation_width = 300.0f;
     expect(ui_scene_layout_with_metrics(&friends_scene, UiShellView::friends, revised_friends, 1102.0f,
                                         930.0f) &&
-               friends_scene.layout_rebuilds == friends_rebuilds + 1 &&
                ui_scene_node(friends_scene, UiSemantic::content)
                        ->rectangle.left == 364.0f,
            "ui_scene_metrics_revision_rebuilds_structure");
     UiShellLayoutMetrics invalid_friends = revised_friends;
     invalid_friends.revision = 0;
+    invalid_friends.navigation_width = 200.0f;
     expect(!ui_scene_layout_with_metrics(&friends_scene, UiShellView::friends, invalid_friends, 1102.0f,
                                          930.0f) &&
-               friends_scene.layout_rebuilds == friends_rebuilds + 1,
+               ui_scene_node(friends_scene, UiSemantic::content)->rectangle.left == 364.0f,
            "ui_scene_invalid_metrics_reject_without_publish");
     bool home_columns_stable = true;
     const float home_navigation_widths[]{240.f, 300.f};

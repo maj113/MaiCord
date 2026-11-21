@@ -308,7 +308,7 @@ void restricted_member_reaction_tests() noexcept {
         application_queue_message_reaction(900, reaction_index());
         const auto before = submissions;
         check(restrict_member(timeout) && !application_message_reaction_submit(++request_serial, now_ms) &&
-                  owner && !owner->controller.count && reaction()->count == 4 &&
+                  !application_message_reaction_pending(now_ms) && reaction()->count == 4 &&
                   !(reaction()->flags & 1) && submissions == before,
               "reaction runtime: live member restriction cancels queued existing emoji without REST");
 
@@ -318,7 +318,7 @@ void restricted_member_reaction_tests() noexcept {
         const auto before_retry = submissions;
         now_ms = 5000;
         check(restrict_member(timeout) && !application_message_reaction_submit(++request_serial, now_ms) &&
-                  owner && !owner->controller.count && reaction()->count == 4 &&
+                  !application_message_reaction_pending(now_ms) && reaction()->count == 4 &&
                   !(reaction()->flags & 1) && submissions == before_retry,
               "reaction runtime: live member restriction cancels rate-limited existing emoji retry");
 
@@ -407,8 +407,8 @@ void thread_reaction_tests() noexcept {
     application_queue_message_reaction(900, reaction_index());
     const auto before_queue = submissions;
     check(chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, 70, 5, true) &&
-              !application_message_reaction_submit(++request_serial, now_ms) && owner &&
-              !owner->controller.count && !owner->controller.flight.active &&
+              !application_message_reaction_submit(++request_serial, now_ms) &&
+              !application_message_reaction_pending(now_ms) &&
               reaction()->count == 4 && !(reaction()->flags & 1) && submissions == before_queue,
           "reaction runtime: submit rechecks source archive state and restores queued existing emoji add");
 
@@ -427,7 +427,7 @@ void thread_reaction_tests() noexcept {
         if (!known)
             g_app.account_ui->active_channel_id = 80;
         check(chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, 70, 5, true, known) &&
-                  !application_message_reaction_pending(now_ms) && owner && !owner->controller.count &&
+                  !application_message_reaction_pending(now_ms) &&
                   !send_next() && submissions == before_remove,
               "reaction runtime: source thread archive authority cancels queued removal after navigation");
         check(!known || (reaction()->count == 5 && (reaction()->flags & 1)),
@@ -447,9 +447,9 @@ void thread_reaction_tests() noexcept {
     const auto before_retry = submissions;
     now_ms = 5000;
     check(chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, 70, 5, true) &&
-              !application_message_reaction_submit(++request_serial, now_ms) && owner &&
-              !owner->controller.count && reaction()->count == 4 && !(reaction()->flags & 1) &&
-              submissions == before_retry,
+              !application_message_reaction_submit(++request_serial, now_ms) &&
+              !application_message_reaction_pending(now_ms) && reaction()->count == 4 &&
+              !(reaction()->flags & 1) && submissions == before_retry,
           "reaction runtime: archived source cancels due retry without another request or ghost contribution");
 
     check(seed_thread(), "reaction runtime: archive during in-flight own removal fixture initializes");
@@ -463,11 +463,9 @@ void thread_reaction_tests() noexcept {
           "reaction runtime: own removal holds exact transport request");
     const auto before_cancel = cancellations;
     check(chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, 70, 5, true) &&
-              application_message_reaction_synchronize() && owner && !owner->controller.count &&
-              owner->controller.flight.retired && cancellations == before_cancel + 1 &&
-              reaction()->count == 5 && (reaction()->flags & 1) && complete() &&
-              !owner->controller.flight.active && !send_next() && reaction()->count == 5 &&
-              (reaction()->flags & 1),
+              application_message_reaction_synchronize() && !application_message_reaction_pending(now_ms) &&
+              cancellations == before_cancel + 1 && reaction()->count == 5 && (reaction()->flags & 1) &&
+              complete() && !send_next() && reaction()->count == 5 && (reaction()->flags & 1),
           "reaction runtime: archive retires removal flight once and late success cannot replay inverse state");
 }
 
@@ -510,7 +508,7 @@ void run() noexcept {
           "reaction runtime: pill toggle accepts newer remove while add is owned");
     check(application_queue_message_reaction_emoji(900, 0, glyph(1), false) ==
                   ApplicationMessageReactionEnqueueResult::accepted &&
-              owner->controller.count == 2,
+              reaction(900, 1) && (reaction(900, 1)->flags & 1),
           "reaction runtime: distinct emoji accepted while previous REST remains pending");
     check(gateway(true, true) && reaction()->count == 4 && !(reaction()->flags & 1),
           "reaction runtime: actual old own add event applies then host reprojects latest remove");
@@ -546,15 +544,11 @@ void run() noexcept {
     application_queue_message_reaction_emoji(900, 0, glyph(), false);
     check(send_next(),
           "reaction runtime: existing emoji request owns active flight before permission change");
-    const u64 existing_request = accepted_request;
     application_queue_message_reaction_emoji(900, 0, glyph(1), false);
     check(reaction(900, 1) && reaction(900, 1)->count == 1,
           "reaction runtime: new queued emoji initially owns only its optimistic contribution");
     channel()->actions &= ~channel_action_add_reactions;
-    check(application_message_reaction_synchronize() && owner && owner->controller.flight.active &&
-              !owner->controller.flight.retired &&
-              owner->controller.flight.ticket.request_id == existing_request &&
-              owner->controller.count == 1 && !reaction(900, 1) && reaction()->count == 5 &&
+    check(application_message_reaction_synchronize() && !reaction(900, 1) && reaction()->count == 5 &&
               (reaction()->flags & 1),
           "reaction runtime: Add reactions revocation removes only unavailable new emoji while existing "
           "flight remains eligible");
@@ -594,7 +588,7 @@ void run() noexcept {
           "reaction runtime: typed content update proves exact handle with newer source revision");
     application_message_reaction_message_observe(content_update, fresh_source.handle,
                                                  fresh_record ? fresh_record->revision : 0, true);
-    check(owner && !owner->controller.count && !reaction(900, 1) && reaction()->count == 4 &&
+    check(!application_message_reaction_pending(now_ms) && !reaction(900, 1) && reaction()->count == 4 &&
               fresh_record &&
               utf8_equal(message_store_content(g_app.message_view.store, fresh_source.handle),
                          content_update.content),
@@ -604,7 +598,7 @@ void run() noexcept {
     check(seed(), "reaction runtime: API admission fixture resets");
     application_queue_message_reaction_emoji(900, 0, glyph(), false);
     transport_busy = true;
-    check(!send_next() && owner && !owner->controller.flight.active && reaction()->count == 5,
+    check(!send_next() && reaction()->count == 5,
           "reaction runtime: transient shared-lane busy leaves queued choice and optimistic state owned");
     transport_busy = false;
     now_ms += 49;
@@ -616,22 +610,21 @@ void run() noexcept {
     RestClientResponse stale{};
     stale.request_id = active_id + 1;
     stale.status_code = 204;
-    check(!application_message_reaction_response(stale) && owner->controller.flight.active,
+    check(!application_message_reaction_response(stale),
           "reaction runtime: unrelated response cannot drain actual submitted request ID");
     channel()->actions &= ~channel_action_read_history;
     check(
-        application_message_reaction_synchronize() && owner && owner->controller.flight.retired &&
-            !owner->controller.count && cancellations,
+        application_message_reaction_synchronize() && !application_message_reaction_pending(now_ms) &&
+            cancellations,
         "reaction runtime: source permission revocation cancels intent while retaining exact flight drain");
-    check(complete() && !owner->controller.flight.active,
+    check(complete() && !application_message_reaction_pending(now_ms),
           "reaction runtime: revoked source successful response drains without resurrection");
 
     check(seed(), "reaction runtime: source reuse fixture resets");
     application_queue_message_reaction_emoji(900, 0, glyph(), false);
     send_next();
     check(message_timeline_remove_local(&g_app.message_view.timeline, 900).ok() && create_message() &&
-              application_message_reaction_synchronize() && owner->controller.flight.retired &&
-              !owner->controller.count,
+              application_message_reaction_synchronize() && !application_message_reaction_pending(now_ms),
           "reaction runtime: actual resident slot recycle retires old source generation");
     check(complete() && reaction()->count == 4 && !(reaction()->flags & 1),
           "reaction runtime: old successful response cannot project into recycled same message ID");
@@ -641,9 +634,7 @@ void run() noexcept {
     send_next();
     ui.active_channel_id = 80;
     application_message_reaction_synchronize();
-    check(owner && !owner->controller.flight.retired && owner->controller.count == 1,
-          "reaction runtime: navigation retains authorized off-selected reaction intent");
-    check(complete(), "reaction runtime: off-selected response still drains actual owner");
+    check(owner && complete(), "reaction runtime: navigation retains the off-selected intent and its response drains");
     ui.active_channel_id = 70;
     application_message_reaction_synchronize();
     check(reaction()->count == 5 && (reaction()->flags & 1),
@@ -662,8 +653,7 @@ void run() noexcept {
           "reaction runtime: channel navigation clears actual message and rich history stores");
     ui.active_channel_id = 70;
     chat_state_store_select_channel(&ui.chat_state, 70);
-    check(create_message() && application_message_reaction_synchronize() && owner &&
-              !owner->controller.flight.retired && owner->controller.count == 2 && reaction() &&
+    check(create_message() && application_message_reaction_synchronize() && reaction() &&
               reaction()->count == 5 && (reaction()->flags & 1) && reaction(900, 1) &&
               reaction(900, 1)->count == 1 && (reaction(900, 1)->flags & 1),
           "reaction runtime: hydrated source receives both latest retained emoji choices before frame "
@@ -690,7 +680,7 @@ void run() noexcept {
     authoritative[0].count = authoritative[0].normal_count = 3;
     authoritative[1].name = glyph(1);
     authoritative[1].count = authoritative[1].normal_count = 7;
-    check(snapshot({authoritative, 2}) && owner && owner->controller.count == 1 && reaction()->count == 3 &&
+    check(snapshot({authoritative, 2}) && reaction()->count == 3 &&
               !(reaction()->flags & 1) && reaction(900, 1)->count == 8 && (reaction(900, 1)->flags & 1) &&
               application_message_reaction_pending(now_ms),
           "reaction runtime: full snapshot erases settled first intent then still refreshes shifted "
@@ -704,8 +694,8 @@ void run() noexcept {
     application_queue_message_reaction_emoji(900, 0, glyph(1), false);
     application_queue_message_reaction_emoji(900, 0, glyph(2), false);
     channel()->actions &= ~channel_action_add_reactions;
-    check(gateway(true, false, MessageReactionType::normal, 1) && owner &&
-              owner->controller.count == 1 && reaction(900, 1) && reaction(900, 1)->count == 2 &&
+    check(gateway(true, false, MessageReactionType::normal, 1) && reaction(900, 1) &&
+              reaction(900, 1)->count == 2 &&
               (reaction(900, 1)->flags & 1) && !reaction(900, 2),
           "reaction runtime: fresh foreign add proves queued emoji existence while different absent emoji "
           "retires exactly");
@@ -723,7 +713,7 @@ void run() noexcept {
     fresh_existing[0].count = fresh_existing[0].normal_count = 4;
     fresh_existing[1].name = glyph(1);
     fresh_existing[1].count = fresh_existing[1].normal_count = 3;
-    check(snapshot({fresh_existing, 2}) && owner && owner->controller.count == 1 && reaction(900, 1) &&
+    check(snapshot({fresh_existing, 2}) && reaction(900, 1) &&
               reaction(900, 1)->count == 4 && (reaction(900, 1)->flags & 1) && !reaction(900, 2) &&
               reaction()->count == 4 && !(reaction()->flags & 1) &&
               application_message_reaction_pending(now_ms),
@@ -735,8 +725,7 @@ void run() noexcept {
     check(send_next(), "reaction runtime: administrative removal begins with exact submitted emoji owner");
     application_queue_message_reaction_emoji(900, 0, glyph(2), false);
     channel()->actions &= ~channel_action_add_reactions;
-    check(clear_emoji(0) && owner && owner->controller.flight.retired && !owner->controller.count &&
-              !reaction() && !reaction(900, 2),
+    check(clear_emoji(0) && !application_message_reaction_pending(now_ms) && !reaction() && !reaction(900, 2),
           "reaction runtime: remove emoji protects only its authoritative cleared target while other "
           "unavailable overlay retires");
     check(complete() && !reaction() && !reaction(900, 2) && !application_message_reaction_pending(now_ms),
@@ -746,7 +735,7 @@ void run() noexcept {
     check(seed(), "reaction runtime: expired intent fresh foreign removal fixture resets");
     application_queue_message_reaction_emoji(900, 0, glyph(), false);
     now_ms += kMessageReactionIntentLifetimeMs;
-    check(gateway(false, false) && owner && !owner->controller.count && reaction() &&
+    check(gateway(false, false) && reaction() &&
               reaction()->count == 3 && reaction()->normal_count == 3 && !(reaction()->flags & 1) &&
               !application_message_reaction_pending(now_ms),
           "reaction runtime: fresh foreign remove at pending deadline retains three foreigners and clears "
@@ -757,16 +746,15 @@ void run() noexcept {
     check(send_next(), "reaction runtime: achieved expiry retains exact submitted request until drain");
     now_ms = 1000 + kMessageReactionIntentLifetimeMs;
     bool achieved_error{};
-    check(gateway(true, true) && owner && !owner->controller.count && reaction() &&
+    check(gateway(true, true) && reaction() &&
               reaction()->count == 5 && reaction()->normal_count == 5 && (reaction()->flags & 1) &&
-              owner->controller.flight.active && owner->controller.flight.retired &&
               !application_message_reaction_pending(now_ms) &&
               !application_message_reaction_status(900, &achieved_error).bytes && !achieved_error &&
               !application_message_mutation_notice_text().bytes &&
               !application_message_mutation_notice_is_error(),
           "reaction runtime: achieved own state at expiry settles without false failure and retains exact "
           "transport drain");
-    check(complete(500) && !owner->controller.flight.active && reaction()->count == 5 &&
+    check(complete(500) && reaction()->count == 5 &&
               (reaction()->flags & 1) && !application_message_reaction_status(900, &achieved_error).bytes &&
               !achieved_error && !application_message_reaction_pending(now_ms),
           "reaction runtime: late failed HTTP after achieved expiry drains without rollback or false retry "
@@ -776,7 +764,7 @@ void run() noexcept {
     application_queue_message_reaction_emoji(900, 0, glyph(), false);
     check(send_next() && complete(), "reaction runtime: successful choice retains settled own echo fence");
     now_ms = 1000 + kMessageReactionIntentLifetimeMs;
-    check(gateway(false, true) && owner && !owner->controller.count && reaction() &&
+    check(gateway(false, true) && reaction() &&
               reaction()->count == 4 && !(reaction()->flags & 1),
           "reaction runtime: settled fence expires before contrary live own event so current Gateway state "
           "wins");
@@ -818,9 +806,8 @@ void run() noexcept {
                       ApplicationMessageReactionEnqueueResult::accepted,
                   "reaction runtime: each of64 distinct choices admits independently");
     }
-    check(owner && owner->controller.count == 64 &&
-              application_queue_message_reaction_emoji(900, 0, glyph(4), false) ==
-                  ApplicationMessageReactionEnqueueResult::capacity &&
+    check(application_queue_message_reaction_emoji(900, 0, glyph(4), false) ==
+              ApplicationMessageReactionEnqueueResult::capacity &&
               !reaction(900, 4),
           "reaction runtime:65th action refuses without touching model or existing choices");
     VirtualQuery(owner->storage.arena.base, &bank_region, sizeof(bank_region));

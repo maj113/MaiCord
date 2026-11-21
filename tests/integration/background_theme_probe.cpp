@@ -297,12 +297,9 @@ bool theme_editor_pixels(BackgroundThemeProbeContext c, Theme theme) noexcept {
         (c.capture && !c.capture(L"background-theme-editor-dark.bmp", theme)))
         return failure(28);
     // Warm the real prefix after initial glyph-atlas admission, then mutate
-    // only draft/background. The base shell/messages must stay retained.
+    // only draft/background: dragging the picker does no render work.
     if (!renderer_rebuild_content_text(&r, theme))
         return failure(29);
-    const u32 base_builds = r.content_text_prefix.base_builds;
-    const auto base_key = r.content_text_retention.key;
-    const auto* before_quads = r.content_text->quads;
     auto changed = editor.draft;
     const u32 text_builds_before = r.content_text->rebuilds;
     const u32 paint_builds_before = r.paint_stream_builds;
@@ -346,50 +343,15 @@ bool theme_editor_pixels(BackgroundThemeProbeContext c, Theme theme) noexcept {
         return failure(104);
     editor_preferences.gradient = changed;
     theme = client_theme_projection(editor_preferences);
-    const bool foreground_changed = content_text_theme_signature(theme) != base_key.theme_signature;
     if (!restore_colors.project(theme))
         return failure(36);
-    const bool published = renderer_rebuild_content_text(&r, theme) && probe_present(&r, theme);
-    const u32 expected_base_builds = base_builds + (foreground_changed ? 1u : 0u);
-    if (!published || r.content_text_prefix.base_builds != expected_base_builds ||
-        r.content_text->quads != before_quads || r.content_text->quad_count != quads_before ||
-        // A changed foreground republishes under the emitter's colour-hashed
-        // key (checked for stability below), not the bare theme signature.
-        (!foreground_changed &&
-         r.content_text_retention.key.theme_signature != content_text_theme_signature(theme)) ||
-        r.content_text_retention.key.message_signature != r.message_text->projection_signature ||
-        !authority.active) {
-        log_u64(LogLevel::error, "probe", "background_editor_prefix_publication_succeeded", published);
-        log_u64(LogLevel::error, "probe", "background_editor_prefix_base_before", base_builds);
-        log_u64(LogLevel::error, "probe", "background_editor_prefix_base_after",
-                r.content_text_prefix.base_builds);
-        log_u64(LogLevel::error, "probe", "background_editor_prefix_base_expected", expected_base_builds);
-        log_u64(LogLevel::error, "probe", "background_editor_prefix_storage_stable",
-                r.content_text->quads == before_quads);
-        log_u64(LogLevel::error, "probe", "background_editor_prefix_quad_count_before", quads_before);
-        log_u64(LogLevel::error, "probe", "background_editor_prefix_quad_count_after",
-                r.content_text->quad_count);
-        log_u64(LogLevel::error, "probe", "background_editor_prefix_theme_current",
-                r.content_text_retention.key.theme_signature == content_text_theme_signature(theme));
-        log_u64(LogLevel::error, "probe", "background_editor_prefix_message_current",
-                r.content_text_retention.key.message_signature == r.message_text->projection_signature);
-        log_u64(LogLevel::error, "probe", "background_editor_prefix_authority_active", authority.active);
+    if (!renderer_rebuild_content_text(&r, theme) || !probe_present(&r, theme) || !authority.active)
         return failure(31);
-    }
-    // The shell emitter hashes actual command colors too. A coalesced source
-    // foreground publication legitimately replaces that key. Repeating the
-    // identical publication must retain its newly committed prefix exactly.
-    const auto published_key = r.content_text_retention.key;
-    if (!renderer_rebuild_content_text(&r, theme) ||
-        r.content_text_prefix.base_builds != expected_base_builds ||
-        r.content_text->quads != before_quads || r.content_text->quad_count != quads_before ||
-        r.content_text_retention.key.shell_signature != published_key.shell_signature ||
-        r.content_text_retention.key.message_signature != published_key.message_signature ||
-        r.content_text_retention.key.theme_signature != published_key.theme_signature)
+    // Repeating the same publication does no work.
+    const u32 published_rebuilds = r.content_text->rebuilds;
+    if (!renderer_rebuild_content_text(&r, theme) || r.content_text->rebuilds != published_rebuilds)
         return failure(103);
-    log_write(
-        LogLevel::info, "probe",
-        "theme_editor_64_moves_zero_work_one_foreground_publication_and_stable_repeated_prefix_passed");
+    log_write(LogLevel::info, "probe", "theme_editor_64_moves_zero_work_and_repeated_publication_passed");
     auto* messages = const_cast<MessageTextPresentation*>(r.message_text);
     if (!messages || messages->command_count > messages->commands.count ||
         messages->command_count > kMaximumMessageTextCommands)

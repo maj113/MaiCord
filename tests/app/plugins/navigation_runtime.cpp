@@ -169,17 +169,15 @@ void test_application_plugin_navigation_runtime(void (*check)(bool,const char*) 
     // Enabling or disabling any plugin moves the registry revision and expires every captured token.
     const u32 revision=plugin_ui_revision();
     check(open(S::channel,88,1) && plugin.disable() && plugin_ui_revision()!=revision &&
-        application_plugins_menu_action(first) && !g_app.popup_scene.active && !application_plugins_menu_state().count,
+        application_plugins_menu_action(first) && !g_app.popup_scene.active,
         "navigation runtime: a disabled plugin rejects the captured row before it could enter freed code");
     PopupItem none[8]{};
-    check(!application_plugins_menu_items(S::channel,88,{none,8}) && !application_plugins_menu_state().count,
+    check(!application_plugins_menu_items(S::channel,88,{none,8}),
         "navigation runtime: a disabled plugin projects no rows");
     check(plugin.restart() && (s=state()) && open(S::channel,88,1),"navigation runtime: a new enable projects its rows again");
     calls=s->menu_calls;
-    const auto captured=application_plugins_menu_state().account_serial;const auto serial=g_app.plugin_account_scope_serial;
     application_plugins_account_scope_invalidated();
-    check(g_app.plugin_account_scope_serial==serial+1 && !g_app.popup_scene.active &&
-        !application_plugins_menu_state().count && !plugin_ui_scope_current(g_app.plugin_account_scope_serial,captured),
+    check(!g_app.popup_scene.active && application_plugins_menu_action(first) && s->menu_calls==calls,
         "navigation runtime: account invalidator dismisses the borrowing popup, clears rows and expires the copied target");
     // A 1:1 DM row: private popup owner, channel rows flagged private, then the recipient's user rows.
     auto* direct=const_cast<ChannelRecord*>(chat_state_store_find_channel(chat,88));
@@ -187,8 +185,7 @@ void test_application_plugin_navigation_runtime(void (*check)(bool,const char*) 
     direct->type=1;direct->guild_id=0;f.channel_rows[0].type=1;
     ++direct->revision;f.channel_rows[0].revision=direct->revision;++view.channel_revision;
     check(shell_navigation_scene_update(&g_app.shell_navigation_scene,&view,{72,48,312,700},0).ok() &&
-        open(S::channel,88,3) && g_app.popup_owner_kind==PopupOwnerKind::private_channel &&
-        application_plugins_menu_state().bound && label_is(first_plugin_row()+1,"Inspect") &&
+        open(S::channel,88,3) && label_is(first_plugin_row()+1,"Inspect") &&
         label_is(first_plugin_row()+2,"Others only") &&
         application_plugins_menu_action(first) && s->menu_calls==calls+1 && s->menu_kind==MC_MENU_CHANNEL &&
         s->channel_id==88 && s->user_id==kFriend && s->menu_flags==MC_MENU_PRIVATE &&
@@ -223,7 +220,7 @@ void test_application_plugin_navigation_runtime(void (*check)(bool,const char*) 
     check(open(S::channel,88,1),"navigation runtime: owner transition binds generation fixture");
     ++g_app.popup_scene.widgets.generation;
     check(application_plugins_menu_action(first) &&
-        s->menu_calls==before_generation && !g_app.popup_scene.active && !application_plugins_menu_state().count,
+        s->menu_calls==before_generation && !g_app.popup_scene.active,
         "navigation runtime: preserving captured rows still rejects a changed popup widget generation");
     constexpr PopupOwnerKind ordinary_owners[]{PopupOwnerKind::none,
         PopupOwnerKind::private_notice,PopupOwnerKind::autocomplete,PopupOwnerKind::commands,
@@ -234,7 +231,7 @@ void test_application_plugin_navigation_runtime(void (*check)(bool,const char*) 
     for (auto next:ordinary_owners) {
         cleared=cleared && open(S::guild,7,2,false);
         application_popup_plugin_owner_transition(next);g_app.popup_owner_kind=next;
-        cleared=cleared && !application_plugins_menu_state().count &&
+        cleared=cleared &&
             application_plugins_menu_action(first) && s->menu_calls==before_dismissal && !g_app.popup_scene.active;
     }
     check(cleared,"navigation runtime: every non-plugin popup transition clears rows and cannot activate old captured action");

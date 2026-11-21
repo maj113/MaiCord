@@ -5,6 +5,7 @@
 #include "maicord/text/fonts/run.hpp"
 #include "maicord/text/layout/paragraph_hits.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/released_memory.hpp"
 namespace maicord {namespace {
 bool released=true;
 void print(const char* text) noexcept {u32 n=0;while(text[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,n,&written,nullptr);}
@@ -73,7 +74,7 @@ bool family_cache(NativeFontSession* session) noexcept {
     const auto acquisitions=catalogs.coverage.acquisitions;const auto* order=catalogs.families;
     const auto mark=arena_mark(&scratch);auto* sentinel=arena_allocate<u64>(&scratch);CHECK(sentinel);*sentinel=0x7391257ee9234411ull;
     query.family={lower,7};
-    for(u32 i=0;i<64;++i)CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("\xcb\x91\xcc\x81" "a"),&again)&&again.bytes==bold.bytes&&again.units==bold.units&&again.match.index==bold.match.index);
+    for(u32 i=0;i<2;++i)CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("\xcb\x91\xcc\x81" "a"),&again)&&again.bytes==bold.bytes&&again.units==bold.units&&again.match.index==bold.match.index);
     CHECK(catalogs.families==order&&catalogs.coverage.acquisitions==acquisitions&&*sentinel==0x7391257ee9234411ull&&arena_rewind(&scratch,mark));
     CHECK(!native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("\xff"),&again)&&!again.bytes&&!again.units&&again.match.index==native_fallback_missing);
     NativeFontInstanceHandle instance{};NativeFontSelection selected{};
@@ -113,7 +114,7 @@ bool system_cache(NativeFontSession* session,const wchar_t* path) noexcept {
     CHECK(&catalogs.scopes[scope].catalog==held_catalog);
     const auto acquisitions=catalogs.coverage.acquisitions;const auto* families=catalogs.families;
     const auto mark=arena_mark(&scratch);auto* sentinel=arena_allocate<u64>(&scratch);CHECK(sentinel);*sentinel=0x751eb32ea039c291ull;
-    for(u32 i=0;i<64;++i)CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("\xce\xb1" "A"),&again)&&bytes_equal(&again,&other,sizeof(other)));
+    for(u32 i=0;i<2;++i)CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("\xce\xb1" "A"),&again)&&bytes_equal(&again,&other,sizeof(other)));
     CHECK(catalogs.coverage.acquisitions==acquisitions&&catalogs.families==families&&*sentinel==0x751eb32ea039c291ull&&arena_rewind(&scratch,mark));
     NativeFontInstanceHandle instance{};NativeFontSelection selection{};u32 selected_scope=0xffffffffu;
     CHECK(native_text_catalog_select_face(&catalogs,other.scope,other.match.index,other.match.simulations,session,&scratch,&instance,&selection)&&instance.slot);

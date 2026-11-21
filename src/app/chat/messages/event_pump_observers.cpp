@@ -368,8 +368,6 @@ bool observe_member_list(MessageEventPump* pump, const GatewayClientEvent& event
                 ++pump->users->revision;
             else if (row_visible)
                 pump->presence_visible_dirty = true;
-            else
-                saturating_increment(pump->presence_offscreen);
         }
         u64 role_ids[256];
         for (u32 index = 0; index < mutation.role_count; ++index) {
@@ -706,8 +704,6 @@ __declspec(noinline) MessageEventPumpConsumeResult consume_presence(MessageEvent
             } else if (pump->presence_visible(pump->presence_visible_context, presence.guild_id,
                                               presence.user_id)) {
                 pump->presence_visible_dirty = true;
-            } else {
-                saturating_increment(pump->presence_offscreen);
             }
         }
     }

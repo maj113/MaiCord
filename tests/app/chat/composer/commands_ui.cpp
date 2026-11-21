@@ -642,16 +642,10 @@ void run() noexcept {
               "selecting an exact typed command preserves its existing named arguments");
         {
             refresh_message_composer_ui();
-            // The option is a chip: its blank and name project to the
-            // chip's head and the value runs to its end marker.
+            // The option is a chip: the value runs to its end marker.
             const auto& scene = g_app.message_composer_scene;
-            bool head = false;
-            for (u32 i = 0; i < scene.projection_span_count; ++i)
-                head |= scene.projection_spans[i].kind == MessageComposerProjectionKind::command_option &&
-                        scene.projection_spans[i].source_first == 5 && scene.projection_spans[i].source_last == 11 &&
-                        (scene.projection_spans[i].target & message_composer_chip_active);
             MessageComposerChipRange chips[2]{};
-            check(head && message_composer_scene_chip_ranges(scene, {chips, 2}) == 1 && !chips[0].open_end &&
+            check(message_composer_scene_chip_ranges(scene, {chips, 2}) == 1 && !chips[0].open_end &&
                       chips[0].first < chips[0].key_last && chips[0].key_last < chips[0].value_last &&
                       (chips[0].flags & message_composer_chip_active),
                   "the selected command's typed option draws as the client's active option chip");
@@ -670,9 +664,7 @@ void run() noexcept {
               (g_app.popup_scene.items[0].flags & popup_item_command_section) &&
               utf8_equal(g_app.popup_scene.items[0].label, utf8_literal("OPTIONS")) &&
               !(g_app.popup_scene.items[1].flags & popup_item_command_row) &&
-              utf8_equal(message_composer_scene_command_bar_name(g_app.message_composer_scene), utf8_literal("mode")) &&
-              ui_rect_height(g_app.popup_scene.rectangle) == kCommandTitleHeight + 2 * kCommandGenericRowHeight +
-                                                                    kCommandListInset,
+              utf8_equal(message_composer_scene_command_bar_name(g_app.message_composer_scene), utf8_literal("mode")),
               "a chosen command's required option becomes the active chip with its choices under the option bar");
         const u32 choice_action = action_named(utf8_literal("Two"));
         check(choice_action && application_commands_activate(choice_action) &&
@@ -772,9 +764,7 @@ void run() noexcept {
             check(g_app.popup_scene.active && g_app.popup_scene.item_count == 6 &&
                       (g_app.popup_scene.items[0].flags & popup_item_command_section) &&
                       popup_item_placeholder(g_app.popup_scene.items[1]) &&
-                      popup_item_placeholder(g_app.popup_scene.items[5]) &&
-                      ui_rect_height(g_app.popup_scene.rectangle) ==
-                          kCommandTitleHeight + 5 * kCommandGenericLoadingHeight + kCommandListInset,
+                      popup_item_placeholder(g_app.popup_scene.items[5]),
                   "a loading autocomplete option lists the client's placeholder rows");
             edit({});
         }

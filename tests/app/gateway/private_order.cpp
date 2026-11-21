@@ -51,8 +51,8 @@ void test_private_order(void (*check)(bool, const char*) noexcept) noexcept {
         ordered(83886080, 41943040, 125829120), "same-millisecond activity puts the latest updated conversation first");
     check(apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":4,"d":{"id":"41943040","type":1}})")) &&
         ordered(41943040, 83886080, 125829120), "equal timestamp channel updates reinsert ahead of existing ties");
-    const u64 sequence = metadata.sort_sequence;
-    check(!chat_state_store_note_message(&state, 41943040, 838860801, 2, false, false) && metadata.sort_sequence == sequence,
+    check(!chat_state_store_note_message(&state, 83886080, 838860802, 2, false, false) &&
+        ordered(41943040, 83886080, 125829120),
         "duplicate message observations cannot reorder the list");
     check(chat_state_store_select_channel(&state, 83886080).ok() &&
         chat_state_store_upsert_guild(&state, {20, utf8_literal("Guild"), GuildMutationKind::create, 1}).ok() &&

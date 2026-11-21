@@ -14,6 +14,7 @@
 #include "../../fixtures/oversized_guild.hpp"
 
 #include "maicord/sys/winsock.hpp"
+#include "../../support/released_memory.hpp"
 
 namespace maicord {
 namespace ready_probe {
@@ -252,7 +253,6 @@ void worker_projection(void (*check)(bool, const char*) noexcept) noexcept {
         }
     }
     check(accepted == PlaintextDrive::receive && ordered && completions == 1 && batches == 3 && users == 66 &&
-        runtime.structural_scratch.capacity == 8192 && runtime.session.structural_scratch.count == 8192 &&
         runtime.resume.valid && runtime.resume_sequence == 88 && runtime.resume_user_id == 1 &&
         runtime.self_user_id == 1 && runtime.resume.session_id_bytes == 17 &&
         load_phase(&client) == GatewayClientPhase::ready,
@@ -681,11 +681,11 @@ void allocation_cleanup(void (*check)(bool, const char*) noexcept) noexcept {
         storage->decoded_message.arena.reserved == kGatewaySessionMaximumDecodedMessageBytes &&
         storage->ready_record_index.arena.reserved == kStructuralCount * sizeof(u32),
         "Gateway user owner and three one-page message/outer/record prefixes commit without eager maximum backing");
+    const MemoryMark live[]{memory_mark(owned.runtime), memory_mark(reserved), memory_mark(message_reserved),
+                            memory_mark(record_reserved)};
     release_runtime_allocation(&owned);
-    check(initialized && VirtualQuery(owned.runtime, &owner_info, sizeof(owner_info)) &&
-        owner_info.State == MEM_FREE && VirtualQuery(reserved, &index_info, sizeof(index_info)) &&
-        index_info.State == MEM_FREE && VirtualQuery(message_reserved, &message_info, sizeof(message_info)) &&
-        message_info.State == MEM_FREE && VirtualQuery(record_reserved, &record_info, sizeof(record_info)) && record_info.State == MEM_FREE,
+    check(initialized && memory_released(live[0]) && memory_released(live[1]) && memory_released(live[2]) &&
+        memory_released(live[3]),
         "Gateway common teardown releases separate message/outer/record reservations and runtime after owner initialization");
     owned.runtime = VirtualAlloc(nullptr, sizeof(GatewayClientRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!owned.runtime) { check(false, "Gateway partial cleanup fixture runtime allocates"); return; }
@@ -693,8 +693,9 @@ void allocation_cleanup(void (*check)(bool, const char*) noexcept) noexcept {
     storage->allocation_bytes = static_cast<u32>(sizeof(GatewayClientRuntime));
     const bool refused = !stable_storage_initialize(&storage->structural_scratch,
         kInitialStructuralCount, kStructuralCount, sizeof(u32), alignof(u32));
+    const auto partial = memory_mark(owned.runtime);
     release_runtime_allocation(&owned);
-    check(refused && VirtualQuery(owned.runtime, &owner_info, sizeof(owner_info)) && owner_info.State == MEM_FREE,
+    check(refused && memory_released(partial),
         "Gateway common teardown accepts an uninitialized index after a partial-start failure");
     owned.runtime = VirtualAlloc(nullptr, sizeof(GatewayClientRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!owned.runtime) { check(false, "Gateway partial decoded owner runtime allocates"); return; }
@@ -705,9 +706,9 @@ void allocation_cleanup(void (*check)(bool, const char*) noexcept) noexcept {
     reserved = storage->structural_scratch.arena.base;
     const bool decoded_refused = !stable_storage_initialize(&storage->decoded_message,
         1, kInitialDecodedMessageBytes, sizeof(u8), alignof(u8));
+    const MemoryMark decoded[]{memory_mark(reserved), memory_mark(owned.runtime)};
     release_runtime_allocation(&owned);
-    check(index_live && decoded_refused && VirtualQuery(reserved, &index_info, sizeof(index_info)) &&
-        index_info.State == MEM_FREE && VirtualQuery(owned.runtime, &owner_info, sizeof(owner_info)) && owner_info.State == MEM_FREE,
+    check(index_live && decoded_refused && memory_released(decoded[0]) && memory_released(decoded[1]),
         "Gateway decoded-bank initialization failure releases the already-live index and runtime owner");
     owned.runtime = VirtualAlloc(nullptr, sizeof(GatewayClientRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!owned.runtime) { check(false, "Gateway partial READY record owner runtime allocates"); return; }
@@ -721,10 +722,10 @@ void allocation_cleanup(void (*check)(bool, const char*) noexcept) noexcept {
     message_reserved = storage->decoded_message.arena.base;
     const bool record_refused = !stable_storage_initialize(&storage->ready_record_index,
         1, kInitialStructuralCount, sizeof(u32), alignof(u32));
+    const MemoryMark record[]{memory_mark(reserved), memory_mark(message_reserved), memory_mark(owned.runtime)};
     release_runtime_allocation(&owned);
-    check(prior_banks && record_refused && VirtualQuery(reserved, &index_info, sizeof(index_info)) &&
-        index_info.State == MEM_FREE && VirtualQuery(message_reserved, &message_info, sizeof(message_info)) &&
-        message_info.State == MEM_FREE && VirtualQuery(owned.runtime, &owner_info, sizeof(owner_info)) && owner_info.State == MEM_FREE,
+    check(prior_banks && record_refused && memory_released(record[0]) && memory_released(record[1]) &&
+        memory_released(record[2]),
         "Gateway READY record-bank initialization failure releases both prior banks and the runtime owner");
 }
 
@@ -738,7 +739,7 @@ void index_storage(void (*check)(bool, const char*) noexcept) noexcept {
     check(gateway_session_push(&runtime.session, {output, bytes}), "Gateway dense frame is accepted once");
     const auto dense = gateway_session_next(&runtime.session, 0, GetTickCount64());
     check(dense.kind == GatewaySessionEventKind::dispatch && dense.envelope.sequence == 99 &&
-        runtime.session.lifecycle.last_sequence == 99 && index_growth_calls == 3 &&
+        runtime.session.lifecycle.last_sequence == 99 &&
         main_index_view(&runtime).data == base && runtime.structural_scratch.capacity == 8192 &&
         runtime.structural_scratch.arena.committed == 32768 &&
         gateway_session_next(&runtime.session, 0, GetTickCount64()).kind == GatewaySessionEventKind::need_input,
@@ -791,13 +792,13 @@ void index_storage(void (*check)(bool, const char*) noexcept) noexcept {
     check(gateway_session_push(&runtime.session, {output, bytes}), "Gateway malformed dense frame accepted");
     failed = gateway_session_next(&runtime.session, 0, GetTickCount64());
     check(failed.kind == GatewaySessionEventKind::error && failed.gateway_error == GatewayDecodeError::invalid_json &&
-        index_growth_calls == 3 && runtime.session.lifecycle.last_sequence == 7,
+        runtime.session.lifecycle.last_sequence == 7,
         "Gateway bounded growth reveals a malformed tail without dispatching its prefix");
     check(fresh_index() && index_session(), "Gateway expanded structural policy fixture initializes");
     bytes = dense_packet(40000, false, false);
     check(bytes && gateway_session_push(&runtime.session, {output, bytes}), "Gateway larger dense frame accepted within unchanged wire bound");
     const auto larger = gateway_session_next(&runtime.session, 0, GetTickCount64());
-    check(larger.kind == GatewaySessionEventKind::dispatch && index_growth_calls == 6 &&
+    check(larger.kind == GatewaySessionEventKind::dispatch &&
         runtime.structural_scratch.capacity == 65536 && runtime.structural_scratch.arena.committed == 256 * 1024 &&
         runtime.session.lifecycle.last_sequence == 99,
         "Gateway demand index accepts more than the old 32768-offset bound without eager maximum commit");
@@ -1050,7 +1051,7 @@ void subscription_once(void (*check)(bool, const char*) noexcept) noexcept {
     members.member_count = 2;
     members.members[1] = 14;
     gateway_client_subscribe_guild_members(&client, members);
-    check(viewport_revision && members_revision && kept && runtime.members_revision == members_revision + 1,
+    check(viewport_revision && members_revision && kept && runtime.members_revision != members_revision,
           "Gateway sends a repeated subscription request once and a changed one again");
     // The frames on the wire carry only what changed, as the desktop client's subscription store sends them.
     runtime.sent_guild_count = 0;

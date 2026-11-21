@@ -43,17 +43,18 @@ bool generation_recovery(const wchar_t* path) noexcept {
     auto alias=system;alias.native_format=1;const auto before_id=native_text_format_identity(alias);const auto private_id=native_text_format_identity(system);auto* root=system.native_text;
     GenerationOutput old,draw;CHECK(native_text_candidate_line(alias,{utf8_literal("AV office"),{},1000,1000},&old.text,nullptr));
     auto* old_fonts=old.text.native_fonts();const auto old_run=old.text.runs[0].native_face;CHECK(native_font_run_get(*native_font_session_runs(old_fonts),old_run));
-    struct Trial {ShapedText* output;const void* staged=nullptr;u32 calls=0;bool accept=false;} trial{&draw.text};
+    struct Trial {ShapedText* output;MemoryMark staged{};u32 calls=0;bool accept=false;} trial{&draw.text};
     const auto attempt=[](const TextSystem& staged,void* opaque) noexcept {
-        auto& t=*static_cast<Trial*>(opaque);++t.calls;t.staged=staged.native_text;
+        auto& t=*static_cast<Trial*>(opaque);++t.calls;
         CHECK(!native_text_context_rebuild(staged,[](const TextSystem&,void*) noexcept {return true;},nullptr));
-        if(!t.accept)return false;
-        return native_text_candidate_line(staged,{utf8_literal("A \xce\xb1\xf0\x9f\x98\x80\xd0\x91 To"),{},1000,1000},t.output,nullptr);
+        const bool built=t.accept&&native_text_candidate_line(staged,{utf8_literal("A \xce\xb1\xf0\x9f\x98\x80\xd0\x91 To"),{},1000,1000},t.output,nullptr);
+        t.staged=memory_mark(staged.native_text);
+        return built;
     };
     CHECK(!native_text_context_rebuild(system,attempt,&trial)&&trial.calls==1&&system.native_text==root&&native_text_format_identity(alias)==before_id&&native_text_format_identity(system)==private_id);
-    MEMORY_BASIC_INFORMATION region{};CHECK(VirtualQuery(trial.staged,&region,sizeof(region))==sizeof(region)&&region.State==MEM_FREE);
+    MEMORY_BASIC_INFORMATION region{};CHECK(memory_released(trial.staged));
     trial.accept=true;CHECK(native_text_context_rebuild(system,attempt,&trial)&&trial.calls==2&&system.native_text==root&&alias.native_text==root);
-    const auto* first_backing=trial.staged;
+    const auto* first_backing=trial.staged.address;
     CHECK(native_text_format_identity(alias)!=before_id&&native_text_format_identity(system)!=private_id);
     CHECK(draw.text.run_count&&draw.text.native_fonts()==old_fonts&&native_font_run_get(*native_font_session_runs(old_fonts),old_run));
     CHECK(VirtualQuery(root,&region,sizeof(region))==sizeof(region)&&region.State==MEM_COMMIT&&region.RegionSize==4096);
@@ -67,12 +68,14 @@ bool generation_recovery(const wchar_t* path) noexcept {
     }
     const auto changed_id=native_text_format_identity(alias);trial.accept=false;
     CHECK(!native_text_context_rebuild(alias,attempt,&trial)&&native_text_format_identity(alias)==changed_id&&native_font_run_get(*native_font_session_runs(old_fonts),old_run));
+    const auto retiring=memory_mark(first_backing);
     trial.accept=true;CHECK(native_text_context_rebuild(alias,attempt,&trial));
-    CHECK(VirtualQuery(first_backing,&region,sizeof(region))==sizeof(region)&&region.State==MEM_FREE&&native_text_format_identity(alias)!=changed_id);
+    CHECK(memory_released(retiring)&&native_text_format_identity(alias)!=changed_id);
     release_output(draw.text);draw.text=output();CHECK(exercise(alias));
+    const MemoryMark live[]{memory_mark(root),memory_mark(trial.staged.address)};
     native_text_context_release(&system.native_text);CHECK(!system.native_text&&native_font_run_get(*native_font_session_runs(old_fonts),old_run));
-    CHECK(VirtualQuery(root,&region,sizeof(region))==sizeof(region)&&region.State==MEM_FREE);
-    CHECK(VirtualQuery(trial.staged,&region,sizeof(region))==sizeof(region)&&region.State==MEM_FREE);
+    CHECK(memory_released(live[0]));
+    CHECK(memory_released(live[1]));
     print("PASS transactional generation: 131 formats, 32 scopes, aliases, rollback, two commits, retirement, old output\n");return true;
 }
 struct ReplacementFont {

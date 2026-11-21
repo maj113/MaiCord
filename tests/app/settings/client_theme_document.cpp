@@ -109,24 +109,27 @@ void test_variants(const ClientThemeDocument& defaults, void (*check)(bool, cons
               same_color(noon.accent, 0xffcc00) && bytes_equal(&noon.text_primary, &kLightTheme.text_primary, sizeof(Color)) &&
               dawn.appearance == ThemeAppearance::dark && same_color(dawn.base_low, 0x202020),
           "theme variants: each phase is its base's look with its colours and the month's; a phase left out is the root");
-    Theme halfway = dawn;
-    client_theme_mix(&halfway, night, .5f);
-    check(three.appearance == ThemeAppearance::dark &&
-              bytes_equal(&three, &halfway, __builtin_offsetof(Theme, scale)) && three.base_low.red > night.base_low.red &&
-              three.base_low.red < dawn.base_low.red,
+    // 03:00 is halfway between the 00:00 and 06:00 phases, where the smoothstep is 0.5: base_low is the mean of
+    // #050608 and #202020.
+    const auto halfway = [](float value, float expected) noexcept { return value - expected < 1e-4f && expected - value < 1e-4f; };
+    check(three.appearance == ThemeAppearance::dark && halfway(three.base_low.red, 18.5f / 255.f) &&
+              halfway(three.base_low.green, 19.f / 255.f) && halfway(three.base_low.blue, 20.f / 255.f) &&
+              halfway(three.accent.red, (night.accent.red + dawn.accent.red) * .5f) &&
+              halfway(three.tokens.text.normal.green, (night.tokens.text.normal.green + dawn.tokens.text.normal.green) * .5f),
           "theme variants: between phases of one base every colour mixes on the smoothstep");
     check(eight.appearance == ThemeAppearance::dark && same_color(eight.base_low, 0x202020) &&
               nine.appearance == ThemeAppearance::light && same_color(nine.base_low, 0xf4f1ea),
           "theme variants: across a change of base the nearer phase shows whole, never a grey between");
     // From the 5th to the 30th the month turns toward the next one's colours, as Silk Waves' sky does, so the last
     // minute of March is April's look and the 1st of April continues from there.
-    Theme turning = april;
-    client_theme_mix(&turning, night, .648f); // the 20th at 00:00: x = 0.6 on the smoothstep
+    // The 20th at 00:00 is x = 0.6 of the turn, 0.648 on the smoothstep from March's colours toward April's.
+    const auto turned = [](float march, float next) noexcept { return march + (next - march) * .648f; };
     const Theme fourth = look(0, 3, 4), twentieth = look(0, 3, 20), last = look(1439, 3, 31), first = look(0, 4, 1);
     const auto near = [](float a, float b) noexcept { return a - b < 1e-4f && b - a < 1e-4f; };
     check(bytes_equal(&fourth, &night, __builtin_offsetof(Theme, scale)),
           "theme variants: a month holds its colours until the 5th");
-    check(near(twentieth.accent.green, turning.accent.green) && near(twentieth.accent.red, turning.accent.red) &&
+    check(near(twentieth.accent.green, turned(night.accent.green, april.accent.green)) &&
+              near(twentieth.accent.red, turned(night.accent.red, april.accent.red)) &&
               twentieth.accent.green < night.accent.green && twentieth.accent.green > april.accent.green,
           "theme variants: from the 5th to the 30th a month turns toward the next on a smoothstep");
     check(same_color(last.base_low, 0x050608) && near(last.accent.red, first.accent.red) &&
