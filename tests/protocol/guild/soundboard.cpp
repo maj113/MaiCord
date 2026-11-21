@@ -153,9 +153,8 @@ void test_requests() noexcept {
     send = base(SoundboardOperation::send);
     send.reason = utf8_literal("nope");
     const u32 before = capture.submissions;
-    check(!account_soundboard_submit(rest(), &send, 91).ok() && !account_soundboard_submit(rest(), nullptr, 91).ok() &&
-              capture.submissions == before,
-          "Soundboard requests: sends never carry audit reasons; null requests are refused");
+    check(!account_soundboard_submit(rest(), &send, 91).ok() && capture.submissions == before,
+          "Soundboard requests: sends never carry audit reasons");
 }
 
 void test_uploads() noexcept {

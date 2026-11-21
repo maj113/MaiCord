@@ -11,7 +11,8 @@ inline constexpr u32 kUiQuickSwitcherMaximumRows = 100;
 inline constexpr u32 kUiQuickSwitcherVisibleRows = 12;
 inline constexpr u32 kUiQuickSwitcherWidgetCapacity = 5 + kUiQuickSwitcherVisibleRows;
 inline constexpr float kUiQuickSwitcherRowHeight = 56.f;
-enum class UiQuickSwitcherKind : u8 { text_channel, voice_channel, private_channel, group_private, guild, user };
+// The order of QuickSwitcherKind (app/shell/quick_switcher_controller.hpp): the app casts its kind to this one.
+enum class UiQuickSwitcherKind : u8 { text_channel, private_channel, group_private, guild, user, voice_channel };
 enum class UiQuickSwitcherPhase : u8 { empty, ready, no_matches, unavailable };
 enum class UiQuickSwitcherAction : u8 { none, edit, activate, close, confirm };
 struct UiQuickSwitcherRow {

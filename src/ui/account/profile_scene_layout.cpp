@@ -446,7 +446,7 @@ float empty_tab(ProfileScene* s, UiWidgetHandle owner, float width, float height
     const float text_w = minimum(width, 320.f), left = (width - text_w) * .5f;
     const float title_h = maximum(20.f, measure(s, title, text_w, true, kMd | text_style_bold).height);
     const float body_h = maximum(18.f, measure(s, body, text_w, true, kSm).height);
-    float widths[2]{}, row = 0;
+    float widths[2], row = 0;
     for (u32 i = 0; i < count; ++i) {
         widths[i] = text_width(s, buttons[i].label, 400, kSm | text_style_bold) + 32 +
                     (buttons[i].glyph != UiIcon::count ? 24.f : 0.f);

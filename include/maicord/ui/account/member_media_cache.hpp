@@ -33,7 +33,6 @@ struct MemberMediaCache {
     u64 stamp;
     u32 count;
     u32 resolves; // Rows resolved into the cache.
-    u32 hits;     // Row lookups served by it.
     // Per visible row (by index): the lookup key, node and entry slot, so all
     // layers of every row share one residency check while nothing the lookup
     // reads has moved (the media scans visit each row twice per frame).

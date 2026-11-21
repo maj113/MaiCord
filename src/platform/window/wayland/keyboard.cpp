@@ -416,15 +416,15 @@ bool window_key_down(Key key_code) noexcept {
     const u8 buttons = g.pointer.app_buttons;
     switch (key_code) {
     case key::lbutton:
-        return (buttons & button_bit(PointerButton::left)) != 0;
+        return (buttons & pointer_button_bit(PointerButton::left)) != 0;
     case key::rbutton:
-        return (buttons & button_bit(PointerButton::right)) != 0;
+        return (buttons & pointer_button_bit(PointerButton::right)) != 0;
     case key::mbutton:
-        return (buttons & button_bit(PointerButton::middle)) != 0;
+        return (buttons & pointer_button_bit(PointerButton::middle)) != 0;
     case key::xbutton1:
-        return (buttons & button_bit(PointerButton::back)) != 0;
+        return (buttons & pointer_button_bit(PointerButton::back)) != 0;
     case key::xbutton2:
-        return (buttons & button_bit(PointerButton::forward)) != 0;
+        return (buttons & pointer_button_bit(PointerButton::forward)) != 0;
     default:
         return g.keyboard.held_count[key_code] != 0;
     }

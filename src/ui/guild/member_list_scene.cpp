@@ -550,7 +550,6 @@ __declspec(noinline) const MemberMediaCacheEntry* member_media_miss(const Member
             break;
         if (entry.user_id == row.user_id) {
             if (entry.state == state && entry.width == width) {
-                saturating_increment(cache->hits);
                 cache->row_slots[memory] = slot;
                 return &entry;
             }
@@ -604,9 +603,8 @@ const MemberMediaCacheEntry* member_media_entry(const MemberListScene& s, u32 in
     }
     // Consumers look up a row's layers back to back: its residency, node and
     // entry hold while nothing the lookup reads has moved.
-    const auto bits = [](UiWidgetHandle handle) noexcept { return __builtin_bit_cast(u32, handle); };
-    u64 key = hash64_mix(stamp, (static_cast<u64>(index) << 32) | bits(row.widget));
-    key = hash64_mix(key, (static_cast<u64>(bits(s.widgets.hovered)) << 32) | s.rebuilds);
+    u64 key = hash64_mix(stamp, (static_cast<u64>(index) << 32) | ui_widget_handle_bits(row.widget));
+    key = hash64_mix(key, (static_cast<u64>(ui_widget_handle_bits(s.widgets.hovered)) << 32) | s.rebuilds);
     key = hash64_mix(key, (static_cast<u64>(s.layout_passes) << 32) | s.first);
     key = hash64_mix(key, s.source->revision) | 1;
     const u32 memory = index & (kMemberMediaRowMemory - 1);
@@ -621,7 +619,7 @@ void member_media_cache_reset(MemberMediaCache* cache) noexcept {
     if (!cache)
         return;
     // A lookup reads an entry only past its user ID and a row only past its key (never zero): clearing those empties
-    // the cache without writing its 39 KB. The stamp and the counters stay.
+    // the cache without writing its 39 KB. The stamp and the resolve count stay.
     cache->count = 0;
     clear_bytes(cache->row_keys, sizeof(cache->row_keys));
     for (auto& entry : cache->entries)

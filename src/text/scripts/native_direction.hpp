@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/text/shaping/shape_run.hpp"
 #include "maicord/text/unicode/unicode.hpp"

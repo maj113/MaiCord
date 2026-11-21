@@ -97,6 +97,11 @@ constexpr bool ui_widget_handle_equal(UiWidgetHandle left, UiWidgetHandle right)
     return left.slot == right.slot && left.generation == right.generation;
 }
 
+// The handle as one word: equal words are equal handles.
+constexpr u32 ui_widget_handle_bits(UiWidgetHandle handle) noexcept {
+    return __builtin_bit_cast(u32, handle);
+}
+
 // Equal and issued: a zero-generation handle matches nothing.
 constexpr bool ui_widget_handle_matches(UiWidgetHandle handle, UiWidgetHandle target) noexcept {
     return handle.generation && handle.slot == target.slot && handle.generation == target.generation;

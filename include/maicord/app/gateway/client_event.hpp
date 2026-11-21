@@ -774,7 +774,7 @@ struct GatewayClientPresenceUpdate {
     u64 guild_id;
     u64 user_id;
     GatewayClientMemberListStatus status;
-    // client_status, two bits per platform (protocol/client_status.hpp).
+    // client_status, two bits per platform (protocol/gateway/client_status.hpp).
     u8 client_status;
 };
 
@@ -815,7 +815,7 @@ struct GatewayClientMemberListMutation {
     // headers use GatewayClientMemberListGroupFlag and ordinary members use
     // GatewayClientMemberListHydrationFlag. Zero means full-role semantics.
     u8 hydration_flags;
-    // The presence's client_status (protocol/client_status.hpp); meaningful
+    // The presence's client_status (protocol/gateway/client_status.hpp); meaningful
     // only when status is known.
     u8 client_status;
     // Unix seconds when gateway_member_timeout_known; zero clears a timeout.

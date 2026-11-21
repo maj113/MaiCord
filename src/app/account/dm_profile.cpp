@@ -96,7 +96,7 @@ bool icons_due(u64 now) noexcept {
     return g_panel->scene.active && !g_panel->requested && !g_panel->icons_requested &&
            g_panel->icons_retry_at <= now && missing_icons();
 }
-// The scheduler admits the fetch once due (application_scheduler).
+// The scheduler admits the fetch once due (shell/scheduler.cpp).
 void update_wake() noexcept {
     u64 wake = 0;
     if (g_panel && g_panel->scene.active && !g_panel->requested && !g_panel->icons_requested) {

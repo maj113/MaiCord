@@ -618,7 +618,7 @@ int application_run() noexcept {
         bool frame_signal = retained_frame_permit || (frame_handle_index != 0xFFFFFFFFu &&
                                                       wait_ready(waited, frame_handle_index));
         if (!frame_signal && frame_handle_index != 0xFFFFFFFFu) {
-            // MsgWait returns the lowest ready handle. Drain a simultaneous
+            // The Windows wait returns only the lowest ready handle. Drain a simultaneous
             // display signal even when an earlier account handle or queued
             // window message won the primary wait.
             frame_signal = gpu_frame_try_acquire(&g_app.renderer.graphics.surface);

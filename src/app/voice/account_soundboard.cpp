@@ -69,7 +69,7 @@ bool account_soundboard_probe(const SoundboardRequest* request) noexcept {
 
 RestClientSubmitResult account_soundboard_submit(RestClient* rest, const SoundboardRequest* request,
                                                  u64 request_id) noexcept {
-    if (!rest || !request || !request_id || !soundboard_request_valid(*request) ||
+    if (!soundboard_request_valid(*request) ||
         request->operation == SoundboardOperation::probe)
         return {RestClientSubmitError::invalid_input};
     u8 target[kSoundboardMaximumTargetBytes];

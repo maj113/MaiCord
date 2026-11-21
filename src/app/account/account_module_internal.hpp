@@ -103,7 +103,8 @@ __declspec(noinline) inline RestClientSubmitResult lane_submit(void* instance, c
     return request ? submit(rest, request, request_id) : rest_client_cancel_result(rest, request_id);
 }
 
-// A request entry on the DETAILS lane for `Submit`. Optional hooks:
+// A request entry on the DETAILS lane for `Submit`. Submit gets a live lane, a request and a nonzero id, and it
+// does not check them again. Optional hooks:
 //   Admit(runtime, request)  false refuses the request before it is sent;
 //   Session(request)         true sends the account's Gateway session id with the request (Submit then
 //                            takes it as its last parameter), as the official client does.

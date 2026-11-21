@@ -8,6 +8,5 @@
 #include <limits.h>
 #endif
 
-#define CHAR_BIT __CHAR_BIT__
 #define INT_MAX __INT_MAX__
 #define UINT_MAX (__INT_MAX__ *2U +1U)

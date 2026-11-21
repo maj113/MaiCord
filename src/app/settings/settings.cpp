@@ -322,7 +322,7 @@ u64 application_settings_lifetime() noexcept {
 }
 bool application_settings_open_key(Utf8View key) noexcept {
     UiSettingsSchemaLocation location{};
-    if (!ui_settings_schema_find(settings_catalog(), key, &location) || !application_settings_open() || !g_app.settings)
+    if (!ui_settings_schema_find(settings_catalog(), key, &location) || !application_settings_open())
         return false;
     return navigate(*g_app.settings, {kSettingsNativeOwner, location.panel + 1},
                     location.node == kUiSettingsNoChoice ? 0 : settings_control_id(location.panel, location.node));
@@ -331,7 +331,7 @@ bool application_settings_open_page(UiPageKey page) noexcept {
     if (page.owner_id != kSettingsNativeOwner)
         return false;
     const auto* pages = application_settings_pages();
-    if (!pages || !ui_page_registry_find(*pages, page) || !application_settings_open() || !g_app.settings)
+    if (!pages || !ui_page_registry_find(*pages, page) || !application_settings_open())
         return false;
     if (!page_allowed(page))
         return true;
@@ -472,7 +472,7 @@ bool application_settings_open() noexcept {
     return false;
 }
 bool application_settings_resume() noexcept {
-    if (!application_settings_open() || !g_app.settings)
+    if (!application_settings_open())
         return false;
     // The reopened scene counts as an open; mark its entrance as played.
     auto& settings = *g_app.settings;
@@ -506,8 +506,6 @@ void application_settings_close(bool restore_focus) noexcept {
     application_settings_cancel_pointer();
     const auto* previous = settings->previous_focus;
     const bool composer = settings->previous_composer_focus;
-    application_release_capture();
-    reset_value(&settings->pressed);
     settings->notifications_active = false;
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
     renderer_set_settings_modal_progress(&g_app.renderer, 1);

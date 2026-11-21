@@ -9,6 +9,7 @@ namespace maicord {
 // top-level box headers, the moov and the samples the decoder actually asks
 // for are copied into a sparse ProgressiveSource, one 256 KiB block at a time,
 // through a caller-owned scratch block. Everything else stays on disk.
+// The caller passes an initialized source and a reader with its read function and scratch block.
 inline constexpr u64 kLocalVideoPosterReadBudget = 24u * 1024u * 1024u;
 inline constexpr u32 kLocalVideoPosterScratchBytes = kProgressiveBlockBytes;
 // Box-header probes of a local file read at most this much per step (the

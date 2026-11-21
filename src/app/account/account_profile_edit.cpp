@@ -12,7 +12,7 @@ constexpr u32 kLargeTimeoutMs = 120 * 1000;
 
 RestClientSubmitResult account_profile_edit_submit(RestClient* rest, const ProfileEditRequest* request,
                                                    u64 request_id) noexcept {
-    if (!rest || !request || !request_id || !profile_edit_request_valid(*request))
+    if (!profile_edit_request_valid(*request))
         return {RestClientSubmitError::invalid_input};
     u8 target[kProfileEditMaximumTargetBytes];
     const auto path = profile_edit_write_target(*request, {target, sizeof(target)});

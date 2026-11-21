@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/core/slice.hpp"
+#include "maicord/core/base.hpp"
 
 namespace maicord {
 // The account's frecency settings (settings-proto/2) keep one item per command, emoji or sticker: the

@@ -13,7 +13,7 @@
 // read request of the ring waits on.
 #include "internal.hpp"
 #include "maicord/sys/linux/io_uring.hpp"
-#include "maicord/sys/linux/libc.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -33,12 +33,6 @@ constexpr int kErrorBusy = 16;
 // The user data of a completion that is not an operation: a cancel (0) and the read of the wake eventfd (1).
 constexpr u64 kNoOperation = 0;
 constexpr u64 kWakeRead = 1;
-
-i64 monotonic_nanoseconds() noexcept {
-    TimeSpec time{};
-    clock_gettime(kClockMonotonic, &time);
-    return time.seconds * kNanosecondsPerSecond + time.nanoseconds;
-}
 
 u32 acquire(const u32* counter) noexcept {
     return __atomic_load_n(counter, __ATOMIC_ACQUIRE);
@@ -600,13 +594,13 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
             continue;
         }
         // One call hands over what was queued and waits for the next completion, or for the deadline.
-        TimeSpec limit{};
+        TimeSpec limit;
         RingEnterArgument argument{};
         u32 flags = kRingEnterGetEvents;
         if (finite) {
             // Even a poll that must not wait runs the ring's pending work: the zero timeout expires after it.
             if (remaining > 0) {
-                const i64 now = monotonic_nanoseconds();
+                const i64 now = clock_now();
                 if (deadline < 0) {
                     deadline = now + remaining;
                 } else {

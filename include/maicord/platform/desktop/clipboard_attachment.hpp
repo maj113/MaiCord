@@ -29,5 +29,9 @@ using ClipboardAttachmentVisitor = bool (*)(void*, ConstSlice<wchar_t> path,
 DWORD clipboard_attachment_visit(ClipboardCapture* input, u32 maximum_files, u64 maximum_bytes,
     ClipboardAttachmentVisitor visitor, void* context, u32* count,
     ClipboardAttachmentOversize* oversize = nullptr) noexcept;
+// Records a file refused for size in `oversize` when it is set; a name past the record's capacity is cut. The file
+// picker records the files its visitor refuses with it.
+void clipboard_attachment_note_oversize(ClipboardAttachmentOversize* oversize, ConstSlice<wchar_t> name,
+    u64 bytes) noexcept;
 #endif
 }

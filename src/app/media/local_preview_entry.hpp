@@ -27,8 +27,8 @@ template <class Entry, u32 Count> __forceinline Entry* local_preview_find(Entry 
 template <class Entry, u32 Count> __forceinline u64 local_preview_next_wake(const Entry (&entries)[Count]) noexcept {
     u64 wake = 0;
     for (const auto& entry : entries)
-        if (entry.occupied && entry.poll_at && (!wake || entry.poll_at < wake))
-            wake = entry.poll_at;
+        if (entry.occupied)
+            wake = earliest_deadline(wake, entry.poll_at);
     return wake;
 }
 

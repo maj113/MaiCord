@@ -76,12 +76,9 @@ void add_count(UiAccessNameBuilder* name, u64 count, Utf8View one, Utf8View many
 
 u32 add_widgets(UiAccessTree* tree, u32 parent, const UiWidgetManager& manager, UiAccessDescribe describe,
                 void* context, u8 surface, UiAccessDescribeGroup group = nullptr, bool focus_owner = false) noexcept {
-    if (!tree || !manager.count)
-        return kUiAccessNone;
-    const u32 first = tree->count;
-    const UiAccessScope scope{describe, context, surface, focus_owner, group};
-    const u32 node = ui_access_add_widgets(tree, parent, manager, scope);
-    return node == kUiAccessNone || tree->count == first ? kUiAccessNone : node;
+    // ui_access_add_widgets refuses a null tree or an empty manager, and answers `parent` when it added nothing.
+    const u32 node = ui_access_add_widgets(tree, parent, manager, {describe, context, surface, focus_owner, group});
+    return node == parent ? kUiAccessNone : node;
 }
 
 // Quick switcher

@@ -297,8 +297,6 @@ void test_transport() noexcept {
               same(capture.body, capture.body_bytes, utf8_literal(R"({"user_ids":["5"],"delete_message_seconds":0})")) &&
               !capture.reason_bytes && capture.empty_reason,
           "guild moderation account: an untouched bulk ban reason sends an empty header");
-    check(!account_guild_moderation_submit(&details, &request, 0).ok(),
-          "guild moderation account: zero request IDs are refused");
 }
 
 } // namespace guild_moderation_test

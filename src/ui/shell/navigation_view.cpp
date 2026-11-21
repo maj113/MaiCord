@@ -8,7 +8,6 @@
 #include "maicord/model/user/private_channel_store.hpp"
 #include "maicord/model/guild/display_order.hpp"
 #include "maicord/model/voice/state_store.hpp"
-#include "maicord/protocol/guild/folders.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
 #include "maicord/ui/guild/channel_controls.hpp"
 

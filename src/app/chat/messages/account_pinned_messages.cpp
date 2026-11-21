@@ -4,8 +4,6 @@ namespace maicord {
 
 RestClientSubmitResult account_pinned_messages_submit(
     RestClient* rest, const MessagePinsRequest* request, u64 request_id) noexcept {
-    if (!rest || !request || !request_id)
-        return {RestClientSubmitError::invalid_input};
     const bool fetch = request->operation == MessagePinsOperation::fetch;
     const bool pin = request->operation == MessagePinsOperation::pin;
     const bool unpin = request->operation == MessagePinsOperation::unpin;

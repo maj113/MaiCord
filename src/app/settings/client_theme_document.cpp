@@ -123,11 +123,10 @@ bool real_values_finite(const ClientThemeDocument& document) noexcept {
     }
     return true;
 }
-// The core reader already validates JSON number grammar. Bounded decimal
+// The core reader already validates JSON number grammar. float_value checks the kind. Bounded decimal
 // conversion uses no locale or CRT. Values are checked again after float cast.
 bool decimal(JsonValue value, float* output) noexcept {
-    if (value.kind != JsonValueKind::number || !value.source.data || !value.source.bytes ||
-        value.source.bytes > 256)
+    if (!value.source.data || !value.source.bytes || value.source.bytes > 256)
         return false;
     u32 at{};
     const bool negative = value.source.data[0] == '-';
@@ -370,13 +369,6 @@ bool color_component(void* context, u32 index, JsonValue value) noexcept {
     ++array.count;
     return true;
 }
-bool hex_color(Utf8View text, Color* output) noexcept {
-    u32 rgba = 0;
-    if (text.bytes < 4 || text.data[0] != '#' || !color_hex_parse(text, true, &rgba))
-        return false;
-    *output = color_from_rgba(rgba);
-    return true;
-}
 // Plain decimal in [0, 1] for the reference alpha suffix.
 bool unit_decimal(Utf8View text, float* output) noexcept {
     // One correctly rounded division, so "0.12" equals the literal .12f.
@@ -431,10 +423,11 @@ bool color_value(Parse& parse, JsonValue value, Reference allowed, UiThemeTokenS
         return parse.fail(ClientThemeDocumentError::range, value.source_offset);
     const Utf8View text{buffer, decoded.bytes};
     if (buffer[0] == '#') {
-        Color color{};
-        if (!hex_color(text, &color))
+        // color_hex_parse takes 3, 4, 6 or 8 digits after the '#'.
+        u32 rgba = 0;
+        if (!color_hex_parse(text, true, &rgba))
             return parse.fail(ClientThemeDocumentError::range, value.source_offset);
-        *output = {color, 1, 0, UiThemeTokenSourceKind::literal};
+        *output = {color_from_rgba(rgba), 1, 0, UiThemeTokenSourceKind::literal};
         return true;
     }
     u32 close{};
@@ -1677,13 +1670,8 @@ ClientThemeDocumentResult client_theme_document_write(const ClientThemeDocument&
     const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(&document), sizeof(document)},
                                   {reinterpret_cast<const u8*>(output.data), output.count},
                                   {reinterpret_cast<const u8*>(bytes), sizeof(*bytes)}};
-    for (u32 i = 0; i < 3; ++i) {
-        if (!byte_range_valid(ranges[i]))
-            return {ClientThemeDocumentError::invalid_input};
-        for (u32 j = 0; j < i; ++j)
-            if (byte_ranges_overlap(ranges[i], ranges[j]))
-                return {ClientThemeDocumentError::invalid_input};
-    }
+    if (!byte_ranges_all_disjoint({ranges, 3}))
+        return {ClientThemeDocumentError::invalid_input};
     Writer size{};
     write_document(size, document);
     if (size.used > kClientThemeDocumentMaximumBytes)

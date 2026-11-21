@@ -245,7 +245,7 @@ bool settings_layer_editor(SettingsLayer* layer, u64* control_id, MessageCompose
     MessageComposer* m = nullptr;
     BoundedEdit* b = nullptr;
     u64 id = 0;
-    if (!layer || !layer->scene || !layer->scene->active || !focused_editor(layer, &m, &b, nullptr, &id))
+    if (!layer->scene || !layer->scene->active || !focused_editor(layer, &m, &b, nullptr, &id))
         return false;
     if (control_id)
         *control_id = id;
@@ -416,7 +416,7 @@ UiRect settings_layer_edit_bounds(SettingsLayer* layer) noexcept {
     UiSettingsControlGeometry geometry{};
     MessageComposer* model = nullptr;
     BoundedEdit* binding = nullptr;
-    return layer && layer->scene->active && focused_editor(layer, &model, &binding, nullptr) &&
+    return layer->scene->active && focused_editor(layer, &model, &binding, nullptr) &&
                    ui_settings_scene_control_geometry(*layer->scene, ui_settings_scene_focused(*layer->scene),
                                                       &geometry)
                ? geometry.text
@@ -427,7 +427,7 @@ bool settings_layer_edit_changed(SettingsLayer* layer, bool content) noexcept {
     MessageComposer* model = nullptr;
     BoundedEdit* binding = nullptr;
     u64 control = 0;
-    if (!layer || !focused_editor(layer, &model, &binding, nullptr, &control))
+    if (!focused_editor(layer, &model, &binding, nullptr, &control))
         return false;
     if (content && !layer->hooks->edited(layer, control))
         return false;
@@ -439,7 +439,7 @@ bool settings_layer_edit_changed(SettingsLayer* layer, bool content) noexcept {
 bool settings_layer_replace_text(SettingsLayer* layer, Utf8View text) noexcept {
     MessageComposer* model = nullptr;
     BoundedEdit* binding = nullptr;
-    if (!layer || !focused_editor(layer, &model, &binding, nullptr))
+    if (!focused_editor(layer, &model, &binding, nullptr))
         return false;
     const u32 revision = model->text_revision;
     message_composer_select_all(model);

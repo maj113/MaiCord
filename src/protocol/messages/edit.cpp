@@ -1,4 +1,5 @@
 #include "maicord/protocol/messages/edit.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 
 namespace maicord {

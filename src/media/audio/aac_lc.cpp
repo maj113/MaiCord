@@ -794,6 +794,9 @@ bool aac_lc_supported(u32 sample_rate, u32 channels) noexcept {
     return false;
 }
 
+// The noise generator's state after a start or a reset.
+constexpr u32 kNoiseSeed = 0x1f2e3d4cu;
+
 AacLc* aac_lc_initialize(void* memory, u32 sample_rate, u32 channels) noexcept {
     if (!memory || (reinterpret_cast<usize>(memory) & (kAacLcStateAlignment - 1)) ||
         !aac_lc_supported(sample_rate, channels))
@@ -823,7 +826,8 @@ AacLc* aac_lc_initialize(void* memory, u32 sample_rate, u32 channels) noexcept {
     build_transform(kShortLines, d->short_stage_re, d->short_stage_im, d->short_pre_re, d->short_pre_im,
                     d->short_post_re, d->short_post_im, d->reverse_short,
                     1.0 / (static_cast<double>(kShortLines) * 32768.0));
-    aac_lc_reset(d);
+    // clear_bytes above cleared the overlap and the window shapes.
+    d->random_state = kNoiseSeed;
     return d;
 }
 
@@ -832,7 +836,7 @@ void aac_lc_reset(AacLc* d) noexcept {
         return;
     clear_bytes(d->overlap, sizeof(d->overlap));
     clear_bytes(d->shape, sizeof(d->shape));
-    d->random_state = 0x1f2e3d4cu;
+    d->random_state = kNoiseSeed;
 }
 
 namespace {

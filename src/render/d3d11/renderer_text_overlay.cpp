@@ -17,21 +17,21 @@ namespace renderer_text_detail {
 // a hovered name effect, composer styles and selection) key the shell exactly.
 // Out of line: its lookups would otherwise widen the frame of the whole build.
 __declspec(noinline) u64 retention_shell_inputs(const D3D11Renderer& renderer, u32 shown) noexcept {
-    u64 shell_signature = kHash64Seed;
+    u64 inputs = kHash64Seed;
     const bool settings_active = (shown & d3d11_surface_settings_page) != 0;
     const bool friends_active =
         !settings_active && d3d11_renderer_active(renderer.friends_scene);
     // A hovered header chip or quote restyles its message's retained text.
     if (renderer.message_scene && renderer.message_scene->header_hover_message_id)
-        shell_signature = hash64_mix(hash64_mix(shell_signature, renderer.message_scene->header_hover_message_id),
-                                     renderer.message_scene->header_hover_target);
-    const bool browser_active = (shown & d3d11_surface_thread_browser) != 0;
+        inputs = hash64_mix(hash64_mix(inputs, renderer.message_scene->header_hover_message_id),
+                            renderer.message_scene->header_hover_target);
+    const bool browser_active = (shown & d3d11_surfaces_content_panel) != 0;
     const auto* composer =
         settings_active || friends_active || browser_active ? nullptr : renderer.message_composer_scene;
     if (!settings_active && renderer.user_store)
-        shell_signature = hash64_mix(shell_signature, renderer.user_store->appearance.revision);
+        inputs = hash64_mix(inputs, renderer.user_store->appearance.revision);
     if (!settings_active && !friends_active && !browser_active && renderer.thread_header)
-        shell_signature = hash64_mix(shell_signature, renderer.thread_header->revision);
+        inputs = hash64_mix(inputs, renderer.thread_header->revision);
     if (!settings_active && !friends_active && !browser_active && renderer.message_scene &&
         renderer.user_store && renderer.chat_state) {
         // Ordinary row hover changes paint and the action-bar suffix. Only a
@@ -53,20 +53,19 @@ __declspec(noinline) u64 retention_shell_inputs(const D3D11Renderer& renderer, u
             // Match message_author_layout's guild/global style source.
             const auto* styled = guild && (guild->name.font_id || guild->name.effect_id) ? guild : global;
             if (styled && profile_name_effect(styled->name, true).kind) {
-                shell_signature = hash64_mix(shell_signature, record->id);
-                shell_signature = hash64_mix(shell_signature, scene.widgets.hover_started_ms);
+                inputs = hash64_mix(inputs, record->id);
+                inputs = hash64_mix(inputs, scene.widgets.hover_started_ms);
             }
         }
     }
     if (composer && composer->active)
-        shell_signature = hash64_words(shell_signature, composer->display_styles,
-                                       composer->display_style_count * sizeof(TextStyleSpan));
+        inputs = hash64_words(inputs, composer->display_styles, composer->display_style_count * sizeof(TextStyleSpan));
     if (composer && composer->model && composer->model->focused &&
         composer->display_anchor != composer->display_caret) {
-        shell_signature = hash64_mix(shell_signature, composer->display_anchor);
-        shell_signature = hash64_mix(shell_signature, composer->display_caret);
+        inputs = hash64_mix(inputs, composer->display_anchor);
+        inputs = hash64_mix(inputs, composer->display_caret);
     }
-    return shell_signature;
+    return inputs;
 }
 
 // Friends search borrows composer_layout while the main chat content is
@@ -231,12 +230,15 @@ bool project_shell_static_text(D3D11Renderer* renderer, u32 shown, const Theme& 
     const bool settings = (shown & d3d11_surface_settings_page) != 0;
     const bool friends = !settings && d3d11_renderer_active(renderer->friends_scene);
     const bool browser = (shown & d3d11_surface_thread_browser) != 0;
-    const bool hidden = friends || browser;
-    BrowserShellTextFilter filter{emitter, browser ? renderer->thread_browser_scene->panel : UiRect{}};
+    const bool page = (shown & d3d11_surface_content_page) != 0;
+    const bool hidden = friends || browser || page;
+    BrowserShellTextFilter filter{emitter, browser ? renderer->thread_browser_scene->panel
+                                           : page  ? renderer->content_page->panel
+                                                   : UiRect{}};
     UiTextEmitter filtered{};
-    if (browser && !ui_text_emitter_initialize(&filtered, emit_browser_shell_text, &filter))
+    if ((browser || page) && !ui_text_emitter_initialize(&filtered, emit_browser_shell_text, &filter))
         return false;
-    UiTextOutput output{nullptr, browser ? &filtered : emitter};
+    UiTextOutput output{nullptr, browser || page ? &filtered : emitter};
     UiRect composer_rectangle{};
     const UiRect* composer = nullptr;
     if (!settings && !hidden && renderer->composer_layout.active &&
@@ -251,7 +253,8 @@ bool project_shell_static_text(D3D11Renderer* renderer, u32 shown, const Theme& 
             *renderer->ui_scene, *renderer->chat_state, *renderer->navigation_view, theme,
             *renderer->shell_navigation_scene, hidden ? nullptr : renderer->message_composer_scene, nullptr,
             composer, &output, renderer->user_store, renderer->guild_rail_scene,
-            browser ? renderer->thread_browser_scene->view->parent_id : 0, renderer->message_measure_cache))
+            browser ? renderer->thread_browser_scene->view->parent_id : page ? renderer->content_page_row : 0,
+            renderer->message_measure_cache))
         return false;
     output.emitter = emitter;
     const bool projected =
@@ -259,7 +262,8 @@ bool project_shell_static_text(D3D11Renderer* renderer, u32 shown, const Theme& 
          ui_thread_header_text(*renderer->thread_header, theme, &output)) &&
         (!friends || ui_friends_scene_text_output(*renderer->friends_scene, theme, &output,
                                                   &renderer->friends_search_geometry)) &&
-        (!browser || ui_thread_browser_scene_text_output(*renderer->thread_browser_scene, theme, &output));
+        (!browser || ui_thread_browser_scene_text_output(*renderer->thread_browser_scene, theme, &output)) &&
+        (!page || ui_store_scene_text_output(*renderer->content_page, theme, &output, false));
     const auto mix_owner = [emitter](const auto& owner) noexcept {
         emitter->signature = hash64_mix(emitter->signature, reinterpret_cast<usize>(owner.manager));
         emitter->signature = hash64_mix(emitter->signature, owner.handle.slot);
@@ -277,7 +281,7 @@ bool project_shell_static_text(D3D11Renderer* renderer, u32 shown, const Theme& 
 bool project_shell_member_text(D3D11Renderer* renderer, u32 shown, const Theme& theme,
                                UiTextEmitter* emitter) noexcept {
     if (d3d11_renderer_login_form_text(*renderer) || d3d11_renderer_active(renderer->friends_scene) ||
-        (shown & (d3d11_surface_settings_page | d3d11_surface_thread_browser)))
+        (shown & (d3d11_surface_settings_page | d3d11_surfaces_content_panel)))
         return true;
     UiTextOutput output{nullptr, emitter};
     // The DM profile panel's text goes with the member slot's.
@@ -425,7 +429,7 @@ bool project_overlay_text(D3D11Renderer* renderer, u32 shown, const Theme& theme
     // The action bar's opaque panel is painted after the gallery range. Its
     // quick-reaction glyphs must belong to the following text range as well.
     // Beside a call its text chat keeps the toolbar (as painted in layout).
-    if (!friends && !(shown & (d3d11_surface_thread_browser | d3d11_surface_media_page)) &&
+    if (!friends && !(shown & (d3d11_surfaces_content_panel | d3d11_surface_media_page)) &&
         (!(shown & d3d11_surface_call) || renderer->call_scene->chat_open) &&
         !d3d11_renderer_active(renderer->profile_scene) &&
         !(shown & d3d11_surface_media_picker) && renderer->message_action_bar &&

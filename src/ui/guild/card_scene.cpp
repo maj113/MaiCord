@@ -134,7 +134,7 @@ u32 more_label(char* output, u32 count) noexcept {
 // Trait chips wrap at most kUiGuildCardTraitLines lines; the traits that do not fit fold into "+ N more".
 float layout_traits(UiGuildCardScene& s, UiTextMeasureCache* cache, float y) noexcept {
     const float content = kW - 2 * kP;
-    float widths[kUiGuildCardTraits]{};
+    float widths[kUiGuildCardTraits];
     // A chip holds its emoji (16 DIPs and 4 before the label) and its label.
     for (u32 i = 0; i < s.trait_count; ++i) {
         const float emoji = trait_has_emoji(s, i) ? kEmoji + kEmojiGap : 0;

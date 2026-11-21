@@ -8,8 +8,6 @@
 #include "maicord/text/layout/visibility.hpp"
 #include "maicord/text/unicode/unicode.hpp"
 #include "maicord/text/unicode/grapheme.hpp"
-
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/heap.hpp"
 
 namespace maicord {

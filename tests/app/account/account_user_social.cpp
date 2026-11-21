@@ -196,10 +196,8 @@ void test_rejections() noexcept {
               account_user_social_submit(rest, &flags, 1).error == RestClientSubmitError::invalid_input &&
               account_user_social_submit(rest, &submit, 1).error == RestClientSubmitError::invalid_input &&
               account_user_social_submit(rest, &bad, 1).error == RestClientSubmitError::invalid_input &&
-              account_user_social_submit(rest, nullptr, 1).error == RestClientSubmitError::invalid_input &&
-              account_user_social_submit(nullptr, &flags, 1).error == RestClientSubmitError::invalid_input &&
               capture.submissions == before,
-          "user social: missing IDs, non-JSON reports and unknown operations never submit");
+          "user social: non-JSON reports and unknown operations never submit");
     capture.error = RestClientSubmitError::busy;
     UserSocialRequest get{};
     get.operation = UserSocialOperation::note_get;

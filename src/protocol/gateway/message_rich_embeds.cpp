@@ -1,4 +1,5 @@
 #include "message_rich_internal.hpp"
+#include "maicord/protocol/gateway/message_events.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 
 namespace maicord {

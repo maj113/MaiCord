@@ -1,4 +1,5 @@
 #include "message_rich_internal.hpp"
+#include "maicord/protocol/gateway/message_events.hpp"
 
 namespace maicord {
 namespace message_rich_detail {

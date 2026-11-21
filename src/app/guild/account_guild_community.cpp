@@ -7,7 +7,7 @@ static_assert(kGuildCommunityMaximumBodyBytes <= kRestClientMaximumRequestBodyBy
 RestClientSubmitResult account_guild_community_submit(RestClient* rest,
                                                       const GuildCommunityRequest* request,
                                                       u64 request_id, Utf8View session_id) noexcept {
-    if (!rest || !request || !request_id || !guild_community_request_valid(*request))
+    if (!guild_community_request_valid(*request))
         return {RestClientSubmitError::invalid_input};
     const bool join = request->operation == GuildCommunityOperation::guild_join;
     u8 target[kGuildCommunityMaximumTargetBytes];

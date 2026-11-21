@@ -2,6 +2,7 @@
 // numbers, and the NetworkAddress <-> socket address conversions.
 #include "internal.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/win32_error.hpp"
 #include "maicord/os/linux/error.hpp"
 
@@ -142,10 +143,6 @@ bool parse_ipv6(const char* text, u32 length, u8 (&bytes)[16]) noexcept {
     return true;
 }
 
-u16 swap16(u16 value) noexcept {
-    return static_cast<u16>((value >> 8) | (value << 8));
-}
-
 } // namespace
 
 bool network_address_parse(const char* text, u16 port, NetworkAddress* address) noexcept {
@@ -254,14 +251,14 @@ u32 to_socket_address(const NetworkAddress& address, SockAddrStorage* storage) n
     if (address.family == 4) {
         auto* v4 = reinterpret_cast<SockAddrIn*>(storage);
         v4->family = kAfInet;
-        v4->port = swap16(address.port);
+        v4->port = byte_swap(address.port);
         copy_bytes(v4->address, address.ip, 4);
         return sizeof(SockAddrIn);
     }
     if (address.family == 6) {
         auto* v6 = reinterpret_cast<SockAddrIn6*>(storage);
         v6->family = kAfInet6;
-        v6->port = swap16(address.port);
+        v6->port = byte_swap(address.port);
         copy_bytes(v6->address, address.ip, 16);
         v6->scope = address.scope_id;
         return sizeof(SockAddrIn6);
@@ -278,14 +275,14 @@ bool from_socket_address(const void* socket_address, u32 bytes, NetworkAddress* 
     if (family == kAfInet && bytes >= sizeof(SockAddrIn)) {
         const auto* v4 = static_cast<const SockAddrIn*>(socket_address);
         address->family = 4;
-        address->port = swap16(v4->port);
+        address->port = byte_swap(v4->port);
         copy_bytes(address->ip, v4->address, 4);
         return true;
     }
     if (family == kAfInet6 && bytes >= sizeof(SockAddrIn6)) {
         const auto* v6 = static_cast<const SockAddrIn6*>(socket_address);
         address->family = 6;
-        address->port = swap16(v6->port);
+        address->port = byte_swap(v6->port);
         copy_bytes(address->ip, v6->address, 16);
         address->scope_id = v6->scope;
         return true;

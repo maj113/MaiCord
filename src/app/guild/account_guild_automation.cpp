@@ -7,7 +7,7 @@ static_assert(kGuildAutomationMaximumTargetBytes <= kRestClientMaximumTargetByte
 
 RestClientSubmitResult account_guild_automation_submit(RestClient* rest, const GuildAutomationRequest* request,
                                                        u64 request_id) noexcept {
-    if (!rest || !request || !request_id || !guild_automation_request_valid(*request))
+    if (!guild_automation_request_valid(*request))
         return {RestClientSubmitError::invalid_input};
     u8 target[kGuildAutomationMaximumTargetBytes];
     const auto path = guild_automation_write_target(*request, {target, sizeof(target)});

@@ -567,7 +567,7 @@ JpegParseResult parse_jpeg(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspa
             if (result.scans >= kJpegProgressiveScanMaximum || (!image->progressive && result.scans != 0)) {
                 return parse_failure(result, JpegError::unsupported_process);
             }
-            JpegScan scan{};
+            JpegScan scan;
             error = parse_scan_header(encoded, payload, payload_bytes, *image, *image->tables,
                                       restart_interval, &scan);
             if (error != JpegError::none) {
@@ -667,7 +667,7 @@ JpegDecodeResult decode_progressive_scans(ConstSlice<u8> encoded, const JpegImag
             }
             restart_interval = byte_load_be16(encoded.data + payload);
         } else if (marker == 0xDA) {
-            JpegScan scan{};
+            JpegScan scan;
             error = parse_scan_header(encoded, payload, payload_bytes, image, tables, restart_interval,
                                       &scan);
             if (error != JpegError::none) {

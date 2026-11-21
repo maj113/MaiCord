@@ -24,7 +24,7 @@ struct Backend {
 } g{};
 
 // Messages of the input classes a modal blocks that the sink does not model (IME, clipboard commands, commands,
-// the odd key and mouse messages): swallowed while input_blocked.
+// the odd key and mouse messages): swallowed while win32_input_blocked.
 bool blocked_class(UINT message) noexcept {
     return (message >= WM_KEYFIRST && message <= WM_KEYLAST) || (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) ||
            (message >= WM_CUT && message <= WM_UNDO) ||

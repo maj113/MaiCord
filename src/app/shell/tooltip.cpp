@@ -1066,8 +1066,9 @@ void application_tooltip_input(const WindowEvent& event) noexcept {
     }
     const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
     const UiPoint point = pointer ? UiPoint{event.pointer.x * scale, event.pointer.y * scale} : UiPoint{};
-    UiTooltipTarget candidate{};
-    UiTooltipStyle candidate_style{};
+    // Only the resolver writes these, and nothing reads them: the call asks whether a target exists.
+    UiTooltipTarget candidate;
+    UiTooltipStyle candidate_style;
     bool candidate_reaction = false;
     const u32 code = keyboard ? event.key.key : 0;
     const bool navigation =

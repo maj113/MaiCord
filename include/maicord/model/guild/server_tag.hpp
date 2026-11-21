@@ -21,7 +21,6 @@ struct GuildTagBadge {
 // The base set in the official picker's order, then the four packs (pets,
 // flex, plant, creepy crawlies) in type order.
 inline constexpr u32 kGuildTagBadgeCount = 30;
-inline constexpr u32 kGuildTagBaseBadgeCount = 10;
 extern const GuildTagBadge kGuildTagBadges[kGuildTagBadgeCount];
 // The picker's first badge (Leaf): what a profile without a badge shows.
 inline constexpr u8 kGuildTagDefaultBadge = 6;

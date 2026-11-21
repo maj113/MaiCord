@@ -139,10 +139,6 @@ void transport() noexcept {
           "forum account: exact oversized metadata preflight refuses before allocation or transport "
           "without truncation");
     const u32 before = capture.submissions;
-    check(!account_forum_post_submit(nullptr, &request, 104).ok() &&
-              !account_forum_post_submit(&details, nullptr, 104).ok() &&
-              !account_forum_post_submit(&details, &request, 0).ok(),
-          "forum account: absent owner request or ID rejects before transport");
     auto invalid = request;
     invalid.parent_id = 0;
     check(!account_forum_post_submit(&details, &invalid, 104).ok(),

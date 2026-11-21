@@ -330,7 +330,7 @@ float place_grid(const UiStoreScene& s, UiStoreNode& n, float x, float y, float 
     n.count = static_cast<u16>(columns);
     const float cell = (cw - n.gap * (columns - 1)) / columns;
     float top = y + n.pad_y;
-    u16 row_first[3]{};
+    u16 row_first[3];
     u32 in_row = 0;
     float row_height = 0;
     bool any = false;

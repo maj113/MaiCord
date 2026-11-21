@@ -50,7 +50,7 @@ struct GuildViewRow {
     u8 avatar_shape; // conversation pins: ui_private_avatar_shape
 };
 
-// The controls a guild channel row offers (ui/channel_controls.hpp).
+// The controls a guild channel row offers (ui/guild/channel_controls.hpp).
 enum ChannelRowControl : u8 {
     channel_row_invite = 1u << 0,   // Create Invite
     channel_row_settings = 1u << 1, // Edit Channel

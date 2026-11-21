@@ -190,7 +190,7 @@ MAICORD_THEME_TOKEN(profile, control_icon, RGBA(1, 1, 1, 1), RGBA(1, 1, 1, 1))
 MAICORD_THEME_TOKEN(profile, server_banner, RGBA(.07058824f, .07058824f, .078431373f, 1), RGBA(.43921569f, .44313725f, .47843137f, 1))
 MAICORD_THEME_GROUP_END(profile)
 
-// The window caption (ui/caption_bar.hpp): drag band, title and the window
+// The window caption (ui/shell/caption_bar.hpp): drag band, title and the window
 // buttons. The band is the shell's backdrop (background is its flat base);
 // hover and pressed tint over it. Inactive ink applies while another window
 // is active.

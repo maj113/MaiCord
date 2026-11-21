@@ -147,7 +147,7 @@ struct Decoder {
         const ConstSlice<u8> data{font.glyf.data + begin, end - begin};
         if (data.count < 10) return SfntStatus::truncated;
         if (!font.bearing_equals_minimum) {
-            SfntGlyphMetrics metrics{};
+            SfntGlyphMetrics metrics;
             const auto status = sfnt_horizontal_metrics(font.metrics, id, &metrics);
             if (status != SfntStatus::ok) return status;
             *metric_origin = static_cast<float>(metrics.bearing - s16(data.data + 2));

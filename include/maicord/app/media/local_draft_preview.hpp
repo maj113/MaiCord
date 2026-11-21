@@ -45,7 +45,7 @@ constexpr bool local_draft_preview_thumbnail(const MediaAssetKey& key) noexcept 
 // Thumbnails decode large camera JPEGs at reduced scale (jpeg_thumbnail_*).
 inline constexpr u32 kLocalDraftPreviewThumbnailJpegBytes = 48u * 1024u * 1024u;
 // Large PNGs stream row by row through a sliding inflate window, so only the
-// encoded file is resident (png_thumbnail_*).
+// encoded file is resident (png_stream_*).
 inline constexpr u32 kLocalDraftPreviewThumbnailPngBytes = 48u * 1024u * 1024u;
 // Large WebPs decode on the CPU at bounded memory (webp_thumbnail_*).
 inline constexpr u32 kLocalDraftPreviewThumbnailWebpBytes = 16u * 1024u * 1024u;

@@ -39,7 +39,6 @@ void ensure_loaded() noexcept {
     if (ui.loaded)
         return;
     ui.loaded = true;
-    reset_value(&ui.keybinds);
     custom_keybinds_load(&ui.keybinds);
     ++ui.revision;
 }

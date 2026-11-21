@@ -173,7 +173,8 @@ bool application_guild_menu_toggle(bool keyboard) noexcept {
         capabilities |= guild_menu_capability_profile;
     if (g_app.preferences.developer_mode)
         capabilities |= guild_menu_capability_developer;
-    PopupItem items[kGuildHeaderMenuMaximumItems]{};
+    // The build writes the rows it counts, and the popup reads only those.
+    PopupItem items[kGuildHeaderMenuMaximumItems];
     const u32 count = guild_header_menu_build(s, guild, s.selected_channel_id, actions, capabilities,
                                               {items, kGuildHeaderMenuMaximumItems});
     if (!count)

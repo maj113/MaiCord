@@ -82,7 +82,7 @@ struct GpuStream {
     ID3D11VideoDecoder* decoder;
     GpuDecoderSurfaces surfaces; // Made with the decoder and released with it.
 #else
-    void* session; // the backend's decoder object (a VaSession for the hardware tier)
+    void* session; // the backend's decoder object (a vaapi::Session for the hardware tier)
     StreamSurfaces surfaces;
 #endif
     GpuVideoFrame frame; // Format of the current geometry; planes set per picture.

@@ -7,7 +7,6 @@
 #include "maicord/app/account/login/remote_auth_client.hpp"
 #include "maicord/platform/crypto/random.hpp"
 #include "maicord/app/account/login/remote_auth_handshake.hpp"
-#include <stddef.h>
 
 // Shared login orchestration, kept local to this translation unit for the account module
 // and native handoff tests. This adds no worker or other resource.

@@ -1,9 +1,5 @@
 #pragma once
 
-#if defined(_WIN32)
-#include "maicord/sys/intrin.hpp"
-#endif
-
 namespace maicord {
 
 // The signed integers the sequence counters and interlocked operations act on: the SDK's LONG (long) and LONG64

@@ -49,7 +49,7 @@ struct __declspec(uuid("2cd2d921-c447-44a7-a13c-4adabfc247e3")) __declspec(novta
     MAICORD_COM_UNUSED(CompareItem);
     virtual HRESULT __stdcall Compare(IMFAttributes* pTheirs, MF_ATTRIBUTES_MATCH_TYPE MatchType, BOOL* pbResult) = 0;
     virtual HRESULT __stdcall GetUINT32(const GUID& guidKey, UINT32* punValue) = 0;
-    virtual HRESULT __stdcall GetUINT64(const GUID& guidKey, UINT64* punValue) = 0;
+    MAICORD_COM_UNUSED(GetUINT64);
     MAICORD_COM_UNUSED(GetDouble);
     virtual HRESULT __stdcall GetGUID(const GUID& guidKey, GUID* pguidValue) = 0;
     virtual HRESULT __stdcall GetStringLength(const GUID& guidKey, UINT32* pcchLength) = 0;
@@ -188,8 +188,7 @@ struct __declspec(uuid("bf94c121-5b05-4e6f-8000-ba598961414d")) __declspec(novta
     MAICORD_COM_UNUSED(GetOutputStreamAttributes);
     MAICORD_COM_UNUSED(DeleteInputStream);
     MAICORD_COM_UNUSED(AddInputStreams);
-    virtual HRESULT __stdcall GetInputAvailableType(DWORD dwInputStreamID, DWORD dwTypeIndex,
-        IMFMediaType** ppType) = 0;
+    MAICORD_COM_UNUSED(GetInputAvailableType);
     virtual HRESULT __stdcall GetOutputAvailableType(DWORD dwOutputStreamID, DWORD dwTypeIndex,
         IMFMediaType** ppType) = 0;
     virtual HRESULT __stdcall SetInputType(DWORD dwInputStreamID, IMFMediaType* pType, DWORD dwFlags) = 0;

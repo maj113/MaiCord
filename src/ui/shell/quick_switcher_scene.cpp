@@ -18,7 +18,7 @@ bool current(const UiQuickSwitcherScene& s) noexcept {
     return ui_row_scene_current(s);
 }
 bool row_valid(const UiQuickSwitcherRow& row) noexcept {
-    return row.key && row.kind <= UiQuickSwitcherKind::user && row.presence <= UiPresence::offline &&
+    return row.key && row.kind <= UiQuickSwitcherKind::voice_channel && row.presence <= UiPresence::offline &&
         row.label.bytes && row.label.bytes <= 256 &&
         row.detail.bytes <= 512 && row.metadata.bytes <= 128 && row.avatar_hash.bytes <= 64 &&
         utf8_validate(row.label).valid && utf8_validate(row.detail).valid &&

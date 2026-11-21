@@ -74,7 +74,7 @@ __attribute__((minsize)) SfntStatus validate_base(ConstSlice<u8> table, u16 glyp
         }
         return previous == 0xffffu ? SfntStatus::ok : SfntStatus::malformed;
     }
-    // Formats 12 and 13: base_rank admits no other base format.
+    // Formats 12 and 13: format_rank admits no other base format.
     const u32 count = be32(p + 12);
     if (count > (table.count - 16u) / 12u) return SfntStatus::truncated;
     u32 previous = 0;

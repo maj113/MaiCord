@@ -95,10 +95,6 @@ bool plain_cancelled(const Round& round) noexcept {
     return round.hooks->cancelled(round.hooks->context);
 }
 
-u32 clamped_timeout(u32 timeout_ms) noexcept {
-    return timeout_ms == 0 ? kDefaultTimeoutMs : timeout_ms > kMaximumTimeoutMs ? kMaximumTimeoutMs : timeout_ms;
-}
-
 // What a ceremony asks of one key: `call` is libfido2's blocking call (given the PIN once the key has asked for it),
 // `collect` copies the key's answer out of the object, and `declined` is the status that says this key takes no part: it
 // holds none of an assertion's credentials, or one of those a creation excludes. A creation also ends when the key is

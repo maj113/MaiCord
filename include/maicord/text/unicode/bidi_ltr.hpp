@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/text/unicode/unicode.hpp"
+#include "maicord/text/unicode/generated/unicode_data.hpp"
 namespace maicord {
 // For the fixed LTR paragraph base, this closed set resolves entirely
 // to level zero: W1/W4-W7 remove weak types, N0-N2 resolve neutrals to L.

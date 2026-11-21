@@ -74,7 +74,7 @@ u32 hidden_channel_menu_build(const ChatStateStore& state, const UserStore& user
             role_count = minimum(role_count + 1, kRoleRows);
         }
     }
-    u64 members[kMemberRows]{};
+    u64 members[kMemberRows];
     u32 member_count = 0, member_total = 0;
     const PermissionOverwriteRecord* overwrites = state.overwrites ? state.overwrites + channel.overwrite_offset : nullptr;
     for (u32 index = 0; overwrites && index < channel.overwrite_count; ++index) {

@@ -365,8 +365,7 @@ bool ui_message_forward_scene_media(const UiMessageForwardScene& s, u32 slot, co
             return false;
         hash = row.avatar_hash;
         circle = true;
-    } else if ((row.kind == UiQuickSwitcherKind::text_channel || row.kind == UiQuickSwitcherKind::voice_channel) &&
-               row.guild_id && state) {
+    } else if (row.kind == UiQuickSwitcherKind::text_channel && row.guild_id && state) { // row_valid admits no voice
         if (!guild_icon_media_key(*state, row.guild_id, &key, &hash))
             return false;
     } else

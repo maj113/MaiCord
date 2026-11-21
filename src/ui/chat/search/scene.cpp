@@ -1,6 +1,5 @@
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/voice/audio_controls.hpp"
 #include "maicord/model/chat/message_poll_store.hpp"

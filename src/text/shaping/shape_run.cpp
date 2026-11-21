@@ -79,7 +79,7 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
     for(u32 i=0;i<steps.count;++i)if(steps[i].lookup>=plan.substitutions->lookups.count || steps[i].stage>=(stages?stages->count:3) || (i && steps[i].stage<steps[i-1].stage))return SfntStatus::invalid_input;
     for(u32 i=0;i<plan.positioning_roots.count;++i)if(plan.positioning_roots[i]>=plan.positioning->lookups.count)return SfntStatus::invalid_input;
     if(!input.count)return boundaries.count?SfntStatus::invalid_input:SfntStatus::ok;
-    SfntClusterMap clusters{};SfntComponentForest forest{};SfntGlyphBuffer buffer{};
+    SfntClusterMap clusters;SfntComponentForest forest;SfntGlyphBuffer buffer;
     auto status=sfnt_cluster_map_open(units,boundaries,s.cluster_bits,&clusters,limits.stage_work);
     if(status!=SfntStatus::ok)return status;
     SfntGlyphSummary substitution{};

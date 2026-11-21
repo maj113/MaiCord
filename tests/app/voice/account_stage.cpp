@@ -158,8 +158,6 @@ void test_rejections() noexcept {
               account_stage_submit(rest, &no_user, 1).error == RestClientSubmitError::invalid_input &&
               account_stage_submit(rest, &no_guild, 1).error == RestClientSubmitError::invalid_input &&
               account_stage_submit(rest, &bad, 1).error == RestClientSubmitError::invalid_input &&
-              account_stage_submit(nullptr, &no_user, 1).error == RestClientSubmitError::invalid_input &&
-              account_stage_submit(rest, nullptr, 1).error == RestClientSubmitError::invalid_input &&
               capture.submissions == before,
           "stage account: empty, blank, multi-line or 121-code-point topics and missing IDs never submit");
     long_topic.topic = {text, 120};

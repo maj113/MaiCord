@@ -10,10 +10,6 @@ namespace maicord::app_detail {
 // Window events as the handlers read them. Coordinates of pointer, wheel, cursor and context-menu events reach the
 // handlers in content pixels (the dispatcher takes the caption's rows off the client point once).
 
-constexpr u8 input_button_bit(PointerButton button) noexcept {
-    return static_cast<u8>(1u << static_cast<u8>(button));
-}
-
 // A press of `button`. The second press of a quick pair arrives as a double press instead (input_double), as
 // WM_xBUTTONDOWN and WM_xBUTTONDBLCLK did.
 inline bool input_press(const WindowEvent& event, PointerButton button = PointerButton::left) noexcept {
@@ -41,7 +37,7 @@ inline bool input_pointer(const WindowEvent& event) noexcept {
 }
 // Whether `button` is held, for moves and presses (the MK_ flags of the message).
 inline bool input_held(const WindowEvent& event, PointerButton button = PointerButton::left) noexcept {
-    return (event.pointer.buttons & input_button_bit(button)) != 0;
+    return (event.pointer.buttons & pointer_button_bit(button)) != 0;
 }
 inline bool input_shift(const WindowEvent& event) noexcept {
     return (event.modifiers & mod_shift) != 0;

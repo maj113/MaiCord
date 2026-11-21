@@ -8,6 +8,7 @@ struct UserStore;
 inline constexpr u32 kQuickSwitcherMaximumResults = 100;
 inline constexpr u32 kQuickSwitcherQueryMaximumBytes = 128;
 inline constexpr u32 kQuickSwitcherRecentMaximum = 8;
+// UiQuickSwitcherKind has the same order: the app casts this kind to it.
 enum class QuickSwitcherKind : u8 { text_channel, private_channel, group_private, guild, user, voice_channel };
 enum class QuickSwitcherPhase : u8 { ready, invalid_query };
 // Friends lists only friend users, all of them for an empty query (people pickers).

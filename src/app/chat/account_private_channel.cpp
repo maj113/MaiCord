@@ -6,7 +6,6 @@ namespace maicord {
 RestClientSubmitResult account_private_channel_submit(RestClient* rest,
                                                       const PrivateChannelActionRequest* request,
                                                       u64 request_id) noexcept {
-    if (!rest || !request || !request_id) return {RestClientSubmitError::invalid_input};
     u8 target[kPrivateChannelActionTargetBytes], body[kPrivateChannelActionBodyBytes];
     const auto written = private_channel_action_write(*request, {target, sizeof(target)}, {body, sizeof(body)});
     if (!written.ok) return {RestClientSubmitError::invalid_input};

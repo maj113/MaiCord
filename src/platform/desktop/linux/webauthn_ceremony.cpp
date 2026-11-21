@@ -240,10 +240,7 @@ bool begin(const fido2::Api& api, bool creating, const Waker& wake, u64 token) n
     c.api = &api;
     c.wake = wake;
     c.token = token;
-    const u32 timeout = request.timeout_ms == 0 ? fido2::kDefaultTimeoutMs
-                        : request.timeout_ms > fido2::kMaximumTimeoutMs ? fido2::kMaximumTimeoutMs
-                                                                         : request.timeout_ms;
-    c.deadline = clock_monotonic_milliseconds() + timeout;
+    c.deadline = clock_monotonic_milliseconds() + fido2::clamped_timeout(request.timeout_ms);
     set_state(c, WebAuthnCeremonyState::running);
     c.thread = thread_start(worker, &c, kWorkerStackBytes, nullptr);
     if (!c.thread) {

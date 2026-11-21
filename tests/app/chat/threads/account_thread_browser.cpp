@@ -72,12 +72,7 @@ void transport() noexcept {
                    "target storage without truncation");
 
     const u32 before_invalid = capture.submissions;
-    bool rejected =
-        account_thread_browser_submit(nullptr, &request, 105).error ==
-            RestClientSubmitError::invalid_input &&
-        account_thread_browser_submit(&details, nullptr, 105).error ==
-            RestClientSubmitError::invalid_input &&
-        account_thread_browser_submit(&details, &request, 0).error == RestClientSubmitError::invalid_input;
+    bool rejected = true;
     ThreadBrowserRequest invalid[9]{};
     for (auto& value : invalid)
         value = request;
@@ -94,7 +89,7 @@ void transport() noexcept {
                        RestClientSubmitError::invalid_input &&
                    rejected;
     check(rejected && capture.submissions == before_invalid,
-          "thread browser account: zero owner/request identity invalid enums offset names and every "
+          "thread browser account: zero identities invalid enums offset names and every "
           "reserved byte reject before transport publication");
     constexpr RestClientSubmitError errors[]{RestClientSubmitError::busy, RestClientSubmitError::signal,
                                              RestClientSubmitError::account_restricted,

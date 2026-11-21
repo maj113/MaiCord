@@ -150,7 +150,7 @@ bool ui_activity_card_layout(const UserActivity& a, const UiActivityCardInput& i
     }
     // Buttons: the activity's own, Watch for a stream, Play on Spotify or the
     // disabled Ask to Join; Active Now offers Ask to Join alone.
-    Utf8View labels[2]{};
+    Utf8View labels[2];
     u32 buttons = 0;
     Act action = Act::button;
     UiIcon glyph = UiIcon::count;

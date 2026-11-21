@@ -102,10 +102,6 @@ bool read_hashed(HANDLE file, u64 bytes, u8* into, u8* digest, Failure* out) noe
 
 // ---------------------------------------------------------------------------------------------------- the tar
 
-bool all_zero(const u8* data, u64 bytes) noexcept {
-    for (u64 i = 0; i < bytes; ++i) if (data[i]) return false;
-    return true;
-}
 // A tar number: octal digits between optional spaces and the field's NUL. The base-256 form is not the producer's.
 bool octal(const u8* field, u32 count, u64* value) noexcept {
     if (field[0] & 0x80) return false;
@@ -195,7 +191,7 @@ bool walk(const u8* tar, u64 bytes, Utf8View top, Layout* out) noexcept {
     while (at < bytes) {
         if (bytes - at < kTarBlock) return false;
         const u8* header = tar + at;
-        if (all_zero(header, kTarBlock)) return !long_name && all_zero(header, bytes - at);
+        if (bytes_zero(header, kTarBlock)) return !long_name && bytes_zero(header, bytes - at);
         if (++headers > kUpdatePackageMaximumEntries || !header_checksum(header) || !bytes_equal(header + 257, "ustar", 5)) return false;
         u64 size = 0, mode = 0;
         if (!octal(header + 124, 12, &size) || !octal(header + 100, 8, &mode)) return false;

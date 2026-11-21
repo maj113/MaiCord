@@ -3,8 +3,9 @@
 namespace maicord {
 namespace {
 
+// A NaN fails both bounds.
 inline bool bounded_float(float value, float limit) noexcept {
-    return value == value && value >= -limit && value <= limit;
+    return value >= -limit && value <= limit;
 }
 
 // vroundss and vcvttss2si (the compile baseline has SSE4.1). The bounds checks keep each product within 2^16.

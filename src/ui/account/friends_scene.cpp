@@ -488,7 +488,7 @@ bool allowed(const UiFriendsRow& r, UiFriendsAction a) noexcept {
 }
 // The width a row's action buttons take, with their gaps (its lines stop before them).
 float actions_extent(const UiFriendsRow& r, bool hidden_view) noexcept {
-    UiFriendsAction available[4]{};
+    UiFriendsAction available[4];
     const u32 n = actions(r, available, hidden_view);
     float width = 0;
     for (u32 i = 0; i < n; ++i)
@@ -748,7 +748,7 @@ bool rebuild(UiFriendsScene& s) noexcept {
             return false;
         }
         ids[row_slot] = r.user_id;
-        UiFriendsAction available[4]{};
+        UiFriendsAction available[4];
         const auto n = actions(r, available, hidden(s));
         const auto row_parent = emit(s, s.body, UiWidgetKind::button, {-1, row_height, UiLayoutFlow::overlay, 5},
                                      {primary(r), r.user_id, s.tab}, r, true, true);

@@ -53,9 +53,7 @@ void transport() noexcept {
           "guild settings: direct message mute goes to the @me settings route");
     const u32 before = capture.submissions;
     const UserGuildSettingsPatch invalid{0, 0, 0, 0, user_guild_settings_muted};
-    check(!account_guild_settings_submit(&details, &invalid, 43).ok() &&
-              !account_guild_settings_submit(&details, nullptr, 43).ok() &&
-              !account_guild_settings_submit(&details, &patch, 0).ok() && capture.submissions == before,
+    check(!account_guild_settings_submit(&details, &invalid, 43).ok() && capture.submissions == before,
           "guild settings: invalid patches never reach transport");
     const MentionsQuery query{900, 10, kMentionsPageLimit, true, false};
     check(account_mentions_submit(&details, &query, 44).ok() && !capture.json &&

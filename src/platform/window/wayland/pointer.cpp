@@ -214,11 +214,11 @@ void on_button(void*, wl_pointer*, u32 serial, u32 time, u32 code, u32 state) no
         return;
     const bool pressed = state == wl_pointer_button_state_pressed;
     if (pressed) {
-        pointer.buttons |= button_bit(button);
+        pointer.buttons |= pointer_button_bit(button);
         pointer.press_serial = serial;
         g.input_serial = serial;
     } else {
-        pointer.buttons = static_cast<u8>(pointer.buttons & ~button_bit(button));
+        pointer.buttons = static_cast<u8>(pointer.buttons & ~pointer_button_bit(button));
     }
     const bool double_click = pressed && click_tracker_press(&pointer.click, static_cast<u8>(button), time, pointer.x,
                                                              pointer.y, click_policy());
@@ -462,9 +462,10 @@ void pointer_detach() noexcept {
 void pointer_before_dispatch(const WindowEvent& event) noexcept {
     PointerState& pointer = g.pointer;
     if (event.type == EventType::pointer_down)
-        pointer.app_buttons |= button_bit(static_cast<PointerButton>(event.button));
+        pointer.app_buttons |= pointer_button_bit(static_cast<PointerButton>(event.button));
     else if (event.type == EventType::pointer_up)
-        pointer.app_buttons = static_cast<u8>(pointer.app_buttons & ~button_bit(static_cast<PointerButton>(event.button)));
+        pointer.app_buttons =
+            static_cast<u8>(pointer.app_buttons & ~pointer_button_bit(static_cast<PointerButton>(event.button)));
 }
 
 void pointer_after_dispatch(const WindowEvent& event) noexcept {

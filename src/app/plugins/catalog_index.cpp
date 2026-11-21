@@ -828,10 +828,7 @@ CatalogIndexResult catalog_index_verify(Utf8View document, ConstSlice<u8> signat
         {reinterpret_cast<const u8*>(output), static_cast<u32>(sizeof(*output))},
         {workspace.storage.data, workspace.storage.capacity},
         signature};
-    for (u32 i = 0; i < 5; ++i) {
-        if (!byte_range_valid(ranges[i])) return {E::invalid_input};
-        for (u32 j = 0; j < i; ++j) if (byte_ranges_overlap(ranges[i], ranges[j])) return {E::invalid_input};
-    }
+    if (!byte_ranges_all_disjoint({ranges, 5})) return {E::invalid_input};
     for (u32 i = 0; i < keys.count; ++i)
         if (!keys[i] || !keys[i]->handle || keys[i]->kind != P256Kind::ecdsa) return {E::invalid_input};
     if (!document.bytes || document.bytes > kCatalogIndexMaximumBytes) return {E::size};

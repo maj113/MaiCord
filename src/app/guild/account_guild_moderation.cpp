@@ -13,7 +13,7 @@ constexpr u32 kSearchResponseBytes = kRestClientMaximumResponseBytes;
 
 RestClientSubmitResult account_guild_moderation_submit(RestClient* rest, const GuildModerationRequest* request,
                                                        u64 request_id) noexcept {
-    if (!rest || !request || !request_id || !guild_moderation_request_valid(*request))
+    if (!guild_moderation_request_valid(*request))
         return {RestClientSubmitError::invalid_input};
     u8 target[kGuildModerationMaximumTargetBytes];
     const auto path = guild_moderation_write_target(*request, {target, sizeof(target)});

@@ -96,10 +96,8 @@ bool application_taskbar_attention_window_message(UINT message) noexcept {
 #endif
 
 void application_taskbar_attention_counts(u32* mentions, bool* unread) noexcept {
-    if (mentions)
-        *mentions = g_owner.mentions;
-    if (unread)
-        *unread = g_owner.unread;
+    *mentions = g_owner.mentions;
+    *unread = g_owner.unread;
 }
 
 void application_taskbar_attention_release() noexcept {

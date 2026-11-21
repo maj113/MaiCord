@@ -7,6 +7,7 @@
 // pending, and the callers rely on it by reading once per event: socket_receive and socket_accept do the same by
 // re-registering the socket, which makes epoll report its current readiness again.
 #include "internal.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/platform/net/socket.hpp"
 
 namespace maicord {
@@ -37,10 +38,6 @@ SocketListenResult listen_failure(int fd, i32 native_error,
     }
     set_error(native_error);
     return SocketListenResult{error, native_error, 0};
-}
-
-u16 swap16(u16 value) noexcept {
-    return static_cast<u16>((value >> 8) | (value << 8));
 }
 
 // Makes epoll report the socket's readiness again, as a new edge.
@@ -79,7 +76,7 @@ SocketListenResult socket_listen_loopback(Socket* listener, u16 first_port, u16 
     bool bound = false;
     const u16 attempts = port_count ? port_count : 1;
     for (u16 offset = 0; offset < attempts; ++offset) {
-        address.port = swap16(static_cast<u16>(first_port + offset));
+        address.port = byte_swap(static_cast<u16>(first_port + offset));
         const long result = sys_bind(fd, &address, sizeof(address));
         bound = !syscall_failed(result);
         if (bound) {
@@ -98,7 +95,7 @@ SocketListenResult socket_listen_loopback(Socket* listener, u16 first_port, u16 
     if (syscall_failed(named)) {
         return listen_failure(fd, map_result(named));
     }
-    const u16 port = swap16(address.port);
+    const u16 port = byte_swap(address.port);
     if (address_bytes != sizeof(address) || port < 1024) {
         return listen_failure(fd, WSAEINVAL);
     }

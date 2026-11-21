@@ -4,8 +4,6 @@
 #include "maicord/ui/layout/scroll_host.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 
-#include <limits.h>
-
 namespace maicord::app_detail {
 // Modal controllers consume wheel input themselves, but share the ordinary
 // scroll host's timing, wheel preferences and fractional-offset policy. The

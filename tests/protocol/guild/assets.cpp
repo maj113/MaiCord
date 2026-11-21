@@ -701,8 +701,7 @@ void test_account() noexcept {
 
     capture.result = RestClientSubmitError::busy;
     request = asset(GuildAssetOperation::guild_delete);
-    check(account_guild_assets_submit(&details, &request, 212).error == RestClientSubmitError::busy &&
-              account_guild_assets_submit(nullptr, &request, 1).error == RestClientSubmitError::invalid_input,
+    check(account_guild_assets_submit(&details, &request, 212).error == RestClientSubmitError::busy,
           "account: transport refusals propagate");
 }
 

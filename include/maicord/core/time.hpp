@@ -41,16 +41,17 @@ constexpr i64 civil_days_from_date(i64 year, u32 month, u32 day) noexcept {
     return era * 146'097 + day_of_era - 719'468;
 }
 
+// From 0000-03-01 on, every value below is not negative, so the divisions are unsigned.
 constexpr CivilDate civil_date_from_days(i64 days) noexcept {
-    days += 719'468;
-    const i64 era = days / 146'097;
-    const i64 day_of_era = days - era * 146'097;
-    const i64 year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36'524 - day_of_era / 146'096) / 365;
-    const i64 day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    const i64 month_index = (5 * day_of_year + 2) / 153;
-    const u32 month = static_cast<u32>(month_index < 10 ? month_index + 3 : month_index - 9);
-    return {year_of_era + era * 400 + (month <= 2 ? 1 : 0), month,
-            static_cast<u32>(day_of_year - (153 * month_index + 2) / 5 + 1)};
+    const u64 shifted = static_cast<u64>(days + 719'468);
+    const u64 era = shifted / 146'097;
+    const u32 day_of_era = static_cast<u32>(shifted % 146'097);
+    const u32 year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36'524 - day_of_era / 146'096) / 365;
+    const u32 day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    const u32 month_index = (5 * day_of_year + 2) / 153;
+    const u32 month = month_index < 10 ? month_index + 3 : month_index - 9;
+    return {static_cast<i64>(era * 400 + year_of_era) + (month <= 2 ? 1 : 0), month,
+            day_of_year - (153 * month_index + 2) / 5 + 1};
 }
 
 struct Clock {

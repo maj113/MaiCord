@@ -1300,7 +1300,6 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (!segment_replayed) {
     if (renderer->guild_rail_scene->active && renderer->chat_state &&
         renderer->media_atlas && renderer->media_gpu.texture_view) {
-        // The hovered row, found once: resolving a handle scans the rows.
         const GuildRailRowWidget* hovered_row =
             guild_rail_scene_resolve(*renderer->guild_rail_scene, renderer->guild_rail_scene->widgets.hovered);
         for (u32 index = 0; index < renderer->guild_rail_scene->count; ++index) {
@@ -2382,7 +2381,6 @@ bool d3d11_renderer_build_paint(D3D11Renderer* renderer, const Theme& theme) noe
 bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
                                  const RendererPresentationStamp& current) noexcept {
     // renderer_present refreshed a stale settings backdrop and captured `current` after it.
-    const RendererPresentationStamp* stamp = &current;
     renderer->present_required = false;
     renderer->present_full = false;
     renderer->present_logical_damage_valid = false;
@@ -2390,7 +2388,7 @@ bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
     reset_value(&renderer->present_logical_damage_rect);
     bool media_source_changed = false;
     bool retained = (!renderer->login_visible || d3d11_renderer_login_form_text(*renderer)) &&
-                    renderer_presentation_stamp_equal(*stamp, renderer->retained_presentation) &&
+                    renderer_presentation_stamp_equal(current, renderer->retained_presentation) &&
                     refresh_media_quad_sources(renderer, &media_source_changed);
     // A typing dots step patches the retained stream; one it cannot take rebuilds.
     if (retained && renderer_typing_dots_pending(*renderer) && !renderer_step_typing_dots(renderer))
@@ -2406,7 +2404,7 @@ bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
         // afresh and records it again.
         const bool replay_shell = renderer->retained_presentation.valid;
         g_layout_failed_line = 0;
-        if (!build_layout(renderer, theme, stamp, replay_shell)) {
+        if (!build_layout(renderer, theme, &current, replay_shell)) {
             renderer->retained_presentation.valid = false;
             saturating_increment(layout_failures);
             if ((layout_failures & (layout_failures - 1u)) == 0) {
@@ -2422,7 +2420,7 @@ bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
         layout_failures = 0;
         const BuildMarks built = build_marks(*renderer);
         renderer->retained_presentation = bytes_equal(&built, &marks, sizeof(marks))
-                                              ? *stamp
+                                              ? current
                                               : renderer_capture_presentation_stamp(*renderer, theme);
         ++renderer->paint_stream_builds;
         if (!renderer_paint_diff_damage(renderer, theme))

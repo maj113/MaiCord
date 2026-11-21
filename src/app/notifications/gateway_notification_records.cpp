@@ -8,9 +8,9 @@ namespace maicord {
 
 bool gateway_client_notification_entry(const GatewayClientEvent& e, ConstSlice<u8> p,
                                        MessageNotificationGuildSetting* out) noexcept {
+    // The exact size bounds the count: a u32 count times the record size cannot wrap the 64-bit sum.
     if (!out || e.dispatch_kind != GatewayClientDispatchKind::notification_settings_entry ||
-        e.dispatch_payload_bytes != p.count || !p.data || p.count < sizeof(*out) ||
-        e.notification.override_count > (p.count - sizeof(*out)) / sizeof(MessageNotificationOverride) ||
+        e.dispatch_payload_bytes != p.count || !p.data ||
         p.count != sizeof(*out) + e.notification.override_count * sizeof(MessageNotificationOverride))
         return false;
     MessageNotificationGuildSetting row{};
@@ -40,8 +40,7 @@ bool gateway_client_notification_sidecar(ConstSlice<u8> p, GatewayClientNotifica
         return false;
     GatewayClientNotificationSidecar h{};
     copy_bytes(&h, p.data, sizeof(h));
-    if (h.thread_count > (p.count - sizeof(h)) / sizeof(GatewayClientNotificationThreadRecord) ||
-        p.count != sizeof(h) + h.thread_count * sizeof(GatewayClientNotificationThreadRecord) ||
+    if (p.count != sizeof(h) + h.thread_count * sizeof(GatewayClientNotificationThreadRecord) ||
         h.flags & ~(127u | gateway_notification_channel_age_baseline_complete) || h.gates & ~h.known_gates)
         return false;
     *out = h;

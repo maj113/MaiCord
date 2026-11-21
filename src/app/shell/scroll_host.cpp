@@ -20,9 +20,6 @@
 #include "maicord/ui/layout/scroll_host.hpp"
 #include "maicord/ui/chat/inbox_scene.hpp"
 
-
-#include <limits.h>
-
 namespace maicord::app_detail {
 namespace {
 // A moved message viewport takes the scroll-only account refresh; a step of a

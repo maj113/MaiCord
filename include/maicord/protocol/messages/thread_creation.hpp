@@ -1,6 +1,6 @@
 #pragma once
 
-#include "maicord/core/json_reader.hpp"
+#include "maicord/core/slice.hpp"
 
 namespace maicord {
 inline constexpr u32 kThreadCreationNameMaximumBytes = 400;

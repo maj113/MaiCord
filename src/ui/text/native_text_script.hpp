@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/text/unicode/unicode.hpp"
 #include "maicord/text/shaping/simple_script.hpp"
 namespace maicord {
 // One byte selects the packed profile. The table covers the entire enum

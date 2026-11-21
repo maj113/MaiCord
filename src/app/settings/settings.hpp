@@ -52,6 +52,7 @@ bool application_preferences_image_zoom(u8 factor, u8 size) noexcept;
 bool application_preferences_persist_pane_widths() noexcept;
 bool application_settings_commit_preferences() noexcept;
 void application_settings_cancel_pointer() noexcept;
+// True leaves g_app.settings set: only application_settings_release clears it.
 bool application_settings_open() noexcept;
 // The open settings scene, or null; and selecting one of its pages (the store pages' deep links).
 UiSettingsScene* application_settings_scene() noexcept;

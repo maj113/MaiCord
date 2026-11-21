@@ -78,7 +78,7 @@ using TlsStreamCommitHandler = void (*)(void* context, ConstSlice<u8> committed)
 using TlsStreamReadHandler = TlsStreamReadAction (*)(void* context, ConstSlice<u8> plaintext,
                                                      bool peer_closed) noexcept;
 
-// tls_stream_begin_connect clears every member before `encrypted_input` and keeps the rest.
+// tls_stream_begin_connect clears every member before `encrypted_input`, empties that queue and keeps the rest.
 struct TlsStream {
     NetworkResolver resolver;
     NetworkConnection connection;

@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/text/unicode/unicode.hpp"
+#include "maicord/text/base.hpp"
 
 namespace maicord {
 enum class ArabicJoiningStatus : u8 {ok,invalid_input,output_too_small,work_limit};

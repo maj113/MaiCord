@@ -29,7 +29,7 @@ bool application_media_picker_open_sticker_pack(u64 pack_id) noexcept;
 // shows again without a request), or the eight best sendable stickers. An
 // empty query hides them; the open expression picker suppresses them.
 // autocomplete: the sticker list of the composer's ':' emoji query instead, which lasts while that query does
-// (application_media_picker_autocomplete_active); sending a sticker from it clears the query.
+// (application_composer_emoji_query_active); sending a sticker from it clears the query.
 bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiRect anchor,
                                      bool autocomplete = false) noexcept;
 void application_media_picker_inline_close() noexcept;

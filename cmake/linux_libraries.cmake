@@ -44,8 +44,8 @@ maicord_library(maicord_render_colr_paint
     LIBS maicord_gpu_gles maicord_core)
 
 # The platform crypto and the TLS client over the system OpenSSL (dlopen: no DT_NEEDED), with the random bytes from
-# getrandom and the secure buffer on mmap/mlock. aead.cpp, aes_gcm.cpp and xchacha20_poly1305.cpp are the portable
-# files of src/platform/crypto that the Windows build also compiles (their CNG parts are under _WIN32).
+# getrandom and the secure buffer on mmap/mlock. aead.cpp, aes_gcm.cpp (in-house AES-GCM) and xchacha20_poly1305.cpp
+# (HChaCha20 here, then OpenSSL's ChaCha20-Poly1305) are the files of src/platform/crypto that Windows also compiles.
 maicord_library(maicord_crypto
     src/platform/crypto/aead.cpp src/platform/crypto/aes_gcm.cpp src/platform/crypto/xchacha20_poly1305.cpp
     src/platform/crypto/linux/random.cpp src/platform/crypto/linux/secure_buffer.cpp

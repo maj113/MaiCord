@@ -1,6 +1,7 @@
 #include "maicord/text/scripts/arabic_joining.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/text/unicode/unicode.hpp"
 
 namespace maicord {
 ArabicJoiningStatus arabic_joining_forms(ConstSlice<u32> scalars,Slice<u8> output,u32 stride,u64 work_limit,ArabicJoiningContext context) noexcept {

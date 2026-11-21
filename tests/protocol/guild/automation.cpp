@@ -461,8 +461,6 @@ void test_transport() noexcept {
               account_guild_automation_submit(&details, &create, 303).ok() && capture.id == 303 && capture.large &&
               capture.body_bytes > kRestClientMaximumRequestBodyBytes,
           "automation account: a thousand long keywords and ten long patterns take the large body path");
-    check(!account_guild_automation_submit(&details, &list, 0).ok(),
-          "automation account: zero request IDs are refused");
 }
 
 } // namespace guild_automation_test

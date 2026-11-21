@@ -1757,10 +1757,16 @@ u64 layout_signature(const UiSettingsScene& scene, const UiSettingsPageContent& 
     if (content.description.bytes)
         hash = hash64_words(hash, content.description.data, content.description.bytes);
     hash = hash64_mix(hash, content.sectioned);
-    hash = hash64_bytes(hash, &content.aside_width, sizeof(content.aside_width));
-    hash = hash64_bytes(hash, &content.aside_height, sizeof(content.aside_height));
+    hash = hash64_mix(hash, __builtin_bit_cast(u32, content.aside_width) |
+                                static_cast<u64>(__builtin_bit_cast(u32, content.aside_height)) << 32);
     hash = hash64_mix(hash, content.aside_row);
     hash = hash64_mix(hash, content.aside_label.bytes);
+    // The preview row's height follows its sample: the chat size, the group gap, compact mode and the reactions.
+    if (const auto* s = content.preview) {
+        hash = hash64_mix(hash, __builtin_bit_cast(u32, s->text_size) |
+                                    static_cast<u64>(__builtin_bit_cast(u32, s->group_gap)) << 32);
+        hash = hash64_mix(hash, static_cast<u64>(s->compact) | static_cast<u64>(s->reactions) << 1);
+    }
     for (u32 i = 0; i < content.controls.count; ++i) {
         const auto& c = content.controls[i];
         hash = hash64_mix(hash, c.id);

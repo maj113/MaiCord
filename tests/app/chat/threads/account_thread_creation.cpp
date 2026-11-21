@@ -45,13 +45,6 @@ void transport() noexcept {
                     utf8_literal("/api/v9/channels/18446744073709551615")),
           "thread creation: reconciliation is bodyless GET of captured source/thread identity");
     const u32 before = capture.submissions;
-    check(account_thread_creation_submit(nullptr, &request, 103).error ==
-                  RestClientSubmitError::invalid_input &&
-              account_thread_creation_submit(&details, nullptr, 103).error ==
-                  RestClientSubmitError::invalid_input &&
-              account_thread_creation_submit(&details, &request, 0).error ==
-                  RestClientSubmitError::invalid_input,
-          "thread creation: missing owner request or ID rejects before publication");
     auto invalid = request;
     invalid.parent_id = 0;
     check(!account_thread_creation_submit(&details, &invalid, 103).ok(),

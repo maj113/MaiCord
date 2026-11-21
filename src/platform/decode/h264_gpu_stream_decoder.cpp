@@ -49,7 +49,7 @@ void h264_gpu_stream_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_tim
             continue;
         }
         state->held = stream_held(*stream);
-        H264StreamDecode decode{};
+        H264StreamDecode decode;
         const H264StreamAction action = h264_stream_prepare(state, picture, &decode);
         if (action == H264StreamAction::unsupported)
             continue;

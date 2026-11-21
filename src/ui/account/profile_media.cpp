@@ -17,7 +17,6 @@
 #include "maicord/model/user/profile_connection.hpp"
 #include "maicord/model/chat/game_store.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/core/asset.hpp"
 namespace maicord {
 bool profile_media_use_compatibility_banner(ProfileScene* scene) noexcept {
@@ -26,12 +25,6 @@ bool profile_media_use_compatibility_banner(ProfileScene* scene) noexcept {
     return true;
 }
 namespace {
-__forceinline u32 widget_bits(UiWidgetHandle handle) noexcept {
-    static_assert(sizeof(handle) == sizeof(u32));
-    u32 bits;
-    CopyMemory(&bits, &handle, sizeof(bits));
-    return bits;
-}
 // Sets every field of a result but the unused bytes of its URL, which a reader never reads past its length: about
 // 90 bytes written, not 480. One body for the six resolvers.
 __declspec(noinline) ProfileMedia& start(ProfileMedia* out) noexcept {
@@ -522,10 +515,11 @@ bool member_layer_media(const MemberListScene& s, u32 index, const MemberRowMedi
     Utf8View hash{};
     // Compare against this row's widgets directly instead of searching all
     // materialized rows for the hovered widget.
-    const u32 hovered = widget_bits(s.widgets.hovered);
-    const bool row_hovered = (widget_bits(row.widget) == hovered || widget_bits(row.avatar) == hovered ||
-                              widget_bits(row.label) == hovered || widget_bits(row.status) == hovered) &&
-                             ui_widget_manager_resolve(s.widgets, s.widgets.hovered) && !s.system_animation_off;
+    const u32 hovered = ui_widget_handle_bits(s.widgets.hovered);
+    const bool row_hovered =
+        (ui_widget_handle_bits(row.widget) == hovered || ui_widget_handle_bits(row.avatar) == hovered ||
+         ui_widget_handle_bits(row.label) == hovered || ui_widget_handle_bits(row.status) == hovered) &&
+        ui_widget_manager_resolve(s.widgets, s.widgets.hovered) && !s.system_animation_off;
     if (layer == MemberMedia::nameplate || layer == MemberMedia::nameplate_still) {
         const auto* a = guild && (guild->fields & appearance_nameplate) ? guild : global;
         if (!a || !a->nameplate_sku)

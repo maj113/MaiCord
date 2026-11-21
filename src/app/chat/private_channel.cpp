@@ -437,7 +437,6 @@ bool application_private_channel_present_error() noexcept {
                              {utf8_literal("Join call"), popup_action_private_call_join, popup_item_enabled, 0},
                              {utf8_literal("Decline"), popup_action_private_call_decline,
                               static_cast<u16>(popup_item_enabled | popup_item_danger), 0}};
-        // Menu rows carry only the first 62 icons; the call glyphs sit past that bank.
         items[0].detail = utf8_literal("Incoming call");
         const auto anchor = ui_scene_content_rectangle(g_app.shell_scene, UiSemantic::title_bar);
         if (!popup_scene_open(&g_app.popup_scene, PopupKind::popover, channel, {items, 3}, anchor,

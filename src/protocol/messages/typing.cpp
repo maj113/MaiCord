@@ -1,4 +1,5 @@
 #include "maicord/protocol/messages/typing.hpp"
+#include "maicord/core/json_reader.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 

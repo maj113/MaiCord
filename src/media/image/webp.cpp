@@ -79,8 +79,6 @@ struct SmallHuffmanCode {
     u8 table[1u << 7];
 };
 
-// Once per Huffman code: compiled for size.
-
 // Counts the code lengths; only a single-symbol code or a complete prefix code is admitted.
 bool count_code(const u8* lengths, u32 alphabet_size, u16* counts, u16* symbol_count,
                 u16* single_symbol) noexcept {
@@ -176,7 +174,6 @@ inline bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanC
     return true;
 }
 
-
 // The next code-length symbol: the table decode of decode_canonical's codeword.
 inline bool decode_length_symbol(BitReader* reader, const SmallHuffmanCode& code, u16* symbol) noexcept {
     if (code.symbol_count == 1) {
@@ -228,8 +225,6 @@ bool decode_canonical(BitReader* reader, const u16* counts, u32 symbol_count, u1
     reader->bit_position += 15;
     return false;
 }
-
-// Once per Huffman code: compiled for size.
 
 // Index width of the second-level table that opens at codeword length
 // `length`: the length at which the codes still to place (`left`) fill the
@@ -365,7 +360,6 @@ bool build_simple_code(Vp8lWorkspace* workspace, u32 first, u32 second, Vp8lHuff
     return true;
 }
 
-
 // The pixel loop's view of the reader: the next `available` bits of the
 // stream, refilled from memory only when it runs low, so a decode does not
 // wait on a load. available is exact near the end. The window ends at bit
@@ -442,8 +436,6 @@ __forceinline bool window_decode(BitReader* reader, BitWindow* window, const Vp8
     return decoded;
 }
 
-// Once per Huffman code: compiled for size.
-
 inline constexpr u8 kCodeLengthOrder[19] = {
     17, 18, 0, 1, 2, 3, 4, 5, 16, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
 };
@@ -516,7 +508,6 @@ bool read_huffman_code(BitReader* reader, u32 alphabet_size, Vp8lWorkspace* work
     }
     return build_code(workspace, alphabet_size, code);
 }
-
 
 } // namespace
 
@@ -1333,14 +1324,9 @@ bool remaining_padding_is_zero(BitReader* reader) noexcept {
     if (reader->failed) {
         return false;
     }
-    const u64 total_bits = static_cast<u64>(reader->bytes.count) * 8u;
-    const u64 remaining = total_bits - reader->bit_position;
+    const u64 remaining = total_bits(*reader) - reader->bit_position;
     return remaining <= 7 && (remaining == 0 || read_bits(reader, static_cast<u32>(remaining)) == 0);
 }
-
-} // namespace
-
-namespace {
 
 WebpDecodeResult decode_validated_lossless_pixels(WebpImage* image, WebpParseResult parse,
                                                   Vp8lWorkspace* workspace, Slice<u8> rgba_output,

@@ -75,7 +75,7 @@ bool queue_call_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
     return true;
 }
 
-// The toast's own batches close every paint stream; d3d11_renderer_draw
+// The toast's own batches close every paint stream; d3d11_renderer_draw_stream
 // draws them after all other layers.
 bool queue_toast(D3D11Renderer* renderer, u32 shown, const Theme& theme) noexcept {
     renderer->toast_paint_first_batch = paint_stream_seal(&renderer->paint_stream);

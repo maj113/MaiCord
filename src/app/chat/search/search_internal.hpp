@@ -8,7 +8,6 @@
 #include "maicord/model/chat/message_poll_store.hpp"
 #include "maicord/ui/chat/search/filter_context.hpp"
 #include "maicord/app/chat/search/recent.hpp"
-#include <limits.h>
 
 namespace maicord::app_detail {
 namespace search_detail {}

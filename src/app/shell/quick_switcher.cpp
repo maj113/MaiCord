@@ -89,17 +89,6 @@ void recent_scope() noexcept {
     g_app.quick_switcher_recent_count = 0;
     SecureZeroMemory(g_app.quick_switcher_recent_channels, sizeof(g_app.quick_switcher_recent_channels));
 }
-UiQuickSwitcherKind ui_kind(QuickSwitcherKind kind) noexcept {
-    switch (kind) {
-    case QuickSwitcherKind::text_channel: return UiQuickSwitcherKind::text_channel;
-    case QuickSwitcherKind::private_channel: return UiQuickSwitcherKind::private_channel;
-    case QuickSwitcherKind::group_private: return UiQuickSwitcherKind::group_private;
-    case QuickSwitcherKind::guild: return UiQuickSwitcherKind::guild;
-    case QuickSwitcherKind::user: return UiQuickSwitcherKind::user;
-    case QuickSwitcherKind::voice_channel: return UiQuickSwitcherKind::voice_channel;
-    }
-    return UiQuickSwitcherKind::text_channel;
-}
 bool source_current(void* opaque) noexcept {
     const auto* q = static_cast<const ApplicationQuickSwitcher*>(opaque);
     return q && q == g_app.quick_switcher && q->active && available() &&
@@ -121,7 +110,7 @@ bool resolve_row(void* opaque, u32 index, UiQuickSwitcherRow* out) noexcept {
     if (!out || !source_current(q) ||
         !quick_switcher_resolve(q->controller, scope(), sources(), index, q->source.revision, &target)) return false;
     const auto& row = q->controller.rows[index];
-    *out = {target.id, target.guild_id, target.channel_id, target.user_id, ui_kind(target.kind),
+    *out = {target.id, target.guild_id, target.channel_id, target.user_id, static_cast<UiQuickSwitcherKind>(target.kind),
         {row.label, row.label_bytes}, {row.detail, row.detail_bytes},
         row.recent ? utf8_literal("Recent") : Utf8View{}, {row.avatar_hash, row.avatar_hash_bytes}, true};
     if (target.kind == QuickSwitcherKind::user || target.kind == QuickSwitcherKind::private_channel)
@@ -188,7 +177,7 @@ bool activate(ApplicationQuickSwitcher& q, const UiQuickSwitcherTarget& selected
     if (selected.action == UiQuickSwitcherAction::confirm) return confirm_picks(q);
     if (selected.action != UiQuickSwitcherAction::activate || !ui_quick_switcher_scene_current(q.scene) ||
         !quick_switcher_resolve(q.controller, scope(), sources(), selected.index, selected.source_revision, &target) ||
-        selected.key != target.id || selected.kind != ui_kind(target.kind)) return true;
+        selected.key != target.id || selected.kind != static_cast<UiQuickSwitcherKind>(target.kind)) return true;
     if (q.picker) return target.kind != QuickSwitcherKind::user || toggle_pick(q, target.user_id);
     // Capture resolved values before close invalidates all borrowed descriptors.
     application_quick_switcher_close();

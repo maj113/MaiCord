@@ -503,12 +503,8 @@ void message_media_controller_defer_scan(MessageMediaController* controller) noe
 }
 
 void message_media_controller_observe_retry(MessageMediaController* controller, u64 retry_at_ms) noexcept {
-    if (!controller_valid(controller) || retry_at_ms == 0) {
-        return;
-    }
-    if (controller->retry_at_ms == 0 || retry_at_ms < controller->retry_at_ms) {
-        controller->retry_at_ms = retry_at_ms;
-    }
+    if (controller_valid(controller))
+        controller->retry_at_ms = earliest_deadline(controller->retry_at_ms, retry_at_ms);
 }
 
 bool message_media_controller_upload_budget_reached(MessageMediaController* controller,

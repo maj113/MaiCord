@@ -6,8 +6,6 @@
 #include "maicord/app/media/account_media_catalog.hpp"
 #include "maicord/ui/chat/messages/reaction_picker.hpp"
 
-
-#include <limits.h>
 #include "maicord/ui/media/picker.hpp"
 
 namespace maicord::app_detail {

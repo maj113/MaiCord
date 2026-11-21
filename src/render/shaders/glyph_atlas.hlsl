@@ -53,8 +53,8 @@ void accumulate_stroke(float2 sample_position, float2 line_start, float2 line_en
 }
 
 // Cubic Bezier weights at t = k/12 (k = 1..12), rounded after each binary32
-// operation; verify with tools/verify_glyph_cubic_weights.py. FXC folds decimal
-// constant expressions differently, so the bits are spelled out.
+// operation. FXC folds decimal constant expressions differently, so the bits
+// are spelled out.
 static const float4 cubic_weights[12] = {
     asfloat(uint4(0x3f452f69u, 0x3e571c73u, 0x3c9c71c8u, 0x3a17b427u)),
     asfloat(uint4(0x3f1425ecu, 0x3eb1c71cu, 0x3d8e38e4u, 0x3b97b427u)),

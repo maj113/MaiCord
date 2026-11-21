@@ -8,7 +8,7 @@ static_assert(kStageMaximumBodyBytes <= kRestClientMaximumRequestBodyBytes);
 
 RestClientSubmitResult account_stage_submit(RestClient* rest, const StageRequest* request,
                                             u64 request_id) noexcept {
-    if (!rest || !request || !request_id || !stage_request_valid(*request))
+    if (!stage_request_valid(*request))
         return {RestClientSubmitError::invalid_input};
     u8 target[kStageMaximumTargetBytes];
     const auto path = stage_write_target(*request, {target, sizeof(target)});

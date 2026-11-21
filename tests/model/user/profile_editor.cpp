@@ -279,9 +279,6 @@ void test_transport() noexcept {
     check(account_profile_edit_submit(&details, &fetch, 7).ok() && capture.submissions == 1 && !capture.body_bytes &&
               capture.route.method == RestMethod::get,
           "profile edit transport: loads are bodyless GETs");
-    check(!account_profile_edit_submit(&details, &request, 0).ok(),
-          "profile edit transport: a request id is required");
-
     // A new image carries the MD5 of the picked original file, as the official client reports it.
     constexpr auto md5 = utf8_literal("0123456789abcdef0123456789abcdef");
     UserPatch picked{};

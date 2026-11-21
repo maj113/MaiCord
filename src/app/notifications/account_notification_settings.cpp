@@ -3,8 +3,6 @@
 namespace maicord {
 RestClientSubmitResult account_guild_settings_submit(RestClient* rest, const UserGuildSettingsPatch* patch,
                                                      u64 request_id) noexcept {
-    if (!rest || !patch || !request_id)
-        return {RestClientSubmitError::invalid_input};
     u8 target[kUserGuildSettingsMaximumTargetBytes];
     u8 body[kUserGuildSettingsMaximumBodyBytes];
     const auto written = user_guild_settings_write(*patch, {target, sizeof(target)}, {body, sizeof(body)});
@@ -19,8 +17,6 @@ RestClientSubmitResult account_guild_settings_submit(RestClient* rest, const Use
 }
 RestClientSubmitResult account_mentions_submit(RestClient* rest, const MentionsQuery* query,
                                                u64 request_id) noexcept {
-    if (!rest || !query || !request_id)
-        return {RestClientSubmitError::invalid_input};
     u8 target[kMentionsMaximumTargetBytes];
     const u32 bytes = write_mentions_target(*query, {target, sizeof(target)});
     if (!bytes)

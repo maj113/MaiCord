@@ -125,4 +125,9 @@ enum Modifier : u8 {
 
 enum class PointerButton : u8 { left, right, middle, back, forward };
 
+// The bit of `button` in WindowEvent::pointer.buttons.
+constexpr u8 pointer_button_bit(PointerButton button) noexcept {
+    return static_cast<u8>(1u << static_cast<u8>(button));
+}
+
 } // namespace maicord

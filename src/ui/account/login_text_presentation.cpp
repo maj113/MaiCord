@@ -657,8 +657,9 @@ void plan_form(Plan& plan, const LoginScene& scene, const LoginView& view) noexc
 
 bool login_text_presentation_build(const LoginScene& scene, const LoginView& view, const Theme& theme,
                                    UiTextCommandStream* stream) noexcept {
-    if (!stream || !stream->storage.data || stream->storage.count < kMaximumLoginTextCommands) {
-        saturating_increment_if(stream, stream->rejected);
+    // The renderer and the accessibility tree pass a stream of their own: it is never null.
+    if (!stream->storage.data || stream->storage.count < kMaximumLoginTextCommands) {
+        saturating_increment(stream->rejected);
         return false;
     }
     ui_text_command_stream_reset(stream);

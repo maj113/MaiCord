@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/core/utf.hpp"
+#include "maicord/core/slice.hpp"
 
 namespace maicord {
 inline constexpr u32 kHttpsUploadMaximumUrlBytes = 8192;

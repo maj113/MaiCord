@@ -34,7 +34,7 @@ bool application_private_channel_call(u64 channel_id) noexcept;
 bool application_private_channel_title_hit(float x, float y) noexcept;
 // The row's close button: closes a DM, or asks before leaving a group.
 bool application_private_channel_row_close(u64 channel_id, float x, float y) noexcept;
-// Message requests: accept or ignore one, or ignore every listed request.
+// Message requests: accept or ignore one.
 bool application_private_channel_accept_request(u64 channel_id) noexcept;
 bool application_private_channel_ignore_request(u64 channel_id) noexcept;
 // Dismisses the DM safety warning banner of a conversation.

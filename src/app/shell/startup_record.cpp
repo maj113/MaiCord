@@ -94,7 +94,7 @@ void application_log_start_record() noexcept {
     used += decimal_write(os_version + used, shared(0x260) & 0xFFFFu);
     os_version[used] = 0;
     system.field("os", "Windows").field("version", os_version);
-    wchar_t locale_wide[LOCALE_NAME_MAX_LENGTH]{};
+    wchar_t locale_wide[LOCALE_NAME_MAX_LENGTH];
     char locale[LOCALE_NAME_MAX_LENGTH];
     if (GetUserDefaultLocaleName(locale_wide, LOCALE_NAME_MAX_LENGTH) <= 1)
         locale_wide[0] = 0;

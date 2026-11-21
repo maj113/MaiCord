@@ -31,11 +31,6 @@ struct EventRing {
     u32 tail;  // next to write
 };
 
-// Bits of PointerEvent::buttons: 1 << PointerButton.
-inline constexpr u8 button_bit(PointerButton button) noexcept {
-    return static_cast<u8>(1u << static_cast<u8>(button));
-}
-
 struct PointerState {
     wl_pointer* pointer;
     wp_cursor_shape_device_v1* shape_device;

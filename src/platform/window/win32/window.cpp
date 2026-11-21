@@ -347,9 +347,9 @@ bool window_inject(Window window, const WindowEvent& event, WindowEventResult* r
     const u32 buttons = event.pointer.buttons;
     if (event.type == EventType::pointer_move || event.type == EventType::pointer_down ||
         event.type == EventType::pointer_up) {
-        wparam = ((buttons & (1u << static_cast<u8>(PointerButton::left))) ? MK_LBUTTON : 0) |
-                 ((buttons & (1u << static_cast<u8>(PointerButton::right))) ? MK_RBUTTON : 0) |
-                 ((buttons & (1u << static_cast<u8>(PointerButton::middle))) ? MK_MBUTTON : 0) |
+        wparam = ((buttons & pointer_button_bit(PointerButton::left)) ? MK_LBUTTON : 0) |
+                 ((buttons & pointer_button_bit(PointerButton::right)) ? MK_RBUTTON : 0) |
+                 ((buttons & pointer_button_bit(PointerButton::middle)) ? MK_MBUTTON : 0) |
                  ((event.modifiers & mod_shift) ? MK_SHIFT : 0) | ((event.modifiers & mod_ctrl) ? MK_CONTROL : 0);
         // Each button has a row of three messages (press, release, double click), in PointerButton order.
         if (event.type == EventType::pointer_move)

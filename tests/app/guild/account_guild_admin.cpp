@@ -338,9 +338,8 @@ void test_transport() noexcept {
     check(account_guild_admin_submit(&details, &request, 105).error == RestClientSubmitError::invalid_input &&
               account_guild_admin_submit(&details, &empty_read, 105).error ==
                   RestClientSubmitError::invalid_input &&
-              account_guild_admin_submit(nullptr, &request, 105).error == RestClientSubmitError::invalid_input &&
               capture.submissions == before,
-          "guild admin account: reasons on reads and absent owners never reach the transport");
+          "guild admin account: reasons on reads never reach the transport");
 
     const RestClientSubmitError errors[] = {RestClientSubmitError::busy,
                                             RestClientSubmitError::account_restricted,

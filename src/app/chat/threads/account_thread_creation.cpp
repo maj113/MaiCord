@@ -3,7 +3,7 @@
 namespace maicord {
 RestClientSubmitResult account_thread_creation_submit(
     RestClient* rest, const ThreadCreationRequest* request, u64 request_id) noexcept {
-    if (!rest || !request || !request_id || !thread_creation_request_valid(*request))
+    if (!thread_creation_request_valid(*request))
         return {RestClientSubmitError::invalid_input};
     u8 target[kThreadCreationMaximumTargetBytes], body[kThreadCreationMaximumBodyBytes];
     const auto path = thread_creation_write_target(*request, {target, sizeof(target)});

@@ -7,8 +7,7 @@ namespace {
 // Copies every block the range touches (block aligned, clipped to the file).
 LocalVideoPosterStep local_video_poster_read(ProgressiveSource* source, ProgressiveRange range,
                                              LocalVideoPosterReader* reader) noexcept {
-    if (!source || !source->base || !reader || !reader->read || !reader->scratch || !range.bytes ||
-        range.first >= source->total_bytes)
+    if (!range.bytes || range.first >= source->total_bytes)
         return LocalVideoPosterStep::malformed;
     constexpr u64 block = kProgressiveBlockBytes;
     const u64 end = minimum<u64>(range.first + range.bytes, source->total_bytes);
@@ -55,8 +54,6 @@ inline LocalVideoPosterStep local_video_poster_metadata(ProgressiveSource* sourc
 
 bool local_video_poster_service(ProgressiveSource* source, LocalVideoPosterReader* reader,
                                 LocalVideoPosterStep* step) noexcept {
-    if (!source || !reader)
-        return false;
     // One sparse source, one video reader: the refused range is the next need.
     const auto plan = progressive_schedule(*source, {}, false);
     if (!plan.submit || !plan.request.bytes) {

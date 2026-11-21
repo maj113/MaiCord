@@ -644,7 +644,6 @@ void build_knobs(Ctx& c, const StoreItem& item, u32 index) noexcept {
     c.b.spacer(0, 16);
     // The live preview: the host draws the page's effect as the window background (in place of the window's own
     // when it is another one) and the renderer fills this plate with it once it is the effect drawing.
-    static constexpr u32 kResolutions[]{25, 35, 50, 75, 100}, kFrames[]{10, 15, 24, 30, 60};
     const StoreUniversal& u = c.m.universal;
     const u32 resolution = u.resolution ? u.resolution : u.global_resolution ? u.global_resolution : 3;
     const u32 frames = u.frame_rate ? u.frame_rate : u.global_frame_rate ? u.global_frame_rate : u.requested_frame_rate ? u.requested_frame_rate : 3;
@@ -656,9 +655,8 @@ void build_knobs(Ctx& c, const StoreItem& item, u32 index) noexcept {
         view.flags = ui_store_critical;
     auto& pill = c.b.chip(refused  ? utf8_literal("Too heavy for this GPU")
                           : failed ? utf8_literal("This effect could not be drawn")
-                                   : compose(c.b, "Live preview \xC2\xB7 {}{}",
-                                             compose(c.b, "{} fps \xC2\xB7 ", c.b.number(kFrames[(frames - 1) % 5])),
-                                             compose(c.b, "{} %", c.b.number(kResolutions[(resolution - 1) % 5]))),
+                                   : compose(c.b, "Live preview \xC2\xB7 {} fps \xC2\xB7 {}", name_at(kFrameNames, (frames - 1) % 5),
+                                             compose(c.b, "{} %", name_at(kResolutionNames, (resolution - 1) % 5))),
                           UiStoreTone::scrim, UiIcon::play);
     pill.anchor = static_cast<u8>(UiStoreAnchor::bottom_left);
     pill.flags = ui_store_foreground;

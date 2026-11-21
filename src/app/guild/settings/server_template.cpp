@@ -34,10 +34,9 @@ bool channels_visible() noexcept {
 
 void load() noexcept {
     auto* s = server_access_state();
-    const bool exists = s && s->template_exists;
-    const auto& t = s ? s->guild_template : GuildTemplate{};
-    set_editor(editor_name, exists ? Utf8View{t.name, t.name_bytes} : Utf8View{});
-    set_editor(editor_description, exists ? Utf8View{t.description, t.description_bytes} : Utf8View{});
+    const GuildTemplate* t = s && s->template_exists ? &s->guild_template : nullptr;
+    set_editor(editor_name, t ? Utf8View{t->name, t->name_bytes} : Utf8View{});
+    set_editor(editor_description, t ? Utf8View{t->description, t->description_bytes} : Utf8View{});
 }
 
 bool dirty() noexcept {

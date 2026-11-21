@@ -3,8 +3,6 @@
 namespace maicord {
 RestClientSubmitResult account_guild_invite_submit(RestClient* rest, const GuildInviteRequest* request,
                                                    u64 request_id, Utf8View session_id) noexcept {
-    if (!rest || !request || !request_id)
-        return {RestClientSubmitError::invalid_input};
     // Only the written prefixes are sent.
     u8 target[kGuildInviteMaximumTargetBytes], body[kGuildInviteMaximumBodyBytes], context[512];
     const auto written =

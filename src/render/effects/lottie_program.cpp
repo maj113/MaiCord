@@ -2,7 +2,6 @@
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/effects/vector_geometry.hpp"
 #include "maicord/sys/crt.hpp"
 // A sticker compiles a frame for each frame it shows. The compiler and the geometry engine (vector_*.cpp) stay
@@ -23,9 +22,6 @@ static_assert(__is_trivially_copyable(JsonValue));
 
 float clamped(float value, float low, float high) noexcept {
     return minimum(maximum(value, low), high);
-}
-float absf(float value) noexcept {
-    return value < 0 ? -value : value;
 }
 using geometry::Geometry;
 using geometry::Matrix;
@@ -689,7 +685,7 @@ struct Document {
     Geometry* primitive(const JsonValue& shape, Shape kind) noexcept {
         const auto p = point_field(shape, "p"), s = point_field(shape, "s");
         if (kind == Shape::ellipse) {
-            const float rx = absf(s.x) * .5f, ry = absf(s.y) * .5f;
+            const float rx = absolute_value(s.x) * .5f, ry = absolute_value(s.y) * .5f;
             return geometry::geometry_rounded_rectangle(factory, p.x - rx, p.y - ry, p.x + rx, p.y + ry, rx, ry);
         }
         const float r = animated_field(shape, "r");

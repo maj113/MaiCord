@@ -36,7 +36,7 @@ bool frame_filter(const WindowEvent& event) noexcept {
     }
     const Window window = reinterpret_cast<Window>(&g.window);
     if (event.type == EventType::pointer_up) {
-        const u8 bit = button_bit(static_cast<PointerButton>(event.button));
+        const u8 bit = pointer_button_bit(static_cast<PointerButton>(event.button));
         if (!(frame.consumed_buttons & bit))
             return false;
         frame.consumed_buttons = static_cast<u8>(frame.consumed_buttons & ~bit);
@@ -69,7 +69,7 @@ bool frame_filter(const WindowEvent& event) noexcept {
         window_show_system_menu(window, event.pointer.x, event.pointer.y);
     }
     if (taken)
-        frame.consumed_buttons |= button_bit(button);
+        frame.consumed_buttons |= pointer_button_bit(button);
     return taken;
 }
 

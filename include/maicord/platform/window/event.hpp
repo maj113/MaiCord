@@ -55,7 +55,7 @@ enum class EventType : u8 {
 };
 
 enum EventFlag : u8 {
-    ev_repeat = 1,        // auto-repeat (WM_KEYDOWN bit 30; Linux: backend timer)
+    ev_repeat = 1,        // auto-repeat (WM_KEYDOWN bit 30; Linux: the backend's own repeat)
     ev_double_click = 2,  // a pointer_down that Windows delivers as WM_xBUTTONDBLCLK
     ev_system = 4,        // WM_SYSKEY*/WM_SYSCHAR: Alt-modified (or F10) key
     ev_synthetic = 8,     // injected: accessibility actions, cursor refresh, test fixtures
@@ -112,7 +112,6 @@ enum class FrameHit : u8 {
     bottom_right,
     nowhere,
 };
-
 
 struct WindowEvent {
     EventType type;

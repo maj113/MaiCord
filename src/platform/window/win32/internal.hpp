@@ -3,7 +3,6 @@
 // Shared between the files of the Windows window backend.
 #include "maicord/core/win32_types.hpp"
 #include "maicord/platform/window/event.hpp"
-#include "maicord/platform/window/win32.hpp"
 
 namespace maicord::win32_detail {
 

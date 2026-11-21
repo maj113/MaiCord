@@ -66,7 +66,7 @@ __declspec(noinline) RestClientSubmitResult submit_with_body(RestClient* rest,
 
 RestClientSubmitResult account_guild_admin_submit(RestClient* rest, const GuildAdminRequest* request,
                                                   u64 request_id) noexcept {
-    if (!rest || !request || !request_id || !guild_admin_request_valid(*request))
+    if (!guild_admin_request_valid(*request))
         return {RestClientSubmitError::invalid_input};
     u8 target[kGuildAdminMaximumTargetBytes];
     const auto path = guild_admin_write_target(*request, {target, sizeof(target)});

@@ -172,7 +172,7 @@ u32 guild_header_menu_build(const ChatStateStore& state, u64 guild_id, u64 prefe
                             const GuildMenuActions& actions, u16 capabilities, Slice<PopupItem> output) noexcept {
     if (!output.data || !guild_context_target_valid(state, guild_id))
         return 0;
-    PopupItem rows[kGuildHeaderMenuMaximumItems]{};
+    PopupItem rows[kGuildHeaderMenuMaximumItems]; // a row is read only after popup_item_set wrote it
     u32 count = 0;
     bool group = false; // the next row starts a separated group
     const auto add = [&](u32 produced) noexcept {

@@ -32,7 +32,7 @@ __declspec(noinline) RestClientSubmitResult submit_body(RestClient* rest,
 RestClientSubmitResult account_forum_post_submit(RestClient* rest,
                                                  const ForumPostRequest* request,
                                                  u64 request_id) noexcept {
-    if (!rest || !request || !request_id || !forum_post_request_valid(*request))
+    if (!forum_post_request_valid(*request))
         return {RestClientSubmitError::invalid_input};
     u8 target[kForumPostMaximumTargetBytes];
     const auto path = forum_post_write_target(*request, {target, sizeof(target)});

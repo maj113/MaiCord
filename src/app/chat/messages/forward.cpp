@@ -66,10 +66,6 @@ bool available() noexcept {
         !(g_app.renderer.settings_scene && g_app.renderer.settings_scene->active) &&
         !g_app.image_viewer.scene.active && !g_app.reaction_viewer.active;
 }
-UiQuickSwitcherKind ui_kind(QuickSwitcherKind kind) noexcept {
-    return kind == QuickSwitcherKind::private_channel ? UiQuickSwitcherKind::private_channel :
-        kind == QuickSwitcherKind::group_private ? UiQuickSwitcherKind::group_private : UiQuickSwitcherKind::text_channel;
-}
 bool source_current(void* opaque) noexcept {
     const auto* q = static_cast<const ApplicationMessageForward*>(opaque);
     return q && q == g_app.message_forward && q->active && available() &&
@@ -82,7 +78,8 @@ bool resolve_row(void* opaque, u32 index, UiMessageForwardRow* out) noexcept {
     if (!source_current(q) || !quick_switcher_resolve(q->controller.candidates,
         scope(), sources(), index, q->source.revision, &target)) return false;
     const auto& row = q->controller.candidates.rows[index];
-    *out = {target.id, target.guild_id, target.channel_id, target.user_id, ui_kind(target.kind),
+    // Forwarding lists only text channels and conversations (quick_switcher_channel_forwardable).
+    *out = {target.id, target.guild_id, target.channel_id, target.user_id, static_cast<UiQuickSwitcherKind>(target.kind),
         {row.label, row.label_bytes}, {row.detail, row.detail_bytes}, {}, {row.avatar_hash, row.avatar_hash_bytes}, true};
     return true;
 }

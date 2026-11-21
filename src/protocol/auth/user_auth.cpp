@@ -636,7 +636,7 @@ static UserAuthDecodeResult decode_response_impl(u16 status_code, Utf8View body,
         return decode_failure(UserAuthDecodeError::invalid_input);
     }
     ResponseContext context{};
-    UserAuthResponse parsed{};
+    UserAuthResponse parsed;
     const UserAuthDecodeResult classified =
         classify_response(status_code, body, structural_scratch, maximum_depth, &context, &parsed, false, reset_mode, phone_mode);
     reset_value<UserAuthResponse>(output);
@@ -906,7 +906,7 @@ UserAuthDecodeResult user_auth_decode_recovery_response(u16 status_code, Utf8Vie
     reset_value(output);
     if (status_code >= 200 && status_code < 300) {
         ResponseContext context{};
-        UserAuthResponse parsed{};
+        UserAuthResponse parsed;
         const auto result = classify_response(status_code, body, structural_scratch,
             maximum_depth, &context, &parsed, true);
         if (!result.ok() || parsed.kind != UserAuthResponseKind::recovery_sent)

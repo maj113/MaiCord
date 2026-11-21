@@ -65,7 +65,7 @@ __declspec(noinline) RestClientSubmitResult submit_with_body(RestClient* rest,
 
 RestClientSubmitResult account_guild_assets_submit(RestClient* rest, const GuildAssetRequest* request,
                                                    u64 request_id) noexcept {
-    if (!rest || !request || !request_id || !guild_asset_request_valid(*request) ||
+    if (!guild_asset_request_valid(*request) ||
         request->operation == GuildAssetOperation::image_probe)
         return {RestClientSubmitError::invalid_input};
     u8 target[kGuildAssetMaximumTargetBytes];

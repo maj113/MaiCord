@@ -74,12 +74,6 @@ void class_release(HINSTANCE module) noexcept {
     if (g_class_users && --g_class_users == 0) UnregisterClassW(kClassName, module);
     ReleaseSRWLockExclusive(&g_class_lock);
 }
-void note_oversize(Runtime* runtime, ConstSlice<wchar_t> name, u64 bytes) noexcept {
-    auto& oversize = runtime->oversize;
-    const u32 units = minimum<u32>(static_cast<u32>(name.count), 259);
-    copy_bytes(oversize.name, name.data, units * sizeof(wchar_t));
-    oversize.name[units] = 0; oversize.name_units = units; oversize.bytes = bytes;
-}
 bool snapshot_path(ConstSlice<wchar_t> path, FileSnapshot* snapshot, NativeFilePickerResult* outcome) noexcept {
     if (!native_file_picker_valid_path(path)) { outcome->error = NativeFilePickerError::path; return false; }
     const HANDLE file = file_open(path.data, {FileAccess::attributes, FileCreate::existing,
@@ -260,7 +254,7 @@ DWORD WINAPI clipboard_worker(void* context) noexcept {
                         state.outcome->native_error = ERROR_FILE_TOO_LARGE;
                         u32 first = text.count;
                         while (first && copied[first - 1] != L'\\') --first;
-                        note_oversize(r, {copied + first, text.count - first}, r->snapshots[i].bytes);
+                        clipboard_attachment_note_oversize(&r->oversize, {copied + first, text.count - first}, r->snapshots[i].bytes);
                         return false;
                     }
                     r->selected[i] = {copied, text.count};

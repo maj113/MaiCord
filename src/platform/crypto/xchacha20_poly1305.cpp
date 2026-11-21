@@ -186,8 +186,8 @@ void xor_stream(ChaChaStream& stream, ConstSlice<u8> input, Slice<u8> output) no
     }
 }
 
-AeadResult portable_crypt(const u8* subkey, const u8* row, ConstSlice<u8> aad, ConstSlice<u8> input,
-                          Slice<u8> output, ConstSlice<u8> tag, bool encrypt) noexcept {
+AeadResult chacha_crypt(const u8* subkey, const u8* row, ConstSlice<u8> aad, ConstSlice<u8> input,
+                        Slice<u8> output, ConstSlice<u8> tag, bool encrypt) noexcept {
     ChaChaStream stream;
     stream.key = subkey;
     stream.row = _mm_loadu_si128(reinterpret_cast<const __m128i*>(row));
@@ -233,7 +233,7 @@ AeadResult crypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad, Cons
     u8 row[16]{};
     copy_bytes(row + 8, nonce.data + 16, 8);
 #if defined(_WIN32)
-    const auto result = portable_crypt(subkey, row, aad, input, output, tag, encrypt);
+    const auto result = chacha_crypt(subkey, row, aad, input, output, tag, encrypt);
 #else
     // OpenSSL builds its key schedule per call in its own heap; the subkey here is the only copy of ours.
     const auto result =

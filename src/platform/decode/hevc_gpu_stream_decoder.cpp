@@ -52,7 +52,7 @@ void hevc_gpu_stream_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_tim
             continue;
         }
         state->held = stream_held(*stream);
-        HevcStreamDecode decode{};
+        HevcStreamDecode decode;
         const HevcStreamAction action = hevc_stream_prepare(state, picture, &decode);
         if (action == HevcStreamAction::unsupported || action == HevcStreamAction::skip)
             continue;

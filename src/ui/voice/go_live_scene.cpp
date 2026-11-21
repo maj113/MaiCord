@@ -1,5 +1,4 @@
 #include "maicord/ui/voice/go_live_scene.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"

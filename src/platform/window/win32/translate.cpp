@@ -12,23 +12,19 @@ namespace {
 
 using win32_detail::kBeginWebAuthnMessage, win32_detail::kPhoneVerifyMessage, win32_detail::kNotificationMessage;
 
-constexpr u8 bit_of(PointerButton button) noexcept {
-    return static_cast<u8>(1u << static_cast<u8>(button));
-}
-
 // Which buttons the MK_ flags of a pointer message say are down.
 u8 buttons_of(WPARAM wparam) noexcept {
     u32 buttons = 0;
     if (wparam & MK_LBUTTON)
-        buttons |= bit_of(PointerButton::left);
+        buttons |= pointer_button_bit(PointerButton::left);
     if (wparam & MK_RBUTTON)
-        buttons |= bit_of(PointerButton::right);
+        buttons |= pointer_button_bit(PointerButton::right);
     if (wparam & MK_MBUTTON)
-        buttons |= bit_of(PointerButton::middle);
+        buttons |= pointer_button_bit(PointerButton::middle);
     if (wparam & MK_XBUTTON1)
-        buttons |= bit_of(PointerButton::back);
+        buttons |= pointer_button_bit(PointerButton::back);
     if (wparam & MK_XBUTTON2)
-        buttons |= bit_of(PointerButton::forward);
+        buttons |= pointer_button_bit(PointerButton::forward);
     return static_cast<u8>(buttons);
 }
 
@@ -117,9 +113,9 @@ bool win32_translate(HWND window, UINT message, WPARAM wparam, LPARAM lparam, Wi
     case WM_XBUTTONDOWN:
     case WM_XBUTTONUP:
     case WM_XBUTTONDBLCLK: {
-        // The high word of wparam names the X button.
         const u32 code = kButtonMessages[message - WM_LBUTTONDOWN];
         u32 button = code >> 2;
+        // The high word of wparam names the X button.
         if (button == static_cast<u32>(PointerButton::back) && HIWORD(wparam) != XBUTTON1)
             button = static_cast<u32>(PointerButton::forward);
         event.type = (code & 3) == 1 ? EventType::pointer_up : EventType::pointer_down;

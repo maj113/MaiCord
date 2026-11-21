@@ -871,8 +871,7 @@ struct __declspec(uuid("bb2c6faa-b5fb-4082-8e6b-388b8cfa90e1")) __declspec(novta
     MAICORD_COM_UNUSED(DSSetConstantBuffers1);
     MAICORD_COM_UNUSED(GSSetConstantBuffers1);
     MAICORD_COM_UNUSED(PSSetConstantBuffers1);
-    virtual void __stdcall CSSetConstantBuffers1(UINT StartSlot, UINT NumBuffers,
-        ID3D11Buffer* const* ppConstantBuffers, const UINT* pFirstConstant, const UINT* pNumConstants) = 0;
+    MAICORD_COM_UNUSED(CSSetConstantBuffers1);
     MAICORD_COM_UNUSED(VSGetConstantBuffers1);
     MAICORD_COM_UNUSED(HSGetConstantBuffers1);
     MAICORD_COM_UNUSED(DSGetConstantBuffers1);

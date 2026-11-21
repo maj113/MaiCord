@@ -1,6 +1,6 @@
 #pragma once
 // Server Settings internals shared by the layer (settings.cpp)
-// and its pages (application_guild_settings_<page>.cpp). UI thread only.
+// and its pages (<page>.cpp in this folder). UI thread only.
 #include "settings.hpp"
 #include "../../settings/layer.hpp"
 #include "../../settings/modal.hpp"

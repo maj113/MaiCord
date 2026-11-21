@@ -334,7 +334,7 @@ SfntStatus cff2_open(const SfntFace& face, CffFont* font) noexcept {
     const u32 header = table.data[2], top_size = byte_load_be16(table.data + 3);
     if (header < 5) return SfntStatus::malformed;
     if (!span(table, header, top_size)) return SfntStatus::truncated;
-    SfntHorizontalMetrics metrics{};
+    SfntHorizontalMetrics metrics;
     status = sfnt_horizontal_metrics_open(face, &metrics);
     if (status != SfntStatus::ok) return status;
     result.glyph_count = metrics.glyph_count; result.units_per_em = metrics.units_per_em;
@@ -383,7 +383,7 @@ SfntStatus cff_open(const SfntFace& face, CffFont* font) noexcept {
     if (table.count < 4) return SfntStatus::truncated;
     if (table.data[0] != 1) return SfntStatus::unsupported;
     if (table.data[2] < 4 || table.data[3] < 1 || table.data[3] > 4) return SfntStatus::malformed;
-    SfntHorizontalMetrics metrics{};
+    SfntHorizontalMetrics metrics;
     status = sfnt_horizontal_metrics_open(face, &metrics);
     if (status != SfntStatus::ok) return status;
     result.glyph_count = metrics.glyph_count; result.units_per_em = metrics.units_per_em;

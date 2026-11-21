@@ -117,13 +117,6 @@ Content* content_create(DWORD* error) noexcept {
     content->references = 1;
     return content;
 }
-// Records a file refused for size; a name past the record's capacity is cut.
-void refuse(ClipboardAttachmentOversize* oversize, ConstSlice<wchar_t> name, u64 bytes) noexcept {
-    if (!oversize) return;
-    const u32 units = minimum<u32>(static_cast<u32>(name.count), 259);
-    copy_bytes(oversize->name, name.data, units * sizeof(wchar_t));
-    oversize->name[units] = 0; oversize->name_units = units; oversize->bytes = bytes;
-}
 UploadSource adopt_png(ClipboardPng* png, DWORD* error) noexcept {
     auto* content = content_create(error);
     if (!content) { clipboard_png_release(png); return {}; }
@@ -186,14 +179,14 @@ DWORD visit_virtual_files(IDataObject* object, CLIPFORMAT descriptors, u32 maxim
         const u32 units = wide_length(file.cFileName, MAX_PATH);
         const u64 size = (file.dwFlags & FD_FILESIZE) ? (static_cast<u64>(file.nFileSizeHigh) << 32) | file.nFileSizeLow : 0;
         if (!units || units == MAX_PATH || ((file.dwFlags & FD_ATTRIBUTES) && (file.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))) { error = ERROR_INVALID_DATA; break; }
-        if (size > limit) { refuse(oversize, {file.cFileName, units}, size); error = ERROR_FILE_TOO_LARGE; break; }
+        if (size > limit) { clipboard_attachment_note_oversize(oversize, {file.cFileName, units}, size); error = ERROR_FILE_TOO_LARGE; break; }
         STGMEDIUM medium{};
         if (!get(object, contents, static_cast<LONG>(i), TYMED_HGLOBAL | TYMED_ISTREAM, &medium)) { error = ERROR_INVALID_DATA; break; }
         DWORD source_error = 0; u64 refused = 0;
         auto source = adopt(&medium, size, limit, &source_error, &refused);
         if (medium.tymed) ReleaseStgMedium(&medium);
         if (!source.context) {
-            if (source_error == ERROR_FILE_TOO_LARGE) refuse(oversize, {file.cFileName, units}, refused);
+            if (source_error == ERROR_FILE_TOO_LARGE) clipboard_attachment_note_oversize(oversize, {file.cFileName, units}, refused);
             error = source_error; break;
         }
         if (!visitor(context, {}, {file.cFileName, units}, source)) { upload_source_release(source); error = ERROR_INVALID_DATA; }
@@ -333,7 +326,7 @@ DWORD visit_object(IDataObject* object, DWORD sequence, u32 maximum, u64 limit, 
                     *count = 1; return ERROR_SUCCESS;
                 }
             }
-            if (error == ERROR_FILE_TOO_LARGE) refuse(oversize, {L"image.png", 9}, png.bytes);
+            if (error == ERROR_FILE_TOO_LARGE) clipboard_attachment_note_oversize(oversize, {L"image.png", 9}, png.bytes);
             image_too_large = error == ERROR_FILE_TOO_LARGE;
         }
         if (!error) return ERROR_SUCCESS;
@@ -359,6 +352,12 @@ bool capture_clipboard(ClipboardCapture* output) noexcept {
     return SUCCEEDED(result);
 }
 } // namespace
+void clipboard_attachment_note_oversize(ClipboardAttachmentOversize* oversize, ConstSlice<wchar_t> name, u64 bytes) noexcept {
+    if (!oversize) return;
+    const u32 units = minimum<u32>(static_cast<u32>(name.count), 259);
+    copy_bytes(oversize->name, name.data, units * sizeof(wchar_t));
+    oversize->name[units] = 0; oversize->name_units = units; oversize->bytes = bytes;
+}
 void clipboard_attachment_release(ClipboardCapture* input) noexcept {
     if (input && input->object) {
         LARGE_INTEGER zero{};
