@@ -33,7 +33,7 @@ static_assert(name_list_count(kAfkLabels) == sizeof(kGuildAfkTimeouts) / sizeof(
 
 // Subscription rows need a monetizable server; voice session messages are
 // offered only where the bit is already set. Either way a set bit shows.
-bool message_shown(u32 bit) noexcept {
+inline bool message_shown(u32 bit) noexcept {
     const u32 stored = owner->engagement_base.system_channel_flags;
     if (bit == guild_system_suppress_join || bit == guild_system_suppress_join_replies ||
         bit == guild_system_suppress_boost || bit == guild_system_suppress_setup_tips)
@@ -48,7 +48,7 @@ bool message_shown(u32 bit) noexcept {
     return false;
 }
 
-bool member_count(u32* count) noexcept {
+inline bool member_count(u32* count) noexcept {
     const auto& list = g_app.account_ui->member_list;
     if (list.guild_id == owner->guild_id && list.authoritative && !list.thread_mode && list.member_count) {
         *count = list.member_count;

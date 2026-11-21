@@ -245,7 +245,7 @@ void draft_set(u64 id, u8 type, bool permission) noexcept {
     else if (a.draft_count < kGuildCommandPermissionMaximum)
         a.draft[a.draft_count++] = {id, type, permission};
 }
-void draft_remove(u32 at) noexcept {
+inline void draft_remove(u32 at) noexcept {
     auto& a = *apps();
     if (at >= a.draft_count)
         return;
@@ -311,7 +311,7 @@ Utf8View count_text(Bank& bank, u32 count, const char* one, const char* many) no
 }
 
 // "Created on Oct 5, 2024 by name", from the webhook's snowflake.
-Utf8View created_text(Bank& bank, const GuildWebhook& hook) noexcept {
+inline Utf8View created_text(Bank& bank, const GuildWebhook& hook) noexcept {
     const u32 start = bank.used;
     bank.add("Created on ");
     char date[64];
@@ -390,7 +390,7 @@ void project_overview(Bank& bank) noexcept {
                     "Visit the App Directory to add apps to your server", "App Directory");
 }
 
-void project_webhook_editor(Bank& bank, const GuildWebhook& hook) noexcept {
+inline void project_webhook_editor(Bank& bank, const GuildWebhook& hook) noexcept {
     auto& a = *apps();
     const bool edit = editable() && can_manage_webhooks();
     if (!followed(hook)) {
@@ -435,16 +435,18 @@ void project_webhooks(Bank& bank, bool follower) noexcept {
                     "New Webhook", editable() && first_webhook_channel());
     }
     push_status_error();
-    // Grouped by channel, as "Posting to #channel".
+    // Grouped by channel, as "Posting to #channel". Each webhook's channel is found once, before the sort.
     u32 order[kWebhookCapacity];
+    const ChannelRecord* channels[kWebhookCapacity];
     u32 count = 0;
-    for (u32 i = 0; i < a.webhook_count; ++i)
-        if (followed(a.webhooks[i]) == follower && a.webhooks[i].type != guild_webhook_application)
-            order[count++] = i;
     const auto& s = state();
-    heap_sort_shared(order, count, [&a, &s](u32 x, u32 y) noexcept {
-        const auto* cx = chat_state_store_find_channel(s, a.webhooks[x].channel_id);
-        const auto* cy = chat_state_store_find_channel(s, a.webhooks[y].channel_id);
+    for (u32 i = 0; i < a.webhook_count; ++i)
+        if (followed(a.webhooks[i]) == follower && a.webhooks[i].type != guild_webhook_application) {
+            channels[i] = chat_state_store_find_channel(s, a.webhooks[i].channel_id);
+            order[count++] = i;
+        }
+    heap_sort_shared(order, count, [&a, &s, &channels](u32 x, u32 y) noexcept {
+        const auto *cx = channels[x], *cy = channels[y];
         if (cx && cy && cx != cy)
             return guild_settings_channel_before(s, GuildChannelPickerOrder::channel_list, *cx, *cy);
         return cx == cy ? a.webhooks[x].id < a.webhooks[y].id : cx != nullptr;
@@ -719,7 +721,7 @@ void open_member_form(const UiRect& anchor) noexcept {
     application_text_form_open(request);
 }
 
-void open_avatar_pick() noexcept {
+inline void open_avatar_pick() noexcept {
     apps()->avatar_for = apps()->editing;
     apps()->avatar_clear = false;
     start_pick(Pick::webhook_avatar);

@@ -52,7 +52,7 @@ bool bulk_allowed() noexcept {
 bool search_text_changed(const Utf8View& text) noexcept {
     return text.bytes != owner->search_applied_bytes || !bytes_equal(text.data, owner->search_applied, text.bytes);
 }
-bool default_filters() noexcept {
+inline bool default_filters() noexcept {
     const auto& p = *owner;
     return !p.search_applied_bytes && !p.filter_role_count && !p.filter_joined && !p.filter_created &&
            !p.filter_signals && !p.filter_sort && !p.filter_join_type_set && !p.filter_invite_bytes;
@@ -106,28 +106,27 @@ void relative(Bank& bank, u64 then_ms, u64 now_ms, bool account) noexcept {
         count(seconds / 31'104'000, "year", "years");
 }
 
-Utf8View join_method(Bank& bank, const GuildSearchMember& m) noexcept {
+// The join method's text, which the caller appends. Manual Verification with an invite code appends "Manual
+// Verification (" and the code first.
+inline Utf8View join_method(Bank& bank, const GuildSearchMember& m) noexcept {
+    const Utf8View code{m.invite_code, m.invite_code_bytes};
     switch (m.join_source_type) {
     case 1: return utf8_literal("Bot Invite");
     case 2: return utf8_literal("Integration");
     case 3: return utf8_literal("Server Discovery");
     case 4: return utf8_literal("Student Hub");
-    case 5:
-        return m.invite_code_bytes ? bank.add({m.invite_code, m.invite_code_bytes}) : utf8_literal("Unknown");
+    case 5: return code.bytes ? code : utf8_literal("Unknown");
     case 6: {
         const auto* record = guild_details();
         const auto vanity = record ? guild_detail_store_vanity_url_code(details(), *record) : Utf8View{};
-        return vanity.bytes ? bank.add(vanity) : utf8_literal("Vanity URL");
+        return vanity.bytes ? vanity : utf8_literal("Vanity URL");
     }
-    case 7: {
-        if (!m.invite_code_bytes)
+    case 7:
+        if (!code.bytes)
             return utf8_literal("Manual Verification");
-        const u32 start = bank.used;
         bank.add("Manual Verification (");
-        bank.add({m.invite_code, m.invite_code_bytes});
-        bank.add(")");
-        return bank.since(start);
-    }
+        bank.add(code);
+        return utf8_literal(")");
     case 8: return utf8_literal("Linked Channel");
     default: return utf8_literal("Unknown");
     }
@@ -180,7 +179,7 @@ bool ensure_bank() noexcept {
                                                 kGuildMemberSearchCapacity});
 }
 // Commits the bank for the members a reply may add (never past its capacity).
-bool reserve_bank(u32 added) noexcept {
+inline bool reserve_bank(u32 added) noexcept {
     const u32 needed = minimum(owner->search.count + added, kGuildMemberSearchCapacity);
     return !needed || stable_storage_reserve(&owner->search_bank, needed);
 }
@@ -279,11 +278,11 @@ void project_members(Bank& bank) noexcept {
         push_error({}, "Couldn't open the member list.");
         return;
     }
-    const bool edit = editable();
+    const bool edit = editable(), manage = can_manage_guild();
     const u64 now = clock_unix_milliseconds();
     push_editor(control_search, "Search members", {}, UiSettingsControlKind::edit, edit, editor_search,
                 "Search by username or id");
-    if (can_manage_guild()) {
+    if (manage) {
         push_filter(bank, control_filter_joined, "Member Since", Menu::member_since, edit);
         push_filter(bank, control_filter_created, "Joined Discord", Menu::joined_discord, edit);
         push_filter(bank, control_filter_method, "Join Method", Menu::join_method, edit);
@@ -350,7 +349,7 @@ void project_members(Bank& bank) noexcept {
         relative(bank, m.joined_at_ms, now, false);
         bank.add(" · Joined Discord ");
         relative(bank, (m.user_id >> 22) + kSnowflakeEpochMilliseconds, now, true);
-        if (can_manage_guild()) {
+        if (manage) {
             bank.add(" · ");
             bank.add(join_method(bank, m));
         }

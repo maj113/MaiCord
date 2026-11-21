@@ -9,7 +9,7 @@
 namespace maicord::app_detail::server_settings {
 namespace {
 
-const GuildRecord* guild() noexcept {
+inline const GuildRecord* guild() noexcept {
     return chat_state_store_find_guild(state(), owner->guild_id);
 }
 // The custom invite link shows only to administrators.
@@ -202,7 +202,7 @@ void notice_action() noexcept {
 }
 
 // A new banner's data URI as the banner upload prepares it.
-bool prepare_banner() noexcept {
+inline bool prepare_banner() noexcept {
     auto& p = *owner;
     if (p.banner_uri)
         return true;

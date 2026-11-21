@@ -25,7 +25,7 @@ static_assert(name_list_count(kSampleLines) == 2 * kSampleCount);
 // What the preview shows for a tag not typed yet.
 constexpr Utf8View kPlaceholderTag = utf8_literal("WUMP");
 
-UiIcon badge_icon(u8 type) noexcept {
+inline UiIcon badge_icon(u8 type) noexcept {
     switch (type) {
     case 0: return UiIcon::sword;
     case 1: return UiIcon::droplet;

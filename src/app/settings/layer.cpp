@@ -14,6 +14,8 @@
 #include "maicord/render/text/edit_layout.hpp"
 #include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
+#include "maicord/ui/theme/styles.hpp"
 #include "maicord/ui/core/transition.hpp"
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/platform/window/clipboard.hpp"
@@ -214,6 +216,20 @@ __forceinline bool choose_pointer(SettingsLayer* layer, PointerStep step, float 
     }
     return true;
 }
+// Ends drags, presses and selections. `release` also releases the pointer capture.
+void end_pointer(SettingsLayer* layer, bool release) noexcept {
+    layer->backdrop_pressed = false;
+    layer->selecting = layer->scrollbar_dragging = layer->slider_dragging = false;
+    if (layer->dragging || layer->drag_armed) {
+        layer->dragging = layer->drag_armed = false;
+        ui_settings_scene_set_drag(layer->scene, 0, 0, false);
+    }
+    reset_value(&layer->pressed);
+    if (layer->scene->active)
+        ui_button_pointer(&layer->scene->widgets, UiButtonPointerEvent::cancel, {});
+    if (release)
+        application_release_capture();
+}
 } // namespace
 
 void settings_layer_reset(SettingsLayer* layer) noexcept {
@@ -345,7 +361,7 @@ void settings_layer_tick(SettingsLayer* layer, u64 now_ms) noexcept {
     if (ui_settings_scene_tick(layer->scene, now_ms, reduced_motion))
         application_request_frame();
     if (layer->entrance_started) {
-        const auto durations = ui_settings_layout_tokens(application_theme().styles).duration;
+        const auto& durations = ui_theme_settings(application_theme().styles);
         const u64 duration = maximum<u64>(1, durations.modal_enter_ms);
         const u64 elapsed = now_ms > layer->entrance_started ? now_ms - layer->entrance_started : 0;
         const bool running = !reduced_motion && elapsed < duration;
@@ -355,7 +371,7 @@ void settings_layer_tick(SettingsLayer* layer, u64 now_ms) noexcept {
         renderer_set_settings_modal_progress(
             &g_app.renderer,
             !running ? 1.f
-            : dialog ? ui_settings_modal_entrance(durations, elapsed)
+            : dialog ? ui_settings_modal_entrance(durations.modal_enter_ms, elapsed)
                      : ui_motion_curve_sample(UiMotionCurve::css_ease_out,
                                               static_cast<float>(elapsed) / static_cast<float>(duration)));
         if (running)
@@ -393,16 +409,7 @@ static bool settings_layer_backdrop_hit(const UiSettingsScene& scene, float x, f
 }
 
 void settings_layer_cancel_pointer(SettingsLayer* layer) noexcept {
-    layer->backdrop_pressed = false;
-    layer->selecting = layer->scrollbar_dragging = layer->slider_dragging = false;
-    if (layer->dragging || layer->drag_armed) {
-        layer->dragging = layer->drag_armed = false;
-        ui_settings_scene_set_drag(layer->scene, 0, 0, false);
-    }
-    reset_value(&layer->pressed);
-    if (layer->scene->active)
-        ui_button_pointer(&layer->scene->widgets, UiButtonPointerEvent::cancel, {});
-    application_release_capture();
+    end_pointer(layer, true);
 }
 
 UiRect settings_layer_edit_bounds(SettingsLayer* layer) noexcept {
@@ -602,17 +609,10 @@ bool settings_layer_window_event(SettingsLayer* layer, const WindowEvent& event)
         return false;
     auto* scene = layer->scene;
     if (input_focus_lost(event) || event.type == EventType::cancel_input || event.type == EventType::capture_lost) {
-        layer->backdrop_pressed = false;
-        layer->selecting = layer->scrollbar_dragging = layer->slider_dragging = false;
-        if (layer->dragging || layer->drag_armed) {
-            layer->dragging = layer->drag_armed = false;
-            ui_settings_scene_set_drag(scene, 0, 0, false);
+        if (layer->dragging || layer->drag_armed)
             application_request_frame();
-        }
-        reset_value(&layer->pressed);
-        ui_button_pointer(&scene->widgets, UiButtonPointerEvent::cancel, {});
-        if (event.type != EventType::capture_lost)
-            application_release_capture();
+        // A lost capture is already released.
+        end_pointer(layer, event.type != EventType::capture_lost);
         if (input_focus_lost(event)) {
             if (layer->choice) {
                 settings_layer_close_choice(layer);
@@ -804,7 +804,6 @@ bool settings_layer_window_event(SettingsLayer* layer, const WindowEvent& event)
                     dispatch(layer, activation, true, false);
             } else {
                 layer->pressed = target;
-                layer->pressed_revision = scene->revision;
             }
             application_capture_pointer();
         } else if (step == PointerStep::release) {

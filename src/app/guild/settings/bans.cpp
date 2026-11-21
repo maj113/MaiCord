@@ -46,12 +46,9 @@ bool matches(const BanQuery& query, u64 user_id, const Utf8View& name) noexcept 
 void push_ban_row(Bank& bank, u64 user_id, const Utf8View& name, const Utf8View& reason, bool can_unban,
                   const Utf8View& avatar, u16 discriminator) noexcept {
     auto& p = *owner;
-    char id_text[24];
-    Bank id{id_text, sizeof(id_text), 0};
-    id.number(user_id);
     p.row_ids[p.row_count] = user_id;
-    // Members who can lift bans open the ban's details; others read its reason here.
-    const Utf8View label = name.bytes ? bank.add(name) : bank.add(id.since(0));
+    // A ban without a name shows its user ID.
+    const Utf8View label = name.bytes ? bank.add(name) : bank.number(user_id);
     const Utf8View detail = can_unban      ? Utf8View{}
                             : reason.bytes ? bank.add(reason)
                                            : utf8_literal("No reason provided");
@@ -80,7 +77,7 @@ void project_bans(Bank& bank) noexcept {
     const bool searching = busy() && p.request.op == Op::ban_search;
     const auto& store = p.bans;
     if (p.bans_failed)
-        push_error("Couldn't load bans", p.status, "Try again");
+        push_load_error("Couldn't load bans");
     else if (!store.complete)
         push_loading("Loading bans…");
     else if (searching)

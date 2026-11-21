@@ -17,7 +17,7 @@ Utf8View invite_code(const GuildAdminInvite& invite) noexcept {
 void project_invites(Bank& bank) noexcept {
     auto& p = *owner;
     if (p.invites_failed)
-        push_error("Couldn't load invites", p.status, "Try again");
+        push_load_error("Couldn't load invites");
     else if (p.failed && p.status.bytes)
         push_error({}, p.status);
     else if (!p.invites_loaded)
@@ -26,6 +26,7 @@ void project_invites(Bank& bank) noexcept {
     if (p.invites_loaded && !p.invite_count)
         push_notice("No active invites.");
     const u64 now = clock_unix_milliseconds();
+    const u32 actions = editable() ? 2u : 1u;
     for (u32 i = 0; i < p.invite_count; ++i) {
         const auto& invite = p.invites[i];
         const auto code = bank.add(invite_code(invite));
@@ -53,7 +54,7 @@ void project_invites(Bank& bank) noexcept {
         } else
             bank.add("never expires");
         const auto description = bank.since(start);
-        push_buttons(kRowBase + i, code, description, true, kInviteActions, editable() ? 2u : 1u,
+        push_buttons(kRowBase + i, code, description, true, kInviteActions, actions,
                      {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
     }
 }

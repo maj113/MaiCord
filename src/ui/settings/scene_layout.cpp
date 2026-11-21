@@ -953,23 +953,16 @@ void visit_nav(const UiSettingsScene& scene, UiVisitRef<const NavRow&> visit) no
             return;
     }
 }
-u32 nav_count(const UiSettingsScene& scene) noexcept {
-    u32 count = 0;
-    visit_nav(scene, [&](const NavRow&) noexcept {
-        ++count;
-        return true;
-    });
-    return count;
-}
-// Pinned rows, which a modal sidebar keeps in its foot.
+// Pinned rows, which a modal sidebar keeps in its foot: the bound entries visit_nav keeps that pin. Only pinned
+// entries need the registry lookup.
 __forceinline u32 pinned_count(const UiSettingsScene& scene) noexcept {
     if (scene.presentation != UiSettingsPresentation::modal)
         return 0;
     u32 count = 0;
-    visit_nav(scene, [&](const NavRow& row) noexcept {
-        count += row.pinned;
-        return true;
-    });
+    for (u32 i = 0; i < scene.navigation.count; ++i) {
+        const auto& e = scene.navigation[i];
+        count += e.pinned && (e.kind != UiSettingsNavKind::page || page_registered(scene, e.page));
+    }
     return count;
 }
 } // namespace
@@ -978,19 +971,25 @@ bool nav_selected(const UiSettingsScene& scene, const NavRow& row) noexcept {
            (ui_page_key_equal(row.target.page, scene.selected_page) ||
             (row.subpage.owner_id && ui_page_key_equal(row.subpage, scene.selected_page)));
 }
-bool nav_row(const UiSettingsScene& scene, u32 index, NavRow* row) noexcept {
-    u32 position = 0;
-    bool found = false;
-    visit_nav(scene, [&](const NavRow& candidate) noexcept {
-        if (position++ != index)
+void visit_nav_widgets(const UiSettingsScene& scene, UiVisitRef<const NavWidget&> visit) noexcept {
+    // Build adds one widget for each row in visit order, so the rows and their widget slots go forward together.
+    u32 index = 0, slot = 0;
+    visit_nav(scene, [&](const NavRow& row) noexcept {
+        const u32 at = index++;
+        while (slot < scene.widgets.count &&
+               (entries(scene)[slot].role != EntryRole::nav || entries(scene)[slot].source_index < at))
+            ++slot;
+        if (slot == scene.widgets.count)
+            return false;
+        if (entries(scene)[slot].source_index != at)
             return true;
-        *row = candidate;
+        NavWidget widget{{static_cast<u16>(slot++), scene.widgets.generation}, nullptr, row};
         // Only a modal has a foot to pin rows to.
-        row->pinned = row->pinned && scene.presentation == UiSettingsPresentation::modal;
-        found = true;
-        return false;
+        widget.row.pinned = row.pinned && scene.presentation == UiSettingsPresentation::modal;
+        widget.node = ui_widget_manager_layout_node(scene.widgets, widget.handle);
+        return !widget.node || !ui_rect_has_area(ui_rect_overlap(widget.node->rectangle, widget.node->clip_rectangle)) ||
+               visit(widget);
     });
-    return found;
 }
 namespace {
 // Group headers: 12 bold caps, 4 DIP above the first, 14 above the rest.
@@ -1000,7 +999,7 @@ float nav_height(const UiSettingsMetrics& m, UiSettingsNavKind kind, u32 index) 
                                                   : m.nav_item_height + m.nav_item_gap;
 }
 } // namespace
-float nav_extent(const UiSettingsScene& scene, const UiSettingsMetrics& m) noexcept {
+float nav_extent(const UiSettingsScene& scene, const UiSettingsMetrics& m, u32* rows) noexcept {
     float extent = 0;
     u32 index = 0;
     visit_nav(scene, [&](const NavRow& row) noexcept {
@@ -1009,7 +1008,12 @@ float nav_extent(const UiSettingsScene& scene, const UiSettingsMetrics& m) noexc
         ++index;
         return true;
     });
+    if (rows)
+        *rows = index;
     return extent;
+}
+float scroll_extent(const UiSettingsScene& scene, bool sidebar, const UiSettingsMetrics& m) noexcept {
+    return sidebar ? nav_extent(scene, m) : content_extent(scene, m);
 }
 
 // Dialog footer band: buttons between the shared notice padding.
@@ -1138,14 +1142,12 @@ u32 first_row(const UiSettingsScene& scene, float offset) noexcept {
     }
     return first;
 }
-float visible_height(const UiSettingsScene& scene, bool sidebar, const UiSettingsMetrics& m) noexcept {
-    const auto f = frame(scene, m);
+float visible_height(const Frame& f, bool sidebar) noexcept {
     return maximum(1.f, ui_rect_height(sidebar ? f.nav : f.body));
 }
 } // namespace
-float clamp_offset(const UiSettingsScene& scene, bool sidebar, float offset, const UiSettingsMetrics& m) noexcept {
-    const float extent = sidebar ? nav_extent(scene, m) : content_extent(scene, m);
-    return maximum(0.0f, minimum(offset, maximum(0.0f, extent - visible_height(scene, sidebar, m))));
+float clamp_offset(float offset, float extent, const Frame& f, bool sidebar) noexcept {
+    return maximum(0.0f, minimum(offset, maximum(0.0f, extent - visible_height(f, sidebar))));
 }
 
 bool geometry_valid(const UiEditGeometry* geometry) noexcept {
@@ -1196,8 +1198,9 @@ __forceinline const ChoiceRule* choice_rule(UiSettingsControlKind kind) noexcept
     return nullptr;
 }
 } // namespace
+// utf8_validate rejects a null view with bytes itself.
 bool valid_text(const Utf8View& text) noexcept {
-    return (!text.bytes || text.data) && utf8_validate(text).valid;
+    return utf8_validate(text).valid;
 }
 bool valid_content(const UiSettingsPageContent& content) noexcept {
     if (content.format != kUiSettingsPageFormat || !content.title.bytes || !valid_text(content.title) ||
@@ -1275,7 +1278,8 @@ const UiSettingsControl* find_control(const UiSettingsScene& scene, const UiSett
         return nullptr;
     for (u32 i = 0; i < scene.widgets.count; ++i) {
         const auto& entry = entries(scene)[i];
-        if (!ui_settings_target_equal(entry.target, target))
+        // The id differs for nearly every other widget: test it inline before the whole target.
+        if (entry.target.control_id != target.control_id || !ui_settings_target_equal(entry.target, target))
             continue;
         const auto& control = scene.content.controls[entry.source_index];
         if (control.id != target.control_id)
@@ -1414,9 +1418,11 @@ void settle_focus(UiSettingsScene& scene) noexcept {
     ui_widget_manager_focus(&scene.widgets, parked ? ui_widget_invalid_handle() : target_handle(scene, scene.focus));
 }
 UiWidgetHandle target_handle(const UiSettingsScene& scene, const UiSettingsTarget& target) noexcept {
-    for (u32 i = 0; i < scene.widgets.count; ++i)
-        if (ui_settings_target_equal(entries(scene)[i].target, target))
+    for (u32 i = 0; i < scene.widgets.count; ++i) {
+        const auto& entry = entries(scene)[i].target;
+        if (entry.control_id == target.control_id && ui_settings_target_equal(entry, target))
             return {static_cast<u16>(i), scene.widgets.generation};
+    }
     return ui_widget_invalid_handle();
 }
 namespace {
@@ -1467,9 +1473,12 @@ bool row_pointer_region(const void* context, const UiWidgetManager&, UiWidgetHan
 bool build(UiSettingsScene* scene, bool scrolled) noexcept {
     const SceneTokens t(*scene);
     const auto& m = t.metric;
-    const u32 navs = nav_count(*scene);
+    u32 navs = 0;
+    const float nav_end = nav_extent(*scene, m, &navs);
+    // The frame depends on neither the scroll offsets nor the rows, so one serves the whole build.
+    const auto f = frame(*scene, m);
     const float min_row = kUiSettingsLabelLine + m.row_padding * 2 - 8;
-    const u32 visible_rows = static_cast<u32>(visible_height(*scene, false, m) / maximum(24.f, min_row)) + 3;
+    const u32 visible_rows = static_cast<u32>(visible_height(f, false) / maximum(24.f, min_row)) + 3;
     // Grid cells sit several to a line, each line one more container.
     u32 cells = 0;
     for (u32 i = 0; i < scene->content.controls.count; ++i)
@@ -1522,9 +1531,8 @@ bool build(UiSettingsScene* scene, bool scrolled) noexcept {
         }
         prefix[i + 1] = prefix[i] + height + (i + 1 == scene->content.aside_row ? stacked : 0);
     }
-    scene->content_offset = clamp_offset(*scene, false, scene->content_offset, m);
-    scene->sidebar_offset = clamp_offset(*scene, true, scene->sidebar_offset, m);
-    const auto f = frame(*scene, m);
+    scene->content_offset = clamp_offset(scene->content_offset, content_extent(*scene, m), f, false);
+    scene->sidebar_offset = clamp_offset(scene->sidebar_offset, nav_end, f, true);
     const auto viewport = scene->viewport;
     auto style = sized(-1, -1);
     style.flow = UiLayoutFlow::overlay;
@@ -1832,13 +1840,14 @@ float segment_selection(const UiSegmentedMotion& motion, u32 selected, u32 optio
 }
 void reveal_range(UiSettingsScene* scene, bool sidebar, float first, float last, const UiSettingsMetrics& m) noexcept {
     auto& offset = sidebar ? scene->sidebar_offset : scene->content_offset;
-    const float visible = visible_height(*scene, sidebar, m);
+    const auto f = frame(*scene, m);
+    const float visible = visible_height(f, sidebar);
     const float padding = sidebar ? kSidebarRevealPadding : kRevealPadding;
     if (first - padding < offset)
         offset = first - padding;
     else if (last + padding > offset + visible)
         offset = last - first + padding * 2 > visible ? first - padding : last + padding - visible;
-    offset = clamp_offset(*scene, sidebar, offset, m);
+    offset = clamp_offset(offset, scroll_extent(*scene, sidebar, m), f, sidebar);
 }
 float nav_offset_of(const UiSettingsScene& scene, const UiSettingsMetrics& m, const UiSettingsTarget& target,
                     float* height) noexcept {

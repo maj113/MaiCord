@@ -27,32 +27,29 @@ u32 split(Utf8View text, Word* words, u32 capacity) noexcept {
     }
     return count;
 }
-bool prefixes_word(Word query, Utf8View text) noexcept {
-    for (u32 i = 0; i < text.bytes;) {
+// Bit w is set when query word w prefixes a word of text (ASCII case-insensitive). The text is split once for all
+// the query words.
+u32 word_mask(const Word* words, u32 count, Utf8View text) noexcept {
+    const u32 all = (1u << count) - 1;
+    u32 mask = 0;
+    for (u32 i = 0; i < text.bytes && mask != all;) {
         while (i < text.bytes && !word_byte(static_cast<u8>(text.data[i])))
             ++i;
         const u32 start = i;
         while (i < text.bytes && word_byte(static_cast<u8>(text.data[i])))
             ++i;
-        if (i - start < query.bytes)
-            continue;
-        u32 j = 0;
-        while (j < query.bytes && ascii_lower(text.data[start + j]) == ascii_lower(query.data[j]))
-            ++j;
-        if (j == query.bytes)
-            return true;
+        for (u32 w = 0; w < count; ++w) {
+            const Word query = words[w];
+            if (i - start < query.bytes)
+                continue;
+            u32 j = 0;
+            while (j < query.bytes && ascii_lower(text.data[start + j]) == ascii_lower(query.data[j]))
+                ++j;
+            if (j == query.bytes)
+                mask |= 1u << w;
+        }
     }
-    return false;
-}
-bool all_words(const Word* words, u32 count, const Utf8View* fields, u32 field_count) noexcept {
-    for (u32 w = 0; w < count; ++w) {
-        bool found = false;
-        for (u32 f = 0; f < field_count && !found; ++f)
-            found = prefixes_word(words[w], fields[f]);
-        if (!found)
-            return false;
-    }
-    return true;
+    return mask;
 }
 bool result_kind(UiSettingsControlKind kind) noexcept {
     return kind != UiSettingsControlKind::category && kind != UiSettingsControlKind::notice;
@@ -78,17 +75,10 @@ bool ui_settings_schema_find(const UiSettingsSchema& schema, Utf8View key,
     return false;
 }
 
-u32 ui_settings_schema_category(const UiSettingsSchemaPanel& panel, u32 node) noexcept {
-    for (u32 i = minimum(node, panel.nodes.count); i-- > 0;)
-        if (panel.nodes[i].kind == UiSettingsControlKind::category)
-            return i;
-    return kUiSettingsNoChoice;
-}
-
 bool ui_settings_search_text_matches(Utf8View query, Utf8View text) noexcept {
     Word words[kUiSettingsSearchMaximumWords]{};
     const u32 count = split(query, words, kUiSettingsSearchMaximumWords);
-    return count && count <= kUiSettingsSearchMaximumWords && all_words(words, count, &text, 1);
+    return count && count <= kUiSettingsSearchMaximumWords && word_mask(words, count, text) == (1u << count) - 1;
 }
 
 u32 ui_settings_schema_search(const UiSettingsSchema& schema, Utf8View query,
@@ -97,26 +87,30 @@ u32 ui_settings_schema_search(const UiSettingsSchema& schema, Utf8View query,
     const u32 count = split(query, words, kUiSettingsSearchMaximumWords);
     if (!count || count > kUiSettingsSearchMaximumWords || !output.data || !output.count)
         return 0;
+    const u32 all = (1u << count) - 1;
     u32 used = 0;
     for (u32 p = 0; p < schema.panels.count; ++p) {
         const auto& panel = schema.panels[p];
+        // The query words in the label of the category over the node. Panel titles and keywords name the panel, not
+        // every row in it.
+        u32 category = 0;
         for (u32 n = 0; n < panel.nodes.count; ++n) {
             const auto& node = panel.nodes[n];
+            if (node.kind == UiSettingsControlKind::category)
+                category = word_mask(words, count, node.label());
             if (!result_kind(node.kind) || (node.flags & ui_settings_schema_search_hidden) || !node.label().bytes)
                 continue;
-            const u32 category = ui_settings_schema_category(panel, n);
-            // Panel titles and keywords name the panel, not every row in it.
-            const Utf8View context[]{node.label(), node.keywords(), node.description(),
-                                     category == kUiSettingsNoChoice ? Utf8View{} : panel.nodes[category].label()};
-            u32 score = 0;
-            if (all_words(words, count, &context[0], 1))
-                score = 4;
-            else if (all_words(words, count, &context[1], 1))
+            // Every word in the label, else in the keywords, else in the description, else spread over all of them.
+            const u32 label = word_mask(words, count, node.label());
+            u32 score = 4;
+            if (label != all) {
+                const u32 keywords = word_mask(words, count, node.keywords());
                 score = 3;
-            else if (all_words(words, count, &context[2], 1))
-                score = 2;
-            else if (all_words(words, count, context, 4))
-                score = 1;
+                if (keywords != all) {
+                    const u32 description = word_mask(words, count, node.description());
+                    score = description == all ? 2 : (label | keywords | description | category) == all ? 1 : 0;
+                }
+            }
             if (!score)
                 continue;
             // Stable insertion by descending score keeps catalog order for ties.

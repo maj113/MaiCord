@@ -9,6 +9,9 @@ namespace maicord {
 const UiThemeMetrics& ui_theme_metrics(const UiResolvedThemeStyles* bank) noexcept {
     return bank && bank->ready ? bank->metrics : kUiThemeMetricsDefault;
 }
+const UiThemeSettings& ui_theme_settings(const UiResolvedThemeStyles* bank) noexcept {
+    return bank && bank->ready ? bank->settings : kUiThemeSettingsDefault;
+}
 // Built where the caller's value lives (a return slot, no copy); out of line so the default-initialised
 // text and metrics of these two large styles are stored once, not at every call site.
 __declspec(noinline) UiAudioControlsStyle ui_theme_audio_style(const UiResolvedThemeStyles* bank) noexcept {

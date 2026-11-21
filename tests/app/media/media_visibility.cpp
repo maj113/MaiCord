@@ -1045,7 +1045,7 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     auto* previous = g_app.renderer.settings_scene;
     g_app.renderer.settings_scene = &scene;
     UiSettingsAvatarGeometry geometry{}, extra{};
-    u32 cursor = 0;
+    UiSettingsAvatarCursor cursor;
     valid = valid && ui_settings_scene_next_avatar(scene, &cursor, &geometry) &&
             media_asset_key_equal(geometry.media->key, key) && ui_rect_has_area(geometry.clip) &&
             ui_rect_width(geometry.avatar) == ui_rect_height(geometry.avatar);
@@ -1103,7 +1103,7 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     avatars[0] = {};
     ++content.revision;
     valid = ui_settings_scene_update(&scene, &registry, {0, 0, 1280, 800});
-    cursor = 0;
+    cursor = {};
     check(valid && !ui_settings_scene_next_avatar(scene, &cursor, &extra) && !repass(pump).media_key_is_current(key) &&
               pump.pass(1000, 1100, 0, &repaint).request_settings_avatars() && identity_requests == before + 1,
           "settings avatar: a row without media keeps its initials and requests nothing");
@@ -1119,7 +1119,7 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     copy_bytes(avatars[0].hash, icon.data, icon.bytes);
     ++content.revision;
     valid = ui_settings_scene_update(&scene, &registry, {0, 0, 1280, 800});
-    cursor = 0;
+    cursor = {};
     check(valid && ui_settings_scene_next_avatar(scene, &cursor, &geometry) &&
               media_asset_key_equal(geometry.media->key, guild_key) && repass(pump).media_key_is_current(guild_key),
           "settings avatar: a server identity row admits its guild icon instead of initials");
@@ -1136,7 +1136,7 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     copy_bytes(avatars[0].hash, default_path.data, default_path.bytes);
     ++content.revision;
     valid = ui_settings_scene_update(&scene, &registry, {0, 0, 1280, 800});
-    cursor = 0;
+    cursor = {};
     const u32 before_default = attachment_requests;
     check(valid && ui_settings_scene_next_avatar(scene, &cursor, &geometry) &&
               media_asset_key_equal(geometry.media->key, default_key) && repass(pump).media_key_is_current(default_key) &&
@@ -1197,7 +1197,7 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     UiRect shown_rect[8]{};
     const auto collect = [&]() noexcept {
         u32 count = 0;
-        cursor = 0;
+        cursor = {};
         for (; count < 8 && ui_settings_scene_next_avatar(scene, &cursor, &geometry); ++count) {
             shown[count] = geometry.media->key;
             shown_rect[count] = geometry.avatar;

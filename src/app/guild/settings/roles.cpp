@@ -7,6 +7,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/model/guild/permission_grid.hpp"
+#include "maicord/model/chat/sorted_search.hpp"
 #include "maicord/ui/widgets/color_picker.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "../../account/account_ui_runtime.hpp"
@@ -29,12 +30,18 @@ bool role_writable() noexcept {
     const auto* r = role(owner->editing_role);
     return r && !owner->role_missing && guild_settings_role_editable(owner->access, *r);
 }
+// The draft order is clean and matches the store at its current role and permission writes.
+void order_checked() noexcept {
+    owner->order_mutations = state().permission_mutations;
+    owner->order_current = true;
+}
 void load_order() noexcept {
     const RoleRecord* sorted[kGuildRoleMaximum];
     owner->order_count = guild_settings_sorted_roles(state(), owner->guild_id, {sorted, kGuildRoleMaximum});
     for (u32 i = 0; i < owner->order_count; ++i)
         owner->order[i] = sorted[i]->id;
     owner->order_dirty = false;
+    order_checked();
 }
 
 __declspec(noinline) void load_role_editor(const RoleRecord& r) noexcept {
@@ -51,7 +58,7 @@ bool role_patch_pending() noexcept {
 bool order_matches_store() noexcept {
     return !guild_settings_order_changed(state(), owner->guild_id, {owner->order, owner->order_count});
 }
-const char* lock_text(GuildRoleLock lock) noexcept {
+inline const char* lock_text(GuildRoleLock lock) noexcept {
     switch (lock) {
     case GuildRoleLock::no_permission: return "Role is locked because you don't have the Manage Roles permission.";
     case GuildRoleLock::highest:
@@ -60,11 +67,11 @@ const char* lock_text(GuildRoleLock lock) noexcept {
     default: return nullptr;
     }
 }
-u32 member_count(u64 role_id) noexcept {
-    for (u32 j = 0; j < owner->counts; ++j)
-        if (owner->role_counts[j].role_id == role_id)
-            return owner->role_counts[j].members;
-    return ~0u;
+// role_counts is in role ID order (settings_requests.cpp sorts it on decode).
+inline u32 member_count(u64 role_id) noexcept {
+    const auto& p = *owner;
+    const u32 at = sorted_lower_bound(p.counts, [&](u32 i) noexcept { return p.role_counts[i].role_id < role_id; });
+    return at < p.counts && p.role_counts[at].role_id == role_id ? p.role_counts[at].members : ~0u;
 }
 
 // Roles: the @everyone card, search with Create Role, the column header and
@@ -83,9 +90,13 @@ void project_role_list(Bank& bank) noexcept {
     }
     push_editor(control_search, {}, {}, UiSettingsControlKind::edit, editable(), editor_search, "Search roles",
                 manage && !owner->order_dirty ? "Create Role" : nullptr);
+    // Each draft entry resolved once; @everyone and deleted roles are null.
+    const RoleRecord* rows[kGuildRoleMaximum];
     u32 listed = 0;
-    for (u32 i = 0; i < owner->order_count; ++i)
-        listed += owner->order[i] != owner->guild_id && role(owner->order[i]);
+    for (u32 i = 0; i < owner->order_count; ++i) {
+        rows[i] = owner->order[i] != owner->guild_id ? role(owner->order[i]) : nullptr;
+        listed += rows[i] != nullptr;
+    }
     const u32 heading = bank.used;
     bank.add("ROLES — ");
     bank.number(listed);
@@ -104,10 +115,9 @@ void project_role_list(Bank& bank) noexcept {
     // Row ids follow the draft order so drops and activation map back to it.
     u32 shown = 0;
     for (u32 i = 0; i < owner->order_count; ++i) {
-        const auto* resolved = role(owner->order[i]);
-        if (!resolved || resolved->id == owner->guild_id)
+        if (!rows[i])
             continue;
-        const auto& r = *resolved;
+        const auto& r = *rows[i];
         const auto name = chat_state_store_role_name(state(), r);
         if (!guild_settings_text_matches(query, name))
             continue;
@@ -529,9 +539,16 @@ bool reconcile(u64 now) noexcept {
             }
         }
     }
-    if (!p.editing_role && !p.order_dirty && !mutation_pending() && !order_matches_store()) {
-        load_order();
-        changed = true;
+    // The stored order changes only with a role write, and the Gateway dispatch recomputes the guild's permissions
+    // (permission_mutations) after each one: the order is compared again only after such a write.
+    if (!p.editing_role && !p.order_dirty && !mutation_pending() &&
+        (!p.order_current || p.order_mutations != state().permission_mutations)) {
+        if (order_matches_store())
+            order_checked();
+        else {
+            load_order();
+            changed = true;
+        }
     }
     if (p.open_after_create && role(p.open_after_create) && !p.editing_role) {
         const u64 id = p.open_after_create;

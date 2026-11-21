@@ -445,6 +445,10 @@ struct Settings : SettingsModal {
     u64 order[kGuildRoleMaximum];
     u32 order_count;
     bool order_dirty;
+    // order_current: the clean draft order matched the store when permission_mutations was order_mutations. A
+    // clean draft that may differ from the store (a reorder reply) clears it.
+    bool order_current;
+    u32 order_mutations;
     // The reorder request's roles and rows, built as the save is sent.
     const RoleRecord* order_rows[kGuildRoleMaximum];
     GuildAdminPosition positions[kGuildRoleMaximum];
@@ -705,6 +709,8 @@ Utf8View channel_label(Bank& bank, u64 channel_id, Text none) noexcept;
 void image_summary(Bank& bank, const GuildImageInfo& info) noexcept;
 Utf8View picked_text(Bank& bank, const Picked& picked, Text current) noexcept;
 void relative_time(Bank& bank, u64 then_ms, u64 now_ms, bool future) noexcept;
+// A user listed by the loaded audit log pages, or null.
+const GuildAdminUser* audit_user(u64 id) noexcept;
 Utf8View user_label(u64 id) noexcept;
 Utf8View user_name(const GuildAdminUser& user) noexcept;
 // Channels of `types` (a bit per channel type) in channel-list order behind a first row labelled `none` (null: no

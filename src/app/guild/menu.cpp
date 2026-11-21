@@ -79,17 +79,17 @@ bool profile_allowed(u64 guild_id) noexcept {
 }
 // The notification controls own "Notification settings" and its follow-up
 // menu; the header reuses that row's action so its range dispatches it.
-u32 notification_settings_action(u64 guild_id) noexcept {
+inline u32 notification_settings_action(u64 guild_id) noexcept {
     PopupItem rows[kNotificationMenuItemCount];
     const u32 count = application_notification_menu_items(guild_id, 0, {rows, kNotificationMenuItemCount});
     return count == kNotificationMenuItemCount ? rows[count - 1].action : 0;
 }
-UiRect header_rectangle() noexcept {
+inline UiRect header_rectangle() noexcept {
     const auto* node =
         ui_scene_node(g_app.shell_scene, UiSemantic::guild_menu);
     return node && node->visible ? node->rectangle : UiRect{};
 }
-bool enabled_in_popup(u32 action) noexcept {
+inline bool enabled_in_popup(u32 action) noexcept {
     const auto& popup = g_app.popup_scene;
     if (!popup.items.data || popup.item_count > popup.items.count)
         return false;
@@ -98,7 +98,7 @@ bool enabled_in_popup(u32 action) noexcept {
             return true;
     return false;
 }
-bool open_settings_pages(u64 guild_id) noexcept {
+inline bool open_settings_pages(u64 guild_id) noexcept {
     PopupItem rows[kGuildSettingsPageCount]; // the page items reset each row they write
     const u32 count =
         application_guild_settings_page_items(guild_id, action_settings_page, {rows, kGuildSettingsPageCount});
@@ -117,7 +117,7 @@ bool open_settings_pages(u64 guild_id) noexcept {
     g_app.context_focus = &g_app.popup_scene.widgets;
     return refresh_popup_text();
 }
-bool copy_guild_id(u64 guild_id) noexcept {
+inline bool copy_guild_id(u64 guild_id) noexcept {
     char text[20];
     const u32 bytes = message_context_format_snowflake(guild_id, {text, sizeof(text)});
     return application_copy_text({text, bytes}, kToastIdCopied, kToastIdCopyFailed);

@@ -155,7 +155,7 @@ struct Text : TextBank {
     Text() noexcept : TextBank{storage, sizeof(storage), 0} {}
 };
 
-Utf8View duration_text(u32 seconds) noexcept {
+inline Utf8View duration_text(u32 seconds) noexcept {
     switch (seconds) {
     case 60: return utf8_literal("60 seconds");
     case 300: return utf8_literal("5 minutes");
@@ -166,7 +166,7 @@ Utf8View duration_text(u32 seconds) noexcept {
     }
 }
 
-Utf8View failure_text(const RestClientResponse& response) noexcept {
+inline Utf8View failure_text(const RestClientResponse& response) noexcept {
     if (response.error != RestClientError::none)
         return utf8_literal("Couldn't reach the server. Try again.");
     switch (response.status_code) {
@@ -261,7 +261,7 @@ bool ban_save(TextFormOwnerKey key, Utf8View text, bool typed, u32 choice, u32 s
     return true;
 }
 
-bool open_ban_form() noexcept {
+inline bool open_ban_form() noexcept {
     Text title{};
     if (moderation.kind == Kind::bulk_ban) {
         title.add("Ban ");

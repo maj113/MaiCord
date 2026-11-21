@@ -232,16 +232,22 @@ ClientThemeStorageResult import_file(const wchar_t* path, const FileSnapshot& ex
     pages_release(workspace);
     return result;
 }
-} // namespace
-bool client_theme_storage_valid(const ClientThemeStorageSnapshot& value) noexcept {
-    if (static_cast<u8>(value.builtin_theme) > static_cast<u8>(ClientTheme::custom_light_gradient) ||
-        !background_theme_valid(value.gradient) || (value.custom_active && !value.custom_present) ||
-        (value.custom_present && !client_theme_document_valid(value.custom)))
+bool snapshot_valid(ClientTheme builtin_theme, const BackgroundTheme& gradient,
+                    const BackgroundEffectSettings* effect_profiles, const ClientThemeDocument& custom, bool present,
+                    bool active) noexcept {
+    if (static_cast<u8>(builtin_theme) > static_cast<u8>(ClientTheme::custom_light_gradient) ||
+        !background_theme_valid(gradient) || (active && !present) ||
+        (present && !client_theme_document_valid(custom)))
         return false;
-    for (const auto profile : value.effect_profiles)
-        if (!background_effect_settings_valid(profile))
+    for (u32 i = 0; i < kBackgroundEffectProfileCount; ++i)
+        if (!background_effect_settings_valid(effect_profiles[i]))
             return false;
     return true;
+}
+} // namespace
+bool client_theme_storage_valid(const ClientThemeStorageSnapshot& value) noexcept {
+    return snapshot_valid(value.builtin_theme, value.gradient, value.effect_profiles, value.custom,
+                          value.custom_present, value.custom_active);
 }
 BackgroundTheme client_theme_document_swatch(const ClientThemeDocument& document) noexcept {
     const auto& background = document.theme.background;
@@ -260,19 +266,18 @@ BackgroundTheme client_theme_document_swatch(const ClientThemeDocument& document
 }
 bool client_theme_storage_capture(ClientThemeStorageSnapshot* output, const ClientPreferences& preferences,
                                   const ClientThemeDocument& document, bool present, bool active) noexcept {
-    if (!output)
+    if (!output || !snapshot_valid(preferences.theme, preferences.gradient, preferences.effect_profiles, document,
+                                   present, active))
         return false;
-    ClientThemeStorageSnapshot candidate{};
-    candidate.custom = document;
-    candidate.gradient = preferences.gradient;
-    candidate.builtin_theme = preferences.theme;
-    candidate.custom_present = present;
-    candidate.custom_active = active;
+    // The document may be the output's own.
+    if (&output->custom != &document)
+        copy_value(&output->custom, document);
+    output->gradient = preferences.gradient;
+    output->builtin_theme = preferences.theme;
+    output->custom_present = present;
+    output->custom_active = active;
     for (u32 i = 0; i < kBackgroundEffectProfileCount; ++i)
-        candidate.effect_profiles[i] = preferences.effect_profiles[i];
-    if (!client_theme_storage_valid(candidate))
-        return false;
-    *output = candidate;
+        output->effect_profiles[i] = preferences.effect_profiles[i];
     return true;
 }
 bool client_theme_storage_apply_theme_fields(const ClientThemeStorageSnapshot& snapshot,
@@ -604,14 +609,13 @@ void release_io(ClientThemeIo* io) noexcept {
 u32 io_work(void* opaque) noexcept {
     auto* io = static_cast<ClientThemeIo*>(opaque);
     for (;;) {
-        ClientThemeIoRequest request{};
         AcquireSRWLockExclusive(&io->lock);
         if (!io->pending_ready) {
             io->running = false; // the next submission starts a new worker
             ReleaseSRWLockExclusive(&io->lock);
             return 0;
         }
-        request = io->pending;
+        const ClientThemeIoRequest request = io->pending;
         io->pending_ready = false;
         io->active_generation = request.generation;
         io->active_cancelled = false;
@@ -658,7 +662,11 @@ u32 io_work(void* opaque) noexcept {
         ReleaseSRWLockExclusive(&io->lock);
     }
 }
-bool submit(ClientThemeIo* io, const ClientThemeIoRequest& request, u64* generation) noexcept {
+// Queues an operation in place of a queued one. Only an import reads the path and the expected file, and only an
+// import (its baseline) and a save read the snapshot; the others pass none.
+bool submit(ClientThemeIo* io, ClientThemeIoOperation operation, const ClientThemeStorageSnapshot* snapshot,
+            bool install, u64* generation, ConstSlice<wchar_t> path = {},
+            const FileSnapshot* expected = nullptr) noexcept {
     if (!io || !generation || byte_ranges_conflict(generation, sizeof(*generation), io, sizeof(*io)))
         return reject(ERROR_INVALID_PARAMETER);
     AcquireSRWLockExclusive(&io->lock);
@@ -679,7 +687,15 @@ bool submit(ClientThemeIo* io, const ClientThemeIoRequest& request, u64* generat
         io->thread = thread;
         io->running = true;
     }
-    io->pending = request;
+    auto& pending = io->pending;
+    if (snapshot)
+        copy_value(&pending.snapshot, *snapshot);
+    if (expected)
+        pending.expected = *expected;
+    copy_bytes(pending.path, path.data, path.count * sizeof(wchar_t));
+    pending.path[path.count] = 0;
+    pending.operation = operation;
+    pending.install = install;
     io->pending.generation = ++io->next_generation;
     io->pending_ready = true;
     *generation = io->next_generation;
@@ -710,9 +726,7 @@ bool client_theme_io_create(ClientThemeIo** output, const wchar_t* path) noexcep
     return true;
 }
 bool client_theme_io_submit_load(ClientThemeIo* io, u64* generation) noexcept {
-    ClientThemeIoRequest request{};
-    request.operation = ClientThemeIoOperation::load;
-    return submit(io, request, generation);
+    return submit(io, ClientThemeIoOperation::load, nullptr, false, generation);
 }
 bool client_theme_io_submit_import(ClientThemeIo* io, ConstSlice<wchar_t> path,
                                    const FileSnapshot& expected, const ClientThemeStorageSnapshot& baseline,
@@ -720,28 +734,16 @@ bool client_theme_io_submit_import(ClientThemeIo* io, ConstSlice<wchar_t> path,
     if (!path_valid(path) || !expected.bytes || expected.bytes > kClientThemeImportMaximumBytes ||
         expected.identity.reserved || !client_theme_storage_valid(baseline))
         return reject(ERROR_INVALID_PARAMETER);
-    ClientThemeIoRequest request{};
-    request.snapshot = baseline;
-    request.expected = expected;
-    request.operation = ClientThemeIoOperation::import_document;
-    request.install = install;
-    copy_bytes(request.path, path.data, path.count * sizeof(wchar_t));
-    return submit(io, request, generation);
+    return submit(io, ClientThemeIoOperation::import_document, &baseline, install, generation, path, &expected);
 }
 bool client_theme_io_submit_save(ClientThemeIo* io, const ClientThemeStorageSnapshot& snapshot, bool export_document,
                                  u64* generation) noexcept {
     if (!client_theme_storage_valid(snapshot))
         return reject(ERROR_INVALID_PARAMETER);
-    ClientThemeIoRequest request{};
-    request.snapshot = snapshot;
-    request.operation = ClientThemeIoOperation::save;
-    request.install = export_document;
-    return submit(io, request, generation);
+    return submit(io, ClientThemeIoOperation::save, &snapshot, export_document, generation);
 }
 bool client_theme_io_submit_catalog(ClientThemeIo* io, u64* generation) noexcept {
-    ClientThemeIoRequest request{};
-    request.operation = ClientThemeIoOperation::catalog;
-    return submit(io, request, generation);
+    return submit(io, ClientThemeIoOperation::catalog, nullptr, false, generation);
 }
 HANDLE client_theme_io_completion_event(const ClientThemeIo* io) noexcept {
     return io ? io->completion_event : nullptr;

@@ -196,10 +196,10 @@ void test_controls(Check check) noexcept {
     // Settings and every dialog (Events included) share the official modal spring:
     // visually settled by half the token duration, complete at its end.
     const u32 enter = tokens.duration.modal_enter_ms;
-    check(enter && ui_settings_modal_entrance(tokens.duration, 0) < .01f &&
-              ui_settings_modal_entrance(tokens.duration, enter / 4) > .6f &&
-              ui_settings_modal_entrance(tokens.duration, enter / 2) > .97f &&
-              ui_settings_modal_entrance(tokens.duration, enter) == 1.f,
+    check(enter && ui_settings_modal_entrance(enter, 0) < .01f &&
+              ui_settings_modal_entrance(enter, enter / 4) > .6f &&
+              ui_settings_modal_entrance(enter, enter / 2) > .97f &&
+              ui_settings_modal_entrance(enter, enter) == 1.f,
           "settings controls: modal and dialog entrances follow one spring timeline");
     const UiRect track{500 - tokens.metric.switch_width, 100 - tokens.metric.switch_height * .5f, 500,
                        100 + tokens.metric.switch_height * .5f};
@@ -254,9 +254,8 @@ void test_schema(Check check) noexcept {
     check(ui_settings_schema_valid(schema) && ui_settings_schema_find(schema, utf8_literal("appearance.embeds"), &location) &&
               location.panel == 0 && location.node == 2 &&
               ui_settings_schema_find(schema, utf8_literal("advanced"), &location) && location.panel == 1 &&
-              location.node == kUiSettingsNoChoice && !ui_settings_schema_find(schema, utf8_literal("missing"), &location) &&
-              ui_settings_schema_category(kPanels[0], 2) == 1 && ui_settings_schema_category(kPanels[0], 0) == kUiSettingsNoChoice,
-          "settings schema: keys resolve panels and nodes; nodes know their category");
+              location.node == kUiSettingsNoChoice && !ui_settings_schema_find(schema, utf8_literal("missing"), &location),
+          "settings schema: keys resolve panels and nodes");
     UiSettingsSchemaNode duplicate[]{kAppearance[0], kAppearance[0]};
     const UiSettingsSchemaPanel duplicate_panel[]{{utf8_literal("p"), utf8_literal("P"), {}, UiIcon::code, 0, {duplicate, 2}}};
     check(!ui_settings_schema_valid({{kSections, 2}, {duplicate_panel, 1}}),
@@ -1659,7 +1658,7 @@ void test_glyph_pictures(Check check) noexcept {
                        ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal) &&
                        ui_settings_scene_update(&scene, &registry, viewport);
     UiSettingsAvatarGeometry tile{}, chip{}, extra{};
-    u32 cursor = 0;
+    UiSettingsAvatarCursor cursor;
     const bool found = built && ui_settings_scene_next_avatar(scene, &cursor, &tile) &&
                        ui_settings_scene_next_avatar(scene, &cursor, &chip);
     check(found && !ui_settings_scene_next_avatar(scene, &cursor, &extra) && tile.media == &tiles[1].media &&

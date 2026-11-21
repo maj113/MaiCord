@@ -10,10 +10,13 @@ struct UiResolvedThemeStyles;
 struct UiSettingsStyle;
 struct UiThemeEditorStyle;
 struct UiThemeMetrics;
+struct UiThemeSettings;
 
 // Apply-time bank projection. Null/dormant banks yield the built-in component
 // defaults. No ownership, registry lookup, hashing or allocation.
 const UiThemeMetrics& ui_theme_metrics(const UiResolvedThemeStyles*) noexcept;
+// The settings tier as stored (16-bit metrics, the control durations); frame code reads its durations here.
+const UiThemeSettings& ui_theme_settings(const UiResolvedThemeStyles*) noexcept;
 UiAudioControlsStyle ui_theme_audio_style(const UiResolvedThemeStyles*) noexcept;
 UiPollStyle ui_theme_poll_style(const UiResolvedThemeStyles*) noexcept;
 // The two large styles are built out of line, in the caller's return slot.

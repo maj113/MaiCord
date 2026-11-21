@@ -1,4 +1,4 @@
-#include "internal.hpp"
+#include "page_common.hpp"
 #include "../../settings/settings.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/chat/chat_state.hpp"
@@ -10,14 +10,10 @@ namespace {
 
 // The actor's avatar from the response's users (hash or the default avatar),
 // else the cached user's; an actor outside both keeps the initials.
-UiSettingsAvatarMedia audit_avatar(u64 user_id) noexcept {
-    for (u32 i = 0; i < owner->audit_user_count; ++i) {
-        const auto& user = owner->audit_users[i];
-        if (user.id == user_id)
-            return application_listed_user_avatar_media(user_id, {user.avatar, user.avatar_bytes},
-                                                        user.discriminator);
-    }
-    return application_user_avatar_media(user_id);
+inline UiSettingsAvatarMedia audit_avatar(u64 user_id, const GuildAdminUser* listed) noexcept {
+    return listed ? application_listed_user_avatar_media(user_id, {listed->avatar, listed->avatar_bytes},
+                                                         listed->discriminator)
+                  : application_user_avatar_media(user_id);
 }
 
 void project_audit(Bank& bank) noexcept {
@@ -29,7 +25,7 @@ void project_audit(Bank& bank) noexcept {
     push_choice(control_filter_action, "Filter by action", {}, editable(),
                 filter.verb.bytes ? Text(filter.verb) : Text("All actions"));
     if (p.audit_failed)
-        push_error("Couldn't load the audit log", p.status, "Try again");
+        push_load_error("Couldn't load the audit log");
     else if (p.failed && p.status.bytes)
         push_error({}, p.status);
     else if (!p.audit_complete && !p.audit_count)
@@ -42,7 +38,9 @@ void project_audit(Bank& bank) noexcept {
         const auto& entry = p.audit[i];
         const auto action = audit_action(entry.action_type);
         const u32 start = bank.used;
-        const auto actor = user_label(entry.user_id);
+        // The actor's entry in the response's users serves its name and its avatar.
+        const auto* listed = audit_user(entry.user_id);
+        const auto actor = listed ? user_name(*listed) : user_label(entry.user_id);
         bank.add(actor.bytes ? actor : utf8_literal("Someone"));
         bank.add(" ");
         if (action.verb.bytes) {
@@ -81,7 +79,7 @@ void project_audit(Bank& bank) noexcept {
                                                      ui_settings_presentation_accent),
                                      kUiSettingsNoDefault});
         if (row < kControlCapacity)
-            p.avatar_media[row] = audit_avatar(entry.user_id);
+            p.avatar_media[row] = audit_avatar(entry.user_id, listed);
         p.row_accent[i] = guild_person_color(entry.user_id);
     }
     // Older actions load when this row scrolls into view.

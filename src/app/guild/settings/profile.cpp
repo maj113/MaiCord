@@ -455,7 +455,7 @@ const char* invalid() noexcept {
 
 // The new icon's data URI, cropped as the official client's cropper does by
 // default: the centred square, a PNG for stills and a GIF for animated GIFs.
-bool prepare_icon() noexcept {
+inline bool prepare_icon() noexcept {
     auto& p = *owner;
     if (p.icon_uri)
         return true;

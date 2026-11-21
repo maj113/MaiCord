@@ -1,5 +1,7 @@
 #include "internal.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/log.hpp"
+#include "maicord/core/heap_sort.hpp"
 #include "../../net/rest_rate_retry.hpp"
 #include "../../account/account_access.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
@@ -245,7 +247,7 @@ bool application_guild_settings_submit(u64 now) noexcept {
         if (p.request.op == Op::server_access)
             server_access_response(RestClientResponse{}, {});
         if (p.request.op == Op::role_reorder)
-            p.order_dirty = false;
+            p.order_dirty = p.order_current = false;
         // An image that could not be prepared fails the save visibly.
         if (p.request.op == Op::profile_update || p.request.op == Op::boost_update) {
             p.failed = true;
@@ -471,6 +473,11 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
         const auto decoded = guild_admin_decode_role_counts(body, {p.scratch, kScratchUnits},
                                                             {p.role_counts, kGuildRoleMaximum});
         p.counts = decoded.ok() ? decoded.count : 0;
+        // In role ID order: the roles page finds each role's count by binary search.
+        heap_sort_shared(p.role_counts, p.counts,
+                         [](const GuildAdminRoleCount& a, const GuildAdminRoleCount& b) noexcept {
+                             return a.role_id < b.role_id;
+                         });
         break;
     }
     case Op::role_create: {
@@ -491,7 +498,7 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
         break;
     case Op::role_reorder:
         // The gateway republishes positions; keep the draft order until then.
-        p.order_dirty = false;
+        p.order_dirty = p.order_current = false;
         break;
     case Op::ban_list: {
         // A full page outgrows the shared scratch: its rows and structurals
@@ -527,10 +534,18 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
             }
         break;
     case Op::invite_list: {
-        const auto decoded = guild_admin_decode_invites(body, {p.scratch, kScratchUnits}, {p.invites, kInviteCapacity});
+        // A full list outgrows the shared scratch: its structurals (at most one per body byte) live in pages for this
+        // decode only.
+        const u32 units = body.bytes + 1;
+        auto* index = commit_pages<u32>(SIZE_T{units} * sizeof(u32));
+        const auto decoded = index ? guild_admin_decode_invites(body, {index, units}, {p.invites, kInviteCapacity})
+                                   : GuildAdminResult{0, 0, GuildAdminError::capacity};
+        if (index)
+            pages_release(index);
         p.invite_count = decoded.ok() ? decoded.count : 0;
         p.invites_loaded = true;
         if (!decoded.ok()) {
+            log_u64(LogLevel::warning, "guild_settings", "invite_list_error", static_cast<u64>(decoded.error));
             p.failed = true;
             p.status = utf8_literal("The invite list couldn't be read.");
         }

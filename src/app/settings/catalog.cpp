@@ -611,8 +611,14 @@ bool settings_theme_swatch(const ClientPreferences& preferences, SettingBinding 
     if (!output || (palette != SettingBinding::theme_base && palette != SettingBinding::theme_color) ||
         choice >= (palette == SettingBinding::theme_base ? 3u : 5u))
         return false;
+    const ClientTheme theme_choice = settings_theme_choice(palette, choice);
+    // A gradient theme shows its gradient background, which is always valid: the rest of the projection is unused.
+    if (client_theme_gradient(theme_choice)) {
+        *output = client_theme_gradient_background(theme_choice, preferences.gradient);
+        return true;
+    }
     auto swatch = preferences;
-    swatch.theme = settings_theme_choice(palette, choice);
+    swatch.theme = theme_choice;
     const auto theme = client_theme_projection(swatch);
     *output = theme.background;
     if (!background_theme_valid(*output)) {

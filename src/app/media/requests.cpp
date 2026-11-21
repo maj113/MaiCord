@@ -499,7 +499,8 @@ bool ApplicationMediaPump::settings_avatar_is_current(const MediaAssetKey& key) 
     if (!(surfaces() & d3d11_surface_settings_page))
         return false;
     UiSettingsAvatarGeometry avatar{};
-    for (u32 cursor = 0; ui_settings_scene_next_avatar(*application.renderer.settings_scene, &cursor, &avatar);)
+    for (UiSettingsAvatarCursor cursor;
+         ui_settings_scene_next_avatar(*application.renderer.settings_scene, &cursor, &avatar);)
         if (media_asset_key_equal(avatar.media->key, key))
             return true;
     return false;
@@ -508,7 +509,8 @@ bool ApplicationMediaPump::request_settings_avatars() noexcept {
     if (!(surfaces() & d3d11_surface_settings_page))
         return true;
     UiSettingsAvatarGeometry avatar{};
-    for (u32 cursor = 0; ui_settings_scene_next_avatar(*application.renderer.settings_scene, &cursor, &avatar);) {
+    for (UiSettingsAvatarCursor cursor;
+         ui_settings_scene_next_avatar(*application.renderer.settings_scene, &cursor, &avatar);) {
         if (message_media_controller_upload_budget_reached(&application.message_media, uploads))
             return true;
         bool stop = false;

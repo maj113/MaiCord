@@ -37,9 +37,6 @@ Broker* broker;
 ReactionPreferenceStore* store() noexcept {
     return g_app.account_ui ? &g_app.account_ui->reaction_preferences : nullptr;
 }
-bool online() noexcept {
-    return account_online();
-}
 void replace_groups(Broker& p, u8* groups, u32 bytes, const EmojiPreferencesSnapshot& snapshot) noexcept {
     dispose(p.groups, p.group_bytes);
     p.groups = groups;
@@ -272,7 +269,7 @@ ConstSlice<u8> application_emoji_preferences_sticker_frecency() noexcept {
 }
 
 void application_emoji_preferences_open() noexcept {
-    if (!online() || !ensure())
+    if (!account_online() || !ensure())
         return;
     application_emoji_preferences_synchronize();
     auto& p = *broker;
@@ -284,7 +281,7 @@ void application_emoji_preferences_open() noexcept {
 }
 
 void application_emoji_preferences_load() noexcept {
-    if (!online() || !ensure())
+    if (!account_online() || !ensure())
         return;
     application_emoji_preferences_synchronize();
     auto& p = *broker;
@@ -301,7 +298,7 @@ void application_emoji_preferences_synchronize() noexcept {
             clear_scope(*p);
             p->profile_id = p->self_user_id = 0;
         }
-        if (!p->request_id && online())
+        if (!p->request_id && account_online())
             bind_scope(*p);
         return;
     }
@@ -319,11 +316,11 @@ void application_emoji_preferences_synchronize() noexcept {
 }
 
 bool application_emoji_preferences_pending(u64 now_ms) noexcept {
-    if (!broker && online() && store())
+    if (!broker && account_online() && store())
         ensure();
     application_emoji_preferences_synchronize();
     const auto* p = broker;
-    if (!p || !broker_scope(*p) || !online() || p->request_id || p->response_body)
+    if (!p || !broker_scope(*p) || !account_online() || p->request_id || p->response_body)
         return false;
     const u64 due = due_at(*p);
     return due && due <= now_ms;
@@ -494,7 +491,7 @@ Slice<u8> application_emoji_preferences_response_buffer() noexcept {
 
 u64 application_emoji_preferences_next_wake() noexcept {
     const auto* p = broker;
-    if (!p || !broker_scope(*p) || !online() || p->request_id || p->response_body || p->admission_busy ||
+    if (!p || !broker_scope(*p) || !account_online() || p->request_id || p->response_body || p->admission_busy ||
         g_app.message_history_request_owner != MessageHistoryRequestOwner::none)
         return 0;
     return due_at(*p);

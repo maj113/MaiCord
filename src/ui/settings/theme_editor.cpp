@@ -4,6 +4,7 @@
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/layout/widget_scroll.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
@@ -65,11 +66,10 @@ void rgb_hsv(UiThemeEditorScene& s, u32 rgb) noexcept {
     s.value = hsv.value;
 }
 void numbers(UiThemeEditorScene& s) noexcept {
-    static constexpr char digits[] = "0123456789ABCDEF";
     s.hex[0] = '#';
     const u32 rgb = s.draft.colors[s.selected_stop];
     for (u32 i = 0; i < 6; ++i)
-        s.hex[i + 1] = digits[(rgb >> (20 - i * 4)) & 15];
+        s.hex[i + 1] = ascii_hex_digit_upper(rgb >> (20 - i * 4));
     s.hex[7] = 0;
     auto number = [](char* dst, u32 v) noexcept -> u8 {
         return static_cast<u8>(decimal_write(dst, v));

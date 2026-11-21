@@ -594,11 +594,9 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                 fill.alpha *= .3f;
             const bool focused = state.focused && scene.focus_visible && i == focus_choice(c);
             const float icon = 14;
-            p.rounded_border(swatch, fill, focused ? tc.focus_ring : ui_settings_color_alpha(fill, 1),
-                             theme.scale.radius_sm, focused ? 2.f : 1.f)
+            p.rounded_border(swatch, fill, focused ? tc.focus_ring : fill, theme.scale.radius_sm, focused ? 2.f : 1.f)
                 .icon(UiIcon::edit, {swatch.right - 4 - icon, swatch.top + 4, swatch.right - 4, swatch.top + 4 + icon},
-                      ui_settings_color_alpha(ui_surface_foreground(theme, ui_settings_color_alpha(fill, 1)),
-                                              c.enabled ? 1.f : .3f));
+                      ui_settings_color_alpha(ui_surface_foreground(theme, fill), c.enabled ? 1.f : .3f));
         }
         if (c.action_label.bytes)
             p.button(t, option_rect(t, c, r.control, c.choices.count, scene.measure), UiSettingsButtonVariant::secondary,
@@ -818,19 +816,6 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
     }
     return p.ok();
 }
-// The sidebar row of widget slot `i` when it is a navigation entry in view:
-// its handle, laid-out node and row.
-const UiLayoutNode* visible_nav(const UiSettingsScene& scene, u32 i, UiWidgetHandle* handle, NavRow* row) noexcept {
-    const auto& entry = entries(scene)[i];
-    if (entry.role != EntryRole::nav)
-        return nullptr;
-    *handle = {static_cast<u16>(i), scene.widgets.generation};
-    const auto* node = ui_widget_manager_layout_node(scene.widgets, *handle);
-    return node && nav_row(scene, entry.source_index, row) &&
-                   ui_rect_has_area(ui_rect_overlap(node->rectangle, node->clip_rectangle))
-               ? node
-               : nullptr;
-}
 // The label of a nav badge count: a digit, then "9+".
 Utf8View nav_badge_label(u16 badge) noexcept {
     static constexpr char kLabels[] = "123456789+";
@@ -854,29 +839,28 @@ bool paint_nav(const UiSettingsScene& scene, const Theme& theme, const UiSetting
     UiPaint p{paint, theme};
     if (!p.clip(area))
         return false;
-    for (u32 i = 0; p && i < scene.widgets.count; ++i) {
-        UiWidgetHandle handle{};
-        NavRow row{};
-        const auto* node = visible_nav(scene, i, &handle, &row);
-        if (!node || row.pinned != pinned || row.kind == UiSettingsNavKind::header)
-            continue;
+    visit_nav_widgets(scene, [&](const NavWidget& nav) noexcept {
+        const auto& row = nav.row;
+        const UiRect& rect = nav.node->rectangle;
+        if (row.pinned != pinned || row.kind == UiSettingsNavKind::header)
+            return true;
         if (row.kind == UiSettingsNavKind::separator) {
-            p.use<ui_settings_separator_paint>(t, node->rectangle);
-            continue;
+            p.use<ui_settings_separator_paint>(t, rect);
+            return p.ok();
         }
         const bool selected = nav_selected(scene, row);
-        const auto state = widget_state(scene, handle, row.target, true);
-        p.use<ui_settings_nav_item_paint>(t, node->rectangle, selected, row.destructive, state);
+        const auto state = widget_state(scene, nav.handle, row.target, true);
+        p.use<ui_settings_nav_item_paint>(t, rect, selected, row.destructive, state);
         if (row.icon < UiIcon::count)
-            p.icon(row.icon, ui_settings_nav_icon_rect(t, node->rectangle),
-                   ui_settings_nav_item_text(t, selected, row.destructive, state));
+            p.icon(row.icon, ui_settings_nav_icon_rect(t, rect), ui_settings_nav_item_text(t, selected, row.destructive, state));
         if (row.badge) {
             const bool dot = row.badge == kUiSettingsNavDot;
             p.use<ui_settings_nav_badge_paint>(
-                t, ui_settings_nav_badge_rect(node->rectangle, dot,
+                t, ui_settings_nav_badge_rect(rect, dot,
                                               dot ? 0.f : ui_kit_text_width(scene.measure, nav_badge_label(row.badge), kUiKitTextSmallBold)));
         }
-    }
+        return p.ok();
+    });
     return p.end();
 }
 } // namespace
@@ -1485,33 +1469,31 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
     const auto& tc = t.color;
     UiTextPen text{stream, scene.widgets, kUiNoRect};
     // Chrome text first, then the page's.
-    for (u32 i = 0; i < scene.widgets.count; ++i) {
-        UiWidgetHandle handle{};
-        NavRow row{};
-        const auto* node = visible_nav(scene, i, &handle, &row);
-        if (!node || row.kind == UiSettingsNavKind::separator)
-            continue;
-        auto nav = text.in(node->clip_rectangle);
+    visit_nav_widgets(scene, [&](const NavWidget& widget) noexcept {
+        const auto& row = widget.row;
+        const auto handle = widget.handle;
+        const UiRect& rect = widget.node->rectangle;
+        if (row.kind == UiSettingsNavKind::separator)
+            return true;
+        auto nav = text.in(widget.node->clip_rectangle);
         if (row.kind == UiSettingsNavKind::header) {
             const float inset = t.metric.nav_item_padding;
             // Bottom-aligned 12 bold caps: the group gap stays above the label.
-            nav(handle, row.label,
-                {node->rectangle.left + inset, node->rectangle.bottom - 4 - 16, node->rectangle.right - inset,
-                 node->rectangle.bottom - 4},
+            nav(handle, row.label, {rect.left + inset, rect.bottom - 4 - 16, rect.right - inset, rect.bottom - 4},
                 tc.nav_header, text_eyebrow);
-            continue;
+            return true;
         }
         const bool selected = nav_selected(scene, row);
         const auto state = widget_state(scene, handle, row.target, true);
-        nav(handle, row.label, ui_settings_nav_label_rect(t, node->rectangle, row.icon < UiIcon::count),
+        nav(handle, row.label, ui_settings_nav_label_rect(t, rect, row.icon < UiIcon::count),
             ui_settings_nav_item_text(t, selected, row.destructive, state), text_label);
         if (row.badge && row.badge != kUiSettingsNavDot) {
             const auto digits = nav_badge_label(row.badge);
-            nav(handle, digits,
-                ui_settings_nav_badge_rect(node->rectangle, false, ui_kit_text_width(scene.measure, digits, text_value)),
+            nav(handle, digits, ui_settings_nav_badge_rect(rect, false, ui_kit_text_width(scene.measure, digits, text_value)),
                 tc.on_brand, text_value, ui_text_center);
         }
-    }
+        return true;
+    });
     // The sidebar note: one start-aligned 12/16 line per '\n'-separated part.
     if (const UiRect note = frame(scene, t.metric).nav_note; ui_rect_has_area(note)) {
         const Utf8View all = scene.navigation_note;

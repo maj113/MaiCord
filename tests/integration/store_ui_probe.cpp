@@ -864,7 +864,7 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
         wchar_t name[] = L"store-flash-0.bmp";
         bool opaque = true;
         for (u32 i = 0; valid && i < sizeof(kElapsedMs) / sizeof(kElapsedMs[0]); ++i) {
-            const float progress = ui_settings_modal_entrance(timing, kElapsedMs[i]);
+            const float progress = ui_settings_modal_entrance(timing.modal_enter_ms, kElapsedMs[i]);
             renderer_set_settings_modal_progress(&renderer, progress);
             const OpeningAlpha alpha = opening_alpha(renderer, kLightTheme, f.scene.layout.modal, progress);
             name[12] = static_cast<wchar_t>(L'0' + i);

@@ -141,17 +141,17 @@ void apply_search(ApplicationSettings& settings) noexcept {
     settings.search_revision = settings.search_edit.text_revision;
     const u32 valid = settings.search_bytes = minimum(settings.search_edit.bytes, kSettingsSearchBytes);
     const auto* selected = ui_page_registry_selected(settings.registry);
-    const UiPageKey search{kNativeSettingsOwner, kSettingsSearchPage};
+    const UiPageKey search{kSettingsNativeOwner, kSettingsSearchPage};
     const bool searching = selected && ui_page_key_equal(selected->key, search);
     application_custom_theme_cancel_interaction();
     close_choice();
-    const UiPageKey fallback{kNativeSettingsOwner, static_cast<u64>(SettingsPanel::appearance) + 1};
+    const UiPageKey fallback{kSettingsNativeOwner, static_cast<u64>(SettingsPanel::appearance) + 1};
     if (valid && !searching) {
         settings.search_return =
-            selected && selected->key.owner_id == kNativeSettingsOwner ? selected->key.page_id : fallback.page_id;
+            selected && selected->key.owner_id == kSettingsNativeOwner ? selected->key.page_id : fallback.page_id;
         ui_page_registry_select(&settings.registry, search);
     } else if (!valid && searching) {
-        if (!ui_page_registry_select(&settings.registry, {kNativeSettingsOwner, settings.search_return}).ok())
+        if (!ui_page_registry_select(&settings.registry, {kSettingsNativeOwner, settings.search_return}).ok())
             ui_page_registry_select(&settings.registry, fallback);
     }
     ++settings.content[kSettingsSearchPage - 1].revision;
@@ -174,7 +174,7 @@ bool navigate(ApplicationSettings& settings, const UiPageKey& page, u64 control_
     if (!page_allowed(page))
         return false;
     // Profiles is the profile editor's page: it takes the modal over.
-    if (page.owner_id == kNativeSettingsOwner && page.page_id == static_cast<u64>(SettingsPanel::profiles) + 1)
+    if (page.owner_id == kSettingsNativeOwner && page.page_id == static_cast<u64>(SettingsPanel::profiles) + 1)
         return application_profile_editor_open(ProfileEditorTab::main);
     if (settings.search_bytes)
         clear_search(settings);
@@ -200,7 +200,7 @@ static bool navigate_link(ApplicationSettings& settings, u64 id) noexcept {
         return navigate(settings, settings.registry.storage[static_cast<u32>(id - kSettingsPanelLinkFirst - 0x100)].key,
                         0);
     if (id >= kSettingsPanelLinkFirst && id < kSettingsPanelLinkFirst + kSettingsPanelCount)
-        return navigate(settings, {kNativeSettingsOwner, id - kSettingsPanelLinkFirst + 1}, 0);
+        return navigate(settings, {kSettingsNativeOwner, id - kSettingsPanelLinkFirst + 1}, 0);
     return false;
 }
 
@@ -210,7 +210,7 @@ bool open_result(ApplicationSettings& settings, u64 control_id) noexcept {
         return true;
     if (!settings_control_location(control_id, &location))
         return false;
-    const UiPageKey page{kNativeSettingsOwner, location.panel + 1};
+    const UiPageKey page{kSettingsNativeOwner, location.panel + 1};
     // A store page draws its own column, with no row to reveal: its search-only rows open the page and start their
     // action there (Themes > Import theme…).
     if (page.page_id == kThemesPage || page.page_id == kPluginsPage || page.page_id == kEffectsPage) {
@@ -223,7 +223,7 @@ bool open_result(ApplicationSettings& settings, u64 control_id) noexcept {
     return navigate(settings, page, control_id);
 }
 bool searching(const ApplicationSettings& settings) noexcept {
-    return ui_page_key_equal(settings.scene.selected_page, {kNativeSettingsOwner, kSettingsSearchPage});
+    return ui_page_key_equal(settings.scene.selected_page, {kSettingsNativeOwner, kSettingsSearchPage});
 }
 
 // Motion needs a presenting window; headless hosts settle immediately.
@@ -289,7 +289,7 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
         }
         return false;
     case UiSettingsTargetKind::page:
-        if (target.page.owner_id == kNativeSettingsOwner &&
+        if (target.page.owner_id == kSettingsNativeOwner &&
             target.page.page_id == static_cast<u64>(SettingsPanel::profiles) + 1)
             return application_profile_editor_open(ProfileEditorTab::main);
         if (settings->search_bytes)
@@ -330,17 +330,17 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
         return application_theme_editor_open();
     case SettingBinding::browse_effects:
         // The store pages are settings pages: selecting one swaps the panel, keeping the modal.
-        return application_settings_select_page({kNativeSettingsOwner, kEffectsPage});
+        return application_settings_select_page({kSettingsNativeOwner, kEffectsPage});
     case SettingBinding::import_theme:
         // Search leads to Themes (leaving the results), whose header owns Import; the picker opens from there.
-        return navigate(*settings, {kNativeSettingsOwner, kThemesPage}, 0) &&
+        return navigate(*settings, {kSettingsNativeOwner, kThemesPage}, 0) &&
                settled(*settings, application_custom_theme_action(ApplicationCustomThemeAction::import_file));
     case SettingBinding::installed_themes: {
         // The tiles are the installed themes, then Browse themes.
         const u32 installed = application_custom_theme_installed().count;
         const u32 shown = installed < kInstalledThemeTiles ? installed : kInstalledThemeTiles;
         if (request.selected_choice >= shown)
-            return navigate(*settings, {kNativeSettingsOwner, kThemesPage}, 0);
+            return navigate(*settings, {kSettingsNativeOwner, kThemesPage}, 0);
         return settled(*settings, application_custom_theme_apply_installed(installed_theme_at(request.selected_choice), false));
     }
     case SettingBinding::notification_setup:

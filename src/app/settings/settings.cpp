@@ -27,6 +27,8 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/widgets/settings_choice.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
+#include "maicord/ui/theme/styles.hpp"
 #include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/platform/window/clipboard.hpp"
 #include "maicord/core/virtual_memory.hpp"
@@ -322,11 +324,11 @@ bool application_settings_open_key(Utf8View key) noexcept {
     UiSettingsSchemaLocation location{};
     if (!ui_settings_schema_find(settings_catalog(), key, &location) || !application_settings_open() || !g_app.settings)
         return false;
-    return navigate(*g_app.settings, {kNativeSettingsOwner, location.panel + 1},
+    return navigate(*g_app.settings, {kSettingsNativeOwner, location.panel + 1},
                     location.node == kUiSettingsNoChoice ? 0 : settings_control_id(location.panel, location.node));
 }
 bool application_settings_open_page(UiPageKey page) noexcept {
-    if (page.owner_id != kNativeSettingsOwner)
+    if (page.owner_id != kSettingsNativeOwner)
         return false;
     const auto* pages = application_settings_pages();
     if (!pages || !ui_page_registry_find(*pages, page) || !application_settings_open() || !g_app.settings)
@@ -370,7 +372,7 @@ bool application_settings_active() noexcept {
 bool application_settings_appearance_selected() noexcept {
     const auto* selected = g_app.settings ? ui_page_registry_selected(g_app.settings->registry) : nullptr;
     return selected && (theme_panel(selected->key) ||
-                        ui_page_key_equal(selected->key, {kNativeSettingsOwner, kSettingsSearchPage}));
+                        ui_page_key_equal(selected->key, {kSettingsNativeOwner, kSettingsSearchPage}));
 }
 HANDLE application_preferences_notification() noexcept {
     return client_preferences_writer_completion_event(g_app.preferences_writer);
@@ -445,7 +447,7 @@ bool application_settings_open() noexcept {
     settings->search_bytes = 0;
     const auto* selected = ui_page_registry_selected(settings->registry);
     if (searching(*settings) || !selected || !page_allowed(selected->key))
-        ui_page_registry_select(&settings->registry, {kNativeSettingsOwner, static_cast<u64>(SettingsPanel::appearance) + 1});
+        ui_page_registry_select(&settings->registry, {kSettingsNativeOwner, static_cast<u64>(SettingsPanel::appearance) + 1});
     // Before sign-in Settings fills the window: there is no shell beneath it.
     ui_settings_scene_set_presentation(&settings->scene, g_signed_out.active
                                                               ? UiSettingsPresentation::layer
@@ -603,8 +605,8 @@ bool application_settings_synchronize() noexcept {
     const u64 now = clock_monotonic_milliseconds();
     bool animating = ui_settings_scene_tick(&settings->scene, now, application_reduced_motion());
     animating = application_store_synchronize(&settings->scene) || animating;
+    const auto& timing = ui_theme_settings(application_theme().styles);
     if (settings->scene.flash_control) {
-        const auto timing = ui_settings_layout_tokens(application_theme().styles).duration;
         const u64 elapsed = now - settings->flash_started_ms;
         const u64 total = timing.flash_ms, fade = minimum<u64>(timing.flash_fade_ms, total);
         float strength = 0;
@@ -617,7 +619,6 @@ bool application_settings_synchronize() noexcept {
     }
     {
         // Dialog entrance: a spring from the scrim fade to full scale.
-        const auto timing = ui_settings_layout_tokens(application_theme().styles).duration;
         const bool motion = g_app.window && !application_reduced_motion() && !g_app.renderer.live_resize;
         if (settings->entrance_opens != settings->scene.opens) {
             settings->entrance_opens = settings->scene.opens;
@@ -627,7 +628,7 @@ bool application_settings_synchronize() noexcept {
         const u64 elapsed = now - settings->entrance_started_ms;
         const bool running = motion && settings->entrance_started_ms && elapsed < duration;
         renderer_set_settings_modal_progress(&g_app.renderer,
-                                             running ? ui_settings_modal_entrance(timing, elapsed) : 1.f);
+                                             running ? ui_settings_modal_entrance(timing.modal_enter_ms, elapsed) : 1.f);
         animating = animating || running;
     }
     if (animating)

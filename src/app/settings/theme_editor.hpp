@@ -5,7 +5,6 @@
 
 #include "maicord/platform/window/event.hpp"
 namespace maicord::app_detail {
-struct ApplicationThemeEditor;
 bool application_theme_editor_open() noexcept;
 void application_theme_editor_close(bool commit = true) noexcept;
 void application_theme_editor_release() noexcept;

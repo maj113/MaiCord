@@ -145,7 +145,7 @@ const AutoModRule* rule_by_id(u64 id) noexcept {
             return &am()->rules[i];
     return nullptr;
 }
-u32 rules_of(u8 trigger) noexcept {
+inline u32 rules_of(u8 trigger) noexcept {
     u32 count = 0;
     for (u32 i = 0; i < am()->rule_count; ++i)
         count += am()->rules[i].trigger_type == trigger;
@@ -311,7 +311,7 @@ void rule_write(const AutoModRule& r, bool enabled, AutoModRuleWrite* w) noexcep
     w->enabled = enabled;
 }
 
-const char* problem_text(AutoModRuleProblem problem) noexcept {
+inline const char* problem_text(AutoModRuleProblem problem) noexcept {
     using P = AutoModRuleProblem;
     switch (problem) {
     case P::none: return nullptr;

@@ -77,10 +77,10 @@ PermissionSet self_permissions(u64 channel_id) noexcept {
                                                   {state().self_user_id, {roles, count}, 0},
                                                   {0, state().self_mfa == SelfMfaState::disabled});
 }
-bool supported_type(u8 type) noexcept {
+inline bool supported_type(u8 type) noexcept {
     return type == 0 || type == 5 || type == 15 || channel_settings_supported(type);
 }
-bool channel_usable(u64 id) noexcept {
+inline bool channel_usable(u64 id) noexcept {
     if (!g_app.account_ui)
         return false;
     const auto* c = chat_state_store_find_channel(state(), id);
@@ -341,27 +341,22 @@ Utf8View target_name(Bank& bank, const PermissionOverwriteRecord& entry, u32* co
     return bank.since(start);
 }
 // Display order: @everyone, roles by hierarchy, then members.
-u32 target_order(u32* order) noexcept {
+inline u32 target_order(u32* order) noexcept {
     const auto& d = owner->overwrite_draft;
-    u32 count = 0;
-    for (u32 i = 0; i < d.count; ++i)
-        order[count++] = i;
     const u64 guild = owner->identity.guild_id;
-    heap_sort_shared(order, count, [&](u32 a, u32 b) noexcept {
-        const auto ea = d.entries[a], eb = d.entries[b];
-        const int ra = ea.id == guild ? 0 : ea.type == 0 ? 1 : 2, rb = eb.id == guild ? 0 : eb.type == 0 ? 1 : 2;
-        if (ra != rb)
-            return ra < rb;
-        if (ra == 1) {
-            const auto* x = chat_state_store_find_role(state(), guild, ea.id);
-            const auto* y = chat_state_store_find_role(state(), guild, eb.id);
-            const u32 px = x ? x->position : 0, py = y ? y->position : 0;
-            if (px != py)
-                return px > py;
-        }
-        return ea.id < eb.id;
+    // Each target's rank over its role's inverted position (highest first), so the sort looks up no role.
+    u64 keys[kPermissionOverwriteDraftMaximum];
+    for (u32 i = 0; i < d.count; ++i) {
+        order[i] = i;
+        const auto& entry = d.entries[i];
+        const u64 rank = entry.id == guild ? 0 : entry.type == 0 ? 1 : 2;
+        const auto* r = rank == 1 ? chat_state_store_find_role(state(), guild, entry.id) : nullptr;
+        keys[i] = rank << 32 | ~(r ? r->position : 0u);
+    }
+    heap_sort_shared(order, d.count, [&](u32 a, u32 b) noexcept {
+        return keys[a] != keys[b] ? keys[a] < keys[b] : d.entries[a].id < d.entries[b].id;
     });
-    return count;
+    return d.count;
 }
 const ChannelRecord* parent_channel() noexcept {
     const auto* channel = chat_state_store_find_channel(state(), owner->identity.channel_id);

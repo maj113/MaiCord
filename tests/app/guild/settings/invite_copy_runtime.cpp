@@ -174,6 +174,9 @@ u32 push_error(Text label, Text description, Text action) noexcept {
                  text_view(action), nullptr},
                 {});
 }
+u32 push_load_error(Text heading) noexcept {
+    return push_error(heading, owner->status, "Try again");
+}
 u32 push_buttons(u64 id, Text label, Text description, bool enabled, const char* names, u32 shown,
                  UiSettingsControlPresentation presentation) noexcept {
     static Utf8View choices[16][4];

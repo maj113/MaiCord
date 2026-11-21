@@ -27,6 +27,8 @@
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/widgets/kit_markdown.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
+#include "maicord/ui/theme/styles.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -944,7 +946,7 @@ bool application_store_synchronize(UiSettingsScene* settings) noexcept {
         build_and_commit(settings);
     }
     const bool reduced = application_reduced_motion();
-    const auto timing = ui_settings_layout_tokens(settings->theme_styles).duration;
+    const auto& timing = ui_theme_settings(settings->theme_styles);
     const bool animating =
         ui_store_scene_tick(&g->scene, now, reduced, reduced ? timing.switch_reduced_ms : timing.switch_ms);
     if (g->scene.revision != g->revisions[0]) {

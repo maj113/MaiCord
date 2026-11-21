@@ -6,15 +6,16 @@
 namespace maicord {
 static_assert(kGuildAdminMaximumTargetBytes <= kRestClientMaximumTargetBytes);
 namespace {
-// Ban list pages: up to kGuildAdminPageMaximum bans with full user objects.
-constexpr u32 kGuildAdminBanListResponseBytes = kRestClientMaximumResponseBytes;
+// Ban list pages (up to kGuildAdminPageMaximum bans with full user objects) and a server's invite list (up to 1,000
+// invites, each with its inviter and the server and channel: about 1.3 MB).
+constexpr u32 kGuildAdminListResponseBytes = kRestClientMaximumResponseBytes;
 // Server image uploads may need up to two minutes.
 constexpr u32 kLargeTimeoutMs = 120 * 1000;
 constexpr auto kMd5HeaderName = utf8_literal("X-Discord-Original-MD5");
 
 // X-Discord-Original-MD5 of a guild PATCH carrying new images; zero bytes
 // when it carries none.
-u32 md5_header(const GuildAdminRequest& request, Slice<u8> output) noexcept {
+inline u32 md5_header(const GuildAdminRequest& request, Slice<u8> output) noexcept {
     if (!request.guild || (!request.guild->banner_original.count && !request.guild->splash_original.count))
         return 0;
     char banner[32], splash[32];
@@ -89,9 +90,10 @@ RestClientSubmitResult account_guild_admin_submit(RestClient* rest, const GuildA
     if (guild_admin_has_body(request->operation))
         result = submit_with_body(rest, *request, {target, path.bytes}, {reason, encoded.bytes},
                                   empty_reason, request_id);
-    else if (request->operation == GuildAdminOperation::ban_list)
-        // One page of up to 1000 bans outgrows the ordinary response capacity.
-        result = rest_client_submit_large_response(rest, bodyless, kGuildAdminBanListResponseBytes);
+    else if (request->operation == GuildAdminOperation::ban_list ||
+             request->operation == GuildAdminOperation::invite_list_guild)
+        // A page of up to 1000 bans, or more than about 270 invites, outgrows the ordinary response capacity.
+        result = rest_client_submit_large_response(rest, bodyless, kGuildAdminListResponseBytes);
     else
         result = rest_client_submit(rest, bodyless);
     SecureZeroMemory(reason, encoded.bytes);

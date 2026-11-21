@@ -304,7 +304,7 @@ struct Parse {
     u32 palette_count{};
     UiThemeTokenSource overrides[kTokenCount]{};
     u32 override_offsets[kTokenCount]{};
-    bool fail(ClientThemeDocumentError next, u32 at) noexcept {
+    __declspec(noinline) bool fail(ClientThemeDocumentError next, u32 at) noexcept {
         error = next;
         offset = at;
         return false;
@@ -711,18 +711,11 @@ bool effect_knob_member(void* context, JsonString name, JsonValue value) noexcep
     } else if (json_value_to_bool(value, &flag)) {
         knob.number = flag ? 1.f : 0.f;
     } else if (json_value_as_string(value, &text)) {
-        char hex[8];
-        const auto colour = json_string_decode_utf8(text, {hex, 7});
-        if (!colour.ok() || colour.bytes != 7 || hex[0] != '#')
-            return parse.fail(ClientThemeDocumentError::range, value.source_offset);
+        char hex[7];
         u32 rgb{};
-        for (u32 i = 1; i < 7; ++i) {
-            const char c = hex[i];
-            const u32 d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : 16;
-            if (d == 16)
-                return parse.fail(ClientThemeDocumentError::range, value.source_offset);
-            rgb = rgb << 4 | d;
-        }
+        const auto colour = json_string_decode_utf8(text, {hex, 7});
+        if (!colour.ok() || colour.bytes != 7 || hex[0] != '#' || !color_hex_parse_rgb24({hex, 7}, &rgb))
+            return parse.fail(ClientThemeDocumentError::range, value.source_offset);
         knob.color = true;
         knob.rgb = rgb;
     } else {

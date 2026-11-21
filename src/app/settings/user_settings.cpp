@@ -177,10 +177,6 @@ __forceinline UserSettingsField explicit_field(SettingBinding binding) noexcept 
     return binding == SettingBinding::explicit_friends ? kExplicitFriends
            : binding == SettingBinding::explicit_others ? kExplicitOthers : kExplicitGuilds;
 }
-bool present(UserSettingsField field) noexcept {
-    UserSettingsValue value;
-    return store() && user_settings_store_read(*store(), field, &value);
-}
 bool write(UserSettingsField field, const UserSettingsValue& value) noexcept {
     auto* s = store();
     if (!s || !user_settings_store_set(s, field, value, clock_monotonic_milliseconds()))
@@ -200,8 +196,11 @@ u32 index_of(const u8* values, u32 count, u64 value, u32 fallback) noexcept {
             return i;
     return fallback;
 }
+// default_guilds_restricted_v2 when set, else the legacy default_guilds_restricted.
 bool dm_restricted() noexcept {
-    return present(kDmRestrictedV2) ? read_number(kDmRestrictedV2, 0) != 0 : read_number(kDmRestricted, 0) != 0;
+    UserSettingsValue value;
+    const bool set = store() && user_settings_store_read(*store(), kDmRestrictedV2, &value);
+    return (set ? value.number : read_number(kDmRestricted, 0)) != 0;
 }
 bool restricted_account() noexcept {
     return content_policy().eligibility == AccountContentEligibility::restricted;
@@ -632,14 +631,16 @@ bool application_user_settings_project(SettingBinding binding, UiSettingsControl
         control->selected_choice = minutes >= 1 && minutes <= 10 ? static_cast<u32>(minutes - 1) : 0;
         return true;
     }
-    case SettingBinding::compact_avatars:
+    case SettingBinding::compact_avatars: {
         // Cozy messages always show avatars: the switch reads on and only works in compact mode.
-        control->checked = read_number(kCompact, 0) == 0 || read_number(kCompactAvatars, 0) != 0;
-        control->enabled = ready && read_number(kCompact, 0) != 0;
-        if (read_number(kCompact, 0) == 0)
+        const bool compact = read_number(kCompact, 0) != 0;
+        control->checked = !compact || read_number(kCompactAvatars, 0) != 0;
+        control->enabled = ready && compact;
+        if (!compact)
             control->description =
                 utf8_literal("To hide avatars, go to Accessibility and select Compact under Chat Message Display.");
         return true;
+    }
     case SettingBinding::ui_density:
         control->selected_choice = index_of(kUiDensityValues, 3, read_number(kUiDensity, 4), 1);
         return true;
@@ -654,19 +655,23 @@ bool application_user_settings_project(SettingBinding binding, UiSettingsControl
     case SettingBinding::dm_from_members:
         control->checked = !dm_restricted();
         return true;
-    case SettingBinding::message_requests:
+    case SettingBinding::message_requests: {
         // ON is default_message_request_restricted false (or unset). Requests
         // need DMs: while DMs are restricted the switch reads off, disabled.
-        control->checked = !dm_restricted() && read_number(kMessageRequests, 0) == 0;
-        control->enabled = ready && !dm_restricted();
+        const bool restricted = dm_restricted();
+        control->checked = !restricted && read_number(kMessageRequests, 0) == 0;
+        control->enabled = ready && !restricted;
         return true;
+    }
     case SettingBinding::nsfw_commands:
-    case SettingBinding::nsfw_guilds:
+    case SettingBinding::nsfw_guilds: {
         // Age-restricted access is for adults; restricted accounts see it off.
-        control->checked = !restricted_account() &&
-                           read_number(binding == SettingBinding::nsfw_commands ? kNsfwCommands : kNsfwGuilds, 0) != 0;
-        control->enabled = ready && !restricted_account();
+        const bool restricted = restricted_account();
+        control->checked =
+            !restricted && read_number(binding == SettingBinding::nsfw_commands ? kNsfwCommands : kNsfwGuilds, 0) != 0;
+        control->enabled = ready && !restricted;
         return true;
+    }
     case SettingBinding::dm_spam_filter:
         control->selected_choice = index_of(kSpamValues, 3, spam_filter(), 1);
         return true;

@@ -99,8 +99,6 @@ struct UiSettingsSchemaLocation {
 
 // A panel key resolves with node kUiSettingsNoChoice.
 bool ui_settings_schema_find(const UiSettingsSchema&, Utf8View key, UiSettingsSchemaLocation*) noexcept;
-// Index of the category node that precedes node, or kUiSettingsNoChoice.
-u32 ui_settings_schema_category(const UiSettingsSchemaPanel&, u32 node) noexcept;
 
 // Word-prefix search: every query word must prefix a word of the node label,
 // keywords, description or category label (ASCII case-insensitive).

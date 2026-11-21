@@ -383,7 +383,7 @@ Utf8View event_place(Bank& bank, const ScheduledEvent& e) noexcept {
     }
     return bank.since(start);
 }
-Utf8View interested_text(Bank& bank, const ScheduledEvent& e) noexcept {
+inline Utf8View interested_text(Bank& bank, const ScheduledEvent& e) noexcept {
     const u32 start = bank.used;
     if (!e.user_count_known)
         return {};

@@ -60,7 +60,7 @@ static SettingBinding binding_of(const UiSettingsSchemaNode& node) noexcept {
 }
 
 bool theme_panel(const UiPageKey& page) noexcept {
-    return page.owner_id == kNativeSettingsOwner && (page.page_id == static_cast<u64>(SettingsPanel::appearance) + 1 ||
+    return page.owner_id == kSettingsNativeOwner && (page.page_id == static_cast<u64>(SettingsPanel::appearance) + 1 ||
                                                      page.page_id == static_cast<u64>(SettingsPanel::themes) + 1);
 }
 u32 installed_theme_at(u32 tile) noexcept {
@@ -349,13 +349,9 @@ static UiSettingsControlPresentation bounded_look(const ApplicationSettings& set
 static u32 project_panel(ApplicationSettings& settings, u32 panel, bool* changed, UiSettingsControl* bank,
                          UiSettingsControlPresentation* bank_presentation, u32 capacity) noexcept {
     // Staging rows (several KiB), never re-entered on the UI thread: a stack array would walk its guard pages on
-    // every projection.
+    // every projection. Every producer writes whole rows, and only the first `count` are read.
     static UiSettingsControl controls[kSettingsPanelRowLimit];
     static UiSettingsControlPresentation presentation[kSettingsPanelRowLimit];
-    for (u32 i = 0; i < capacity; ++i) {
-        reset_value(&controls[i]);
-        reset_value(&presentation[i]);
-    }
     u32 count = 0;
     UiSettingsSchemaLocation retry{};
     if (settings.save_failed && settings_catalog_binding(SettingBinding::preferences_retry, &retry) &&
@@ -438,7 +434,7 @@ static u32 project_search(ApplicationSettings& settings, bool* changed) noexcept
     }
     for (u32 page = 0; page < settings.registry.count; ++page) {
         const auto& entry = settings.registry.storage[page];
-        if (entry.key.owner_id != kNativeSettingsOwner && !g_signed_out.active &&
+        if (entry.key.owner_id != kSettingsNativeOwner && !g_signed_out.active &&
             ui_settings_search_text_matches(search_query(settings), entry.label))
             emit({kSettingsPanelLinkFirst + 0x100 + page, entry.label, {}, UiSettingsControlKind::category, true,
                   false},
@@ -454,7 +450,7 @@ static u32 project_search(ApplicationSettings& settings, bool* changed) noexcept
 // The selected page's id when it is one of the native pages (panels, then search results), else zero.
 u32 native_page_of(const ApplicationSettings& settings) noexcept {
     const auto* selected = ui_page_registry_selected(settings.registry);
-    return selected && selected->key.owner_id == kNativeSettingsOwner && selected->key.page_id >= 1 &&
+    return selected && selected->key.owner_id == kSettingsNativeOwner && selected->key.page_id >= 1 &&
                    selected->key.page_id <= kSettingsSearchPage
                ? static_cast<u32>(selected->key.page_id)
                : 0;
@@ -706,13 +702,13 @@ ApplicationSettings* ensure() noexcept {
         const bool store = i == kPluginsPage - 1 || i == kThemesPage - 1 || i == kEffectsPage - 1;
         settings->content[i] = {label, i < kSettingsPanelCount && !store ? schema.panels[i].summary : Utf8View{}, {}, 1};
         settings->content[i].host = settings->content[i].wide = store;
-        if (!ui_page_registry_register(&settings->registry, {{kNativeSettingsOwner, i + 1}, label, &settings->content[i]})
+        if (!ui_page_registry_register(&settings->registry, {{kSettingsNativeOwner, i + 1}, label, &settings->content[i]})
                  .ok()) {
             pages_release(settings);
             return nullptr;
         }
     }
-    ui_page_registry_select(&settings->registry, {kNativeSettingsOwner, static_cast<u64>(SettingsPanel::appearance) + 1});
+    ui_page_registry_select(&settings->registry, {kSettingsNativeOwner, static_cast<u64>(SettingsPanel::appearance) + 1});
     message_composer_initialize(&settings->search_edit, {settings->search_text, kSettingsSearchBytes});
     settings->search_revision = settings->search_edit.text_revision;
     ui_settings_scene_set_presentation(&settings->scene, UiSettingsPresentation::modal);
@@ -727,11 +723,11 @@ ApplicationSettings* ensure() noexcept {
 // transient rejection (a too-small viewport) keeps failing until it passes.
 bool recover_rejected_page(ApplicationSettings& settings) noexcept {
     const auto* selected = ui_page_registry_selected(settings.registry);
-    if (!selected || selected->key.owner_id != kNativeSettingsOwner || !selected->context ||
+    if (!selected || selected->key.owner_id != kSettingsNativeOwner || !selected->context ||
         ui_settings_page_content_valid(*static_cast<const UiSettingsPageContent*>(selected->context)))
         return false;
     log_u64(LogLevel::error, "preferences", "settings_page_rejected", selected->key.page_id);
-    const UiPageKey fallback{kNativeSettingsOwner, static_cast<u64>(SettingsPanel::appearance) + 1};
+    const UiPageKey fallback{kSettingsNativeOwner, static_cast<u64>(SettingsPanel::appearance) + 1};
     if (!ui_page_key_equal(selected->key, fallback) && ui_page_registry_select(&settings.registry, fallback).ok()) {
         project(settings);
         if (update_scene(settings, application_viewport_dips()))

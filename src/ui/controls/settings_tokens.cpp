@@ -18,9 +18,6 @@ Color scaled(const Color& color, float factor) noexcept {
 __declspec(noinline) Color pick(u32 packed, const Color& fallback) noexcept {
     return packed ? color_from_rgba(packed) : fallback;
 }
-const UiThemeSettings& settings_style(const UiResolvedThemeStyles* styles) noexcept {
-    return styles && styles->ready ? styles->settings : kUiThemeSettingsDefault;
-}
 // The first 57 metrics have the same field order in the packed theme and resolved layout.
 constexpr u32 kPackedMetrics = 57;
 static_assert([]() constexpr {
@@ -102,13 +99,13 @@ Color ui_settings_color_alpha(const Color& color, float alpha) noexcept {
 }
 
 Color ui_settings_focus_color(const Theme& theme) noexcept {
-    return pick(settings_style(theme.styles).focus_ring,
+    return pick(ui_theme_settings(theme.styles).focus_ring,
                 ui_background_active(theme) ? theme.tokens.border.focus : Color{.416f, .659f, .957f, 1});
 }
 
 void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexcept {
     UiSettingsTokens& t = *output;
-    const auto& s = settings_style(theme.styles);
+    const auto& s = ui_theme_settings(theme.styles);
     const bool light = theme.appearance == ThemeAppearance::light;
     // Discord's midnight theme (a pure black rail, AMOLED) keeps cards, fields and dialogs on the near-black
     // surface and shows their edges: stronger greys (border-subtle/normal/input-border .2/.24/.24, mod-normal/strong
@@ -177,7 +174,7 @@ void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexc
 }
 
 void ui_settings_fill_layout_tokens(const UiResolvedThemeStyles* styles, UiSettingsLayoutTokens* output) noexcept {
-    set_layout_tokens(*output, settings_style(styles), kDefaultTheme.scale.space_1, styles);
+    set_layout_tokens(*output, ui_theme_settings(styles), kDefaultTheme.scale.space_1, styles);
 }
 
 UiSettingsLayoutTokens ui_settings_layout_tokens(const UiResolvedThemeStyles* styles) noexcept {
@@ -186,8 +183,8 @@ UiSettingsLayoutTokens ui_settings_layout_tokens(const UiResolvedThemeStyles* st
     return t;
 }
 
-float ui_settings_modal_entrance(const UiSettingsDurations& duration, u64 elapsed_ms) noexcept {
-    const u64 total = duration.modal_enter_ms ? duration.modal_enter_ms : 1;
+float ui_settings_modal_entrance(u32 modal_enter_ms, u64 elapsed_ms) noexcept {
+    const u64 total = modal_enter_ms ? modal_enter_ms : 1;
     return elapsed_ms >= total ? 1.f
                                : ui_motion_curve_sample(UiMotionCurve::spring,
                                                         static_cast<float>(elapsed_ms) / static_cast<float>(total));

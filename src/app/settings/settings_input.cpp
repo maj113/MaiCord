@@ -141,7 +141,7 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
             if (ui_settings_scene_slider_key(settings->scene, focused, direction, &activation) &&
                 activation.selected_choice != focused_control->selected_choice) {
                 const bool preview = focused_control->kind == UiSettingsControlKind::slider &&
-                                     focused.page.owner_id == kNativeSettingsOwner;
+                                     focused.page.owner_id == kSettingsNativeOwner;
                 if (preview && !settings->slider_preview) {
                     settings->slider_baseline = g_app.preferences;
                     settings->slider_target = focused;
@@ -281,7 +281,7 @@ bool application_settings_window_event(const WindowEvent& event) noexcept {
             const auto target = settings->pressed;
             const auto* control = ui_settings_scene_control(settings->scene, target);
             const bool current = control && control->kind == UiSettingsControlKind::slider &&
-                                 target.page.owner_id == kNativeSettingsOwner &&
+                                 target.page.owner_id == kSettingsNativeOwner &&
                                  settings->pressed_account_serial == g_app.plugin_account_scope_serial &&
                                  settings->pressed_profile == g_app.account.status.profile_id &&
                                  settings->slider_generation == settings->scene.widgets.generation &&
@@ -447,7 +447,7 @@ bool application_settings_window_event(const WindowEvent& event) noexcept {
             }
             settings->pressed_account_serial = account_serial;
             settings->pressed_profile = profile;
-            if (control && control->kind == UiSettingsControlKind::slider && hit.page.owner_id == kNativeSettingsOwner &&
+            if (control && control->kind == UiSettingsControlKind::slider && hit.page.owner_id == kSettingsNativeOwner &&
                 application_pointer_captured()) {
                 settings->slider_dragging = true;
                 settings->slider_baseline = g_app.preferences;

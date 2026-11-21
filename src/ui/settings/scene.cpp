@@ -651,7 +651,7 @@ bool ui_settings_scene_scroll(UiSettingsScene* scene, bool sidebar, float delta)
     const SceneTokens t(*scene);
     auto& offset = sidebar ? scene->sidebar_offset : scene->content_offset;
     const float previous = offset;
-    offset = clamp_offset(*scene, sidebar, offset + delta, t.metric);
+    offset = clamp_offset(offset + delta, scroll_extent(*scene, sidebar, t.metric), frame(*scene, t.metric), sidebar);
     return apply_scroll(scene, sidebar, previous);
 }
 bool ui_settings_scene_scroll_viewport(const UiSettingsScene& scene, bool sidebar, UiRect* viewport) noexcept {
@@ -672,7 +672,7 @@ UiScrollbarGeometry ui_settings_scene_scrollbar(const UiSettingsScene& scene, bo
         return {};
     const SceneTokens t(scene);
     return ui_scrollbar_geometry(viewport, sidebar ? scene.sidebar_offset : scene.content_offset,
-                                 sidebar ? nav_extent(scene, t.metric) : content_extent(scene, t.metric));
+                                 scroll_extent(scene, sidebar, t.metric));
 }
 bool ui_settings_scene_activation(const UiSettingsScene& scene, const UiSettingsTarget& target, bool reverse,
                                   UiSettingsActivation* activation) noexcept {
@@ -760,26 +760,77 @@ bool ui_settings_scene_control_geometry(const UiSettingsScene& scene, const UiSe
                control->kind == UiSettingsControlKind::multiline};
     return true;
 }
-bool ui_settings_scene_editor_hit(const UiSettingsScene& scene, float x, float y,
-                                  UiSettingsControlGeometry* output) noexcept {
+namespace {
+// Whether the point is in the text of the enabled editor control `target`: its field, but not an edit cell's buttons.
+bool editor_text_hit(const UiSettingsScene& scene, const UiSettingsTarget& target, float x, float y,
+                     UiSettingsControlGeometry* output) noexcept {
     if (output)
         reset_value(output);
-    const auto target = ui_settings_scene_hit_test(scene, x, y);
     u32 index = 0;
     const auto* control = ui_settings_scene_control(scene, target, &index);
     if (!(control && control->enabled && editor_kind(control->kind) &&
           ui_settings_scene_control_geometry(scene, target, output) && ui_rect_contains(output->clip, x, y)))
         return false;
-    // An edit cell's buttons are not part of its text.
+    // The geometry's owner is the row's widget.
     if (more(scene.content, index, ui_settings_more_cell)) {
         RowLayout row;
-        if (row_layout_for(scene, SceneTokens(scene), target_handle(scene, target), index, &row) &&
+        if (row_layout_for(scene, SceneTokens(scene), output->owner.handle, index, &row) &&
             (ui_rect_contains(row.lead, x, y) || ui_rect_contains(row.value, x, y))) {
             reset_value(output);
             return false;
         }
     }
     return true;
+}
+} // namespace
+bool ui_settings_scene_editor_hit(const UiSettingsScene& scene, float x, float y,
+                                  UiSettingsControlGeometry* output) noexcept {
+    return editor_text_hit(scene, ui_settings_scene_hit_test(scene, x, y), x, y, output);
+}
+UiCursor ui_settings_scene_cursor(const UiSettingsScene& scene, float x, float y, bool dragging) noexcept {
+    if (dragging)
+        return UiCursor::move;
+    const auto target = ui_settings_scene_hit_test(scene, x, y);
+    switch (target.kind) {
+    case UiSettingsTargetKind::none:
+        return UiCursor::arrow;
+    case UiSettingsTargetKind::search:
+        return UiCursor::ibeam;
+    case UiSettingsTargetKind::control:
+        break;
+    default:
+        return UiCursor::hand;
+    }
+    UiSettingsControlGeometry geometry;
+    if (editor_text_hit(scene, target, x, y, &geometry))
+        return UiCursor::ibeam;
+    const auto* control = ui_settings_scene_control(scene, target);
+    if (!control || !control->enabled)
+        return UiCursor::arrow;
+    if (ui_settings_scene_grip_hit(scene, target, x, y))
+        return UiCursor::move;
+    UiSettingsActivation activation{};
+    switch (control->kind) {
+    case UiSettingsControlKind::edit:
+    case UiSettingsControlKind::multiline:
+    case UiSettingsControlKind::action:
+    case UiSettingsControlKind::notice:
+        return ui_action_cursor(ui_settings_scene_button_hit(scene, target, x, y));
+    case UiSettingsControlKind::palette:
+        return ui_action_cursor(ui_settings_scene_palette_pointer(scene, target, x, y, &activation));
+    case UiSettingsControlKind::radio:
+        return ui_action_cursor(ui_settings_scene_radio_pointer(scene, target, x, y, &activation));
+    case UiSettingsControlKind::segments:
+    case UiSettingsControlKind::swatches:
+    case UiSettingsControlKind::tabs:
+    case UiSettingsControlKind::buttons:
+    case UiSettingsControlKind::colors:
+        return ui_action_cursor(ui_settings_scene_option_pointer(scene, target, x, y, &activation));
+    case UiSettingsControlKind::error:
+        return UiCursor::arrow;
+    default:
+        return UiCursor::hand;
+    }
 }
 bool ui_settings_scene_bind_palette(UiSettingsScene* scene, UiSettingsPaletteSource source) noexcept {
     if (!scene || (source.resolve && (!source.context || !source.revision)) ||
@@ -1074,12 +1125,15 @@ bool ui_settings_scene_set_footer_motion(UiSettingsScene* scene, float shift, fl
 bool ui_settings_scene_palette_hover(UiSettingsScene* scene, const UiSettingsTarget& target, float x, float y) noexcept {
     if (!scene)
         return false;
+    // Only the pointer helper of the control's kind can hit, so the others are not tried.
     UiSettingsActivation activation;
-    const u32 index = ui_settings_scene_palette_pointer(*scene, target, x, y, &activation) ||
-                              ui_settings_scene_radio_pointer(*scene, target, x, y, &activation) ||
-                              ui_settings_scene_option_pointer(*scene, target, x, y, &activation)
-                          ? activation.selected_choice
-                          : ~u32{0};
+    const auto* c = ui_settings_scene_control(*scene, target);
+    const bool hit = c && (c->kind == UiSettingsControlKind::palette
+                               ? ui_settings_scene_palette_pointer(*scene, target, x, y, &activation)
+                           : c->kind == UiSettingsControlKind::radio
+                               ? ui_settings_scene_radio_pointer(*scene, target, x, y, &activation)
+                               : ui_settings_scene_option_pointer(*scene, target, x, y, &activation));
+    const u32 index = hit ? activation.selected_choice : ~u32{0};
     if (scene->palette_hovered_index == index)
         return false;
     scene->palette_hovered_index = index;
@@ -1143,19 +1197,22 @@ bool ui_settings_scene_spinner_visible(const UiSettingsScene& scene) noexcept {
     return false;
 }
 
-// The cursor of ui_settings_scene_next_avatar: a row's entry index shifted up kMediaPhaseBits over the phase inside
+// The position of ui_settings_scene_next_avatar: a row's entry index shifted up kMediaPhaseBits over the phase inside
 // it, 0 the row's avatar and 1 + i the picture of its glyph tile i (a choice of a glyph swatch row, or the name tag
 // row's chip).
 constexpr u32 kMediaPhaseBits = 8, kMediaPhaseMask = (1u << kMediaPhaseBits) - 1;
 
-bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, u32* cursor,
+bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, UiSettingsAvatarCursor* cursor,
                                    UiSettingsAvatarGeometry* output) noexcept {
     const auto& content = scene.content;
     if (!cursor || !output || !current(scene) || (!content.avatar_media && !content.glyph_tiles && !content.preview))
         return false;
-    const SceneTokens t(scene);
-    u32 phase = *cursor & kMediaPhaseMask;
-    for (u32 at = *cursor >> kMediaPhaseBits; at < scene.widgets.count; ++at, phase = 0) {
+    // The first call of a walk builds the layout tokens. The cursor keeps them for the rest of the walk.
+    if (!cursor->at)
+        ui_settings_fill_layout_tokens(scene.theme_styles, &cursor->tokens);
+    const UiSettingsLayoutTokens& t = cursor->tokens;
+    u32 phase = cursor->at & kMediaPhaseMask;
+    for (u32 at = cursor->at >> kMediaPhaseBits; at < scene.widgets.count; ++at, phase = 0) {
         const auto& entry = entries(scene)[at];
         const u32 index = entry.source_index;
         if (entry.role != EntryRole::row || index >= content.controls.count)
@@ -1185,7 +1242,7 @@ bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, u32* cursor,
                 if ((s.compact && !column) || !avatar_media_ready(media) || !ui_rect_has_area(visible))
                     continue;
                 *output = {&media, {&scene.widgets, handle}, avatar, visible, false, false, 0.f, 1.f};
-                *cursor = at << kMediaPhaseBits | (part + 1);
+                cursor->at = at << kMediaPhaseBits | (part + 1);
                 return true;
             }
             continue;
@@ -1204,7 +1261,7 @@ bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, u32* cursor,
                                                  c.kind == UiSettingsControlKind::action);
                     *output = {&content.avatar_media[index], {&scene.widgets, handle}, avatar, visible, tile, upload,
                                tile ? t.metric.control_radius : 0.f, 1.f};
-                    *cursor = at << kMediaPhaseBits | 1;
+                    cursor->at = at << kMediaPhaseBits | 1;
                     return true;
                 }
             }
@@ -1221,11 +1278,11 @@ bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, u32* cursor,
                 continue;
             *output = {&glyph->media, {&scene.widgets, handle}, picture, visible, true, false, 0.f,
                        tiles && !c.enabled ? t.disabled_alpha : 1.f};
-            *cursor = at << kMediaPhaseBits | (i + 2);
+            cursor->at = at << kMediaPhaseBits | (i + 2);
             return true;
         }
     }
-    *cursor = scene.widgets.count << kMediaPhaseBits;
+    cursor->at = scene.widgets.count << kMediaPhaseBits;
     return false;
 }
 

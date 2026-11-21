@@ -11,7 +11,7 @@ ChannelOverviewPatch patch(const ChannelOverviewSnapshot& value, u8 fields) noex
     return {channel_overview_name_view(value), channel_overview_topic_view(value), value.slowmode_seconds,
             fields, value.nsfw};
 }
-bool snapshot_valid(const ChannelOverviewSnapshot& value, ChannelOverviewScope scope) noexcept {
+inline bool snapshot_valid(const ChannelOverviewSnapshot& value, ChannelOverviewScope scope) noexcept {
     return value.channel_id == scope.channel_id && value.guild_id == scope.guild_id && value.type == 0 &&
            value.name_bytes <= kChannelOverviewNameBytes &&
            value.topic_bytes <= kChannelOverviewTopicBytes && value.known_fields == channel_overview_all &&
@@ -61,7 +61,7 @@ bool editable(const ChannelOverviewController& value) noexcept {
     return value.active && value.available && value.can_manage && value.authoritative &&
            !value.request_id && !value.queued;
 }
-void install_remote(ChannelOverviewController& value, const ChannelOverviewSnapshot& remote) noexcept {
+inline void install_remote(ChannelOverviewController& value, const ChannelOverviewSnapshot& remote) noexcept {
     const u8 dirty = value.dirty_fields;
     const u8 changes = difference(value.baseline, remote, channel_overview_all);
     apply(value.baseline, patch(remote, channel_overview_all));

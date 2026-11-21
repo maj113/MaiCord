@@ -26,8 +26,7 @@ void project_emoji(Bank& bank) noexcept {
     const bool full = counts.static_count >= slots && counts.animated_count >= slots;
     push_action(control_upload, "Emoji", bank.since(start), "Upload emoji", can && !full,
                 {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
-    if (p.failed && p.status.bytes)
-        push_error({}, p.status);
+    push_status_error();
     push_editor(control_search, "Search emoji", {}, UiSettingsControlKind::edit, editable(), editor_search,
                 "Search emoji");
     const auto query = editor_text(editor_search);
@@ -85,7 +84,7 @@ void project_stickers(Bank& bank) noexcept {
                 can && p.stickers_loaded && p.sticker_count < slots,
                 {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
     if (p.stickers_failed)
-        push_error("Couldn't load stickers", p.status, "Try again");
+        push_load_error("Couldn't load stickers");
     else if (p.failed && p.status.bytes)
         push_error({}, p.status);
     else if (!p.stickers_loaded)
@@ -171,7 +170,7 @@ void project_soundboard(Bank& bank) noexcept {
     p.row_count = count;
 }
 
-const GuildStickerRecord* sticker(u64 id) noexcept {
+inline const GuildStickerRecord* sticker(u64 id) noexcept {
     for (u32 i = 0; i < owner->sticker_count; ++i)
         if (owner->stickers[i].id == id)
             return &owner->stickers[i];

@@ -104,7 +104,7 @@ UiGuildCardAction action() noexcept {
 }
 // The icon (icons/{id}/{hash}.png) and the tag badge (clan-badges, the
 // key user_guild_badge_media gives the same badge on author lines).
-void resolve_media() noexcept {
+inline void resolve_media() noexcept {
     auto& c = *g_card;
     c.icon_key = c.badge_key = {};
     c.icon_url_bytes = c.badge_url_bytes = 0;

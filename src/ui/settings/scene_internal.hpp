@@ -102,6 +102,14 @@ struct NavRow {
 };
 // Whether a sidebar row shows as the selected one: its page, or its subpage, is shown.
 bool nav_selected(const UiSettingsScene& scene, const NavRow& row) noexcept;
+// A sidebar row in view with its widget: the handle and the laid-out node. Only a modal pins rows to its foot.
+struct NavWidget {
+    UiWidgetHandle handle;
+    const UiLayoutNode* node;
+    NavRow row;
+};
+// Visits the sidebar rows in view in their order, until the visitor returns false.
+void visit_nav_widgets(const UiSettingsScene& scene, UiVisitRef<const NavWidget&> visit) noexcept;
 // A line of the sidebar note (12/16).
 inline constexpr float kNavNoteLine = 16;
 struct Frame {
@@ -204,15 +212,18 @@ u8 chip_tone(const UiSettingsPageContent& content, u32 index, u32 chip) noexcept
 // Chips of a status row flowed left to right inside `width`: each chip's rectangle in `out`, the flow's height.
 void flow_chips(const UiSettingsControl& c, UiTextMeasureCache* measure, float left, float top, float width, UiRect* out,
                 float* height) noexcept;
-bool nav_row(const UiSettingsScene& scene, u32 index, NavRow* row) noexcept;
-float nav_extent(const UiSettingsScene& scene, const UiSettingsMetrics& m) noexcept;
+// The height of the sidebar's scrolling rows; `rows` receives the number of sidebar rows.
+float nav_extent(const UiSettingsScene& scene, const UiSettingsMetrics& m, u32* rows = nullptr) noexcept;
 float dialog_footer_height(const UiSettingsMetrics& m) noexcept;
 Frame frame(const UiSettingsScene& scene, const UiSettingsMetrics& m) noexcept;
 float body_width(const UiSettingsScene& scene) noexcept;
 AsideLayout aside_layout(const UiSettingsScene& scene) noexcept;
 float row_start(const UiSettingsScene& scene, u32 row) noexcept;
 float content_extent(const UiSettingsScene& scene, const UiSettingsMetrics& m) noexcept;
-float clamp_offset(const UiSettingsScene& scene, bool sidebar, float offset, const UiSettingsMetrics& m) noexcept;
+// The height the sidebar or the page scrolls over.
+float scroll_extent(const UiSettingsScene& scene, bool sidebar, const UiSettingsMetrics& m) noexcept;
+// An offset of the sidebar or the page kept between 0 and the extent past its visible height in the frame.
+float clamp_offset(float offset, float extent, const Frame& f, bool sidebar) noexcept;
 bool geometry_valid(const UiEditGeometry* geometry) noexcept;
 bool current(const UiSettingsScene& scene) noexcept;
 bool valid_text(const Utf8View& text) noexcept;

@@ -37,16 +37,16 @@ struct CustomThemeOwner {
     bool catalog_scanning, catalog_wanted;
 };
 CustomThemeOwner* owner;
+// A snapshot's fields after its document (gradient, effect profiles, built-in theme, present and active) lie
+// together without padding, so they compare as bytes.
+constexpr u32 kSnapshotFieldBytes =
+    sizeof(ClientThemeStorageSnapshot) - __builtin_offsetof(ClientThemeStorageSnapshot, gradient);
+static_assert(kSnapshotFieldBytes == sizeof(BackgroundTheme) +
+                                         kBackgroundEffectProfileCount * sizeof(BackgroundEffectSettings) +
+                                         sizeof(ClientTheme) + 2 * sizeof(bool));
 bool same(const ClientThemeStorageSnapshot& a, const ClientThemeStorageSnapshot& b) noexcept {
-    if (a.builtin_theme != b.builtin_theme || a.custom_present != b.custom_present ||
-        a.custom_active != b.custom_active || !background_theme_equal(a.gradient, b.gradient))
-        return false;
-    for (u32 i = 0; i < kBackgroundEffectProfileCount; ++i) {
-        const auto x = a.effect_profiles[i], y = b.effect_profiles[i];
-        if (x.speed != y.speed || x.strength != y.strength || x.density != y.density)
-            return false;
-    }
-    return !a.custom_present || client_theme_document_equal(a.custom, b.custom);
+    return bytes_equal(&a.gradient, &b.gradient, kSnapshotFieldBytes) &&
+           (!a.custom_present || client_theme_document_equal(a.custom, b.custom));
 }
 void changed(CustomThemeOwner& o) noexcept {
     ++o.revision;

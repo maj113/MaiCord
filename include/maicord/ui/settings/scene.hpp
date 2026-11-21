@@ -672,52 +672,7 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
 // Settings rows activate only on their actual control: action/notice rows on
 // the button, option rows on an option, editors inside their field. Grips and
 // an active list drag present the move shape.
-inline UiCursor ui_settings_scene_cursor(const UiSettingsScene& scene, float x, float y,
-                                         bool dragging = false) noexcept {
-    if (dragging)
-        return UiCursor::move;
-    UiSettingsControlGeometry geometry{};
-    if (ui_settings_scene_editor_hit(scene, x, y, &geometry))
-        return UiCursor::ibeam;
-    const auto target = ui_settings_scene_hit_test(scene, x, y);
-    switch (target.kind) {
-    case UiSettingsTargetKind::none:
-        return UiCursor::arrow;
-    case UiSettingsTargetKind::search:
-        return UiCursor::ibeam;
-    case UiSettingsTargetKind::control:
-        break;
-    default:
-        return UiCursor::hand;
-    }
-    const auto* control = ui_settings_scene_control(scene, target);
-    if (!control || !control->enabled)
-        return UiCursor::arrow;
-    if (ui_settings_scene_grip_hit(scene, target, x, y))
-        return UiCursor::move;
-    UiSettingsActivation activation{};
-    switch (control->kind) {
-    case UiSettingsControlKind::edit:
-    case UiSettingsControlKind::multiline:
-    case UiSettingsControlKind::action:
-    case UiSettingsControlKind::notice:
-        return ui_action_cursor(ui_settings_scene_button_hit(scene, target, x, y));
-    case UiSettingsControlKind::palette:
-        return ui_action_cursor(ui_settings_scene_palette_pointer(scene, target, x, y, &activation));
-    case UiSettingsControlKind::radio:
-        return ui_action_cursor(ui_settings_scene_radio_pointer(scene, target, x, y, &activation));
-    case UiSettingsControlKind::segments:
-    case UiSettingsControlKind::swatches:
-    case UiSettingsControlKind::tabs:
-    case UiSettingsControlKind::buttons:
-    case UiSettingsControlKind::colors:
-        return ui_action_cursor(ui_settings_scene_option_pointer(scene, target, x, y, &activation));
-    case UiSettingsControlKind::error:
-        return UiCursor::arrow;
-    default:
-        return UiCursor::hand;
-    }
-}
+UiCursor ui_settings_scene_cursor(const UiSettingsScene& scene, float x, float y, bool dragging = false) noexcept;
 
 } // namespace maicord
 

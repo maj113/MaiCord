@@ -242,7 +242,8 @@ void open_menu(Menu menu, const UiRect& anchor) noexcept {
     }
     if (!count)
         return;
-    count = minimum(count, kTimeChoices);
+    // Every list fits the menu: the channels stop at kChannelChoices (build_channels).
+    static_assert(kChannelChoices <= kTimeChoices && kDayChoices <= kTimeChoices && kDurationCount <= kTimeChoices);
     for (u32 i = 0; i < count; ++i)
         popup_item_set(&p.popup_items[i], labels[i], kMenuChoiceBase + i,
                        static_cast<u16>(popup_item_enabled | (i == selected ? popup_item_checked : 0)));
@@ -968,7 +969,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
             owner->step = 0;
             owner->phase = Phase::ready;
             // Nothing to ask on join: onboarding is not shown at all.
-            if (owner->mode == Mode::onboarding && !owner->onboarding.truncated &&
+            if (!owner->onboarding.truncated &&
                 (!owner->onboarding.enabled || !owner->flow_count)) {
                 const u64 guild_id = owner->guild_id;
                 application_guild_community_close();

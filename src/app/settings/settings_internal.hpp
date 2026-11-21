@@ -98,7 +98,6 @@ extern SignedOutSession g_signed_out;
 bool settings_allowed() noexcept;
 bool page_allowed(const UiPageKey& page) noexcept;
 
-constexpr u64 kNativeSettingsOwner = kSettingsNativeOwner;
 constexpr u64 kPluginsPage = static_cast<u64>(SettingsPanel::plugins) + 1;
 constexpr u64 kThemesPage = static_cast<u64>(SettingsPanel::themes) + 1;
 constexpr u64 kEffectsPage = static_cast<u64>(SettingsPanel::effects) + 1;

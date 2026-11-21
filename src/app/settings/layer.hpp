@@ -55,7 +55,7 @@ struct SettingsLayer {
     const SettingsLayerHooks* hooks;
     UiSettingsTarget pressed;
     u64 blink_at, shake_started, drag_id, entrance_started, drop_target;
-    u32 pressed_revision, popup_opens, popup_pressed, held_key;
+    u32 popup_opens, popup_pressed, held_key;
     float scrollbar_grab, press_y;
     u16 pending_surrogate;
     bool caret_visible, selecting, scrollbar_dragging, slider_dragging, choice, dragging, drag_armed,

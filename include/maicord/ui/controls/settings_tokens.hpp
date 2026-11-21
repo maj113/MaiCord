@@ -87,7 +87,8 @@ struct UiSettingsThemeTokens : UiSettingsTokens {
     explicit UiSettingsThemeTokens(const Theme& theme) noexcept { ui_settings_fill_tokens(theme, this); }
 };
 Color ui_settings_focus_color(const Theme& theme) noexcept;
-// Geometry and motion queries do not construct a paint palette.
+// Geometry and motion queries do not construct a paint palette. Frame code that needs only the durations reads
+// them from ui_theme_settings (style_projection.hpp).
 UiSettingsLayoutTokens ui_settings_layout_tokens(const UiResolvedThemeStyles* styles) noexcept;
 void ui_settings_fill_layout_tokens(const UiResolvedThemeStyles* styles, UiSettingsLayoutTokens* output) noexcept;
 struct UiSettingsStyleTokens : UiSettingsLayoutTokens {
@@ -98,7 +99,7 @@ struct UiSettingsStyleTokens : UiSettingsLayoutTokens {
 // Entrance progress (0..1) of every modal and dialog elapsed_ms after it
 // opened: a spring (tension 1000, friction 48) over modal_enter_ms, so Settings
 // and each dialog open on one timeline.
-float ui_settings_modal_entrance(const UiSettingsDurations& duration, u64 elapsed_ms) noexcept;
+float ui_settings_modal_entrance(u32 modal_enter_ms, u64 elapsed_ms) noexcept;
 Color ui_settings_color_mix(const Color& a, const Color& b, float t) noexcept;
 Color ui_settings_color_alpha(const Color& color, float alpha) noexcept;
 

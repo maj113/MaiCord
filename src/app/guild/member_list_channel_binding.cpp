@@ -167,7 +167,7 @@ bool same_ranges(const GatewayMemberSubscriptionRange* a, u32 a_count,
         if (a[i].first != b[i].first || a[i].last != b[i].last) return false;
     return true;
 }
-bool retain_page_window(const GatewayMemberSubscriptionRange* requested, u32 requested_count,
+inline bool retain_page_window(const GatewayMemberSubscriptionRange* requested, u32 requested_count,
                         const GatewayMemberSubscriptionRange* current, u32 current_count) noexcept {
     if (!requested_count || !current_count) return false;
     const u32 requested_low = requested_count > 1 ? requested[1].first : 0;

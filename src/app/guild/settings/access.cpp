@@ -54,7 +54,7 @@ bool discovery_ready() noexcept {
     return s.requirements_loaded && s.metadata_loaded && s.categories_loaded;
 }
 
-bool discovery_profile_dirty() noexcept {
+inline bool discovery_profile_dirty() noexcept {
     auto& s = st();
     access_sync_description(&s.discovery_draft);
     return owner->splash.set || s.discovery_splash_clear ||
@@ -64,7 +64,7 @@ bool discovery_profile_dirty() noexcept {
            s.discovery_draft.locale_bytes != s.discovery_base.locale_bytes ||
            !bytes_equal(s.discovery_draft.locale, s.discovery_base.locale, s.discovery_draft.locale_bytes);
 }
-bool metadata_dirty() noexcept {
+inline bool metadata_dirty() noexcept {
     const auto& a = st().metadata_base;
     const auto& b = st().metadata_draft;
     if (a.primary_category_id != b.primary_category_id ||
@@ -113,7 +113,7 @@ u32 save_plan() noexcept {
 }
 
 // Discovery's required information, as the official page asks it before listing.
-bool listing_complete() noexcept {
+inline bool listing_complete() noexcept {
     auto& s = st();
     access_sync_description(&s.discovery_draft);
     return s.discovery_draft.description_bytes && s.metadata_draft.primary_category_id &&

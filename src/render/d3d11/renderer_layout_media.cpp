@@ -871,7 +871,8 @@ bool build_settings_page(D3D11Renderer* renderer, u32 shown, const Theme& theme)
     if (renderer->media_atlas && renderer->media_gpu.texture_view) {
         UiSettingsAvatarGeometry avatar{};
         bool first = true;
-        for (u32 cursor = 0; ui_settings_scene_next_avatar(*renderer->settings_scene, &cursor, &avatar);) {
+        for (UiSettingsAvatarCursor cursor;
+             ui_settings_scene_next_avatar(*renderer->settings_scene, &cursor, &avatar);) {
             const auto allocation = media_atlas_peek(renderer->media_atlas, avatar.media->key);
             if (!allocation.ok())
                 continue;

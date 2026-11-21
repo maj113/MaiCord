@@ -476,10 +476,15 @@ Utf8View user_name(const GuildAdminUser& user) noexcept {
     return user.display_bytes ? Utf8View{user.display, user.display_bytes}
                               : Utf8View{user.username, user.username_bytes};
 }
-Utf8View user_label(u64 id) noexcept {
+const GuildAdminUser* audit_user(u64 id) noexcept {
     for (u32 i = 0; i < owner->audit_user_count; ++i)
         if (owner->audit_users[i].id == id)
-            return user_name(owner->audit_users[i]);
+            return &owner->audit_users[i];
+    return nullptr;
+}
+Utf8View user_label(u64 id) noexcept {
+    if (const auto* listed = audit_user(id))
+        return user_name(*listed);
     const auto& users = g_app.account_ui->user_store;
     if (const auto* user = user_store_find(users, id)) {
         const auto name = user_store_name(users, *user);
@@ -491,7 +496,7 @@ Utf8View user_label(u64 id) noexcept {
 
 namespace {
 
-Utf8View footer_status() noexcept {
+inline Utf8View footer_status() noexcept {
     if (owner->request_id && mutation_pending())
         return utf8_literal("Saving changes…");
     if (owner->failed && owner->status.bytes)
@@ -686,7 +691,7 @@ void clear_status() noexcept {
     reset_value(&owner->status);
 }
 // The picked file's name as UTF-8, for the expression name forms.
-void set_upload_filename(ConstSlice<wchar_t> filename) noexcept {
+inline void set_upload_filename(ConstSlice<wchar_t> filename) noexcept {
     auto& p = *owner;
     const int units = utf16_to_utf8(filename.data, static_cast<int>(filename.count), p.upload_filename, sizeof(p.upload_filename), false);
     p.upload_filename_bytes = units > 0 ? static_cast<u32>(units) : 0;
@@ -842,7 +847,7 @@ bool form_save(TextFormOwnerKey key, Utf8View) noexcept {
 
 namespace {
 
-GuildImageProfile pick_profile(Pick pick) noexcept {
+inline GuildImageProfile pick_profile(Pick pick) noexcept {
     switch (pick) {
     case Pick::banner: return GuildImageProfile::banner;
     case Pick::role_icon: return GuildImageProfile::role_icon;
@@ -882,7 +887,7 @@ void start_pick(Pick pick) noexcept {
 
 namespace {
 
-bool read_picked_file(ConstSlice<wchar_t> path, Picked* out, Utf8View* error) noexcept {
+inline bool read_picked_file(ConstSlice<wchar_t> path, Picked* out, Utf8View* error) noexcept {
     u8* data = nullptr;
     u32 bytes = 0;
     if (!application_image_file_read(path, &data, &bytes, error, {owner->size_error, sizeof(owner->size_error)}))
@@ -893,7 +898,7 @@ bool read_picked_file(ConstSlice<wchar_t> path, Picked* out, Utf8View* error) no
     return true;
 }
 // Validates through the account module; the same preparation runs at submit.
-bool probe_picked(GuildImageProfile profile, Picked* picked, ConstSlice<wchar_t> path, Utf8View* error) noexcept {
+inline bool probe_picked(GuildImageProfile profile, Picked* picked, ConstSlice<wchar_t> path, Utf8View* error) noexcept {
     if (application_guild_image_probe(profile, {picked->data, picked->bytes}, &picked->info))
         return true;
     *error = application_guild_image_error_text(
@@ -903,7 +908,7 @@ bool probe_picked(GuildImageProfile profile, Picked* picked, ConstSlice<wchar_t>
 }
 // Server icon and invite background: the official chooser's checks (10 MB,
 // PNG, JPEG, WebP or GIF), probed by the account module's cropper.
-bool probe_profile_image(Picked* picked, ConstSlice<wchar_t> path, ProfileImageInfo* info, Utf8View* error) noexcept {
+inline bool probe_profile_image(Picked* picked, ConstSlice<wchar_t> path, ProfileImageInfo* info, Utf8View* error) noexcept {
     ProfileImageRequest request{};
     request.source = {picked->data, picked->bytes};
     request.info = info;
@@ -1050,6 +1055,9 @@ void open_channel_menu(Menu menu, u32 types, u64 current, Text none, PermissionS
     }
     const auto& s = state();
     const u32 first = count;
+    // The channels go to the sort rows with their records; the sorted rows fill the menu after them.
+    using Row = Settings::PopupRow;
+    auto& rows = p.popup_rows;
     const u32 slots = chat_state_store_channel_slot_bound(s);
     for (u32 i = 0; i < slots && count < kPopupCapacity; ++i) {
         const auto& channel = s.channels[i];
@@ -1064,26 +1072,25 @@ void open_channel_menu(Menu menu, u32 types, u64 current, Text none, PermissionS
         if (channel.type != 2 && channel.type != 13)
             bank.add("#");
         bank.add(chat_state_store_channel_name(s, channel));
-        popup_row(count, bank.since(start), 0, channel.id == current ? popup_item_checked : 0);
-        p.menu_channel[count++] = channel.id;
+        auto& row = rows[count++ - first];
+        popup_item_set(&row.item, bank.since(start), kMenuChoiceBase,
+                       static_cast<u16>(popup_item_enabled | (channel.id == current ? popup_item_checked : 0)));
+        row.channel = &channel;
     }
     // The invite picker lists text-like channels before voice; the others
     // follow the channel list.
     const auto order =
         menu == Menu::widget_channel ? GuildChannelPickerOrder::invite : GuildChannelPickerOrder::channel_list;
-    using Row = Settings::PopupRow;
-    auto& rows = p.popup_rows;
-    for (u32 i = first; i < count; ++i)
-        rows[i - first] = {p.popup_items[i], chat_state_store_find_channel(s, p.menu_channel[i])};
     heap_sort_shared(rows, count - first, [&s, order](const Row& a, const Row& b) noexcept {
-        return a.channel && b.channel && guild_settings_channel_before(s, order, *a.channel, *b.channel);
+        return guild_settings_channel_before(s, order, *a.channel, *b.channel);
     });
     for (u32 i = first; i < count; ++i) {
-        p.popup_items[i] = rows[i - first].item;
+        const auto& row = rows[i - first];
+        p.popup_items[i] = row.item;
         p.popup_items[i].action = kMenuChoiceBase + i;
-        p.popup_items[i].flags = static_cast<u16>((p.popup_items[i].flags & ~popup_item_separator_before) |
-                                                  (first && i == first ? popup_item_separator_before : 0));
-        p.menu_channel[i] = rows[i - first].channel ? rows[i - first].channel->id : 0;
+        p.popup_items[i].flags =
+            static_cast<u16>(row.item.flags | (first && i == first ? popup_item_separator_before : 0));
+        p.menu_channel[i] = row.channel->id;
     }
     open_popup(menu, p.guild_id, count, anchor, 280);
 }
@@ -1219,7 +1226,7 @@ constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose,
                                     context_hook, editor_enter_hook};
 
 // Store reconciliation: rebaseline clean drafts, flag dirty ones.
-bool reconcile() noexcept {
+inline bool reconcile() noexcept {
     return ops().reconcile && ops().reconcile(clock_monotonic_milliseconds());
 }
 u64 signature() noexcept {

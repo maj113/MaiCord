@@ -35,7 +35,7 @@ BannerState g_banner;
 const UiLayoutNode* shell_node(UiSemantic semantic) noexcept {
     return ui_scene_node(g_app.shell_scene, semantic);
 }
-const GuildRecord* selected_guild() noexcept {
+inline const GuildRecord* selected_guild() noexcept {
     if (!g_app.account_ui || g_app.login.visible || g_app.shell_scene.view != UiShellView::guild_channel)
         return nullptr;
     const auto& state = g_app.account_ui->chat_state;
