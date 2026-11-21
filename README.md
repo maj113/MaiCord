@@ -43,7 +43,7 @@ No Electron, no browser engine: one ~6.5 MB program on Windows and on Linux.
 | | Windows | Linux |
 | --- | --- | --- |
 | Download | 5.4 MB zip, portable | 5.4 MB tarball or 6.0 MB AppImage |
-| Executable | one 6.48 MB EXE | one 6.49 MB program |
+| Executable | one 6.43 MB EXE | one 6.47 MB program |
 | On disk | the EXE plus its profile fonts and license notices, ~9 MB together | the same, ~9 MB together |
 | Dependencies | only DLLs that ship with Windows | the C library, and what a desktop has: OpenSSL, Wayland, EGL and GLES |
 | First frame | ~0.1 s | ~0.6 s (Mesa d3d12) to ~0.9 s (llvmpipe, software) |
@@ -52,7 +52,7 @@ No Electron, no browser engine: one ~6.5 MB program on Windows and on Linux.
 
 Measured on one machine (Ryzen 7 5800X, Radeon RX 9070 XT): a Release build on Windows, and the Linux build in WSL2
 under headless sway, each on a fresh profile at the signed-out screen, with the idle figures over 20 seconds. The
-executable sizes are 0.8.1's, the downloads 0.8.0's, the Linux figures 0.7.0's, and the Windows startup, idle and memory
+executable sizes are 0.8.2's, the downloads 0.8.0's, the Linux figures 0.7.0's, and the Windows startup, idle and memory
 figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
 
 </details>
@@ -136,7 +136,8 @@ figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
   [ANSI colored text](https://gist.github.com/kkrypt0nn/a02506f3712ff2d1c8ca7c9e0aed7c06)
 - Rich embeds with image galleries, link previews, stickers and custom emoji
 - Replies (with timestamps on the preview), forwards, pins, reactions, threads, forum posts and polls (create and vote)
-- Role colors on mentions and in voice participant lists
+- Role colors on mentions and in voice participant lists; display name styles (name fonts, effects and role gradients)
+  where Discord shows them, with a switch in Settings > Accessibility
 - Game mentions: type `@game` to search Discord's game catalogue; mentions show as chips with the game's icon and open
   its game profile (details, links and the friends playing it)
 - Slash commands, including Discord's built-in ones, and app buttons, select menus, modals and Components V2 layouts
@@ -159,7 +160,8 @@ figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
 
 **Voice and video**
 - Voice channels with Discord's end-to-end encryption (DAVE)
-- Push-to-talk, per-user volume, soundboard and stage channels
+- Push-to-talk, per-user volume, soundboard and stage channels; voice channel user limits, and Disconnect in the voice
+  member menu with Move Members
 - Sounds when you join or leave a voice channel, and a different one when the connection drops (Settings > Voice &
   Video > Sounds: on or off, and their volume)
 - Watch Go Live streams and cameras, decoded on the GPU
@@ -172,7 +174,9 @@ figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
 - Server settings: profile with banner upload, Server Tag, roles and permissions, members, bans, audit log, emoji,
   stickers, soundboard and invites; join access (rules screening, join applications, Server Discovery), Community setup
   and overview, server templates, and integrations (command permissions, AutoMod, webhooks)
-- Scheduled events, community onboarding, per-server profiles and privacy
+- Scheduled events, per-server profiles and privacy, and community onboarding: Channels & Roles with its questions and
+  Browse Channels to follow channels and categories
+- The Server Hub as a page: the server's banner, Most Game Time and Popular Games
 - Server folders: opening one closes the others
 - Hidden channels are listed with a lock and a summary of who can see them; nothing is fetched from them
 
@@ -204,6 +208,7 @@ figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
 - Streamer Mode: hides invite links and personal information, silences sounds and notifications, has its own keybind,
   can turn itself on while OBS or XSplit runs (opt-in), and on Windows keeps the window out of screen captures
 - Custom keybinds in Settings > Keybinds
+- The window opens where you closed it: size, place and maximized state (on Linux the size and maximized state)
 - Signed automatic updates from GitHub releases (see [Install](#install) for what updates itself on Linux)
 
 </details>
