@@ -1,6 +1,8 @@
 name: Workflow lint
 
-# Security audit of the workflows, composite actions and Dependabot config.
+# actionlint (with the runner image's shellcheck) and the zizmor security audit of the workflows, composite actions and
+# Dependabot config. Dependabot updates zizmor with zizmor-action. It cannot see the actionlint pin: actionlint publishes
+# no action, and Dependabot skips docker:// references. Bump ACTIONLINT_VERSION and ACTIONLINT_SHA256 by hand.
 on:
   push:
     branches: [master]
@@ -10,27 +12,44 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: workflow-lint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  zizmor:
-    runs-on: ubuntu-latest
+  lint:
+    name: actionlint and zizmor
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
-      security-events: write # upload the findings to code scanning
+      security-events: write # upload the zizmor findings to code scanning
+    env:
+      ACTIONLINT_VERSION: 1.7.12
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Findings go to code scanning, which shows them on the commit or pull
-      # request; collection errors (workflow files GitHub couldn't parse) still
-      # fail the job.
-      - name: zizmor
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: pipx run zizmor==1.30.1 --strict-collection --min-severity medium --format sarif --no-exit-codes .github > zizmor.sarif
-      # Pull requests from forks get a read-only token and cannot upload.
-      - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
-        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+
+      - name: actionlint
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "$ACTIONLINT_SHA256  actionlint.tar.gz" | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/actionlint" -color
+
+      # The action runs the zizmor release its own commit pins (a wheel checked against SHA-256 hashes). Findings go to
+      # code scanning, which shows them on the commit or pull request. Pull requests from forks get a read-only token
+      # and cannot upload, so they get annotations instead.
+      - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        if: ${{ !cancelled() }}
         with:
-          sarif_file: zizmor.sarif
-          category: zizmor
+          inputs: .github
+          min-severity: medium
+          advanced-security: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+          annotations: ${{ github.event_name != 'push' && github.event.pull_request.head.repo.full_name != github.repository }}

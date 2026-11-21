@@ -130,7 +130,7 @@ run through their script, which sets the opt-in variable at configure time (`MAI
 | `client.cmake`, `update_config.cmake`, `runtime_assets.cmake` | The client, its updater identity, the image audit, the source rules (`tools/check_source_rules.py`), and the licenses and fonts beside the executable |
 | `size_policy.cmake` | The one list of size-compiled sources, Windows and Linux paths side by side |
 | `tests.cmake`, `test_support.cmake`, `test_registry.cmake` | The test configuration, its helpers, and every test executable and CTest case |
-| `perf_probe.cmake`, `integration.cmake`, `build_outputs.cmake` | Windows only: the perf probe, the live-network probes and the Opus conformance run, the cleanup's list of build products |
+| `perf_probe.cmake`, `build_outputs.cmake` | Windows only: the perf probe, the cleanup's list of build products |
 
 - Source order in the library files is the archive member order: append new files instead of re-sorting the lists.
 - **Size.** `size_policy.cmake` sets the optimisation level per source: on Linux a new `src/app` unit is size-compiled by
@@ -253,8 +253,8 @@ with the area's design and test notes.
 
 - **System declarations.** Everything compiles with `-nostdinc` and without unwind tables. Intrinsics go
   in `include/maicord/sys/simd.hpp` as clang defines them, and the AVX2 ones of `MAICORD_HASWELL` functions in
-  `include/maicord/sys/simd_haswell.hpp`; only the conformance units and the Opus conformance run use the SDK headers
-  (`MAICORD_SDK_INCLUDES`). New Win32 imports need a reason.
+  `include/maicord/sys/simd_haswell.hpp`; only the conformance units use the SDK headers (`MAICORD_SDK_INCLUDES`). New
+  Win32 imports need a reason.
 - **No unwind tables.** Frame-based exception dispatch stops at the first MaiCord frame, so the tests report crashes from a
   vectored handler and crash-dump stacks through MaiCord code are heuristic. Only the perf probe, which walks stacks
   in-process, configures with `MAICORD_UNWIND_TABLES`.

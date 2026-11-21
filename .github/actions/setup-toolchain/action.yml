@@ -1,19 +1,13 @@
 name: Set up MaiCord toolchain
 description: >
   Ensures the pinned LLVM toolchain release (tools/llvm_toolchain.json), whose bin directory goes on PATH and into
-  MAICORD_LLVM_BIN for the build scripts. On Windows also Python 3 and a Visual Studio installation of at least the
-  requested major version with the components of .vsconfig (the MSVC x64 tools, whose ml64 builds the MASM source, and
-  the Windows SDK; tools/enter_build_environment.ps1 sets the build up from them, with no developer shell). CMake and
-  Ninja come from PATH. On Linux also what tools/install_linux_toolchain.sh installs (cmake, ninja and what hosted links
-  need), with the test or integration packages when asked.
+  MAICORD_LLVM_BIN for the build scripts. On Windows also checks for Visual Studio 2026 with the components of .vsconfig
+  (the MSVC x64 tools, whose ml64 builds the MASM source, and the Windows SDK;
+  tools/enter_build_environment.ps1 sets the build up from them, with no developer shell). CMake, Ninja and Python 3 come
+  from PATH: the hosted images carry them. On Linux also what tools/install_linux_toolchain.sh installs (cmake, ninja and
+  what hosted links need), with the test or integration packages when asked.
 
 inputs:
-  minimum-vs-major:
-    description: Windows. Minimum Visual Studio major version (18 = Visual Studio 2026, 17 = 2022).
-    default: "18"
-  buildtools-url:
-    description: Windows. Visual Studio Build Tools bootstrapper used when the image lacks the required version.
-    default: https://aka.ms/vs/18/stable/vs_buildtools.exe
   linux-packages:
     description: >
       Linux. The package set of tools/install_linux_toolchain.sh beyond the build's own: empty, "tests" (--tests) or
@@ -23,49 +17,17 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-      if: runner.os == 'Windows'
-      with:
-        python-version: "3.12"
-
-    - name: Ensure Visual Studio C++ toolset
+    # windows-2025 carries Visual Studio 2026 (18) since June 2026. An older one fails here, not later in the build.
+    - name: Check the Visual Studio C++ toolset
       if: runner.os == 'Windows'
       shell: powershell
-      env:
-        MINIMUM_VS_MAJOR: ${{ inputs.minimum-vs-major }}
-        BUILDTOOLS_URL: ${{ inputs.buildtools-url }}
       run: |
         $ErrorActionPreference = 'Stop'
-        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-        function Get-Toolset {
-          if (!(Test-Path -LiteralPath $vswhere)) { return $null }
-          $found = & $vswhere -latest -prerelease -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json | ConvertFrom-Json
-          if ($found) { return @($found)[0] } else { return $null }
-        }
-        $minimum = [int]$env:MINIMUM_VS_MAJOR
-        $toolset = Get-Toolset
-        if ($toolset -and [int]$toolset.installationVersion.Split('.')[0] -ge $minimum) {
-          Write-Host "Using preinstalled $($toolset.displayName) $($toolset.installationVersion)."
-        } else {
-          $present = if ($toolset) { "$($toolset.displayName) $($toolset.installationVersion)" } else { 'none' }
-          Write-Host "Visual Studio $minimum+ C++ tools are not on this image (found: $present). Installing Build Tools..."
-          $bootstrapper = Join-Path $env:RUNNER_TEMP 'vs_buildtools.exe'
-          Invoke-WebRequest -Uri $env:BUILDTOOLS_URL -OutFile $bootstrapper -UseBasicParsing
-          $signature = Get-AuthenticodeSignature -LiteralPath $bootstrapper
-          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
-            throw "The Build Tools bootstrapper signature is not a valid Microsoft signature ($($signature.Status))."
-          }
-          # Exactly the components the repository's .vsconfig lists, as a developer installs them.
-          $arguments = @('--quiet', '--wait', '--norestart', '--nocache', '--config', "`"$(Join-Path $env:GITHUB_WORKSPACE '.vsconfig')`"")
-          $process = Start-Process -FilePath $bootstrapper -ArgumentList $arguments -Wait -PassThru
-          if ($process.ExitCode -notin @(0, 3010)) { throw "Build Tools installation failed ($($process.ExitCode))." }
-          Remove-Item -LiteralPath $bootstrapper -Force
-          $toolset = Get-Toolset
-          if (!$toolset -or [int]$toolset.installationVersion.Split('.')[0] -lt $minimum) {
-            throw "Visual Studio $minimum+ C++ tools are still unavailable after installation."
-          }
-          Write-Host "Installed $($toolset.displayName) $($toolset.installationVersion)."
-        }
+        $found = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -prerelease -products * -version '[18.0,' `
+          -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json | ConvertFrom-Json
+        $toolset = @($found)[0]
+        if (!$toolset) { throw 'This runner has no Visual Studio 2026 (18) with the MSVC x64 tools (.vsconfig).' }
+        Write-Host "Using $($toolset.displayName) $($toolset.installationVersion)."
         $msvc = Get-ChildItem -LiteralPath (Join-Path $toolset.installationPath 'VC\Tools\MSVC') -Directory |
           Sort-Object { [version]$_.Name } | Select-Object -Last 1
         # link and other Visual Studio tools start vctip.exe (telemetry) on every launch unless it is missing.

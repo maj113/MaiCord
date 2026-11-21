@@ -29,7 +29,7 @@ concurrency:
 jobs:
   release:
     name: Build, sign and draft
-    runs-on: ${{ vars.MAICORD_WINDOWS_RUNNER || 'windows-2025' }}
+    runs-on: windows-2025
     timeout-minutes: 120
     environment: release
     permissions:
@@ -44,10 +44,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
 
       - name: Validate tag
         id: version
@@ -69,8 +65,6 @@ jobs:
           CATALOG_NEXT_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY }}
 
       - uses: ./.github/actions/setup-toolchain
-        with:
-          minimum-vs-major: ${{ vars.MAICORD_MIN_VS_MAJOR || '18' }}
 
       - name: Release tooling self-test
         shell: powershell
@@ -287,7 +281,7 @@ jobs:
     needs: [release, analysis, linux]
     # The Linux job is skipped unless Linux releases are enabled; when it ran it must have succeeded.
     if: ${{ !cancelled() && needs.release.result == 'success' && needs.analysis.result == 'success' && (needs.linux.result == 'success' || needs.linux.result == 'skipped') }}
-    runs-on: ${{ vars.MAICORD_WINDOWS_RUNNER || 'windows-2025' }}
+    runs-on: windows-2025
     timeout-minutes: 30
     environment: release
     permissions:
@@ -299,10 +293,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
 
       - name: Publish GitHub Release
         if: needs.release.outputs.published != 'true'
@@ -374,7 +364,7 @@ jobs:
     name: Discard the draft
     needs: [release, analysis, linux]
     if: always() && needs.release.result == 'success' && needs.release.outputs.published != 'true' && (needs.analysis.result != 'success' || needs.linux.result == 'failure')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     permissions:
       contents: write

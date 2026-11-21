@@ -48,10 +48,8 @@ concurrency:
 jobs:
   client:
     name: Client (Windows x64 Release)
-    # GitHub-hosted images may only carry Visual Studio 2022. The setup action
-    # installs VS 2026 Build Tools when needed; point MAICORD_WINDOWS_RUNNER at
-    # an image or self-hosted runner that already has it to skip that step.
-    runs-on: ${{ vars.MAICORD_WINDOWS_RUNNER || 'windows-2025' }}
+    # The setup action needs Visual Studio 2026, which windows-2025 carries.
+    runs-on: windows-2025
     timeout-minutes: 60
     outputs:
       artifact: ${{ steps.collect.outputs.name }}
@@ -65,8 +63,6 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/setup-toolchain
-        with:
-          minimum-vs-major: ${{ vars.MAICORD_MIN_VS_MAJOR || '18' }}
 
       # A commit after the last stable tag builds as X.Y.Z-dev.N, the preview
       # channel's version; without an identity cmake/client.cmake builds the
@@ -121,7 +117,7 @@ jobs:
 
   tests:
     name: Tests (${{ matrix.shard }})
-    runs-on: ${{ vars.MAICORD_WINDOWS_RUNNER || 'windows-2025' }}
+    runs-on: windows-2025
     timeout-minutes: 60
     permissions:
       contents: read
@@ -135,8 +131,6 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/setup-toolchain
-        with:
-          minimum-vs-major: ${{ vars.MAICORD_MIN_VS_MAJOR || '18' }}
 
       # The shard with the shortest build also runs the Python tools' self-tests: the release tooling, the plugin index
       # reference tool against the vectors tests/app/plugins/index.cpp uses, and maicord-plugin (new, build, dev, check,
@@ -460,11 +454,6 @@ jobs:
             "skip=true" >> $env:GITHUB_OUTPUT
             Write-Host "::notice::HEAD is the $tag release; release.yml publishes it."
           }
-
-      - if: steps.release.outputs.skip != 'true'
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
 
       - name: Fetch the client binaries
         if: steps.release.outputs.skip != 'true'

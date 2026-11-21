@@ -18,7 +18,7 @@ permissions: {}
 jobs:
   deploy:
     name: Deploy the update channels
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     concurrency:
       group: pages
@@ -87,60 +87,53 @@ jobs:
           STABLE_VERSION: ${{ inputs.stable-version }}
           MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
         run: |
-          python3 - <<'EOF'
-          import json, os, pathlib, sys, time, urllib.error, urllib.request, uuid
+          set -euo pipefail
+          base="${PAGE_URL%/}/"
+          mapfile -t manifests < <(cd site && find . -path ./.git -prune -o -type f -name '*.manifest.json' -print | sed 's|^\./||' | LC_ALL=C sort)
+          if [ "${#manifests[@]}" -eq 0 ]; then echo "::error::The update-channels branch holds no manifest to check."; exit 1; fi
+          required=()
+          if [ -n "$STABLE_VERSION" ]; then
+            required=(updates/p2/maicord-stable.manifest.json)
+            if [ "${MAICORD_LINUX_RELEASES:-}" = true ]; then
+              required+=(updates/p2/linux/maicord-stable.manifest.json updates/p2/linux/appimage/maicord-stable.manifest.json)
+            fi
+            for path in "${required[@]}"; do
+              if [ ! -f "site/$path" ]; then echo "::error::$path is not on the update-channels branch."; exit 1; fi
+              version="$(jq -r .version "site/$path")"
+              if [ "$version" != "$STABLE_VERSION" ]; then
+                echo "::error::The deployed $path carries version $version, not the released $STABLE_VERSION."
+                exit 1
+              fi
+            done
+          fi
 
-          def fail(message):
-              print(f"::error::{message}", flush=True)
-              sys.exit(1)
-
-          site = pathlib.Path("site")
-          base = os.environ["PAGE_URL"].rstrip("/") + "/"
-          expected = {path.relative_to(site).as_posix(): path.read_bytes()
-                      for path in sorted(site.rglob("*.manifest.json")) if ".git" not in path.parts}
-          if not expected:
-              fail("The update-channels branch holds no manifest to check.")
-          stable = os.environ["STABLE_VERSION"]
-          required = []
-          if stable:
-              required.append("updates/p2/maicord-stable.manifest.json")
-              if os.environ.get("MAICORD_LINUX_RELEASES") == "true":
-                  required += ["updates/p2/linux/maicord-stable.manifest.json",
-                               "updates/p2/linux/appimage/maicord-stable.manifest.json"]
-              for path in required:
-                  if path not in expected:
-                      fail(f"{path} is not on the update-channels branch.")
-                  version = json.loads(expected[path])["version"]
-                  if str(version) != stable:
-                      fail(f"The deployed {path} carries version {version}, not the released {stable}.")
-
-          def live(path):
-              request = urllib.request.Request(f"{base}{path}?deployment={uuid.uuid4().hex}",
-                                               headers={"Cache-Control": "no-cache"})
-              try:
-                  with urllib.request.urlopen(request, timeout=30) as response:
-                      return response.read(), response.headers.get("Last-Modified", "?")
-              except urllib.error.HTTPError as error:
-                  return None, f"HTTP {error.code}"
-              except OSError as error:
-                  return None, str(error)
-
-          deadline = time.monotonic() + 300
-          while True:
-              stale = {}
-              for path, content in expected.items():
-                  served, modified = live(path)
-                  if served != content:
-                      stale[path] = modified
-              if not stale:
-                  break
-              if time.monotonic() > deadline:
-                  for path, modified in stale.items():
-                      print(f"::error::{base}{path} does not serve the deployed file (last modified: {modified}).")
-                  sys.exit(1)
-              print(f"{len(stale)} of {len(expected)} manifests not live yet; asking again in 15 s.")
-              time.sleep(15)
-          print(f"The live site serves the {len(expected)} deployed manifests.")
-          for path in required:
-              print(f"{path}: version {stable}")
-          EOF
+          served="$RUNNER_TEMP/served"
+          deadline=$((SECONDS + 300))
+          while true; do
+            stale=()
+            for path in "${manifests[@]}"; do
+              # A query the CDN has not seen gets past its cache.
+              status="$(curl -sS -L --max-time 30 -H 'Cache-Control: no-cache' -o "$served" -D "$served.headers" -w '%{http_code}' \
+                "$base$path?deployment=$(tr -d - < /proc/sys/kernel/random/uuid)")" || status=failed
+              if [[ "$status" == 2?? ]]; then
+                if cmp -s "$served" "site/$path"; then continue; fi
+                modified="$(sed -n 's/^last-modified: *//Ip' "$served.headers" | tr -d '\r' | tail -n 1)"
+                stale+=("$path|${modified:-?}")
+              elif [ "$status" = failed ]; then
+                stale+=("$path|the request failed")
+              else
+                stale+=("$path|HTTP $status")
+              fi
+            done
+            if [ "${#stale[@]}" -eq 0 ]; then break; fi
+            if [ "$SECONDS" -gt "$deadline" ]; then
+              for entry in "${stale[@]}"; do
+                echo "::error::$base${entry%%|*} does not serve the deployed file (last modified: ${entry#*|})."
+              done
+              exit 1
+            fi
+            echo "${#stale[@]} of ${#manifests[@]} manifests not live yet; asking again in 15 s."
+            sleep 15
+          done
+          echo "The live site serves the ${#manifests[@]} deployed manifests."
+          for path in "${required[@]}"; do echo "$path: version $STABLE_VERSION"; done
