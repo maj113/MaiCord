@@ -341,7 +341,9 @@ u64 projection_input_signature(const MessageComposerScene& scene, const MessageC
     signature = hash64_mix(signature, model.text_revision |
                                           static_cast<u64>(context ? context->command.name_bytes : 0) << 32);
     signature = hash64_mix(signature, model.channel_id);
-    signature = hash64_mix(signature, model.anchor | static_cast<u64>(model.caret) << 32);
+    // Only a game chip reads the caret (its active flag). Without one a caret move keeps the projection.
+    if (scene.projection_reads_caret)
+        signature = hash64_mix(signature, model.anchor | static_cast<u64>(model.caret) << 32);
     signature = hash64_mix(signature, context ? context->guild_id : 0);
     for (u32 n = 0; context && n < context->option_chip_count; ++n) {
         const auto& chip = context->option_chips[n];
@@ -608,6 +610,7 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
     const u32 end = model.bytes;
     scene->display_bytes = 0;
     scene->projection_span_count = 0;
+    scene->projection_reads_caret = false;
     const Utf8View source{model.text, model.bytes};
     u32 cursor = 0;
     u32 style_index = 0;
@@ -646,8 +649,9 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
         // The game search token reads as a chip the same way: "@game" as its
         // head, the query as its value, active while the caret is in it.
         const bool option_chip = context && chip < context->option_chip_count;
-        // Only the head's lead byte can start a token, and a token ends inside the source.
-        GameToken game{};
+        // Only the head's lead byte can start a token, and a token ends inside the source. game_token_at writes
+        // the whole token when it finds one, and the loop reads it only then.
+        GameToken game;
         const bool game_head = !option_chip && source.data[cursor] == kGameTokenHead[0] &&
                                game_token_at(source, cursor, &game);
         if (game_head) {
@@ -655,6 +659,7 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
             game_flags = model.caret >= game.query_first && model.caret <= game.query_last
                              ? message_composer_chip_active
                              : 0;
+            scene->projection_reads_caret = true;
         }
         if (option_chip || game_head || (!option_chip && cursor == game_end_at)) {
             const bool game_chip = !option_chip;
@@ -703,7 +708,8 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
                 continue;
             }
         }
-        ProjectedToken token{};
+        // The flag assignment or projected_token_at writes every field before any read.
+        ProjectedToken token;
         const bool flag_token = have_flag && flag.first_byte == cursor && flag.end_byte <= end;
         if (flag_token)
             token = {{source.data + cursor, flag.end_byte - cursor},
@@ -748,6 +754,38 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
                                  style | (media ? text_style_custom_emoji : plain ? 0u : text_style_mention));
             cursor = token.source_last;
             continue;
+        }
+        // A plain run: up to the next style edge, command name end, chip mark, game token end, flag, '<' or 0xE2 lead
+        // byte (game token heads, the U+2063 marker and other punctuation), each character takes this path with this
+        // style, so the run copies in one step. The model text is valid UTF-8 and every stop is a character boundary.
+        const u8 lead = static_cast<u8>(source.data[cursor]);
+        if (lead != '<' && lead != 0xE2u && !(have_flag && flag.first_byte == cursor)) {
+            u32 stop = have_flag ? minimum(end, flag.first_byte) : end;
+            if (context && cursor < context->command.name_bytes)
+                stop = minimum<u32>(stop, context->command.name_bytes);
+            if (style_index < scene->source_style_count) {
+                const auto& span = scene->source_styles[style_index];
+                stop = minimum(stop, span.byte_offset > cursor ? span.byte_offset : span.byte_offset + span.byte_count);
+            }
+            if (game_end_at > cursor)
+                stop = minimum(stop, game_end_at);
+            for (u32 n = 0; context && n < context->option_chip_count; ++n) {
+                const auto& option = context->option_chips[n];
+                if (option.head_first > cursor)
+                    stop = minimum<u32>(stop, option.head_first);
+                if (option.end_last > option.value_last && option.value_last > cursor)
+                    stop = minimum<u32>(stop, option.value_last);
+            }
+            u32 last = cursor + 1;
+            while (last < stop && source.data[last] != '<' && static_cast<u8>(source.data[last]) != 0xE2u)
+                ++last;
+            if (last - cursor <= kMessageComposerDisplayBytes - scene->display_bytes) {
+                append_display_style(scene, scene->display_bytes, last - cursor, style);
+                copy_bytes(scene->display + scene->display_bytes, source.data + cursor, last - cursor);
+                scene->display_bytes += last - cursor;
+                cursor = last;
+                continue;
+            }
         }
         const Utf8DecodeResult decoded = utf8_decode_one(model.text + cursor, end - cursor);
         if (!decoded.valid || decoded.width > kMessageComposerDisplayBytes - scene->display_bytes) {
@@ -1223,10 +1261,18 @@ MessageComposerSceneResult message_composer_scene_update(
     }
     const u64 previous_display_signature = scene->display_signature;
     const u64 input_signature = projection_input_signature(*scene, *model, projection);
+    // The model's anchor and caret in one word: the selection that display_anchor and display_caret show.
+    const u64 selection = model->anchor | static_cast<u64>(model->caret) << 32;
     if (!scene->active || scene->model != model || scene->projection_input_signature != input_signature) {
         project_display(scene, *model, projection);
         scene->projection_input_signature = projection_input_signature(*scene, *model, projection);
+        scene->projected_selection = selection;
         ++scene->projection_passes;
+    } else if (scene->projected_selection != selection) {
+        // The projection did not read the caret: a caret move changes the display selection only.
+        scene->display_caret = display_offset_from_source(*scene, model->caret);
+        scene->display_anchor = display_offset_from_source(*scene, model->anchor);
+        scene->projected_selection = selection;
     }
     scene->model = model;
     scene->command = projection ? projection->command : MessageComposerCommand{};

@@ -112,14 +112,19 @@ bool set_emoji_label(ComposerAutocompleteSuggestion* suggestion, Utf8View name, 
     return true;
 }
 
-// Mention candidates are filtered with an ordered subsequence match.
+// Mention candidates are filtered with an ordered subsequence match: each query letter at its first place after the
+// last one.
 bool subsequence_folded_ascii(const Utf8View& candidate, const Utf8View& query) noexcept {
-    u32 matched = 0;
-    for (u32 index = 0; index < candidate.bytes && matched < query.bytes; ++index)
-        if (ascii_lower(static_cast<u8>(candidate.data[index])) ==
-            ascii_lower(static_cast<u8>(query.data[matched])))
-            ++matched;
-    return matched == query.bytes;
+    u32 at = 0;
+    for (u32 index = 0; index < query.bytes; ++index) {
+        const u8 letter = ascii_lower(static_cast<u8>(query.data[index]));
+        while (at < candidate.bytes && ascii_lower(static_cast<u8>(candidate.data[at])) != letter)
+            ++at;
+        if (at == candidate.bytes)
+            return false;
+        ++at;
+    }
+    return true;
 }
 
 bool starts_with_folded_ascii(const Utf8View& candidate, const Utf8View& query) noexcept {
@@ -351,18 +356,27 @@ struct UserRanking {
         bucket[slot] = candidate;
         *count = minimum(*count + 1, capacity);
     }
+    // True when the bucket of `rank` keeps no candidate of `order`: it is full and its last order is not higher.
+    bool full(u32 rank, u32 order) const noexcept {
+        return rank == 2 ? prefix_count == kMentionAutocompleteLimit &&
+                               order >= prefix[kMentionAutocompleteLimit - 1].order
+                         : fuzzy_count == kMentionFuzzyMaximum && order >= fuzzy[kMentionFuzzyMaximum - 1].order;
+    }
     // 2: a name starts with the query, 1: in-order letters, 0: no match.
-    u32 tier(const UserStore& users, const UserCandidate& candidate, const Utf8View& query) const noexcept {
+    static u32 tier(const UserStore& users, const UserCandidate& candidate, const Utf8View& query) noexcept {
         const UserRecord* user = user_store_find(users, candidate.user_id);
-        if (!user || seen(candidate.user_id))
+        if (!user)
             return 0;
         const Utf8View names[3]{candidate.nickname, user_store_name(users, *user), user_store_username(users, *user)};
         u32 best = 0;
-        for (const Utf8View name : names)
-            if (name.bytes)
-                best = maximum(best, starts_with_folded_ascii(name, query) ? 2u
-                                     : subsequence_folded_ascii(name, query) ? 1u
-                                                                             : 0u);
+        for (const Utf8View name : names) {
+            if (!name.bytes)
+                continue;
+            if (starts_with_folded_ascii(name, query))
+                return 2;
+            if (!best && subsequence_folded_ascii(name, query))
+                best = 1;
+        }
         return best;
     }
     void add(u32 rank, const UserCandidate& candidate) noexcept {
@@ -372,7 +386,8 @@ struct UserRanking {
             insert(fuzzy, &fuzzy_count, kMentionFuzzyMaximum, candidate);
     }
     void offer(const UserStore& users, const UserCandidate& candidate, const Utf8View& query) noexcept {
-        add(tier(users, candidate, query), candidate);
+        if (!seen(candidate.user_id))
+            add(tier(users, candidate, query), candidate);
     }
 };
 
@@ -474,11 +489,14 @@ void append_mention_users(ComposerAutocomplete* autocomplete, const MessageCompo
             const GuildMemberRecord& member = member_store->records[member_store->order[index]];
             if (!member.occupied || !member.user_id)
                 continue;
+            // The store keeps one record for each guild and user, so no member is ranked twice.
             const UserCandidate candidate{member.user_id,
                                           member.list_index != ~0u ? member.list_index : 0x8000'0000u | visit,
                                           member.status, guild_member_store_nickname(member)};
-            const u32 rank = ranking.tier(users, candidate, query);
-            if (!rank)
+            if (ranking.full(2, candidate.order) && ranking.full(1, candidate.order))
+                continue;
+            const u32 rank = UserRanking::tier(users, candidate, query);
+            if (!rank || ranking.full(rank, candidate.order))
                 continue;
             if (permissions && guild_member_store_role_ids_known(member)) {
                 const PermissionMember subject{member.user_id, guild_member_store_role_ids(*member_store, member),

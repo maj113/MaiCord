@@ -70,8 +70,9 @@ bool application_channel_snapshot_restore(u64 channel_id) noexcept {
     MessageSnapshotCache& cache = snapshots();
     if (!message_snapshot_cache_find(cache, channel_id))
         return false;
-    const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id);
-    if (!channel || !application_channel_readable(g_app, channel_id)) {
+    const auto& state = g_app.account_ui->chat_state;
+    const auto* channel = chat_state_store_find_channel(state, channel_id);
+    if (!channel || !application_channel_record_readable(state, *channel)) {
         message_snapshot_cache_drop(&cache, channel_id);
         return false;
     }

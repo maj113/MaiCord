@@ -343,7 +343,7 @@ bool text_composer_layout_current(const TextEditLayoutOwner& owner,
         scene.styles_document != scene.model->document_identity ||
         scene.styles_revision != scene.model->text_revision ||
         scene.display_bytes > kMessageComposerDisplayBytes ||
-        scene.display_first > scene.display_source_last || scene.display_source_last > scene.model->bytes ||
+        scene.display_source_last > scene.model->bytes ||
         scene.projection_span_count > kMessageComposerProjectionSpanCapacity ||
         (scene.projection_span_count && !scene.projection_spans) ||
         scene.display_style_count > kTextStyleSpanMaximum ||

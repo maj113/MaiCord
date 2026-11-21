@@ -144,10 +144,11 @@ const MessagePollRecord* poll(const ApplicationPollSource& s) noexcept {
     return p && p->channel_id == c->id && p->content_revision == s.source.poll_content_revision ? p
                                                                                                 : nullptr;
 }
-bool capture(u64 id, ApplicationPollSource* out) noexcept {
+// The poll record of a timeline message and its source. Every check of poll() holds for the record it returns.
+const MessagePollRecord* capture(u64 id, ApplicationPollSource* out) noexcept {
     const auto a = actor();
     if (!a.instance || !g_app.load_trace.channel_epoch)
-        return false;
+        return nullptr;
     const auto found = message_store_find(g_app.message_view.store, id);
     const auto* m = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
     const auto* c = m ? application_channel_record(m->channel_id) : nullptr;
@@ -158,7 +159,7 @@ bool capture(u64 id, ApplicationPollSource* out) noexcept {
         g_app.account_ui->active_channel_id != c->id ||
         g_app.account_ui->chat_state.selected_channel_id != c->id ||
         g_app.account_ui->chat_state.selected_guild_id != c->guild_id)
-        return false;
+        return nullptr;
     const auto* parent = channel_is_thread(c->type) ? application_channel_record(c->parent_id) : nullptr;
     *out = {
         {a, c->id, id, g_app.load_trace.channel_epoch, found.handle, p->content_revision, c->generation},
@@ -174,7 +175,7 @@ bool capture(u64 id, ApplicationPollSource* out) noexcept {
         0,
         0,
         UiPollSourceSurface::timeline};
-    return true;
+    return p;
 }
 bool connected() noexcept {
     return g_app.account.instance && g_app.account.status.running && g_app.account.status.gateway_ready &&
@@ -691,10 +692,11 @@ bool choose_card(UiPoint point, bool keyboard) noexcept {
 }
 } // namespace
 
-// Projects a captured card source; the source is handed back on success.
-static bool project_source(const ApplicationPollSource& s, const Slice<UiPollAnswer>& answers,
-                           UiPollState* out, ApplicationPollSource* source) noexcept {
-    const auto* p = poll(s);
+// Projects a card source and its poll record, which the caller checked as poll() does (p may be null). The source
+// is handed back on success.
+static bool project_source(const ApplicationPollSource& s, const MessagePollRecord* p,
+                           const Slice<UiPollAnswer>& answers, UiPollState* out,
+                           ApplicationPollSource* source) noexcept {
     if (!p || !project_state(s, *p, answers, out))
         return false;
     if (source)
@@ -704,7 +706,8 @@ static bool project_source(const ApplicationPollSource& s, const Slice<UiPollAns
 bool application_poll_state(u64 id, const Slice<UiPollAnswer>& answers, UiPollState* out,
                             ApplicationPollSource* source) noexcept {
     ApplicationPollSource s{};
-    return capture(id, &s) && project_source(s, answers, out, source);
+    const auto* p = capture(id, &s);
+    return project_source(s, p, answers, out, source);
 }
 bool application_poll_search_state(u64 id, u32 source_publication, const Slice<UiPollAnswer>& answers,
                                    UiPollState* out, ApplicationPollSource* source) noexcept {
@@ -734,7 +737,7 @@ bool application_poll_search_state(u64 id, u32 source_publication, const Slice<U
         view.ticket.publication_revision,
         view.ticket.index,
         UiPollSourceSurface::search};
-    return project_source(s, answers, out, source);
+    return project_source(s, p, answers, out, source);
 }
 bool application_poll_open(const ApplicationPollSource& source) noexcept {
     const auto* p = poll(source);

@@ -259,7 +259,6 @@ inline bool block_prefix(Parser* parser) noexcept {
         if (prefix != 0) {
             parser->input_offset += prefix;
             parser->line_style |= text_style_quote;
-            ++parser->transformations;
         }
     }
     u32 indentation = 0;
@@ -304,7 +303,6 @@ inline bool block_prefix(Parser* parser) noexcept {
                     return false;
                 }
                 parser->line_start = false;
-                ++parser->transformations;
                 return true;
             }
             parser->line_style |= style;
@@ -318,10 +316,6 @@ inline bool block_prefix(Parser* parser) noexcept {
                 return false;
             }
             parser->line_start = false;
-            if (parser->list_items != 0xFFFF) {
-                ++parser->list_items;
-            }
-            ++parser->transformations;
             return true;
         }
     }
@@ -348,52 +342,43 @@ inline bool block_prefix(Parser* parser) noexcept {
             // Inline headings keep the inherited size and are semibold; inline
             // subtext keeps the reply's size as well.
             parser->line_style |= inline_reply ? style & text_style_bold : style;
-            ++parser->transformations;
         }
     }
     parser->line_start = false;
     return true;
 }
 
+// The marker at the input offset (the callers hold it inside the input): ```, `, ***, **, *, __, _, ~~ or ||.
 u8 emphasis_marker(const Parser& parser, u32* style, DelimiterKind* kind) noexcept {
     *style = 0;
     *kind = DelimiterKind::emphasis;
-    if (starts_with(parser, "```", 3)) {
-        *style = text_style_monospace | text_style_code_block;
+    const char* at = parser.input.data + parser.input_offset;
+    const char first = at[0];
+    if (first != '`' && first != '*' && first != '_' && first != '~' && first != '|')
+        return 0;
+    // The bytes equal to the first one, up to three.
+    const u32 left = parser.input.bytes - parser.input_offset;
+    u8 run = 1;
+    while (run < 3 && run < left && at[run] == first)
+        ++run;
+    if (first == '`') {
+        *style = run == 3 ? text_style_monospace | text_style_code_block : text_style_monospace;
         *kind = DelimiterKind::code;
-        return 3;
+        return run == 3 ? 3 : 1;
     }
-    if (starts_with(parser, "***", 3)) {
-        *style = text_style_bold | text_style_italic;
-        return 3;
+    if (first == '*') {
+        *style = run == 3 ? text_style_bold | text_style_italic : run == 2 ? text_style_bold : text_style_italic;
+        return run;
     }
-    if (starts_with(parser, "**", 2)) {
-        *style = text_style_bold;
-        return 2;
+    if (first == '_') {
+        *style = run >= 2 ? text_style_underline : text_style_italic;
+        return run >= 2 ? 2 : 1;
     }
-    if (starts_with(parser, "__", 2)) {
-        *style = text_style_underline;
-        return 2;
-    }
-    if (starts_with(parser, "~~", 2)) {
-        *style = text_style_strikethrough;
-        return 2;
-    }
-    if (starts_with(parser, "||", 2)) {
-        *style = text_style_spoiler;
-        *kind = DelimiterKind::spoiler;
-        return 2;
-    }
-    if (starts_with(parser, "`", 1)) {
-        *style = text_style_monospace;
-        *kind = DelimiterKind::code;
-        return 1;
-    }
-    if (starts_with(parser, "*", 1) || starts_with(parser, "_", 1)) {
-        *style = text_style_italic;
-        return 1;
-    }
-    return 0;
+    if (run < 2)
+        return 0;
+    *style = first == '~' ? text_style_strikethrough : text_style_spoiler;
+    *kind = first == '~' ? DelimiterKind::emphasis : DelimiterKind::spoiler;
+    return 2;
 }
 
 // Rules match: code, spoilers, ***, ** and __ may open before
@@ -457,16 +442,8 @@ MessageMarkdownResult finish(Parser* parser) noexcept {
     MessageMarkdownResult result{};
     result.text = Utf8View{parser->output.data, parser->output_bytes};
     result.span_count = span_count;
-    result.transformations = parser->transformations;
-    result.syntax_tokens = parser->syntax_tokens;
-    result.syntax_styled_bytes = parser->syntax_styled_bytes;
-    result.resolved_entities = parser->resolved_entities;
-    result.unresolved_entities = parser->unresolved_entities;
-    result.timestamps = parser->timestamps;
     result.semantic_count = parser->semantic_count;
     result.next_timestamp_update_unix_seconds = parser->next_timestamp_update_unix_seconds;
-    result.list_items = parser->list_items;
-    result.code_blocks = parser->code_blocks;
     result.syntax_truncated = parser->syntax_truncated;
     result.semantics_truncated = parser->semantics_truncated;
     return result;
@@ -564,6 +541,35 @@ inline bool plain_text_byte(Utf8View input, u32 at) noexcept {
     return true;
 }
 
+// walk()'s plain-text run for the source and recognition modes, which write no text. Each byte of the run gets the
+// offset and style that emit_byte would give it after the rules. Out of line, so that walk() keeps the code of its
+// display-mode loop. False when no run starts at the input offset.
+__declspec(noinline) bool take_plain_run(Parser* parser) noexcept {
+    const Utf8View input = parser->input;
+    const u32 begin = parser->input_offset;
+    u32 end = begin;
+    while (end < input.bytes && plain_text_byte(input, end))
+        ++end;
+    if (end == begin)
+        return false;
+    if (parser->output_mode == OutputMode::source) {
+        // Without emoji_only every byte of the run has the first byte's flags. source_byte styles the first byte,
+        // and the span that ends after it (if the flags write one) takes the other bytes.
+        const u32 base = parser->line_style | parser->persistent_style;
+        const u32 styled = parser->emoji_only ? end : begin + 1;
+        for (u32 at = begin; at < styled; ++at)
+            source_byte(parser, at, input.data[at], base);
+        SourceSink& sink = *parser->source_sink;
+        TextStyleSpan* last = sink.span_count ? &sink.spans[sink.span_count - 1] : nullptr;
+        if (styled != end && !sink.saturated && last && last->byte_offset + last->byte_count == styled)
+            last->byte_count += end - styled;
+    }
+    parser->output_bytes += end - begin;
+    parser->input_offset = end;
+    parser->line_start = false;
+    return true;
+}
+
 MessageMarkdownError walk(Parser* state, u32 stop_depth) noexcept {
     Parser& parser = *state;
     const auto& options = *parser.options;
@@ -620,6 +626,9 @@ MessageMarkdownError walk(Parser* state, u32 stop_depth) noexcept {
                 continue;
             }
         }
+        if (parser.output_mode != OutputMode::transformed && (!parser.line_start || parser.depth != 0) &&
+            take_plain_run(&parser))
+            continue;
 
         if (!block_prefix(&parser)) {
             return MessageMarkdownError::output_too_small;
@@ -676,7 +685,6 @@ MessageMarkdownError walk(Parser* state, u32 stop_depth) noexcept {
                 if (!emit_range(&parser, parser.input_offset, parser.input_offset + escaped.width))
                     return MessageMarkdownError::output_too_small;
                 parser.input_offset += escaped.width;
-                ++parser.transformations;
                 continue;
             }
         }
@@ -723,7 +731,6 @@ MessageMarkdownError walk(Parser* state, u32 stop_depth) noexcept {
                     flag_sequence, display_begin, glyph.bytes, begin, end - begin))
                     return MessageMarkdownError::output_too_small;
                 parser.input_offset = end;
-                ++parser.transformations;
                 continue;
             }
         }
@@ -795,7 +802,8 @@ MessageMarkdownResult parse_validated(Utf8View input, Slice<char> text_output, S
                                       Slice<TextStyleSpan> span_output, const MessageMarkdownOptions& options,
                                       Slice<MessageMarkdownSemantic> semantic_output,
                                       Slice<AnsiColorRun> ansi_runs) noexcept {
-    Parser parser{};
+    Parser parser;
+    clear_bytes(&parser, offsetof(Parser, delimiters));
     parser.input = input;
     parser.output = text_output;
     parser.ansi_runs = ansi_runs;
@@ -852,9 +860,11 @@ u32 message_markdown_source_styles(Utf8View input, Slice<TextStyleSpan> output) 
     MessageMarkdownOptions options{};
     options.preserve_entities = true;
     options.spoiler_revealed = +[](void*, u32) noexcept { return true; };
-    SourceSink sink{};
+    SourceSink sink;
+    clear_bytes(&sink, offsetof(SourceSink, scopes));
     sink.spans = output;
-    Parser parser{};
+    Parser parser;
+    clear_bytes(&parser, offsetof(Parser, delimiters));
     parser.input = input;
     parser.options = &options;
     parser.source_sink = &sink;

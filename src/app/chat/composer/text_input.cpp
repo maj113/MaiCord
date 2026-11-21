@@ -269,7 +269,7 @@ bool range_geometry(void* opaque, u32 first, u32 last, SecureTextRect* output, b
     if (!utf8_byte_offset_for_utf16_position(model, first, &begin) ||
         !utf8_byte_offset_for_utf16_position(model, last, &end))
         return false;
-    *clipped = !plain && (begin < scene.display_first || end > scene.display_source_last);
+    *clipped = !plain && end > scene.display_source_last;
     const auto display = plain ? model : message_composer_scene_display_text(scene);
     u32 a = 0, b = 0;
     if (!utf8_utf16_position_for_byte_offset(

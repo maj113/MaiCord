@@ -208,6 +208,29 @@ struct MessageTextPresentationResult {
     }
 };
 
+// A message whose text failed to lay out with an error of layout or model. The build drew it without the failing
+// part (or with no text when that failed too) and kept the text of the other messages.
+struct MessageTextDegradation {
+    u64 message_id;
+    u32 message_revision;
+    u32 source_index;
+    u16 item_index;
+    MessageTextPresentationError error;
+    MessageTextPresentationStage stage;
+    MessageTextPresentationOperation operation;
+    UiTextFlowError flow_error;
+    bool text_dropped;
+};
+// Degraded messages wait in a queue of four for their report. A revision reported once is not queued again while
+// it stays among the last 16 reported revisions.
+inline constexpr u32 kMaximumMessageTextDegradations = 4;
+inline constexpr u32 kMessageTextReportedDegradations = 16;
+
+struct MessageTextRevision {
+    u64 message_id;
+    u32 message_revision;
+};
+
 // Retained Markdown results so scroll and relayout skip reparsing. Keys cover
 // the source bytes and every parse option; entries that depended on entities,
 // spoiler reveals or timestamp formatting also record that state and expire with
@@ -224,13 +247,7 @@ struct MessageMarkdownCacheEntry {
     u64 spoiler_signature;
     u32 required_capacity;
     u32 text_bytes;
-    u32 transformations;
-    u32 syntax_tokens;
-    u32 syntax_styled_bytes;
     u16 span_count;
-    u16 list_items;
-    u16 resolved_entities;
-    u16 timestamps;
     u8 semantic_count;
     u8 flags;
 };
@@ -241,7 +258,6 @@ struct MessageMarkdownCache {
     u32 slot_count;
     u32 arena_bytes;
     u64 head;
-    u32 inserts;
 };
 
 // entries start zeroed; their count is a power of two and arena.count a
@@ -275,15 +291,6 @@ struct MessageTextPresentation {
     u32 builds;
     u32 markdown_parses; // parser runs; cache hits count in markdown_cache_hits
     u32 markdown_cache_hits;
-    u32 markdown_transformations;
-    u32 markdown_spans_emitted;
-    u32 markdown_rejected;
-    u32 markdown_syntax_tokens;
-    u32 markdown_syntax_styled_bytes;
-    u32 markdown_list_items;
-    u32 markdown_syntax_truncated;
-    u32 markdown_resolved_entities;
-    u32 markdown_timestamps;
     MessageTextRichMetrics rich;
     u64 next_timestamp_update_unix_seconds;
     u64 projection_signature;
@@ -305,6 +312,13 @@ struct MessageTextPresentation {
     // (a local command message or a deferred response); the dots clock runs.
     bool status_dots;
     MessageTextPresentationError last_error;
+    // Degraded messages not yet reported. The reader reports them and empties the queue (degradation_count = 0).
+    // degraded_rows counts every degraded message of the last build.
+    MessageTextDegradation degradations[kMaximumMessageTextDegradations];
+    u32 degradation_count;
+    u32 degraded_rows;
+    MessageTextRevision reported_degradations[kMessageTextReportedDegradations];
+    u32 reported_degradation_cursor;
     u64 failure_message_id;
     u32 failure_source_index;
     u16 failure_item_index;
@@ -370,6 +384,7 @@ static_assert(sizeof(MessageTextSpoilerReveal) == 16);
 static_assert(sizeof(MessageTextCommand) == 176);
 static_assert(sizeof(MessageTextMeasurement) == 832);
 static_assert(sizeof(MessageTextRichMetrics) == 32);
-static_assert(sizeof(MessageMarkdownCacheEntry) == 72);
+static_assert(sizeof(MessageTextDegradation) == 24);
+static_assert(sizeof(MessageMarkdownCacheEntry) == 56);
 
 } // namespace maicord

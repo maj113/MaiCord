@@ -312,20 +312,20 @@ bool message_composer_can_send(const MessageComposer& composer, bool channel_all
         composer.bytes > composer.capacity || maximum_codepoints == 0 ||
         composer.phase == MessageComposerPhase::queued || composer.phase == MessageComposerPhase::sending ||
         composer.phase == MessageComposerPhase::retry_wait) return false;
-    u32 count = 0, offset = 0;
-    bool has_content = has_attachments;
-    while (offset < composer.bytes) {
+    // utf8_validate also counts the code points: one pass checks the text and the limit.
+    const Utf8Validation validated = utf8_validate({composer.text, composer.bytes});
+    if (!validated.valid || validated.codepoints > maximum_codepoints) return false;
+    if (has_attachments) return true;
+    for (u32 offset = 0; offset < composer.bytes;) {
         const auto decoded = utf8_decode_one(composer.text + offset, composer.bytes - offset);
-        if (!decoded.valid || count == maximum_codepoints) return false;
         const u32 c = decoded.codepoint;
         const bool whitespace = (c >= 0x09u && c <= 0x0Du) || c == 0x20u || c == 0x85u || c == 0xA0u ||
             c == 0x1680u || (c >= 0x2000u && c <= 0x200Au) || c == 0x2028u || c == 0x2029u ||
             c == 0x202Fu || c == 0x205Fu || c == 0x3000u;
-        has_content = has_content || !whitespace;
+        if (!whitespace) return true;
         offset += decoded.width;
-        ++count;
     }
-    return has_content;
+    return false;
 }
 
 u32 message_composer_codepoints(const MessageComposer& composer) noexcept {

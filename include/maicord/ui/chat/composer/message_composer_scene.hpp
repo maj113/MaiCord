@@ -232,7 +232,6 @@ struct MessageComposerScene {
     char* command_bar_text;
     MessageComposerProjectionSpan* projection_spans;
     u32 display_bytes;
-    u32 display_first;
     u32 display_source_last;
     u32 display_anchor;
     u32 display_caret;
@@ -249,6 +248,10 @@ struct MessageComposerScene {
     u64 reply_message_id;
     u64 display_signature;
     u64 projection_input_signature;
+    // The model anchor (low half) and caret (high half) that display_anchor and display_caret show.
+    u64 projected_selection;
+    // A game chip read the caret for its active flag: the input signature then includes the caret.
+    bool projection_reads_caret;
     u16 reply_label_bytes;
     u16 attachment_label_bytes;
     u16 typing_label_bytes;

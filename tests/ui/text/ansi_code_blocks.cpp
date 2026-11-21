@@ -652,8 +652,8 @@ void test_plain_runs(Check check) noexcept {
     check(small.result.error == MessageMarkdownError::output_too_small,
           "markdown runs: output smaller than the input is rejected");
     const auto fence = parse_plain(utf8_literal("some words here ```\ncode\n```"));
-    check(fence.result.ok() && fence.result.code_blocks == 1 &&
-              text_equals(fence, utf8_literal("some words here code\n")),
+    check(fence.result.ok() && text_equals(fence, utf8_literal("some words here code\n")) &&
+              (fence.styles[16] & text_style_code_block) != 0 && (fence.styles[0] & text_style_code_block) == 0,
           "markdown runs: a fence after plain text is found");
     const char* const escapes[] = {"\x1B[1;31m", "\x1B[31:1m", "\x1B[m", "\x1B[1;m", "\x1B[3", "x"};
     const u32 widths[] = {7, 7, 0, 0, 0, 0};

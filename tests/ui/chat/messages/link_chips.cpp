@@ -236,8 +236,7 @@ void test_channel_references(Check check) noexcept {
                              {K::chip_icon, icon(I::voice)},
                              {K::channel_mention, 3},
                              {K::chip_icon, icon(I::locked)},
-                             {K::channel_mention, 5}}) &&
-              parsed.result.resolved_entities == 3,
+                             {K::channel_mention, 5}}),
           "chip: <#id> shows the channel type icon and the name");
     parse(utf8_literal("<#99> <#8> <#4>"));
     check(text_is(utf8_literal(ICON "unknown #unknown-channel #Info")) &&

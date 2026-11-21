@@ -104,8 +104,7 @@ void test_message_markdown() noexcept {
     };
 
     MessageMarkdownResult result = parse(utf8_literal("plain Καλημέρα 世界"));
-    expect(markdown_text_equal(result, utf8_literal("plain Καλημέρα 世界")) && result.span_count == 0 &&
-               result.transformations == 0,
+    expect(markdown_text_equal(result, utf8_literal("plain Καλημέρα 世界")) && result.span_count == 0,
            "message_markdown_plain_unicode");
 
     result = parse(utf8_literal("**bold *both* end**"));
@@ -134,7 +133,7 @@ void test_message_markdown() noexcept {
 
     result = parse(utf8_literal("`**literal**` and ```cpp\nint x = 1;\n```"));
     expect(markdown_text_equal(result, utf8_literal("**literal** and int x = 1;\n")) &&
-               result.code_blocks == 1 && result.syntax_tokens == 3 && !result.syntax_truncated &&
+               !result.syntax_truncated &&
                styles[0] == text_style_monospace &&
                styles[16] == (text_style_monospace | text_style_code_block | text_style_syntax_type) &&
                styles[22] == (text_style_monospace | text_style_code_block | text_style_syntax_operator) &&
@@ -142,14 +141,13 @@ void test_message_markdown() noexcept {
            "message_markdown_code_suppresses_inner_and_hides_language");
 
     result = parse(utf8_literal("```\n\n1. step\n```"));
-    expect(markdown_text_equal(result, utf8_literal("1. step\n")) && result.code_blocks == 1 &&
+    expect(markdown_text_equal(result, utf8_literal("1. step\n")) &&
                result.span_count == 1 && spans[0].byte_offset == 0 && spans[0].byte_count == 8 &&
                spans[0].flags == (text_style_monospace | text_style_code_block),
            "message_markdown_fence_opens_on_its_own_line");
 
     result = parse(utf8_literal("- first\n  * nested\n1. ordered"));
     expect(markdown_text_equal(result, utf8_literal("  first\n    nested\n1. ordered")) &&
-               result.list_items == 3 &&
                (styles[0] & (text_style_list | text_style_list_bullet)) ==
                    (text_style_list | text_style_list_bullet) &&
                (styles[8] & (text_style_list | text_style_list_bullet | kTextStyleListDepthMask)) ==
@@ -159,7 +157,7 @@ void test_message_markdown() noexcept {
 
     // Items with equal flags must not merge into one span: the renderer draws one bullet per span start.
     result = parse(utf8_literal("- hi\n- hi\n- hi"));
-    expect(markdown_text_equal(result, utf8_literal("  hi\n  hi\n  hi")) && result.list_items == 3 &&
+    expect(markdown_text_equal(result, utf8_literal("  hi\n  hi\n  hi")) &&
                result.span_count == 3 && spans[0].byte_offset == 0 && spans[0].byte_count == 5 &&
                spans[1].byte_offset == 5 && spans[1].byte_count == 5 && spans[2].byte_offset == 10 &&
                spans[2].byte_count == 4 &&
@@ -229,8 +227,7 @@ void test_message_markdown() noexcept {
     result = parse(utf8_literal("[link](https://example.com) <@!123> <#456> <@&789> "
                                 "<a:wave:111> </ping:222> @everyone @here"));
     expect(markdown_text_equal(result,
-                               utf8_literal("link @123 #456 @789 \xEF\xBF\xBC /ping @everyone @here")) &&
-               result.transformations == 8,
+                               utf8_literal("link @123 #456 @789 \xEF\xBF\xBC /ping @everyone @here")),
            "message_markdown_masked_link_and_mention_tags");
 
     MessageMarkdownSemantic semantics[16]{};
@@ -258,9 +255,8 @@ void test_message_markdown() noexcept {
                                     Slice<MessageMarkdownSemantic>{semantics, 16});
     expect(markdown_text_equal(result, utf8_literal("site @Alice #general @Admin soon secret")),
            "message_markdown_semantic_resolved_text");
-    expect(result.semantic_count == 6 && result.resolved_entities == 3 && result.unresolved_entities == 0 &&
-               result.timestamps == 1 && result.next_timestamp_update_unix_seconds == 101,
-           "message_markdown_semantic_resolution_counts");
+    expect(result.semantic_count == 6 && result.next_timestamp_update_unix_seconds == 101,
+           "message_markdown_semantic_count_and_timestamp_deadline");
     expect(semantics[0].kind == MessageMarkdownSemanticKind::link &&
                semantics[1].kind == MessageMarkdownSemanticKind::user_mention && semantics[1].target == 1 &&
                semantics[2].target == 2 && semantics[3].target == 3 && semantics[4].target == 100 &&
@@ -360,7 +356,7 @@ void test_message_markdown() noexcept {
            "message_markdown_semantic_capacity_degrades");
 
     result = parse(utf8_literal(R"(\*literal* **open)"));
-    expect(markdown_text_equal(result, utf8_literal("*literal* **open")) && result.transformations == 1,
+    expect(markdown_text_equal(result, utf8_literal("*literal* **open")),
            "message_markdown_escape_and_unmatched_literal");
 
     // simple-markdown escape rule /^\\([^0-9A-Za-z\s])/ and the emoticon rule
@@ -368,7 +364,7 @@ void test_message_markdown() noexcept {
     // The official /shrug sends the face unescaped; it renders verbatim.
     constexpr Utf8View shrug = utf8_literal("\xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF");
     result = parse(shrug);
-    expect(markdown_text_equal(result, shrug) && result.span_count == 0 && result.transformations == 0,
+    expect(markdown_text_equal(result, shrug) && result.span_count == 0,
            "message_markdown_shrug_face_keeps_its_backslash");
     result = parse(utf8_literal("hi \xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF there \xC2\xAF"));
     expect(markdown_text_equal(result, utf8_literal("hi \xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF there \xC2\xAF")) &&
@@ -410,7 +406,7 @@ void test_message_markdown() noexcept {
     expect(markdown_text_equal(result, utf8_literal("x_y")),
            "message_markdown_escape_inside_masked_link_text");
     result = parse(utf8_literal("end\\"));
-    expect(markdown_text_equal(result, utf8_literal("end\\")) && result.transformations == 0,
+    expect(markdown_text_equal(result, utf8_literal("end\\")),
            "message_markdown_trailing_backslash_is_literal");
     result = parse(utf8_literal("\\"));
     expect(markdown_text_equal(result, utf8_literal("\\")), "message_markdown_lone_backslash_is_literal");
@@ -419,12 +415,10 @@ void test_message_markdown() noexcept {
     // [^0-9A-Za-z\s]: alphanumerics, ASCII whitespace and JavaScript's Unicode spaces stay literal; everything
     // else escapes, including non-ASCII letters, U+0085 and the other C0 controls.
     result = parse(utf8_literal("\\a\\Z\\5\\ \\\n\\\t\\\xC2\xA0\\\xE3\x80\x80"));
-    expect(markdown_text_equal(result, utf8_literal("\\a\\Z\\5\\ \\\n\\\t\\\xC2\xA0\\\xE3\x80\x80")) &&
-               result.transformations == 0,
+    expect(markdown_text_equal(result, utf8_literal("\\a\\Z\\5\\ \\\n\\\t\\\xC2\xA0\\\xE3\x80\x80")),
            "message_markdown_escape_leaves_alphanumerics_and_whitespace");
     result = parse(utf8_literal("\\\xC3\xA9\\\xC2\x85\\\x01\\\x7F\\\xF0\x9F\x98\x80"));
-    expect(markdown_text_equal(result, utf8_literal("\xC3\xA9\xC2\x85\x01\x7F\xF0\x9F\x98\x80")) &&
-               result.transformations == 5,
+    expect(markdown_text_equal(result, utf8_literal("\xC3\xA9\xC2\x85\x01\x7F\xF0\x9F\x98\x80")),
            "message_markdown_escape_takes_any_other_character");
 
     const char invalid_utf8[] = {static_cast<char>(0xC0), static_cast<char>(0xAF)};

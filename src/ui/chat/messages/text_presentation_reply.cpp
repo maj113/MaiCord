@@ -361,14 +361,8 @@ MessageMarkdownResult markdown_parse_cached(MessageTextPresentation* presentatio
             MessageMarkdownResult result{};
             result.text = Utf8View{text_output.data, entry->text_bytes};
             result.span_count = entry->span_count;
-            result.transformations = entry->transformations;
-            result.syntax_tokens = entry->syntax_tokens;
-            result.syntax_styled_bytes = entry->syntax_styled_bytes;
-            result.resolved_entities = entry->resolved_entities;
-            result.timestamps = entry->timestamps;
             result.semantic_count = entry->semantic_count;
             result.next_timestamp_update_unix_seconds = entry->expires_unix_seconds;
-            result.list_items = entry->list_items;
             result.syntax_truncated = (entry->flags & markdown_cache_syntax_truncated) != 0;
             result.semantics_truncated = (entry->flags & markdown_cache_semantics_truncated) != 0;
             // Copy a payload the ring is about to reach forward, from the
@@ -400,13 +394,7 @@ MessageMarkdownResult markdown_parse_cached(MessageTextPresentation* presentatio
     value.spoiler_signature = trace.spoilers ? markdown_spoiler_signature(*context) : 0u;
     value.required_capacity = static_cast<u32>(required);
     value.text_bytes = parsed.text.bytes;
-    value.transformations = parsed.transformations;
-    value.syntax_tokens = parsed.syntax_tokens;
-    value.syntax_styled_bytes = parsed.syntax_styled_bytes;
     value.span_count = static_cast<u16>(parsed.span_count);
-    value.list_items = parsed.list_items;
-    value.resolved_entities = static_cast<u16>(minimum(parsed.resolved_entities, 0xFFFFu));
-    value.timestamps = static_cast<u16>(minimum(parsed.timestamps, 0xFFFFu));
     value.semantic_count = static_cast<u8>(parsed.semantic_count);
     value.flags = static_cast<u8>((trace.entities ? markdown_cache_entities : 0u) |
                                   (trace.spoilers ? markdown_cache_spoilers : 0u) |

@@ -501,7 +501,7 @@ void test_message_composer() noexcept {
         message_composer_set_selection(&long_composer, long_composer.bytes - 8, long_composer.bytes) ==
             MessageComposerResult::changed &&
         message_composer_scene_update(&scene, &long_composer, viewport, true).ok() &&
-        scene.display_first == 0 && scene.display_bytes == long_composer.bytes &&
+        scene.display_bytes == long_composer.bytes &&
         scene.display_caret == scene.display_bytes && scene.display_anchor + 8 == scene.display_caret &&
         utf8_validate(message_composer_scene_display_text(scene)).valid;
     expect(default_limit_accepted && over_default && long_projection,

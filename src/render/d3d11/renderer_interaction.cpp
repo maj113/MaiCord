@@ -315,7 +315,7 @@ bool renderer_message_composer_edit_hit_test(const D3D11Renderer& renderer, i32 
     if (!scene)
         return false;
     if (text.bytes == 0) {
-        *model_byte_offset = scene->display_first;
+        *model_byte_offset = 0;
         return true;
     }
     const float x = static_cast<float>(client_x_pixels) * 96.0f / static_cast<float>(renderer.dpi);
@@ -332,7 +332,7 @@ bool renderer_message_composer_edit_move_vertical(const D3D11Renderer& renderer,
     if (!scene)
         return false;
     if (text.bytes == 0) {
-        *model_byte_offset = scene->display_first;
+        *model_byte_offset = 0;
         return true;
     }
     u32 position = 0;

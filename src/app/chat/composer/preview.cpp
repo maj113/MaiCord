@@ -3,7 +3,6 @@
 #include "../../shell/state.hpp"
 #include "../../shell/owner.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/ui/chat/composer/attachment_strip.hpp"
 
 #include "maicord/core/memory.hpp"
 #include "../../media/local_preview_entry.hpp"
@@ -64,21 +63,25 @@ void retire(ComposerPreviewEntry& entry, u64 now) noexcept {
 } // namespace
 
 MediaAttachmentFormat application_composer_preview_format(const Utf8View& filename) noexcept {
-    char lowered[8];
-    const Utf8View extension{lowered, ui_attachment_file_extension(filename, {lowered, 8})};
     // H.264/HEVC movies get a GPU-decoded first-frame poster.
-    static constexpr struct {
-        char name[5];
-        MediaAttachmentFormat format;
-    } kFormats[] = {{"png", MediaAttachmentFormat::png},   {"jpg", MediaAttachmentFormat::jpeg},
-                    {"jpeg", MediaAttachmentFormat::jpeg}, {"jfif", MediaAttachmentFormat::jpeg},
-                    {"webp", MediaAttachmentFormat::webp}, {"gif", MediaAttachmentFormat::gif},
-                    {"mp4", MediaAttachmentFormat::mp4},   {"m4v", MediaAttachmentFormat::mp4},
-                    {"mov", MediaAttachmentFormat::mp4}};
-    for (const auto& entry : kFormats)
-        if (utf8_equal(extension, {entry.name, c_string_length(entry.name)}))
-            return entry.format;
-    return MediaAttachmentFormat::unknown;
+    switch (filename_extension_code(filename)) {
+    case extension_code("png"):
+        return MediaAttachmentFormat::png;
+    case extension_code("jpg"):
+    case extension_code("jpeg"):
+    case extension_code("jfif"):
+        return MediaAttachmentFormat::jpeg;
+    case extension_code("webp"):
+        return MediaAttachmentFormat::webp;
+    case extension_code("gif"):
+        return MediaAttachmentFormat::gif;
+    case extension_code("mp4"):
+    case extension_code("m4v"):
+    case extension_code("mov"):
+        return MediaAttachmentFormat::mp4;
+    default:
+        return MediaAttachmentFormat::unknown;
+    }
 }
 
 ApplicationComposerPreview application_composer_preview_view(u64 draft_id) noexcept {

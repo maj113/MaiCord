@@ -213,16 +213,8 @@ enum class MessageMarkdownError : u8 {
 struct MessageMarkdownResult {
     Utf8View text;
     u32 span_count;
-    u32 transformations;
-    u32 syntax_tokens;
-    u32 syntax_styled_bytes;
-    u32 resolved_entities;
-    u32 unresolved_entities;
-    u32 timestamps;
     u32 semantic_count;
     u64 next_timestamp_update_unix_seconds;
-    u16 list_items;
-    u8 code_blocks;
     bool syntax_truncated;
     bool semantics_truncated;
     MessageMarkdownError error;

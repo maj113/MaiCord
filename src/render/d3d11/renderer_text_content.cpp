@@ -460,22 +460,19 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         return true;
     const TextStyleSpan span{0, command.text.bytes, command.style_flags};
     const auto* composer = renderer->message_composer_scene;
-    const bool composer_edit = composer && composer->model && composer->model->bytes &&
-                               command.owner.manager == &composer->widgets &&
-                               command.owner.handle.slot == composer->edit.slot;
     // The draft, and the placeholder that stands for it, are chat text.
-    const UiTextFace face = composer && command.owner.manager == &composer->widgets &&
-                                    command.owner.handle.slot == composer->edit.slot
-                                ? ui_text_face_chat(command.face)
-                                : command.face;
+    const bool composer_field = composer && command.owner.manager == &composer->widgets &&
+                                command.owner.handle.slot == composer->edit.slot;
+    const bool composer_edit = composer_field && composer->model && composer->model->bytes;
+    const UiTextFace face = composer_field ? ui_text_face_chat(command.face) : command.face;
     const ConstSlice<TextStyleSpan> styles =
         composer_edit ? ConstSlice<TextStyleSpan>{composer->display_styles, composer->display_style_count}
         : command.styles.count                   ? command.styles
         : command.style_flags == text_style_none ? ConstSlice<TextStyleSpan>{}
                                                  : ConstSlice<TextStyleSpan>{&span, 1};
     const auto* profile = renderer->profile_scene;
-    const bool bio = profile && profile->active && command.owner.manager == &profile->widgets &&
-                     command.owner.handle.slot == profile->bio_widget.slot;
+    const bool profile_text = profile && profile->active && command.owner.manager == &profile->widgets;
+    const bool bio = profile_text && command.owner.handle.slot == profile->bio_widget.slot;
     auto bio_semantics =
         bio ? ConstSlice<MessageMarkdownSemantic>{profile->bio_semantics, profile->bio_semantic_count}
             : ConstSlice<MessageMarkdownSemantic>{};
@@ -527,7 +524,7 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
               command.owner.handle.slot == renderer->media_picker_scene->edit.slot),
         !composer_edit};
     const bool appended = append_content_text(renderer, request, &shaped_height, atlas_invalidated);
-    if (appended && profile && profile->active && command.owner.manager == &profile->widgets) {
+    if (appended && profile_text) {
         UiRect ink{};
         bool have_ink = false;
         // Capture native glyph geometry before name effects add shadow copies.

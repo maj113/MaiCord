@@ -208,7 +208,6 @@ inline void transform_ansi_block(Parser* parser, u32 begin) noexcept {
     ansi_text_scan(Utf8View{parser->output.data + begin, end - begin}, compact_ansi_piece, &compaction);
     if (compaction.write != end) {
         parser->output_bytes = compaction.write;
-        ++parser->transformations;
     }
 }
 
@@ -277,7 +276,6 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
             language = code_language_from_tag(
                 Utf8View{parser->output.data + content_begin, newline - content_begin});
             remove_output(parser, content_begin, newline - content_begin + 1);
-            ++parser->transformations;
         }
         // Blank lines after the fence go when code follows them.
         u32 lead = 0;
@@ -285,7 +283,6 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
             ++lead;
         if (lead != 0 && content_begin + lead < parser->output_bytes) {
             remove_output(parser, content_begin, lead);
-            ++parser->transformations;
         }
     }
     content_begin = delimiter.output_offset + delimiter.marker_bytes;
@@ -311,7 +308,6 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
         if (language == CodeLanguage::ansi)
             strip_ansi_sgr(parser, delimiter.output_offset);
         apply_style(parser, delimiter.output_offset, parser->output_bytes, text_style_monospace);
-        ++parser->transformations;
         return;
     }
     if (delimiter.kind == DelimiterKind::spoiler) {
@@ -332,9 +328,6 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
                         source_bytes);
     }
     if (delimiter.kind == DelimiterKind::code && delimiter.marker_bytes == 3) {
-        if (parser->code_blocks != 0xFF) {
-            ++parser->code_blocks;
-        }
         // Editors (preserve_entities) keep the raw escapes.
         if (language == CodeLanguage::ansi && !(parser->options && parser->options->preserve_entities)) {
             transform_ansi_block(parser, delimiter.output_offset);
@@ -350,12 +343,10 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
                     Utf8View{parser->output.data + delimiter.output_offset, code_bytes}, language,
                     Slice<u32>{parser->styles.data + delimiter.output_offset, code_bytes}, remaining);
                 parser->syntax_tokens += highlighted.token_count;
-                parser->syntax_styled_bytes += highlighted.styled_bytes;
                 parser->syntax_truncated = parser->syntax_truncated || highlighted.truncated;
             }
         }
     }
-    ++parser->transformations;
 }
 bool valid_url(Utf8View input, u32 begin, u32 end) noexcept {
     if (begin >= end || end - begin > 2'048) {
@@ -606,8 +597,6 @@ bool try_emit_autolink(Parser* parser, bool* matched) noexcept {
         !append_semantic(parser, MessageMarkdownSemanticKind::link, 0, display_begin, bytes, begin, bytes))
         return false;
     parser->input_offset = at + consumed;
-    if (consumed != bytes)
-        ++parser->transformations;
     *matched = true;
     return true;
 }
@@ -894,10 +883,6 @@ bool emit_channel_chip(Parser* parser, const MessageLink& link, bool url, u32 so
     }
     if (!ok)
         return false;
-    if (flags & message_markdown_channel_known)
-        saturating_increment(parser->resolved_entities);
-    else
-        saturating_increment(parser->unresolved_entities);
     return *result != ChipResult::chip ||
            append_semantic(parser, kind, message ? link.message_id : link.channel_id, display_begin,
                            parser->output_bytes - display_begin, source_begin, link.source_bytes);
@@ -958,7 +943,6 @@ bool try_emit_channel_link(Parser* parser, bool* matched) noexcept {
         }
     }
     parser->input_offset += link.source_bytes;
-    ++parser->transformations;
     *matched = true;
     return true;
 }
@@ -1070,7 +1054,6 @@ bool try_emit_attachment_link(Parser* parser, bool* matched) noexcept {
                          parser->output_bytes - display_begin, begin, bytes, kMessageMarkdownAttachmentChip))
         return false;
     parser->input_offset = begin + bytes;
-    ++parser->transformations;
     *matched = true;
     return true;
 }
@@ -1124,15 +1107,9 @@ bool emit_entity_tag(Parser* parser, MessageMarkdownEntityKind entity_kind,
                        : emit_range(parser, digits_begin, digits_end, style))) {
         return false;
     }
-    if (use_resolved) {
-        saturating_increment(parser->resolved_entities);
-    } else {
-        saturating_increment(parser->unresolved_entities);
-    }
     append_semantic(parser, semantic_kind, id, display_begin, parser->output_bytes - display_begin,
                     tag_begin, tag_end + 1 - tag_begin);
     parser->input_offset = tag_end + 1;
-    ++parser->transformations;
     return true;
 }
 
@@ -1182,14 +1159,12 @@ bool try_emit_timestamp(Parser* parser, u32 begin, u32 end, bool* matched) noexc
     }
     append_semantic(parser, MessageMarkdownSemanticKind::timestamp, seconds, display_begin, result.bytes,
                     begin, end + 1 - begin);
-    saturating_increment(parser->timestamps);
     if (result.next_update_unix_seconds != 0 &&
         (parser->next_timestamp_update_unix_seconds == 0 ||
          result.next_update_unix_seconds < parser->next_timestamp_update_unix_seconds)) {
         parser->next_timestamp_update_unix_seconds = result.next_update_unix_seconds;
     }
     parser->input_offset = end + 1;
-    ++parser->transformations;
     *matched = true;
     return true;
 }
@@ -1241,8 +1216,6 @@ bool emit_game_mention(Parser* parser, u64 id, u32 begin, u32 end) noexcept {
               : emit_byte(parser, '@', chip.style)) ||
         !emit_view(parser, name.bytes ? name : utf8_literal("unknown-game"), chip.style))
         return false;
-    saturating_increment(name.bytes ? parser->resolved_entities : parser->unresolved_entities);
-    ++parser->transformations;
     append_semantic(parser, MessageMarkdownSemanticKind::game_mention, id, display_begin,
                     parser->output_bytes - display_begin, begin, end + 1 - begin);
     return true;
@@ -1306,7 +1279,6 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
             if (!emit_channel_chip(parser, MessageLink{0, channel_id, 0, end + 1 - begin}, false, begin, &result))
                 return false;
             parser->input_offset = end + 1;
-            ++parser->transformations;
             return true;
         }
         return emit_entity_tag(parser, MessageMarkdownEntityKind::channel,
@@ -1354,7 +1326,6 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
                 return false;
             }
             parser->input_offset = end + 1;
-            ++parser->transformations;
             return true;
         }
     }
@@ -1386,7 +1357,6 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
                 return false;
             }
             parser->input_offset = end + 1;
-            ++parser->transformations;
             return true;
         }
     }
@@ -1413,7 +1383,6 @@ bool try_emit_named_mention(Parser* parser, bool* matched) noexcept {
             *matched = true;
             const u32 begin = parser->input_offset;
             parser->input_offset += lengths[item];
-            ++parser->transformations;
             return emit_range(parser, begin, parser->input_offset, text_style_mention);
         }
     }

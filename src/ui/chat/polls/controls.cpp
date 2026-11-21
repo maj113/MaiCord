@@ -407,12 +407,11 @@ bool ui_poll_measure_layout(const UiPollState& state, float width, const UiPollS
     return true;
 }
 
-bool ui_poll_controls_project_layout(const UiPollState& state, UiPoint origin, const UiPollLayout& layout,
-                                     const UiPollStyle& style, const Theme& theme,
-                                     UiPollProjection* out) noexcept {
-    if (!state_valid(state) || !ui_coordinate_valid(origin.x) ||
-        !ui_coordinate_valid(origin.y) || layout.content_revision != state.content_revision ||
-        layout.content_signature != content_signature(state, style) || !positive(layout.height) ||
+namespace {
+// Projects a layout that ui_poll_measure_layout made from this state and style.
+bool project_measured(const UiPollState& state, UiPoint origin, const UiPollLayout& layout,
+                      const UiPollStyle& style, const Theme& theme, UiPollProjection* out) noexcept {
+    if (!ui_coordinate_valid(origin.x) || !ui_coordinate_valid(origin.y) || !positive(layout.height) ||
         !positive(layout.width) || layout.width < style.minimum_width ||
         layout.width > style.maximum_width ||
         !ui_rect_equal(layout.geometry.bounds, {0, 0, layout.width, layout.height}))
@@ -489,13 +488,22 @@ bool ui_poll_controls_project_layout(const UiPollState& state, UiPoint origin, c
     *out = projection;
     return true;
 }
+} // namespace
+
+bool ui_poll_controls_project_layout(const UiPollState& state, UiPoint origin, const UiPollLayout& layout,
+                                     const UiPollStyle& style, const Theme& theme,
+                                     UiPollProjection* out) noexcept {
+    return state_valid(state) && layout.content_revision == state.content_revision &&
+           layout.content_signature == content_signature(state, style) &&
+           project_measured(state, origin, layout, style, theme, out);
+}
 bool ui_poll_controls_project(const UiPollState& state, const UiRect& bounds, const UiPollStyle& style,
                               const Theme& theme, UiTextMeasureCache* cache, u16 backend,
                               UiPollProjection* out) noexcept {
-    UiPollLayout layout{};
+    UiPollLayout layout; // written whole by a successful measure, read only then
     return ui_rect_valid_or_empty(bounds) &&
            ui_poll_measure_layout(state, ui_rect_width(bounds), style, cache, backend, &layout) &&
-           ui_poll_controls_project_layout(state, {bounds.left, bounds.top}, layout, style, theme, out);
+           project_measured(state, {bounds.left, bounds.top}, layout, style, theme, out);
 }
 Utf8View ui_poll_count_label(const UiPollProjection& projection, u32 index) noexcept {
     return index < projection.state.answers.count

@@ -84,11 +84,15 @@ u64 message_text_presentation_projection_signature(const MessageTextPresentation
     }
     u64 hash = kHash64Seed;
     const auto mix = [](u64 value, u64 input) noexcept { return hash64_mix(value, input); };
-    const auto rectangle = [&mix](u64 value, const UiRect& bounds) noexcept {
-        value = mix(value, FloatWord{bounds.left}.word);
-        value = mix(value, FloatWord{bounds.top}.word);
-        value = mix(value, FloatWord{bounds.right}.word);
-        return mix(value, FloatWord{bounds.bottom}.word);
+    // Two floats, or several small fields, share one 8-byte word and one mix.
+    const auto pair = [](float low, float high) noexcept {
+        return FloatWord{low}.word | static_cast<u64>(FloatWord{high}.word) << 32;
+    };
+    const auto rectangle = [&mix, &pair](u64 value, const UiRect& bounds) noexcept {
+        return mix(mix(value, pair(bounds.left, bounds.top)), pair(bounds.right, bounds.bottom));
+    };
+    const auto color = [&mix, &pair](u64 value, const Color& tone) noexcept {
+        return mix(mix(value, pair(tone.red, tone.green)), pair(tone.blue, tone.alpha));
     };
     hash = mix(hash, presentation.command_count);
     // Author headers paint plugin name decorations and badges read at paint
@@ -98,33 +102,22 @@ u64 message_text_presentation_projection_signature(const MessageTextPresentation
         const MessageTextCommand& command = presentation.commands[index];
         hash = mix(hash, command.measurement_identity);
         hash = mix(hash, static_cast<u64>(reinterpret_cast<ULONG_PTR>(command.owner.manager)));
-        hash = mix(hash, command.owner.handle.slot);
-        hash = mix(hash, command.owner.handle.generation);
+        hash = mix(hash, command.owner.handle.slot | static_cast<u32>(command.owner.handle.generation) << 16 |
+                             static_cast<u64>(command.semantics.count) << 32);
         hash = rectangle(hash, command.rectangle);
         hash = rectangle(hash, command.clip);
-        hash = mix(hash, FloatWord{command.measured_height}.word);
-        hash = mix(hash, FloatWord{command.measured_width}.word);
-        hash = mix(hash, FloatWord{command.color.red}.word);
-        hash = mix(hash, FloatWord{command.color.green}.word);
-        hash = mix(hash, FloatWord{command.color.blue}.word);
-        hash = mix(hash, FloatWord{command.color.alpha}.word);
-        hash = mix(hash, FloatWord{command.inline_role_color.red}.word);
-        hash = mix(hash, FloatWord{command.inline_role_color.green}.word);
-        hash = mix(hash, FloatWord{command.inline_role_color.blue}.word);
-        hash = mix(hash, FloatWord{command.inline_role_color.alpha}.word);
-        hash = mix(hash, command.themed_styles);
-        hash = mix(hash, static_cast<u8>(command.horizontal_alignment));
-        hash = mix(hash, static_cast<u8>(command.vertical_alignment));
-        hash = mix(hash, static_cast<u8>(command.wrapping));
-        hash = mix(hash, static_cast<u8>(command.overflow));
-        hash = mix(hash, command.semantics.count);
+        hash = mix(hash, pair(command.measured_height, command.measured_width));
+        hash = color(hash, command.color);
+        hash = color(hash, command.inline_role_color);
+        hash = mix(hash, static_cast<u64>(command.themed_styles) |
+                             static_cast<u64>(command.horizontal_alignment) << 8 |
+                             static_cast<u64>(command.vertical_alignment) << 16 |
+                             static_cast<u64>(command.wrapping) << 24 | static_cast<u64>(command.overflow) << 32);
         for (u32 semantic_index = 0; semantic_index < command.semantics.count; ++semantic_index) {
             const MessageMarkdownSemantic& semantic = command.semantics[semantic_index];
             hash = mix(hash, semantic.target);
-            hash = mix(hash, semantic.source_offset);
-            hash = mix(hash, semantic.source_bytes);
-            hash = mix(hash, static_cast<u8>(semantic.kind));
-            hash = mix(hash, semantic.reserved);
+            hash = mix(hash, semantic.source_offset | static_cast<u64>(semantic.source_bytes) << 32 |
+                                 static_cast<u64>(semantic.kind) << 48 | static_cast<u64>(semantic.reserved) << 56);
         }
     }
     return hash;
@@ -342,6 +335,7 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
         presentation->measurements[index].content_height = 0.0f;
     }
     bool local_changed = false;
+    u32 moved_bits = 0;
     for (u32 index = 0; index < presentation->command_count; ++index) {
         MessageTextCommand& command = presentation->commands[index];
         FloatWord measured_height{};
@@ -350,6 +344,8 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
         measured_width.word = presentation->byte_style_scratch[index * 2u + 1u];
         local_changed = local_changed || command.measured_height != measured_height.value ||
                         command.measured_width != measured_width.value;
+        moved_bits |= (FloatWord{command.measured_height}.word ^ measured_height.word) |
+                      (FloatWord{command.measured_width}.word ^ measured_width.word);
         command.measured_height = measured_height.value;
         command.measured_width = measured_width.value;
         if (command.measurement_kind == MessageTextMeasurementKind::none) {
@@ -370,7 +366,10 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
             measurement.reaction_widths[command.measurement_slot] = measured_width.value;
         }
     }
-    presentation->projection_signature = message_text_presentation_projection_signature(*presentation);
+    // The build or the last measurement hashed these commands. Only the measured sizes and the text of a dropped
+    // command can differ since then, so a measurement that changes neither keeps that signature.
+    if (moved_bits || presentation->measure_failures)
+        presentation->projection_signature = message_text_presentation_projection_signature(*presentation);
     presentation->last_error = MessageTextPresentationError::none;
     *changed = local_changed;
     return true;

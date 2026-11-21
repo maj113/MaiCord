@@ -384,8 +384,6 @@ bool application_quick_switcher_edit_changed() noexcept {
 }
 bool application_quick_switcher_input(UiInputKind kind, u32 key, bool repeated) noexcept {
     if (key_tail(kind, key, repeated)) return true;
-    const bool ctrl_raw = application_control_down(), alt = application_alt_down();
-    const bool control = ctrl_raw && !alt, shift = application_shift_down();
     if (kind == UiInputKind::key_down && shortcut_matches(ShortcutAction::quick_switcher, shortcut_chord_from_keyboard(key)) &&
         available()) {
         if (!repeated) { g_app.quick_switcher_held_key = key; application_quick_switcher_toggle(); }
@@ -395,6 +393,8 @@ bool application_quick_switcher_input(UiInputKind kind, u32 key, bool repeated) 
     if (!q || !q->active) return false;
     if (!application_quick_switcher_active()) { application_quick_switcher_close(); return true; }
     if (kind == UiInputKind::key_up) return true;
+    const bool ctrl_raw = application_control_down(), alt = application_alt_down();
+    const bool control = ctrl_raw && !alt, shift = application_shift_down();
     if (kind == UiInputKind::character) {
         if (control || (alt && !ctrl_raw) || key < 32 || (key >= 127 && key <= 159) || key == 0x2028 || key == 0x2029 || key > 0xffff) return true;
         if (!q->edit.history) message_composer_enable_history(&q->edit, 2048);

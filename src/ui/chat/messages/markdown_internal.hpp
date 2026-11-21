@@ -54,10 +54,11 @@ struct SourceCacheEntry {
     SourceClosure closure;
 };
 
+// The scalar fields start cleared. A scope is read only below the parser's depth and a cache entry only below
+// cache_count. push_delimiter writes each when it raises the bound, before any read, so the arrays (last) start
+// unset.
 struct SourceSink {
     Slice<TextStyleSpan> spans;
-    SourceScope scopes[kDelimiterCapacity];
-    SourceCacheEntry cache[kDelimiterCapacity];
     u32 cache_count;
     u32 active_style;
     u32 span_count;
@@ -65,6 +66,8 @@ struct SourceSink {
     u32 previous_flags;
     bool have_previous;
     bool saturated;
+    SourceScope scopes[kDelimiterCapacity];
+    SourceCacheEntry cache[kDelimiterCapacity];
 };
 
 struct Parser {
@@ -79,16 +82,9 @@ struct Parser {
     u32 input_offset;
     u32 output_bytes;
     u32 depth;
-    u32 transformations;
     u32 syntax_tokens;
-    u32 syntax_styled_bytes;
-    u32 resolved_entities;
-    u32 unresolved_entities;
-    u32 timestamps;
     u32 semantic_count;
     u64 next_timestamp_update_unix_seconds;
-    u16 list_items;
-    u8 code_blocks;
     u32 line_style;
     u32 persistent_style;
     bool line_start;
@@ -98,6 +94,7 @@ struct Parser {
     SourceSink* source_sink;
     SourceSink* replay_cache;
     OutputMode output_mode;
+    // Read only below depth: push_delimiter writes a slot when it raises depth. Only the fields above start cleared.
     Delimiter delimiters[kDelimiterCapacity];
 };
 
