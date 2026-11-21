@@ -138,6 +138,18 @@ D3D11DrawPipelineResult initialize_pipeline(D3D11Renderer* renderer) noexcept {
                : D3D11DrawPipelineResult{E_INVALIDARG, D3D11DrawPipelineError::invalid_input};
 }
 
+// Whether a live resize keeps buffers larger than the client. Windows' DirectComposition target clips the visual to the
+// client. A Wayland compositor shows the whole EGL buffer, scaled to the window. A larger buffer shows the frame shrunk
+// into a corner, beside pixels that nothing drew. So on Linux the buffers always take the client size.
+bool keeps_resize_reserve(const D3D11Renderer* renderer) noexcept {
+#if defined(_WIN32)
+    return renderer->live_resize;
+#else
+    (void)renderer;
+    return false;
+#endif
+}
+
 } // namespace
 
 void renderer_prestart() noexcept {
@@ -299,7 +311,7 @@ bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
     }
     const u32 target_height = height + renderer->caption_height;
     if (renderer->width == width && renderer->height == height && gpu_surface_target(&renderer->graphics.surface) &&
-        (renderer->live_resize ||
+        (keeps_resize_reserve(renderer) ||
          (gpu_surface_width(&renderer->graphics.surface) == width &&
           gpu_surface_height(&renderer->graphics.surface) == target_height))) {
         return true;
@@ -310,7 +322,7 @@ bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
     // A client that still fits the current buffers is clipped, not reallocated;
     // finishing the resize trims the buffers to the final client size.
     u32 buffer_width = width, buffer_height = target_height;
-    if (renderer->live_resize) {
+    if (keeps_resize_reserve(renderer)) {
         buffer_width = gpu_surface_width(&renderer->graphics.surface);
         buffer_height = gpu_surface_height(&renderer->graphics.surface);
         if (width > buffer_width || target_height > buffer_height) {

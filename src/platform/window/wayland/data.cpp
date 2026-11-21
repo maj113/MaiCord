@@ -3,8 +3,10 @@
 // Reading is a pipe: the offer is asked to write one mime type into it (receive) and the window reads it, bounded by a
 // time limit, waiting on the pipe as a system waitable. A selection the window itself owns is read from memory (reading
 // its own source through the compositor would wait for an answer only this thread can give). Writing offers the text
-// formats (and PNG and an HTML <img> for images) from a Payload that lives until the source is cancelled or replaced;
-// `send` events write it into the pipe the receiver passes. Dropped file lists become DroppedFiles.
+// formats (and PNG and an HTML <img> for images) from a Payload that lives until the source is cancelled or replaced
+// and no transfer writes it any more. A `send` event writes into the receiver's pipe what it takes at once, and the
+// loop writes the rest (data_transfers_run): the window never waits for a receiver. Dropped file lists become
+// DroppedFiles.
 #include "maicord/core/heap.hpp"
 #include "maicord/core/name_list.hpp"
 #include "maicord/core/memory.hpp"
@@ -25,7 +27,7 @@ namespace {
 constexpr long kSysRtSigaction = 13;
 constexpr long kSysPipe2 = 293;
 constexpr int kSigPipe = 13;
-constexpr i16 kPollOut = 0x4;
+constexpr u32 kWriteFailed = ~0u;
 constexpr u32 kTextReadMs = 300;
 constexpr u32 kImageReadMs = 2000;
 constexpr u32 kDropReadMs = 1000;
@@ -128,25 +130,24 @@ bool read_pipe(int fd, u32 timeout_ms, u32 limit, u8** out, u32* bytes) noexcept
     return true;
 }
 
-// Writes the bytes into the receiver's pipe, a chunk when the pipe has room, within the time limit.
-void write_pipe(int fd, const u8* data, u32 bytes) noexcept {
-    const u64 deadline = clock_monotonic_milliseconds() + kWriteMs;
+// Writes what the receiver's non-blocking pipe takes now: the byte count, or kWriteFailed when the receiver is gone.
+u32 write_now(int fd, const u8* data, u32 bytes) noexcept {
     u32 written = 0;
     while (written < bytes) {
-        const u64 now = clock_monotonic_milliseconds();
-        if (now >= deadline)
-            return;
-        PollFd poll{fd, kPollOut, 0};
-        const u64 left = deadline - now;
-        const TimeSpec timeout{static_cast<i64>(left / 1000), static_cast<i64>(left % 1000) * 1'000'000};
-        if (sys_ppoll(&poll, 1, &timeout) <= 0 || (poll.revents & (kPollError | kPollHangUp | kPollInvalid)))
-            return;
-        const long count = sys_write(fd, data + written, minimum<u32>(bytes - written, 4096));
-        if (count < 0 && count != -kErrorInterrupted && count != -kErrorAgain)
-            return;
+        const long count = sys_write(fd, data + written, bytes - written);
         if (count > 0)
             written += static_cast<u32>(count);
+        else if (count == -kErrorAgain)
+            break;
+        else if (count != -kErrorInterrupted)
+            return kWriteFailed;
     }
+    return written;
+}
+
+bool make_nonblocking(int fd) noexcept {
+    const long flags = sys_fcntl(fd, kFcntlGetFlags, 0);
+    return !syscall_failed(flags) && !syscall_failed(sys_fcntl(fd, kFcntlSetFlags, flags | kOpenNonBlock));
 }
 
 OfferSlot* slot_of(wl_data_offer* offer) noexcept {
@@ -226,12 +227,14 @@ void on_selection(void*, wl_data_device*, wl_data_offer* offer) noexcept {
     ring_add(EventType::clipboard_changed, now_ms32());
 }
 
-void on_drag_enter(void*, wl_data_device*, u32 serial, wl_surface*, i32, i32, wl_data_offer* offer) noexcept {
+void on_drag_enter(void*, wl_data_device*, u32 serial, wl_surface* surface, i32, i32, wl_data_offer* offer) noexcept {
     DataState& data = g.data;
     if (data.drag)
         destroy_slot(data.drag);
     data.drag = slot_of(offer);
-    data.drag_accepts = data.drag && data.drop_target && (data.drag->mimes & mime_uri_list);
+    // The resize margin is outside the window: a drop there is not a drop on the window.
+    data.drag_accepts = data.drag && data.drop_target && (data.drag->mimes & mime_uri_list) &&
+                        surface != g.window.margin_surface;
     if (!data.drag)
         return;
     wl_data_offer* wl_offer = data.drag->offer;
@@ -278,8 +281,8 @@ void on_drop(void*, wl_data_device*) noexcept {
 const wl_data_device_listener kDeviceListener = {on_data_offer, on_drag_enter, on_drag_leave,
                                                  on_drag_motion, on_drop,       on_selection};
 
-void free_payload(Payload* payload) noexcept {
-    if (!payload)
+void release_payload(Payload* payload) noexcept {
+    if (!payload || --payload->references != 0)
         return;
     heap_free(payload->text);
     heap_free(payload->png);
@@ -294,20 +297,51 @@ u8* copy_block(const u8* data, u32 bytes) noexcept {
     return block;
 }
 
-void send_payload(const Payload* payload, const char* mime, int fd) noexcept {
-    const u32 bit = mime_bit(mime);
-    if (payload && (bit & mime_any_text) && payload->text)
-        write_pipe(fd, payload->text, payload->text_bytes);
-    else if (payload && bit == mime_png && payload->png)
-        write_pipe(fd, payload->png, payload->png_bytes);
-    else if (payload && bit == mime_html && payload->html)
-        write_pipe(fd, payload->html, payload->html_bytes);
-    sys_close(fd);
+// The bytes `payload` holds for a mime type; empty for a type it does not offer.
+ConstSlice<u8> payload_bytes(const Payload* payload, u32 bit) noexcept {
+    if ((bit & mime_any_text) && payload->text)
+        return ConstSlice<u8>{payload->text, payload->text_bytes};
+    if (bit == mime_png && payload->png)
+        return ConstSlice<u8>{payload->png, payload->png_bytes};
+    if (bit == mime_html && payload->html)
+        return ConstSlice<u8>{payload->html, payload->html_bytes};
+    return {};
+}
+
+// Gives the rest of a `send` to the loop. False when every transfer slot is in use.
+bool start_transfer(Payload* payload, int fd, const u8* next, u32 left) noexcept {
+    DataState& data = g.data;
+    for (Transfer& transfer : data.transfers) {
+        if (transfer.payload)
+            continue;
+        ++payload->references;
+        transfer = Transfer{payload, next, left, fd, clock_monotonic_milliseconds() + kWriteMs};
+        ++data.transfer_count;
+        return true;
+    }
+    return false;
+}
+
+void end_transfer(Transfer* transfer) noexcept {
+    sys_close(transfer->fd);
+    release_payload(transfer->payload);
+    transfer->payload = nullptr;
+    --g.data.transfer_count;
 }
 
 void on_source_target(void*, wl_data_source*, const char*) noexcept {}
+// The receiver can wait for this window (a clipboard manager that reads in its own event loop), so the listener never
+// waits for the receiver: what the pipe does not take now goes out from the loop.
 void on_source_send(void* data, wl_data_source*, const char* mime, i32 fd) noexcept {
-    send_payload(static_cast<const Payload*>(data), mime, fd);
+    Payload* payload = static_cast<Payload*>(data);
+    const ConstSlice<u8> bytes = payload_bytes(payload, mime_bit(mime));
+    if (bytes.count && make_nonblocking(fd)) {
+        // kWriteFailed is larger than any payload, so a failed write closes the pipe.
+        const u32 written = write_now(fd, bytes.data, bytes.count);
+        if (written < bytes.count && start_transfer(payload, fd, bytes.data + written, bytes.count - written))
+            return;
+    }
+    sys_close(fd);
 }
 void on_source_cancelled(void* data, wl_data_source* source) noexcept {
     DataState& state = g.data;
@@ -315,7 +349,7 @@ void on_source_cancelled(void* data, wl_data_source* source) noexcept {
         return;
     wl_data_source_destroy(source);
     state.source = nullptr;
-    free_payload(state.payload);
+    release_payload(state.payload);
     state.payload = nullptr;
 }
 void on_source_drop_performed(void*, wl_data_source*) noexcept {}
@@ -328,12 +362,12 @@ const wl_data_source_listener kSourceListener = {on_source_target,         on_so
 bool own_clipboard(Payload* payload, const u32* mimes, u32 count) noexcept {
     DataState& data = g.data;
     if (!data.device || !g.data_manager || g.input_serial == 0) {
-        free_payload(payload);
+        release_payload(payload);
         return false;
     }
     if (data.source) {
         wl_data_source_destroy(data.source);
-        free_payload(data.payload);
+        release_payload(data.payload);
     }
     data.source = wl_data_device_manager_create_data_source(g.data_manager);
     data.payload = payload;
@@ -346,7 +380,10 @@ bool own_clipboard(Payload* payload, const u32* mimes, u32 count) noexcept {
 }
 
 Payload* new_payload() noexcept {
-    return static_cast<Payload*>(heap_allocate(sizeof(Payload), true));
+    Payload* payload = static_cast<Payload*>(heap_allocate(sizeof(Payload), true));
+    if (payload)
+        payload->references = 1;
+    return payload;
 }
 
 // The text formats a text selection offers, best first.
@@ -362,7 +399,7 @@ Payload* text_payload(const Utf8View& text) noexcept {
     payload->text = copy_block(reinterpret_cast<const u8*>(text.data), text.bytes);
     payload->text_bytes = text.bytes;
     if (!payload->text) {
-        free_payload(payload);
+        release_payload(payload);
         return nullptr;
     }
     return payload;
@@ -401,6 +438,23 @@ ClipboardTextResult read_text(const OfferSlot* slot, const Payload* own, const S
 
 } // namespace
 
+void data_transfers_run(u64 now_ms) noexcept {
+    DataState& data = g.data;
+    if (data.transfer_count == 0)
+        return;
+    for (Transfer& transfer : data.transfers) {
+        if (!transfer.payload)
+            continue;
+        const u32 written = write_now(transfer.fd, transfer.next, transfer.left);
+        if (written < transfer.left && now_ms < transfer.deadline_ms) {
+            transfer.next += written;
+            transfer.left -= written;
+        } else {
+            end_transfer(&transfer);  // complete, failed (kWriteFailed) or too old
+        }
+    }
+}
+
 void data_attach() noexcept {
     DataState& data = g.data;
     if (!g.seat)
@@ -416,9 +470,12 @@ void data_shutdown() noexcept {
     DataState& data = g.data;
     for (OfferSlot& slot : data.offers)
         destroy_slot(&slot);
+    for (Transfer& transfer : data.transfers)
+        if (transfer.payload)
+            end_transfer(&transfer);
     if (data.source)
         wl_data_source_destroy(data.source);
-    free_payload(data.payload);
+    release_payload(data.payload);
     if (data.device) {
         if (g.data_manager && g_client.proxy_get_version(reinterpret_cast<Proxy*>(data.device)) >= wl_data_device_release_since)
             wl_data_device_release(data.device);
@@ -511,7 +568,7 @@ bool clipboard_write_image(const u8* rgba, u32 width, u32 height, u32 stride, co
     heap_free(workspace);
     heap_free(png);
     if (!ok) {
-        free_payload(payload);
+        release_payload(payload);
         return false;
     }
     u32 mimes[2] = {mime_png, 0};

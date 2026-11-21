@@ -15,6 +15,11 @@ bits of endpoint watching are in `endpoint_watch.hpp`; each backend fills them i
   constants, struct layouts).
 - With no libpulse or no server audio is an unavailable state (empty device lists, a `waiting` capture, a device error in the
   notification status, a device or server error in the media status), never a crash.
+- The voice output worker wakes once for each server request and writes all of it, as the WASAPI loop fills its whole
+  buffer. Its stream has no prebuffer, so the server reads one cycle (its quantum) even when less is queued. A worker
+  that wrote at most 20 ms fell further behind in each cycle of 1024 or 2048 frames (a forced quantum,
+  `pulse.min.quantum`), and the server dropped everything written behind its read position. The notification worker
+  writes all of each request too: its 20 ms fill before the start lost the start of a sound to a larger first cycle.
 - The media worker keeps a frame in its ring until the server has read it, not until it is heard: WSLg's RDP sink reports
   0.4 to 1 s of latency, more than the video session's ring of 8192 frames. Its stream asks for the server's prebuffer, so
   a stream that runs dry waits and drops nothing.
@@ -27,7 +32,8 @@ bits of endpoint watching are in `endpoint_watch.hpp`; each backend fills them i
   Windows), `maicord_audio_no_server` and `maicord_audio_no_library` (`MAICORD_PULSE_LIBRARY` names a library that does not exist;
   a test hook). `tools/test_pulse_audio.sh` runs the opt-in `maicord_pulse_loopback` and `maicord_video_playback_audio` against
   WSLg's PulseServer, `$PULSE_SERVER` or a private `pulseaudio` (`--private`): it loads a null sink, plays voice, notification and
-  media audio into it and records the sink's monitor with the voice capture.
+  media audio into it and records the sink's monitor with the voice capture. `--quantum 2048` runs them on
+  pipewire-pulse with PipeWire's `clock.force-quantum` set to 2048 frames, and sets it back to 0 at exit.
 
 ## Text to speech (`speechd/`)
 

@@ -33,14 +33,19 @@ struct TrayRecord {
     TrayEventKind kind;
     i32 x, y;
     u32 command;
+    char token[kTrayTokenCapacity];
 };
 
 TrayRecord g_tray_events[16];
 u32 g_tray_event_count;
 
 void on_tray(void*, const TrayEvent& event) noexcept {
-    if (g_tray_event_count < 16)
-        g_tray_events[g_tray_event_count++] = TrayRecord{event.kind, event.x, event.y, event.command};
+    if (g_tray_event_count >= 16)
+        return;
+    TrayRecord& record = g_tray_events[g_tray_event_count++];
+    record = TrayRecord{event.kind, event.x, event.y, event.command, {}};
+    if (event.activation_token)
+        c_string_copy(record.token, sizeof(record.token), event.activation_token);
 }
 
 bool tray_registered() noexcept {
@@ -106,6 +111,16 @@ void args_get_unknown(Builder* b) noexcept {
 void args_point(Builder* b) noexcept {
     arg_i32(b, 10);
     arg_i32(b, 20);
+}
+void args_token(Builder* b) noexcept {
+    arg_string(b, "kwin-7");
+}
+// One byte more than the item keeps: dropped, never cut.
+void args_long_token(Builder* b) noexcept {
+    static char token[kTrayTokenCapacity + 1];
+    for (u32 i = 0; i < kTrayTokenCapacity; ++i)
+        token[i] = 't';
+    arg_string(b, token);
 }
 void args_scroll(Builder* b) noexcept {
     arg_i32(b, 3);
@@ -223,6 +238,27 @@ void test_tray() noexcept {
               g_tray_events[0].y == 20 && g_tray_events[1].kind == TrayEventKind::secondary_activate &&
               g_tray_events[2].kind == TrayEventKind::context_menu && g_tray_events[2].x == 10,
           "activate, secondary activate and context menu reach the handler with the position");
+    check(!g_tray_events[0].token[0] && !g_tray_events[1].token[0], "a click without a token reports none");
+
+    // Plasma gives an xdg-activation token just before a click: the next event carries it, and only that one. A token
+    // longer than the item keeps is dropped.
+    g_tray_event_count = 0;
+    const char* provided = call_item("token", "/StatusNotifierItem", "org.kde.StatusNotifierItem",
+                                     "ProvideXdgActivationToken", "s", args_token);
+    const bool token_accepted = provided && contains(provided, " ok ");
+    call_item("activate2", "/StatusNotifierItem", "org.kde.StatusNotifierItem", "Activate", "ii", args_point);
+    call_item("secondary2", "/StatusNotifierItem", "org.kde.StatusNotifierItem", "SecondaryActivate", "ii", args_point);
+    call_item("token2", "/StatusNotifierItem", "org.kde.StatusNotifierItem", "ProvideXdgActivationToken", "s", args_token);
+    call_item("secondary3", "/StatusNotifierItem", "org.kde.StatusNotifierItem", "SecondaryActivate", "ii", args_point);
+    call_item("longtoken", "/StatusNotifierItem", "org.kde.StatusNotifierItem", "ProvideXdgActivationToken", "s",
+              args_long_token);
+    call_item("activate3", "/StatusNotifierItem", "org.kde.StatusNotifierItem", "Activate", "ii", args_point);
+    check(token_accepted && g_tray_event_count == 4 && g_tray_events[0].kind == TrayEventKind::activate &&
+              text_equal(g_tray_events[0].token, "kwin-7") && g_tray_events[1].kind == TrayEventKind::secondary_activate &&
+              !g_tray_events[1].token[0] && text_equal(g_tray_events[2].token, "kwin-7") &&
+              g_tray_events[3].kind == TrayEventKind::activate && !g_tray_events[3].token[0],
+          "ProvideXdgActivationToken: the next activation carries the token, the one after it none; a long one is "
+          "dropped");
 
     // The menu.
     u32 revision = 0;
@@ -254,14 +290,18 @@ void test_tray() noexcept {
     const char* menu_props = call_item("menuprops", "/MenuBar", "org.freedesktop.DBus.Properties", "GetAll", "s", args_item_interface);
     check(menu_props && contains(menu_props, "ok {}") , "the menu's properties of another interface are empty");
 
+    // Plasma gives a token before a menu entry's click too: the command carries it.
     g_tray_event_count = 0;
+    call_item("menutoken", "/StatusNotifierItem", "org.kde.StatusNotifierItem", "ProvideXdgActivationToken", "s",
+              args_token);
     call_item("click", "/MenuBar", "com.canonical.dbusmenu", "Event", "isvu", args_event_quit);
     call_item("opened", "/MenuBar", "com.canonical.dbusmenu", "Event", "isvu", args_event_opened);
     const char* group_click = call_item("clickgroup", "/MenuBar", "com.canonical.dbusmenu", "EventGroup", "a(isvu)", args_event_group);
     check(group_click && contains(group_click, " ok []"), "EventGroup answers an empty error list");
     check(g_tray_event_count == 2 && g_tray_events[0].kind == TrayEventKind::command && g_tray_events[0].command == 4 &&
-              g_tray_events[1].kind == TrayEventKind::command && g_tray_events[1].command == 3,
-          "a click on the entry reports its command; \"opened\" reports nothing");
+              text_equal(g_tray_events[0].token, "kwin-7") && g_tray_events[1].kind == TrayEventKind::command &&
+              g_tray_events[1].command == 3 && !g_tray_events[1].token[0],
+          "a click on the entry reports its command with the host's token; \"opened\" reports nothing");
 
     // A change: signals, a new revision, the new text.
     clear_log();

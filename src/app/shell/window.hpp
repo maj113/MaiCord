@@ -35,6 +35,12 @@ void application_platform_window_prepare() noexcept;
 bool application_platform_window_create(Window* out, const char** failure) noexcept;
 // Shows the main window the first time (the probe builds show it without taking the focus).
 void application_platform_window_show(ShowMode mode) noexcept;
+// The main window's placement from the last run (window.bin), for application_platform_window_create. Null on the
+// first start or when the file is damaged. Read once, before the window is made.
+const WindowPlacement* application_window_saved_placement() noexcept;
+// Writes the window's placement to window.bin when it changed since the last read or write: on every close (also to
+// the tray) and when the Windows session ends. Never on a resize.
+void application_window_save_placement() noexcept;
 // The platform's request to quit that does not come as a window event: on Linux SIGTERM, SIGINT and SIGHUP (read from a
 // descriptor the main loop waits on; src/app/linux/shutdown_signal.cpp). `application_platform_quit_signal` is the
 // waitable (null when there is none) and `application_platform_quit_requested` consumes what arrived. Windows has

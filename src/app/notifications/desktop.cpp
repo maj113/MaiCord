@@ -20,6 +20,7 @@
 #else
 #include "maicord/os/text.hpp"
 #include "maicord/platform/dbus/instance.hpp"
+#include "maicord/platform/dbus/logout.hpp"
 #include "maicord/platform/dbus/tray.hpp"
 #include "maicord/platform/window/wayland.hpp"
 #endif
@@ -206,15 +207,30 @@ void tray_event(UINT event) noexcept {
     }
 }
 #else
+// Shows the window, then gives the compositor the token of the click or the launch: with it the window may take the
+// focus. The token goes after the show, because a hidden window has no toplevel on the screen. KWin keeps a token for a
+// window that does not show yet and uses it when the window shows. Without a token the window asks for attention with
+// its own last input, as desktop_window_reveal does.
+void reveal_activated(const char* token) noexcept {
+    window_show(g_app.window, ShowMode::show);
+    if (!window_wayland_activate(token))
+        window_request_attention(g_app.window, Attention::flash);
+    application_request_frame();
+}
 // The notification-area item (platform/dbus/tray.hpp) reports inside the session bus processing, on the UI thread: the
 // host draws the menu itself and sends the chosen command.
 void on_tray(void*, const dbus::TrayEvent& event) noexcept {
     switch (event.kind) {
+    // A middle click opens the window too, as in the official client (Chromium's tray item).
     case dbus::TrayEventKind::activate:
-        reveal();
+    case dbus::TrayEventKind::secondary_activate:
+        reveal_activated(event.activation_token);
         break;
     case dbus::TrayEventKind::command:
-        tray_command(event.command);
+        if (event.command == tray_command_open)
+            reveal_activated(event.activation_token);
+        else
+            tray_command(event.command);
         break;
     default:
         break;
@@ -222,9 +238,8 @@ void on_tray(void*, const dbus::TrayEvent& event) noexcept {
 }
 // A launch another process handed over (a link, or just "show yourself").
 void on_launch(void*, const dbus::LaunchRequest& request) noexcept {
-    // The second launch brings the compositor's activation token (XDG_ACTIVATION_TOKEN): with it the window may take the focus.
-    window_wayland_activate(request.activation_token);
-    reveal();
+    // The second launch brings the compositor's activation token (XDG_ACTIVATION_TOKEN).
+    reveal_activated(request.activation_token);
     wchar_t url[kDesktopUrlCapacity];
     const u32 units = request.url_present ? utf8_to_utf16(request.url, request.url_bytes, url, kDesktopUrlCapacity, true)
                                           : 0;
@@ -491,6 +506,11 @@ bool application_desktop_close_to_tray() noexcept {
     if (!g_app.window || desktop_close_action(g_app.preferences.minimize_to_tray, tray_visible(),
                                               g_desktop.quit_requested) != DesktopCloseAction::hide)
         return false;
+#if !defined(_WIN32)
+    // Plasma's logout closes every window and waits for each to go: the close quits then (dbus/logout.hpp).
+    if (dbus::logout_in_progress())
+        return false;
+#endif
     window_show(g_app.window, ShowMode::hide);
     return true;
 }

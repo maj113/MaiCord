@@ -4,6 +4,8 @@
 // xdg_toplevel.resize, the system-menu area and a right press on the caption open the compositor's window menu. The
 // presses it takes never reach the app, and neither do their releases. Motion is always delivered, so the caption bar
 // can track hover; the cursor over an edge is the resize cursor (pointer.cpp).
+// The app's frame resizes from a band inside the top of the window. The other edges lie outside the window, on the
+// resize margin. pointer.cpp handles the margin without the app.
 #include "backend.hpp"
 
 namespace maicord::wayland {

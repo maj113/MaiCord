@@ -45,6 +45,8 @@ struct Tray {
     Item items[kMaxItems];
     u32 item_count;
     u32 revision;
+    // ProvideXdgActivationToken's token for the next event; "" when none.
+    char activation_token[kTrayTokenCapacity];
 };
 
 Tray g;
@@ -71,6 +73,7 @@ const char kItemIntrospection[] =
     "<method name=\"ContextMenu\"><arg type=\"i\" name=\"x\"/><arg type=\"i\" name=\"y\"/></method>"
     "<method name=\"Activate\"><arg type=\"i\" name=\"x\"/><arg type=\"i\" name=\"y\"/></method>"
     "<method name=\"SecondaryActivate\"><arg type=\"i\" name=\"x\"/><arg type=\"i\" name=\"y\"/></method>"
+    "<method name=\"ProvideXdgActivationToken\"><arg type=\"s\" name=\"token\"/></method>"
     "<method name=\"Scroll\"><arg type=\"i\" name=\"delta\"/><arg type=\"s\" name=\"orientation\"/></method>"
     "<signal name=\"NewTitle\"/>"
     "<signal name=\"NewIcon\"/>"
@@ -112,7 +115,9 @@ void emit_event(TrayEventKind kind, i32 x, i32 y, u32 command) noexcept {
     event.x = x;
     event.y = y;
     event.command = command;
+    event.activation_token = g.activation_token;
     g.handler(g.context, event);
+    g.activation_token[0] = 0;
 }
 
 // StatusNotifierItem properties ---------------------------------------------------------------------------------------
@@ -261,6 +266,20 @@ bool item_call(void*, Connection* c, const Message& call) noexcept {
         return true;
     }
     if (c_string_equal(call.member, "Scroll")) {
+        connection_reply(c, call, nullptr);
+        return true;
+    }
+    // Plasma sends a token just before it activates the item or one of its menu entries.
+    if (c_string_equal(call.member, "ProvideXdgActivationToken")) {
+        const char* token = nullptr;
+        u32 length = 0;
+        if (!reader_string(&r, &token, &length)) {
+            connection_reply_error(c, call, "org.freedesktop.DBus.Error.InvalidArgs", "(s)");
+            return true;
+        }
+        g.activation_token[0] = 0;
+        if (length < sizeof(g.activation_token))
+            c_string_copy(g.activation_token, sizeof(g.activation_token), token);
         connection_reply(c, call, nullptr);
         return true;
     }

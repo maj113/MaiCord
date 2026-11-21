@@ -385,9 +385,10 @@ void output(const char* device_name, const char* label_ok, const char* label_flo
     show("voice output", heard);
     check(near(heard.peak, 10000, 10) && near(heard.frequency_hz, 480, 10) && heard.span >= 20000, label_ok);
     voice_audio_output_stop(&voice);
+    // The worker writes all of each server request, in pieces of at most 2048 frames (kVoiceRenderMaximumFrames).
     check(!voice_audio_output_running(voice) && InterlockedCompareExchange(&g_tone.calls, 0, 0) > 10 &&
-              InterlockedCompareExchange(&g_tone.largest, 0, 0) <= 960,
-          "voice output: the render callback runs in 20 ms-buffer sized requests and the worker joins");
+              InterlockedCompareExchange(&g_tone.largest, 0, 0) <= 2048,
+          "voice output: the render callback runs in pieces of at most 2048 frames and the worker joins");
 }
 
 void notifications() noexcept {

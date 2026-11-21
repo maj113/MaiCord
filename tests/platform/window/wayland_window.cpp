@@ -485,13 +485,14 @@ bool request_frame() noexcept {
     return true;
 }
 
-bool create_window() noexcept {
+bool create_window(const WindowPlacement* placement = nullptr) noexcept {
     WindowCreateInfo info{};
     info.title = Utf8View{"maicord wayland test", 20};
     info.app_id = Utf8View{"maicord", 7};
     info.client_width_dips = kClientWidth;
     info.client_height_dips = kClientHeight;
     info.visible = true;
+    info.placement = placement;
     if (!window_create(info, sink, nullptr, &g_window))
         return false;
     painter_close();
@@ -584,6 +585,23 @@ void test_window_up() noexcept {
                width == now.logical_width && height == now.logical_height;
     };
     check(region_is_surface(), "the opaque region is the whole surface");
+    // The resize margin: 8 logical units around a floating window that draws its own frame, none around a full-screen
+    // one. It needs wl_subcompositor and wp_viewporter (MAICORD_WAYLAND_NO_FRACTIONAL leaves the viewporter unbound).
+    u32 margin_width = 0, margin_height = 0;
+    const bool has_margin = window_wayland_resize_margin(g_window, &margin_width, &margin_height);
+    if (has_global("wl_subcompositor") && has_global("wp_viewporter") && !environment_get("MAICORD_WAYLAND_NO_FRACTIONAL"))
+        check(has_margin, "the window has a resize margin");
+    const auto margin_is_around = [&](bool around) noexcept {
+        WaylandSurfaceInfo now{};
+        u32 width = 0, height = 0;
+        if (!window_wayland_info(g_window, &now) || !window_wayland_resize_margin(g_window, &width, &height))
+            return false;
+        return around ? width == now.logical_width + 16 && height == now.logical_height + 16 : width == 0 && height == 0;
+    };
+    const bool floating =
+        window_caps().csd && (window_state(g_window) & (state_maximized | state_fullscreen | state_tiled)) == 0;
+    if (has_margin)
+        check(margin_is_around(floating), "the resize margin surrounds a floating window with a frame of its own");
     window_wayland_info(g_window, &surface);
     if (window_set_fullscreen(g_window, true)) {
         check(pump_until([&] {
@@ -592,6 +610,8 @@ void test_window_up() noexcept {
                          region_is_surface();
               }, 5000),
               "the opaque region follows a resize");
+        if (has_margin)
+            check(margin_is_around(false), "a full-screen window has no resize margin");
         window_set_fullscreen(g_window, false);
         check(pump_until([&] {
                   WaylandSurfaceInfo now{};
@@ -599,6 +619,8 @@ void test_window_up() noexcept {
                          region_is_surface();
               }, 5000),
               "and the size it comes back to");
+        if (has_margin)
+            check(margin_is_around(floating), "the resize margin comes back with the floating size");
     }
 }
 
@@ -811,6 +833,32 @@ void test_recreate() noexcept {
         window_destroy(g_window);
         g_window = nullptr;
     }
+
+    // A saved placement: the floating size, and maximized before the initial commit. The compositor decides whether the
+    // window is maximized. One that maximizes a window on request must have maximized this one from its first configure.
+    g_quit = false;
+    g_count = 0;
+    const WindowPlacement saved{0, 0, 700, 500, 96, true};
+    check(create_window(&saved), "the window can be created with a saved placement");
+    if (!g_window)
+        return;
+    const u32 state = window_state(g_window);
+    const bool maximized = (state & state_maximized) != 0;
+    const bool floating = (state & (state_maximized | state_fullscreen | state_tiled)) == 0;
+    WindowPlacement read{};
+    WaylandSurfaceInfo now{};
+    const bool read_back = window_placement(g_window, &read) && window_wayland_info(g_window, &now);
+    const u32 width = static_cast<u32>(read.right - read.left), height = static_cast<u32>(read.bottom - read.top);
+    check(read_back && read.left == 0 && read.top == 0 && read.dpi == 96 && read.maximized == maximized &&
+              (floating ? width == now.logical_width && height == now.logical_height : width == 700 && height == 500),
+          "the placement reads back the floating size and the maximized state");
+    if (!maximized && window_caps().maximize) {
+        window_toggle_maximize(g_window);
+        const bool on_request = pump_until([] { return (window_state(g_window) & state_maximized) != 0; }, 1000);
+        check(!on_request, "a compositor that maximizes on request maximized the restored window from the start");
+    }
+    window_destroy(g_window);
+    g_window = nullptr;
 }
 
 // The input scenario -------------------------------------------------------------------------------------------------
@@ -1524,6 +1572,104 @@ void test_frame() noexcept {
     g_capture_on_press = true;
 }
 
+// The resize margin outside the window, where the Windows frame has its side and bottom borders. The app sees no
+// event there and is not asked for a hit test. The cursor names the edge, and a press starts the compositor's resize
+// from that edge. The right edge changes the width only, the bottom-right corner both sizes, the bottom edge the height.
+// Sway 1.9 gives input only to surfaces inside the window geometry (floating_container_at), so the drags skip there.
+// Weston, KWin and Mutter give input to a subsurface outside it, as GTK 4 needs for its resize border.
+void test_resize_margin() noexcept {
+    u32 margin_width = 0, margin_height = 0;
+    if (!window_wayland_resize_margin(g_window, &margin_width, &margin_height) || margin_width == 0) {
+        test_write_line("SKIP resize margin: the window has none (no wl_subcompositor or wp_viewporter)");
+        return;
+    }
+    const auto frame_cursor = [](FrameHit hit) noexcept { return static_cast<u8>(kFrameCursorBase + static_cast<u8>(hit)); };
+    const i32 outside = static_cast<i32>(4 * window_metrics(g_window).dpi / 96);  // 4 logical units into the margin
+    const auto drag = [](i32 from_x, i32 from_y, i32 to_x, i32 to_y) noexcept {
+        pointer_to(from_x, from_y);
+        settle(100);
+        inject::pointer_button(&g_injector, kBtnLeft, true);
+        settle(200);  // the window starts the resize on the press; the pointer moves afterwards
+        pointer_to(to_x, to_y);
+    };
+    settle(300);
+    mark();
+    pointer_to(120, 90);  // test_frame left the pointer at (100, 80): a move to it again has no event
+    expect("the pointer is in the client area", EventType::pointer_move, [](const Record& r) { return near_point(r, 120, 90); });
+
+    // The right edge.
+    i32 width = static_cast<i32>(width_px());
+    i32 height = static_cast<i32>(window_metrics(g_window).height_px);
+    mark();
+    pointer_to(width + outside, 200);
+    expect("the pointer leaves the app for the margin", EventType::pointer_leave, [](const Record&) { return true; });
+    settle(100);
+    check(count_events(g_mark, EventType::pointer_move) == 0 && count_events(g_mark, EventType::hit_test) == 0,
+          "the app sees no motion over the margin and answers no hit test for it");
+    if (!window_wayland_pointer_on_margin()) {
+        test_write_line("SKIP resize margin drags: the compositor gives no input outside the window geometry");
+        mark();
+        pointer_to(100, 80);
+        expect("the pointer is back in the client area after the margin", EventType::pointer_move,
+               [](const Record& r) { return near_point(r, 100, 80); });
+        return;
+    }
+    check(window_wayland_applied_cursor() == frame_cursor(FrameHit::right), "the cursor over the right margin is the right edge's");
+    drag(width + outside, 200, width + outside + 60, 200);
+    const u32 wider = expect("a drag of the right margin widens the window", EventType::resize, [&](const Record& r) {
+        return r.event.resize.width_px > static_cast<u32>(width);
+    });
+    check(wider != kNone && g_log[wider].event.resize.height_px == static_cast<u32>(height),
+          "the right edge leaves the height alone");
+    inject::pointer_button(&g_injector, kBtnLeft, false);
+    expect("resize_end after the right margin", EventType::resize_end, [](const Record&) { return true; });
+    check(count_events(g_mark, EventType::pointer_down) == 0 && count_events(g_mark, EventType::pointer_up) == 0,
+          "the app sees neither the press nor the release on the margin");
+    settle(200);
+
+    // The bottom-right corner.
+    width = static_cast<i32>(width_px());
+    mark();
+    pointer_to(width + outside, height + outside);
+    settle(100);
+    check(window_wayland_applied_cursor() == frame_cursor(FrameHit::bottom_right),
+          "the cursor over the bottom-right corner is the corner's");
+    drag(width + outside, height + outside, width + outside - 60, height + outside - 40);
+    expect("a drag of the bottom-right corner makes both sizes smaller", EventType::resize, [&](const Record& r) {
+        return r.event.resize.width_px < static_cast<u32>(width) && r.event.resize.height_px < static_cast<u32>(height);
+    });
+    inject::pointer_button(&g_injector, kBtnLeft, false);
+    expect("resize_end after the corner", EventType::resize_end, [](const Record&) { return true; });
+    check(count_events(g_mark, EventType::pointer_down) == 0, "the corner press is the window's");
+    settle(200);
+
+    // The bottom edge, which gives the window its height back.
+    width = static_cast<i32>(width_px());
+    height = static_cast<i32>(window_metrics(g_window).height_px);
+    mark();
+    pointer_to(width / 2, height + outside);
+    settle(100);
+    check(window_wayland_applied_cursor() == frame_cursor(FrameHit::bottom), "the cursor over the bottom margin is the bottom edge's");
+    drag(width / 2, height + outside, width / 2, height + outside + 40);
+    const u32 taller = expect("a drag of the bottom margin makes the window taller", EventType::resize, [&](const Record& r) {
+        return r.event.resize.height_px > static_cast<u32>(height);
+    });
+    check(taller != kNone && g_log[taller].event.resize.width_px == static_cast<u32>(width),
+          "the bottom edge leaves the width alone");
+    inject::pointer_button(&g_injector, kBtnLeft, false);
+    expect("resize_end after the bottom margin", EventType::resize_end, [](const Record&) { return true; });
+    settle(200);
+    WaylandSurfaceInfo surface{};
+    u32 now_width = 0, now_height = 0;
+    check(window_wayland_info(g_window, &surface) && window_wayland_resize_margin(g_window, &now_width, &now_height) &&
+              now_width == surface.logical_width + 16 && now_height == surface.logical_height + 16,
+          "the margin follows the new size");
+    mark();
+    pointer_to(100, 80);
+    expect("the pointer is back in the client area after the margin", EventType::pointer_move,
+           [](const Record& r) { return near_point(r, 100, 80); });
+}
+
 // The clipboard, against the helper client (a clipboard manager) ---------------------------------------------------------
 
 // Pumps the window while reading the pipe `fd` to its end: what a selection the window owns answers through its own events.
@@ -1664,6 +1810,60 @@ void test_clipboard() noexcept {
               clipboard_capture_png(capture).count == png_bytes && bytes_equal(clipboard_capture_png(capture).data, png, png_bytes),
           "the image attachment is the PNG, byte for byte");
     clipboard_capture_release(capture);
+}
+
+// Copy Text (issue 22): the action calls clipboard_write_utf8 (application_copy_text). The text is larger than a pipe
+// holds, and the clipboard manager asks for it but reads late. The window must not wait for the reader in its listener:
+// it writes what the pipe takes and its loop writes the rest. A window that waits gives up after its time limit, and
+// the reader gets only the first pipe of the text. Then the manager takes the clipboard with what it read, as Plasma's
+// clipboard does, and the window pastes the text back through the pipe.
+void test_clipboard_large_copy() noexcept {
+    inject::Helper& helper = *g_helper;
+    if (!helper.data_manager)
+        return;  // test_clipboard reported the skip
+    constexpr u32 kBytes = 256u << 10;  // four default pipes
+    static char text[kBytes];
+    for (u32 i = 0; i < kBytes; ++i)
+        text[i] = i % 64 == 63 ? '\n' : static_cast<char>('a' + i % 26);
+    // The input that chooses Copy Text gives the serial of the copy (its shortcut is Ctrl+C on a focused message). The
+    // manager set the clipboard after the last input, and the compositor rejects a selection with an older serial than
+    // the current one (wlroots: "superseded"). A Shift press is new input that types nothing.
+    mark();
+    inject::keyboard_key(&g_injector, 42, true);  // left shift
+    expect("the key press before Copy Text arrives", EventType::key_down,
+           [](const Record& r) { return r.event.key.key == key::shift; });
+    inject::keyboard_key(&g_injector, 42, false);
+    expect("its release", EventType::key_up, [](const Record& r) { return r.event.key.key == key::shift; });
+    const u32 events = helper.selection_events;
+    check(clipboard_write_utf8(Utf8View{text, kBytes}), "clipboard_write_utf8 takes a text larger than a pipe");
+    check(inject::helper_wait([&] { return helper.selection_events > events; }, 2000) && helper.selection &&
+              (helper.selection->mimes & 1),
+          "the clipboard manager sees the large text");
+    const int fd = inject::helper_receive(&helper, "text/plain;charset=utf-8");
+    const auto pipe_has_data = [fd] {
+        PollFd poll{fd, kPollIn, 0};
+        const TimeSpec none{0, 0};
+        return sys_ppoll(&poll, 1, &none) > 0;
+    };
+    check(fd >= 0 && pump_until(pipe_has_data, 2000), "the window starts to write the text");
+    settle(100);  // the manager does not read yet, and the window keeps pumping
+    static u8 received[kBytes + 1];
+    const u32 count = read_pumped(fd, received, sizeof(received), 2000);
+    check(count == kBytes && bytes_equal(received, text, kBytes), "the late reader gets the whole text");
+
+    static char pasted[kBytes];
+    ClipboardTextResult result = clipboard_read_utf8(Slice<char>{pasted, kBytes});
+    check(result.ok() && result.bytes == kBytes && bytes_equal(pasted, text, kBytes),
+          "the window pastes its own copy back from memory");
+    const inject::Offered taken[] = {{"text/plain;charset=utf-8", received, count}};
+    mark();
+    inject::helper_set_selection(&helper, taken, 1);
+    expect("clipboard_changed when the manager takes the copy", EventType::clipboard_changed,
+           [](const Record&) { return true; });
+    clear_bytes(pasted, kBytes);
+    result = clipboard_read_utf8(Slice<char>{pasted, kBytes});
+    check(result.ok() && result.bytes == kBytes && bytes_equal(pasted, text, kBytes),
+          "the window pastes the manager's copy back through a pipe");
 }
 
 // Text input: the helper plays the input method ---------------------------------------------------------------------------
@@ -1828,12 +2028,14 @@ void run_input() noexcept {
           "the window is activated");
     test_pointer();
     test_frame();
+    test_resize_margin();
     test_keyboard();
     test_context_menu_keys();
     inject::Helper helper;
     g_helper = &helper;
     if (inject::helper_open(&helper)) {
         test_clipboard();
+        test_clipboard_large_copy();
         test_text_input();
     } else {
         test_write_line("SKIP clipboard and text input: no second connection");

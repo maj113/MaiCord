@@ -11,8 +11,6 @@ namespace maicord {
 namespace {
 constexpr u32 kRate = pulse::kVoiceRate, kChannels = 2, kChunkFrames = 2048;
 constexpr u32 kFrameBytes = kChannels * sizeof(i16);
-// The server is asked for at most the render buffer at once; after a stall the missed audio is dropped, not queued.
-constexpr u32 kFillLimitFrames = pulse::frames_in_milliseconds(kRate, pulse::kRenderBufferMs);
 constexpr u32 kServerTimeoutMs = 3000;
 constexpr usize kDeviceNameBytes = 128;
 
@@ -34,8 +32,11 @@ void close_engine(Engine& e) noexcept {
     pulse::session_close(&e.session);
 }
 
+// Writes everything the server asks for, as the WASAPI loop fills all free buffer space (timing.hpp: request_frames).
+// The stream has no prebuffer: the server reads one cycle even when less is queued. After a stall, the audio for the
+// missed time lands behind the read position and the server drops it, so the delay does not grow.
 bool fill(Runtime& r, Engine& e) noexcept {
-    const u32 frames = pulse::request_frames(pulse::track_writable(&e.track), kFrameBytes, kFillLimitFrames);
+    const u32 frames = pulse::request_frames(pulse::track_writable(&e.track), kFrameBytes);
     if (!frames)
         return pulse::track_alive(e.track);
     const u64 now = clock_now_microseconds();

@@ -419,6 +419,80 @@ void procedure() noexcept {
           "proc: destruction reaches the sink and posts the quit message");
 }
 
+// --- placement ---------------------------------------------------------------------------------------------------
+// A saved placement is applied as the window is made, which stays hidden: the restored rectangle at the monitor's DPI,
+// the maximized state, and a rectangle off every monitor moved onto one. window_placement reads what a close saves.
+
+HWND create_placed(const WindowPlacement& placement) noexcept {
+    UnregisterClassW(L"MaiCordMainWindow", GetModuleHandleW(nullptr));
+    Window window{};
+    const char* reason = "";
+    if (!win32_window_create({utf8_literal("MaiCord window placement"), {}, 400, 300, false, &placement}, {0, false},
+                             sink, nullptr, &window, &reason))
+        return nullptr;
+    return win32_hwnd(window);
+}
+
+// The destruction posts the quit message, which the next section must not see.
+void destroy_placed(HWND hwnd) noexcept {
+    DestroyWindow(hwnd);
+    MSG quit{};
+    PeekMessageW(&quit, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE);
+}
+
+bool placed_at(const WindowPlacement& read, const WindowRect& expected, u32 dpi, bool maximized) noexcept {
+    return read.left == expected.left && read.top == expected.top && read.right == expected.right &&
+           read.bottom == expected.bottom && read.dpi == dpi && read.maximized == maximized;
+}
+
+void placement() noexcept {
+    g_hooks = g_caption = g_veto_close = g_sink_handles = false;
+    g_answer = {};
+    const RECT origin{0, 0, 1, 1};
+    MONITORINFO monitor{};
+    monitor.cbSize = sizeof(monitor);
+    check(GetMonitorInfoW(MonitorFromRect(&origin, MONITOR_DEFAULTTONEAREST), &monitor) != FALSE,
+          "placement: the monitor at the origin has a work area");
+    const RECT& work = monitor.rcWork;
+    const WindowPlacement normal{work.left + 40, work.top + 30, work.left + 440, work.top + 330, 96, false};
+
+    HWND hwnd = create_placed(normal);
+    check(hwnd != nullptr, "placement: the window is made with a saved placement");
+    if (!hwnd)
+        return;
+    const u32 dpi = GetDpiForWindow(hwnd);
+    const WindowRect expected = window_placement_at_dpi(normal, dpi);
+    WindowPlacement read{};
+    check(!IsWindowVisible(hwnd) && window_placement(win32_window(hwnd), &read) &&
+              placed_at(read, expected, dpi, false),
+          "placement: the hidden window has the saved rectangle at its monitor's DPI and reads it back");
+    destroy_placed(hwnd);
+
+    WindowPlacement maximized = normal;
+    maximized.maximized = true;
+    hwnd = create_placed(maximized);
+    check(hwnd && IsZoomed(hwnd) && !IsWindowVisible(hwnd),
+          "placement: a maximized placement makes the window maximized and hidden");
+    read = {};
+    check(hwnd && window_placement(win32_window(hwnd), &read) && placed_at(read, expected, dpi, true),
+          "placement: the maximized window saves its restored rectangle and the maximized state");
+    if (hwnd)
+        destroy_placed(hwnd);
+
+    // A monitor that is gone: the rectangle comes into the work area of the nearest monitor.
+    hwnd = create_placed({30000, 30000, 30400, 30300, 96, false});
+    RECT rect{};
+    MONITORINFO nearest{};
+    nearest.cbSize = sizeof(nearest);
+    const bool measured = hwnd && GetWindowRect(hwnd, &rect) &&
+                          GetMonitorInfoW(MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST), &nearest);
+    check(measured && rect.left >= nearest.rcWork.left && rect.right <= nearest.rcWork.right &&
+              rect.top >= nearest.rcWork.top && rect.bottom <= nearest.rcWork.bottom,
+          "placement: a rectangle off every monitor moves into the work area of the nearest one");
+    if (hwnd)
+        destroy_placed(hwnd);
+}
+
 // --- what each path asks the system ------------------------------------------------------------------------------
 // This executable's import slots of the calls below point at counting forwarders while the paths run: an idle wake,
 // a pointer move, a press, a key, a resize step. The sink asks the window service what the client's sink asks for
@@ -770,6 +844,7 @@ MAICORD_TEST_ENTRY(maicord_window_win32_events_entry) {
         DestroyWindow(fixture);
     }
     procedure();
+    placement();
     costs();
     if (have_saved)
         SetKeyboardState(saved);

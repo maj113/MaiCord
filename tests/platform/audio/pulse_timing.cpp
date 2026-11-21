@@ -47,6 +47,59 @@ template <typename Release> u32 starved_ticks(u32 latency_ms, Release release) n
     }
     return starved;
 }
+
+// A pipewire-pulse playback stream and the worker that feeds it, in frames at 48 kHz
+// (module-protocol-pulse: stream_process, stream_pop_missing, stream_update_minreq). The server grants the 20 ms plan
+// and the 40 ms media plan a target length of 1440 frames in 480-frame requests. In each cycle it reads one quantum.
+// Without a prebuffer it moves its read position by a quantum even when less is queued. On the first cycle it raises
+// the target to the quantum plus two requests. After each cycle it asks for what the target is missing, and the
+// worker wakes once for that request.
+// `limit` caps each write (0: request_frames alone). With `poll`, the worker also wakes every `poll` frames between
+// two cycles, as the notification and media workers read their clocks. The first cycle comes 240 frames after the
+// stream starts. With `prebuffer` (the media stream), a cycle that finds less than a quantum queued plays silence and
+// leaves the read position where it is.
+struct Fed {
+    u32 late_underruns; // cycles after the first that found less than a quantum queued
+    i64 late_heard;     // frames of the worker's audio played in the last 100 cycles
+    i64 lost;           // frames the worker wrote that the server never played
+};
+Fed feed(u32 quantum, u32 limit, u32 poll, bool prebuffer) noexcept {
+    constexpr i64 kGranted = 1440, kRequest = 480;
+    constexpr u32 kCycles = 500;
+    i64 target = kGranted, written = 0, read = 0, requested = kGranted, heard = 0;
+    Fed fed{};
+    const auto wake = [&]() noexcept {
+        u32 frames = pulse::request_frames(static_cast<usize>(requested) * 4, 4);
+        if (limit && frames > limit)
+            frames = limit;
+        written += frames;
+        requested -= frames;
+    };
+    wake(); // the fill before the stream starts
+    for (u32 cycle = 0; cycle < kCycles; ++cycle) {
+        const u32 interval = cycle ? quantum : 240;
+        for (u32 at = poll; poll && at < interval; at += poll)
+            wake();
+        if (!cycle && target < quantum + 2 * kRequest)
+            target = quantum + 2 * kRequest;
+        const i64 queued = written - read;
+        const i64 played = queued >= quantum ? quantum : prebuffer || queued <= 0 ? 0 : queued;
+        if (cycle && queued < quantum)
+            ++fed.late_underruns;
+        if (!prebuffer || queued >= quantum)
+            read += quantum;
+        heard += played;
+        if (cycle >= kCycles - 100)
+            fed.late_heard += played;
+        const i64 missing = target - requested - (written - read);
+        if (missing >= kRequest) {
+            requested += missing;
+            wake();
+        }
+    }
+    fed.lost = written - heard - (written > read ? written - read : 0);
+    return fed;
+}
 } // namespace
 
 void test_pulse_timing(Check check) noexcept {
@@ -133,10 +186,44 @@ void test_pulse_timing(Check check) noexcept {
               read_frames(~u64{0} - 10, ~u64{0}, ~u64{0}, ~u64{0}, 48000, ~u64{0}, 0) == ~u64{0},
           "pulse read position: it never goes back, and the sums saturate");
 
-    // Requests.
-    check(request_frames(3840, 4, 4096) == 960 && request_frames(3840, 4, 480) == 480 && request_frames(3, 4, 480) == 0 &&
-              request_frames(0, 4, 480) == 0 && request_frames(100, 0, 480) == 0 && request_frames(7, 4, 480) == 1,
-          "pulse buffering: a server request becomes whole frames, capped by the fill limit");
+    // Requests: a worker writes all that the server asks for when it wakes.
+    check(request_frames(3840, 4) == 960 && request_frames(3, 4) == 0 && request_frames(0, 4) == 0 &&
+              request_frames(100, 0) == 0 && request_frames(7, 4) == 1 && request_frames(~usize{0}, 1) == ~u32{0},
+          "pulse buffering: a server request becomes whole frames, all of them, and saturates");
+    // The voice stream at server quanta of 10, 21 and 43 ms (clock.force-quantum, pulse.min.quantum), with one wake for
+    // each request. A whole request at each wake keeps the queue ahead after the first cycle. That cycle drops only
+    // what a quantum above the granted 1440 frames reads past. The old 20 ms cap (960 frames) keeps up at 480 frames.
+    // In a larger cycle it falls behind by 64 or 1088 frames each time and soon plays nothing.
+    const u32 quanta[]{480, 1024, 2048};
+    for (u32 quantum : quanta) {
+        const Fed whole = feed(quantum, 0, 0, false);
+        check(whole.late_underruns == 0 && whole.late_heard == 100 * i64{quantum} &&
+                  whole.lost == (quantum > 1440 ? quantum - 1440 : 0),
+              "pulse buffering: voice output keeps ahead of a server that reads up to 2048 frames per cycle");
+        const Fed capped = feed(quantum, 960, 0, false);
+        check(quantum <= 960 ? capped.late_underruns == 0 && capped.late_heard == 100 * i64{quantum}
+                             : capped.late_underruns == 499 && capped.late_heard == 0,
+              "pulse buffering: the old 20 ms cap keeps up at 480 frames per cycle and goes silent above 960");
+    }
+    // The notification stream: the same plan, and the worker also reads its clock every 10 ms (480 frames) while it
+    // plays. With the old 20 ms cap the poll keeps the queue ahead after the first cycle too. But the fill before the
+    // start held 960 frames, not the granted 1440. A first cycle of 1024 frames then lost 64 frames of the sound, and
+    // one of 2048 frames lost 1088 frames, not the 608 that a quantum above the granted target reads past.
+    const Fed sound_1024 = feed(1024, 0, 480, false), capped_1024 = feed(1024, 960, 480, false);
+    const Fed sound_2048 = feed(2048, 0, 480, false), capped_2048 = feed(2048, 960, 480, false);
+    check(sound_1024.late_underruns == 0 && sound_1024.lost == 0 && sound_2048.late_underruns == 0 &&
+              sound_2048.lost == 608,
+          "pulse buffering: a notification sound loses no more at its start than the server's first cycle reads past");
+    check(capped_1024.late_underruns == 0 && capped_1024.lost == 64 && capped_2048.late_underruns == 0 &&
+              capped_2048.lost == 1088,
+          "pulse buffering: the old 20 ms cap lost 64 or 1088 frames at the start of a sound");
+    // The media stream: a prebuffer, at most 40 ms (1920 frames) at each wake, and a clock read every 10 ms. The
+    // clock reads write the rest of a 2048-frame request long before the next cycle, so the cap costs one more write
+    // and no audio. With one wake for each request it would fall 128 frames behind in each cycle and soon stop.
+    const Fed playing = feed(2048, 1920, 480, true), request_wakes = feed(2048, 1920, 0, true);
+    check(playing.late_underruns == 0 && playing.late_heard == 100 * 2048 && playing.lost == 0 &&
+              request_wakes.late_heard == 0,
+          "pulse buffering: the media stream's 40 ms cap keeps up with 2048-frame cycles through its 10 ms clock reads");
 
     // The timer of the capture tick, with an injected clock: it never fires early and rounds up to the millisecond.
     check(due_milliseconds(1000, 1000) == 0 && due_milliseconds(900, 1000) == 0 && due_milliseconds(1001, 1000) == 1 &&

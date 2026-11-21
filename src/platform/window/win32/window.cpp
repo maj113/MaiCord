@@ -111,7 +111,9 @@ void window_show(Window window, ShowMode mode) noexcept {
         command = SW_SHOW;
         break;
     case ShowMode::show_default:
-        command = SW_SHOWDEFAULT;
+        // A window restored maximized (win32_window_create) shows maximized. SW_SHOWDEFAULT would take the launcher's
+        // SW_SHOWNORMAL, which restores it.
+        command = IsZoomed(win32_hwnd(window)) ? SW_SHOWMAXIMIZED : SW_SHOWDEFAULT;
         break;
     case ShowMode::minimize_no_activate:
         command = SW_SHOWMINNOACTIVE;
@@ -296,6 +298,37 @@ u32 window_state(Window window) noexcept {
     if (g_fullscreen.on)
         state |= state_fullscreen;
     return state;
+}
+
+bool window_placement(Window window, WindowPlacement* placement) noexcept {
+    const HWND hwnd = win32_hwnd(window);
+    WINDOWPLACEMENT saved{};
+    saved.length = sizeof(saved);
+    // A full-screen window saves the placement it had before.
+    if (g_fullscreen.on)
+        saved = g_fullscreen.placement;
+    else if (!GetWindowPlacement(hwnd, &saved))
+        return false;
+    const bool zoomed = g_fullscreen.on ? saved.showCmd == SW_SHOWMAXIMIZED : IsZoomed(hwnd) != FALSE;
+    const bool iconic = !g_fullscreen.on && IsIconic(hwnd);
+    RECT rect = saved.rcNormalPosition;
+    if (!g_fullscreen.on && !zoomed && !iconic) {
+        // A restored window is where its rectangle is. A window snapped to half the screen is restored too, but its
+        // normal position is the one from before the snap.
+        if (!GetWindowRect(hwnd, &rect))
+            return false;
+    } else {
+        // The normal position is in workspace coordinates: from the work area of the window's monitor.
+        MONITORINFO monitor{};
+        monitor.cbSize = sizeof(monitor);
+        if (!GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor))
+            return false;
+        const LONG dx = monitor.rcWork.left - monitor.rcMonitor.left, dy = monitor.rcWork.top - monitor.rcMonitor.top;
+        rect = {rect.left + dx, rect.top + dy, rect.right + dx, rect.bottom + dy};
+    }
+    *placement = {rect.left, rect.top, rect.right, rect.bottom, GetDpiForWindow(hwnd),
+                  zoomed || (iconic && (saved.flags & WPF_RESTORETOMAXIMIZED) != 0)};
+    return window_placement_valid(*placement);
 }
 
 u32 window_resize_border(Window, u32 dpi) noexcept {

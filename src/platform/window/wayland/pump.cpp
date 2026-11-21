@@ -140,6 +140,10 @@ using namespace wayland;
 
 namespace {
 
+// The longest sleep while a clipboard transfer waits for room in its pipe. A wait has no "writable" condition, so the
+// loop tries again at this interval. A transfer ends within its time limit (3 seconds).
+constexpr u32 kTransferRetryMs = 10;
+
 // What the last window_wait's poll saw, for the window_pump after it: the display was read by the wait itself, and the
 // session bus, instance socket and bus extras it saw not ready (`idle`) are not read again. Data that arrives after the
 // poll keeps its descriptor readable, so the next wait returns at once and the pump after it reads. A pump without a
@@ -247,6 +251,9 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
     // A flush that could not send everything leaves requests buffered: look again soon instead of sleeping on.
     if (flush_pending && timeout_ms > 4)
         timeout_ms = 4;
+    // A clipboard receiver whose pipe was full: window_pump writes the rest when the wait ends.
+    if (g.data.transfer_count != 0 && timeout_ms > kTransferRetryMs)
+        timeout_ms = kTransferRetryMs;
     // The session bus: its traffic wakes the loop (window_input), and a call timeout or a reconnect bounds the sleep.
     u32 bus_bit = ~0u;
     if (const Waitable bus = dbus::session_bus_waitable()) {
@@ -318,6 +325,7 @@ WindowPumpResult window_pump(u32 max_events, u32 soft_budget_us, const WindowPum
     if (!polled || !idle_after_poll(dbus::instance_waitable()))
         dbus::instance_process();
     keyboard_poll_repeat(now);
+    data_transfers_run(now);
     post_drain();
     // Read first: most turns have no poke, and the exchange is a locked write. A poke that comes after the read writes
     // the loop's eventfd, so the next wait returns for it.

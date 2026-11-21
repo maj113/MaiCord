@@ -802,9 +802,9 @@ bool connection_call(Connection* c, const CallTarget& target, const Builder* bod
 }
 
 Status connection_call_sync(Connection* c, const CallTarget& target, const Builder* body, u32 timeout_ms,
-                            Message* reply) noexcept {
+                            Message* reply, u8 flags) noexcept {
     SyncCall call{};
-    if (!connection_call(c, target, body, timeout_ms, sync_handler, &call))
+    if (!connection_call(c, target, body, timeout_ms, sync_handler, &call, flags))
         return Status::failed;
     while (!call.done) {
         const u64 now = clock_monotonic_milliseconds();

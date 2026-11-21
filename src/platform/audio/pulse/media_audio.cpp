@@ -222,9 +222,11 @@ u32 render(Runtime& r, Engine& e, u64 epoch, bool playing) noexcept {
     ReleaseSRWLockShared(&r.lock);
     if (!live)
         return 0;
-    const u32 frames = minimum(pending, pulse::request_frames(pulse::track_writable(&e.track), bytes_per_frame,
-                                                              pulse::frames_in_milliseconds(r.config.sample_rate,
-                                                                                            pulse::kMediaBufferMs)));
+    // At most kMediaBufferMs at a time. While the stream plays, the worker also wakes every kClockPollMs and writes
+    // the rest of a larger request then, long before the server's next cycle (tests/platform/audio/pulse_timing.cpp).
+    const u32 limit = pulse::frames_in_milliseconds(r.config.sample_rate, pulse::kMediaBufferMs);
+    const u32 frames =
+        minimum(pending, minimum(pulse::request_frames(pulse::track_writable(&e.track), bytes_per_frame), limit));
     bool valid = true;
     for (u32 at = 0; valid && at < frames;) {
         const u32 chunk = minimum(kMediaAudioMaximumWriteFrames, frames - at);

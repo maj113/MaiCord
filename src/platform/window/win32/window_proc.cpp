@@ -57,6 +57,36 @@ void enable_dark_frame(HWND window) noexcept {
         set_attribute(window, kImmersiveDarkModeBefore20H1, &enabled, sizeof(enabled));
 }
 
+// The effective DPI of a monitor, zero when the system cannot tell. user32 has no such call: GetDpiForMonitor is
+// shcore's, which stays loaded after the window is made.
+u32 monitor_dpi(HMONITOR monitor) noexcept {
+    using GetDpiForMonitor = HRESULT(WINAPI*)(HMONITOR, int, UINT*, UINT*);
+    constexpr int kEffectiveDpi = 0; // MDT_EFFECTIVE_DPI
+    const HMODULE shcore = LoadLibraryExW(L"shcore.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    const auto get_dpi =
+        shcore ? reinterpret_cast<GetDpiForMonitor>(GetProcAddress(shcore, "GetDpiForMonitor")) : nullptr;
+    UINT x = 0, y = 0;
+    return get_dpi && SUCCEEDED(get_dpi(monitor, kEffectiveDpi, &x, &y)) ? x : 0;
+}
+
+// The outer rectangle a saved placement restores to on the monitors that exist now. The monitor is the one the saved
+// rectangle overlaps most, else the nearest one. The rectangle keeps its logical size at that monitor's DPI, and moves
+// into the work area when it is off the screen (window_rect_fit). False when the monitor cannot be read.
+bool restored_bounds(const WindowPlacement& placement, RECT* bounds) noexcept {
+    const RECT saved{placement.left, placement.top, placement.right, placement.bottom};
+    const HMONITOR monitor = MonitorFromRect(&saved, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    if (!monitor || !GetMonitorInfoW(monitor, &info))
+        return false;
+    const u32 queried = monitor_dpi(monitor);
+    const RECT& work = info.rcWork;
+    const WindowRect fitted = window_rect_fit(window_placement_at_dpi(placement, queried ? queried : placement.dpi),
+                                              {work.left, work.top, work.right, work.bottom});
+    *bounds = {fitted.left, fitted.top, fitted.right, fitted.bottom};
+    return true;
+}
+
 } // namespace
 
 namespace win32_detail {
@@ -223,10 +253,22 @@ bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions&
         return false;
     }
     const DWORD extended_style = WS_EX_NOREDIRECTIONBITMAP | options.extra_extended_style;
-    RECT bounds{0, 0, static_cast<LONG>(info.client_width_dips), static_cast<LONG>(info.client_height_dips)};
-    if (!AdjustWindowRectExForDpi(&bounds, WS_OVERLAPPEDWINDOW, FALSE, extended_style, 96)) {
-        *failure = "adjust_initial_bounds_failed";
-        return false;
+    DWORD style = WS_OVERLAPPEDWINDOW;
+    int x = CW_USEDEFAULT, y = CW_USEDEFAULT;
+    RECT bounds{};
+    if (info.placement && window_placement_valid(*info.placement) && restored_bounds(*info.placement, &bounds)) {
+        x = bounds.left;
+        y = bounds.top;
+        // The window is made maximized and stays hidden. The first show and a reveal from the tray show it maximized,
+        // and a restore returns it to `bounds`.
+        if (info.placement->maximized)
+            style |= WS_MAXIMIZE;
+    } else {
+        bounds = {0, 0, static_cast<LONG>(info.client_width_dips), static_cast<LONG>(info.client_height_dips)};
+        if (!AdjustWindowRectExForDpi(&bounds, WS_OVERLAPPEDWINDOW, FALSE, extended_style, 96)) {
+            *failure = "adjust_initial_bounds_failed";
+            return false;
+        }
     }
     u16 title[128];
     u32 written = 0, next = 0;
@@ -234,9 +276,9 @@ bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions&
         written = 0;
     title[written] = 0;
     // The window keeps the system frame's outer size; the caption moves into the client (WM_NCCALCSIZE).
-    const HWND window = CreateWindowExW(extended_style, kClassName, reinterpret_cast<const wchar_t*>(title),
-                                        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, bounds.right - bounds.left,
-                                        bounds.bottom - bounds.top, nullptr, nullptr, instance, nullptr);
+    const HWND window = CreateWindowExW(extended_style, kClassName, reinterpret_cast<const wchar_t*>(title), style, x,
+                                        y, bounds.right - bounds.left, bounds.bottom - bounds.top, nullptr, nullptr,
+                                        instance, nullptr);
     if (!window) {
         *failure = "create_window_failed";
         return false;

@@ -237,6 +237,33 @@ void test_caption() noexcept {
     check(renderer_resize(&r, r.width, client_height) && r.target_origin_y == 0, "the caption can be removed");
 }
 
+// An interactive resize (live_resize). Windows keeps a growth reserve, and DirectComposition clips it to the client. A
+// Wayland compositor shows the whole EGL buffer scaled to the window. So on Linux the surface takes the client size at
+// every step: a larger surface showed the frame shrunk into a corner, beside pixels that nothing drew.
+void test_live_resize() noexcept {
+    D3D11Renderer& r = g_renderer;
+    const u32 width = r.width, height = r.height, caption = r.caption_height;
+    const auto surface_is = [&](u32 w, u32 h) noexcept {
+        return gpu_surface_width(&r.graphics.surface) == w && gpu_surface_height(&r.graphics.surface) == h + caption;
+    };
+    renderer_set_live_resize(&r, true);
+    const bool grown = renderer_resize(&r, width + 100, height + 30) && r.width == width + 100 && r.height == height + 30;
+#if defined(_WIN32)
+    const auto surface_holds = [&](u32 w, u32 h) noexcept {
+        return gpu_surface_width(&r.graphics.surface) >= w && gpu_surface_height(&r.graphics.surface) >= h + caption;
+    };
+    check(grown && surface_holds(width + 100, height + 30), "a live resize keeps a surface that holds the client");
+    check(renderer_resize(&r, width - 50, height - 20) && surface_holds(width + 100, height + 30),
+          "a smaller client keeps the reserved surface");
+#else
+    check(grown && surface_is(width + 100, height + 30), "a live resize gives the surface the client size");
+    check(renderer_resize(&r, width - 50, height - 20) && surface_is(width - 50, height - 20),
+          "a smaller client gives the surface its size too");
+#endif
+    check(renderer_finish_resize(&r, width, height) && !r.live_resize && surface_is(width, height),
+          "the end of a live resize gives the surface the client size");
+}
+
 // The surface the scenes draw into: offscreen on Linux (the GLES backend draws to a frame texture of its own), a hidden
 // popup window of the same client size on Windows (the swap chain needs one).
 bool host_surface(GpuSurfaceDesc* desc) noexcept {
@@ -264,6 +291,7 @@ void run() noexcept {
     check(g_renderer.width == kWidth && g_renderer.height == kHeight, "the renderer takes the surface size");
     test_bootstrap_title();
     test_caption();
+    test_live_resize();
     // The buffers the settings page and the text effects make on first use: shutdown releases them through the GPU seam.
     // It once released them as COM objects, which crashed every Linux run that had opened Settings when it closed.
     const GpuBufferDesc lazy{64, GpuUsage::dynamic, gpu_bind_vertex, false};

@@ -3,6 +3,7 @@
 #include "maicord/core/slice.hpp"
 #include "maicord/platform/window/event.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/platform/window/placement.hpp"
 
 namespace maicord {
 
@@ -36,6 +37,9 @@ struct WindowCreateInfo {
     Utf8View app_id;
     u32 client_width_dips, client_height_dips;
     bool visible;
+    // The placement of an earlier run, applied before the window is first shown. Null, or an invalid placement, keeps
+    // the size above at the system's position.
+    const WindowPlacement* placement;
 };
 
 bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context, Window* out) noexcept;
@@ -67,6 +71,9 @@ u32 window_resize_border(Window window, u32 dpi) noexcept;
 // The visible frame pixels beside the client beyond those above it: the shadow border of a restored Windows window,
 // zero where the app draws the whole frame. False while it cannot be measured (hidden or minimized window).
 bool window_frame_inset(Window window, u32* pixels) noexcept;
+// The placement to save: the restored rectangle and the maximized state, also while the window is minimized, hidden or
+// full screen. False where the backend has none.
+bool window_placement(Window window, WindowPlacement* placement) noexcept;
 
 // Input.
 void window_set_cursor(Window window, UiCursor cursor) noexcept;

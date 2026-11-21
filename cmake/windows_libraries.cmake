@@ -132,7 +132,7 @@ maicord_library(maicord_account_host src/app/account/account_logout_stop.cpp src
 
 maicord_library(maicord_client_preferences
     src/app/settings/client_theme_document.cpp src/app/settings/client_theme_storage.cpp src/app/settings/client_preferences.cpp
-    src/app/settings/client_preferences_writer.cpp src/app/voice/preferences.cpp
+    src/app/settings/client_preferences_writer.cpp src/app/settings/window_placement_file.cpp src/app/voice/preferences.cpp
     LIBS maicord_core maicord_ui maicord_platform kernel32)
 
 # Theme and effect packages: the .mcfx container, the link grammar and the install files (no UI, no catalog).

@@ -46,10 +46,17 @@ enum class TrayEventKind : u8 {
     command,             // a menu entry was chosen: `command`
 };
 
+// The longest xdg-activation token the item keeps. A longer one is dropped: a cut token matches nothing.
+inline constexpr u32 kTrayTokenCapacity = 128;
+
 struct TrayEvent {
     TrayEventKind kind;
     i32 x, y;     // screen position the host gave, 0 when none
     u32 command;  // TrayEventKind::command
+    // The xdg-activation token the host gave with ProvideXdgActivationToken before this event, "" when none. Plasma
+    // gives one before it activates the item or a menu entry. With it the compositor may give the window the focus.
+    // Each token goes with one event only.
+    const char* activation_token;
 };
 
 using TrayHandler = void (*)(void* context, const TrayEvent& event) noexcept;

@@ -10,9 +10,9 @@ drains it and calls the sink, so no `wl_*_listener` ever runs app code. `wayland
 | File | Holds |
 |---|---|
 | `client.cpp`, `xkb.cpp` | `dlopen` of libwayland-client, libwayland-cursor, libxkbcommon (no `DT_NEEDED`) |
-| `window.cpp` | registry, xdg-shell window, configure sequence, scale (fractional-scale + viewporter, or integer), opaque region, frame callback, `platform_settings_read` |
+| `window.cpp` | registry, xdg-shell window, configure sequence, scale (fractional-scale + viewporter, or integer), opaque region, resize margin, frame callback, `platform_settings_read` |
 | `extras.cpp` | xdg-activation, idle inhibit, xdg-foreign export, ext-idle-notify watch, xdg-system-bell, xdg-toplevel-icon |
-| `pointer.cpp`, `keyboard.cpp`, `keymap.cpp`, `global_keys.cpp`, `frame.cpp` | input, cursor (cursor-shape, `wl_cursor` fallback), keys, CSD hit tests |
+| `pointer.cpp`, `keyboard.cpp`, `keymap.cpp`, `global_keys.cpp`, `frame.cpp` | input, cursor (cursor-shape, `wl_cursor` fallback), keys, CSD hit tests, the resize margin's pointer |
 | `data.cpp`, `uri.cpp`, `text_input.cpp` | clipboard, drag and drop, IME (text-input-v3) |
 | `pump.cpp` | `window_wait` / `window_pump`: display fd, loop wake, key-repeat deadline, session bus |
 
@@ -32,7 +32,14 @@ kept in `Backend` (`backend.hpp`), destroyed in `disconnect`.
 - The window has no buffers of its own. The GPU backend (`src/gpu/gles`) creates its `wl_egl_window` on `window_surface_native`
   and commits with `eglSwapBuffers`; the window keeps the viewport destination, the opaque region and the buffer scale in step
   (`surface_sync`, pending state applied by the swap's commit), each sent only when its value changes: the surface keeps it.
-  Never attach or commit a buffer from here.
+  Never attach or commit a buffer to the window's surface from here (the resize margin's subsurface has its own).
+- Resize margin: the app's frame resizes from a band inside the top of the window and, as on Windows, from borders
+  outside the other edges (`window_frame_hit`). A Wayland surface gets no pointer events outside itself. So a
+  subsurface below the window reaches 8 logical units past every edge: a transparent 1x1 `wl_shm` buffer that a
+  `wp_viewport` stretches (`window.cpp`). `xdg_surface.set_window_geometry` keeps it out of the window's size. It is mapped
+  only while the window is floating with a frame of its own. Its pointer events never reach the app: `pointer.cpp` names
+  the edge with `window_frame_hit`, sets the resize cursor and starts `xdg_toplevel.resize` on a left press. Without
+  `wl_subcompositor` or `wp_viewporter` there is no margin.
 - Frame clock: swap interval 0, and one `wl_surface.frame` per present (`window_frame_callback_request` queues it, the swap
   commits it); `frame_done` feeds `gpu_surface_frame_callback`. Do not create objects on the surface that the EGL driver owns:
   NVIDIA's egl-wayland makes the surface's `wp_linux_drm_syncobj_surface_v1` (a second one is the protocol error
@@ -41,6 +48,10 @@ kept in `Backend` (`backend.hpp`), destroyed in `disconnect`.
 - Features are optional: every protocol except wl_compositor 4, wl_shm and xdg_wm_base is bound when present and silently absent
   otherwise; the call then returns false or does nothing. Never fail the window for a missing integration protocol.
 - Values the compositor sends are applied at the xdg `configure` ack, never in the middle of a sequence.
+- Saved placement (`WindowCreateInfo::placement`, the app's window.bin): xdg-shell gives a client no position, so the
+  window keeps only its floating size and whether it is maximized. `xdg_toplevel.set_maximized` goes before the initial
+  commit, so the first configure is already maximized and no frame shows at the floating size. `window_placement` reads
+  the floating size (logical units, dpi 96) and the maximized state.
 - Hide (close to the tray): xdg-shell has no hidden toplevel, so `window_show(ShowMode::hide)` unmaps the surface with a
   null buffer, and the compositor takes the window off the screen and out of the task bar on every desktop. The null
   buffer resets the toplevel: a configure the compositor sent before it is never acked (its serial is forgotten, and
@@ -59,6 +70,11 @@ kept in `Backend` (`backend.hpp`), destroyed in `disconnect`.
   level-triggered, so whatever arrives later makes the next wait return at once; a pump without a wait before it reads all.
   After a wait the pump does not flush either: what the listeners asked goes out with the swap's commit or the next wait's
   flush. Calls whose contract is "at once" (text input, selections, activation, the bell, the icon) flush themselves.
+- Clipboard: the window never waits for a client that reads its selection. A `send` event writes into the receiver's pipe,
+  made non-blocking, what it takes at once. `window_pump` writes the rest (`data_transfers_run`), and `window_wait`
+  sleeps at most 10 ms while a transfer waits. A transfer ends after 3 seconds. A clipboard manager can read the
+  selection in its own event loop and also wait for this window, as Plasma's clipboard does. A selection the window
+  owns is read back from memory, never through the compositor.
 - New env knobs are test hooks (`test_hook`), not user options.
 
 ## Protocols
@@ -66,6 +82,7 @@ kept in `Backend` (`backend.hpp`), destroyed in `disconnect`.
 | Protocol | Use |
 |---|---|
 | xdg-shell 6, xdg-decoration | window, client-side frame (our caption bar), `suspended` state |
+| wl_subcompositor + viewporter | the resize margin around the window |
 | fractional-scale-v1 + viewporter | scale in 1/120; falls back to wl_surface buffer scale |
 | cursor-shape-v1 | cursors; `wl_cursor` theme fallback |
 | text-input-v3, wl_data_device | IME, clipboard, drag and drop |
@@ -97,9 +114,13 @@ Evaluated and not used (support from wayland.app, Mutter 51, KWin 6.7, Sway 1.11
 
 - `maicord_wayland_input` (normal suite): key table, characters, double click, repeat, generated tables against libwayland-client's.
 - `tools/test_wayland_window.sh [--compositor headless|nested|current] [--scale S] [--integer]`: headless sway runs
-  `maicord_wayland_window_lifecycle` (window, frame callbacks, xdg-foreign handle, bell, icon, opaque region, 50 hides and
-  reveals with sway's tree checked for the window) and `maicord_wayland_window_input` (virtual pointer and keyboard, two
+  `maicord_wayland_window_lifecycle` (window, frame callbacks, xdg-foreign handle, bell, icon, opaque region, resize
+  margin, 50 hides and reveals with sway's tree checked for the window, a window made with a saved maximized
+  placement) and `maicord_wayland_window_input` (virtual
+  pointer and keyboard, drags on the resize margin's right edge, bottom-right corner and bottom edge, two
   helper clients, idle inhibit, system idle time). Both check that the window takes sway's output scale
   (`MAICORD_WAYLAND_SCALE_120`, from `--scale`: the fractional scale, or with `--integer` the buffer scale rounded up).
   Without a GPU the tests attach a `wl_shm` buffer themselves (`Painter`). xdg-toplevel-icon and xdg-system-bell are not in
-  sway 1.9 (wlroots 0.17): their requests are exercised for protocol errors only where the compositor has them.
+  sway 1.9 (wlroots 0.17): their requests are exercised for protocol errors only where the compositor has them. Sway
+  1.9 gives pointer input only inside the window geometry, so the resize margin drags skip there. Weston (WSLg), KWin
+  and Mutter give it to the margin. Check the margin by hand there: `tools/test_gpu_surface.sh --compositor current`.

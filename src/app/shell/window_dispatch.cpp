@@ -726,6 +726,10 @@ bool application_input_blocked() noexcept {
 
 void application_window_event(void*, const WindowEvent& event, WindowEventResult* result) noexcept {
     observe_window_state(event);
+    // Every close, also one to the tray or one that waits for downloads, saves the placement: the window is still
+    // where the user left it. A handler of the chain may take the event, so the save comes first.
+    if (event.type == EventType::close_requested)
+        application_window_save_placement();
 #if !defined(_WIN32)
     // The AT-SPI requests the accessibility host deferred arrive as wake events (UI Automation's are window messages that
     // the Windows shell hook takes before this sink).

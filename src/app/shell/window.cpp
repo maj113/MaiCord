@@ -4,6 +4,7 @@
 #include "state.hpp"
 #include "window.hpp"
 
+#include "maicord/app/settings/window_placement_file.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/voice/call_scene.hpp"
@@ -80,6 +81,50 @@ bool application_create_main_window() noexcept {
     // The renderer splits its first swap chain between caption and content.
     application_caption_synchronize();
     return true;
+}
+
+namespace {
+// What window.bin holds: read before the window is made, and written again only when the placement changed.
+WindowPlacement g_saved_placement;
+bool g_placement_saved;
+// The saved placement at least as large as the smallest window the layout allows (the sign-in form's).
+WindowPlacement g_restored_placement;
+} // namespace
+
+const WindowPlacement* application_window_saved_placement() noexcept {
+    const WindowPlacementFileResult loaded = window_placement_load(&g_saved_placement);
+    g_placement_saved = loaded == WindowPlacementFileResult::ok;
+    // A missing file is the first start: the default size, with nothing to report.
+    if (!g_placement_saved && loaded != WindowPlacementFileResult::missing)
+        log_u64(LogLevel::warning, "window", "placement_load_failed", static_cast<u64>(loaded));
+    if (!g_placement_saved)
+        return nullptr;
+    // As the official client does, a saved size below the minimum grows to it.
+    WindowPlacement& restored = g_restored_placement;
+    restored = g_saved_placement;
+    const float scale = static_cast<float>(restored.dpi) / 96.0f;
+    const auto least = [&](float dips) noexcept { return static_cast<i32>(dips * scale + 0.999f); };
+    restored.right = maximum(restored.right, restored.left + least(kMinimumLoginClientWidthDips));
+    restored.bottom = maximum(restored.bottom, restored.top + least(kMinimumClientHeightDips));
+    return &restored;
+}
+
+void application_window_save_placement() noexcept {
+    WindowPlacement placement{};
+    if (!g_app.window || !window_placement(g_app.window, &placement))
+        return;
+    const WindowPlacement& saved = g_saved_placement;
+    if (g_placement_saved && placement.left == saved.left && placement.top == saved.top &&
+        placement.right == saved.right && placement.bottom == saved.bottom && placement.dpi == saved.dpi &&
+        placement.maximized == saved.maximized)
+        return;
+    const WindowPlacementFileResult stored = window_placement_save(placement);
+    if (stored != WindowPlacementFileResult::ok) {
+        log_u64(LogLevel::warning, "window", "placement_save_failed", static_cast<u64>(stored));
+        return;
+    }
+    g_saved_placement = placement;
+    g_placement_saved = true;
 }
 
 namespace {

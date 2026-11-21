@@ -26,6 +26,9 @@ constexpr u32 kCreateTimeoutMs = 10000;
 constexpr u32 kDefaultDpi = 96;
 constexpr u32 kTiledStates = (1u << xdg_toplevel_state_tiled_left) | (1u << xdg_toplevel_state_tiled_right) |
                              (1u << xdg_toplevel_state_tiled_top) | (1u << xdg_toplevel_state_tiled_bottom);
+// The states in which the compositor sets the window's size itself.
+constexpr u32 kSizedStates =
+    (1u << xdg_toplevel_state_maximized) | (1u << xdg_toplevel_state_fullscreen) | kTiledStates;
 
 void on_seat_capabilities(void*, wl_seat* seat, u32 capabilities) noexcept {
     if (capabilities & wl_seat_capability_pointer)
@@ -82,6 +85,7 @@ constexpr Binding kBindings[] = {
     MAICORD_BINDING(wp_cursor_shape_manager_v1, cursor_shape_manager, 1, 1, 0, false),
     MAICORD_BINDING(wp_fractional_scale_manager_v1, fractional_manager, 1, 1, 0, true),
     MAICORD_BINDING(wp_viewporter, viewporter, 1, 1, 0, true),
+    MAICORD_BINDING(wl_subcompositor, subcompositor, 1, 1, 0, false),
     MAICORD_BINDING(xdg_wm_base, wm_base, kWmBaseVersion, 1, 0, false),
     MAICORD_BINDING(wl_shm, shm, 1, 1, kPlainDestroy, false),  // wl_shm.release exists from version 2; this binds 1
     MAICORD_BINDING(wl_compositor, compositor, kCompositorVersion, 4, kPlainDestroy, false),
@@ -234,10 +238,8 @@ void on_surface_configure(void*, xdg_surface* surface, u32 serial) noexcept {
     // error xdg_wm_base.invalid_surface_state ("wrong configure serial"). The reveal's commit brings a new one.
     if (window.unmapped && !window.answer_pending)
         return;
-    constexpr u32 sized_states =
-        (1u << xdg_toplevel_state_maximized) | (1u << xdg_toplevel_state_fullscreen) | kTiledStates;
     const u32 states = window.pending_states;
-    const bool floating = (states & sized_states) == 0;
+    const bool floating = (states & kSizedStates) == 0;
     u32 width = window.pending_width;
     u32 height = window.pending_height;
     if (width && height) {
@@ -320,6 +322,14 @@ void destroy_window_objects() noexcept {
         wp_fractional_scale_v1_destroy(window.fractional);
     if (window.viewport)
         wp_viewport_destroy(window.viewport);
+    if (window.margin_viewport)
+        wp_viewport_destroy(window.margin_viewport);
+    if (window.margin_subsurface)
+        wl_subsurface_destroy(window.margin_subsurface);
+    if (window.margin_surface)
+        wl_surface_destroy(window.margin_surface);
+    if (window.margin_buffer)
+        wl_buffer_destroy(window.margin_buffer);
     if (window.decoration)
         zxdg_toplevel_decoration_v1_destroy(window.decoration);
     if (window.toplevel)
@@ -508,6 +518,41 @@ static void apply_opaque_region() noexcept {
     wl_region_destroy(region);
 }
 
+// The window geometry and the resize margin (WindowState). The geometry is the surface without the margin: the
+// compositor places, snaps and sizes the window by it. The margin is mapped only while the window is floating with a
+// frame of its own. The compositor sizes a maximized, full-screen or tiled window itself. A server-side frame has its
+// own borders. The margin is a synchronized subsurface: the window's next commit (the swap of the frame at the new size)
+// applies the margin together with its buffer.
+static void apply_margin() noexcept {
+    WindowState& window = g.window;
+    const i32 width = static_cast<i32>(window.logical_width);
+    const i32 height = static_cast<i32>(window.logical_height);
+    if (!window.margin_surface || width <= 0 || height <= 0)
+        return;
+    if (width != window.geometry_width || height != window.geometry_height) {
+        window.geometry_width = width;
+        window.geometry_height = height;
+        xdg_surface_set_window_geometry(window.shell_surface, 0, 0, width, height);
+    }
+    const bool shown = g.caps.csd && (window.states & kSizedStates) == 0;
+    const i32 margin_width = shown ? width + 2 * kResizeBand : 0;
+    const i32 margin_height = shown ? height + 2 * kResizeBand : 0;
+    if (margin_width == window.margin_width && margin_height == window.margin_height)
+        return;
+    if (!shown) {
+        wl_surface_attach(window.margin_surface, nullptr, 0, 0);
+    } else {
+        if (window.margin_width == 0) {
+            wl_surface_attach(window.margin_surface, window.margin_buffer, 0, 0);
+            wl_surface_damage_buffer(window.margin_surface, 0, 0, 1, 1);
+        }
+        wp_viewport_set_destination(window.margin_viewport, margin_width, margin_height);
+    }
+    window.margin_width = margin_width;
+    window.margin_height = margin_height;
+    wl_surface_commit(window.margin_surface);
+}
+
 // What the surface needs besides a buffer: the destination size of the viewport (fractional scale) or the integer buffer
 // scale. Both are applied by the next commit, whoever makes it, and kept until another value comes: a configure that
 // leaves the size alone (sway repeats each one after the commit) or a scale change (the same logical size) sends nothing.
@@ -529,6 +574,7 @@ void apply_surface_geometry() noexcept {
         }
     }
     apply_opaque_region();
+    apply_margin();
 }
 
 void window_scale_changed(u32 scale_120) noexcept {
@@ -603,6 +649,9 @@ void hide_surface() noexcept {
         return;  // never mapped: there is nothing to take off the screen
     window.drawn = false;
     window.unmapped = true;
+    // The null buffer resets the toplevel's state, the window geometry with it: the next configure sends it again.
+    window.geometry_width = 0;
+    window.geometry_height = 0;
     wl_surface_attach(window.surface, nullptr, 0, 0);
     wl_surface_commit(window.surface);
     g_client.display_flush(g.display);
@@ -648,6 +697,31 @@ void reveal_surface() noexcept {
         .field("answered", static_cast<u64>(answered))
         .field("wait_ms", clock_monotonic_milliseconds() - start)
         .write(answered ? LogLevel::info : LogLevel::warning, "wayland");
+}
+
+// The resize margin's objects (WindowState). Without a subcompositor or a viewporter the window has no margin, and only
+// the band inside the top of the window resizes it.
+void create_margin() noexcept {
+    WindowState& window = g.window;
+    if (!g.subcompositor || !g.viewporter)
+        return;
+    // One transparent pixel: a new memfd reads as zeros, and ARGB 0 is transparent.
+    const long fd = sys_memfd_create("maicord-margin", kMemfdCloseOnExec);
+    if (syscall_failed(fd))
+        return;
+    if (syscall_failed(sys_ftruncate(static_cast<int>(fd), 4))) {
+        sys_close(static_cast<int>(fd));
+        return;
+    }
+    wl_shm_pool* pool = wl_shm_create_pool(g.shm, static_cast<i32>(fd), 4);
+    sys_close(static_cast<int>(fd));
+    window.margin_buffer = wl_shm_pool_create_buffer(pool, 0, 1, 1, 4, wl_shm_format_argb8888);
+    wl_shm_pool_destroy(pool);
+    window.margin_surface = wl_compositor_create_surface(g.compositor);
+    window.margin_subsurface = wl_subcompositor_get_subsurface(g.subcompositor, window.margin_surface, window.surface);
+    wl_subsurface_set_position(window.margin_subsurface, -kResizeBand, -kResizeBand);
+    wl_subsurface_place_below(window.margin_subsurface, window.surface);
+    window.margin_viewport = wp_viewporter_get_viewport(g.viewporter, window.margin_surface);
 }
 
 } // namespace
@@ -718,8 +792,16 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
     window.sink = sink;
     window.sink_context = context;
     window.visible = info.visible;
+    // The compositor places the window: a saved placement gives its floating size and whether it is maximized.
+    const WindowPlacement* placement =
+        info.placement && window_placement_valid(*info.placement) ? info.placement : nullptr;
     window.floating_width = info.client_width_dips;
     window.floating_height = info.client_height_dips;
+    if (placement) {
+        const WindowRect logical = window_placement_at_dpi(*placement, kDefaultDpi);
+        window.floating_width = static_cast<u32>(logical.right - logical.left);
+        window.floating_height = static_cast<u32>(logical.bottom - logical.top);
+    }
     window.scale_120 = 120;
     window.dpi = kDefaultDpi;
 
@@ -753,6 +835,10 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
             g.caps.fractional_scale = true;
         }
     }
+    // Before the initial commit, so the first configure is already the maximized one: no frame at the floating size.
+    if (placement && placement->maximized)
+        xdg_toplevel_set_maximized(window.toplevel);
+    create_margin();
     extras_attach_surface();
     g.window_exists = true;
     // The initial commit asks for the first configure. The window is ready once that has arrived and what the bound
@@ -892,9 +978,18 @@ u32 window_state(Window window) noexcept {
     return is_window(window) ? g.window.state_bits : 0;
 }
 
-// The band of the resize border the app's frame draws: 8 logical pixels, as the Windows frame has at 96 DPI.
+// Wayland gives no position: the floating size in logical units, and the maximized state.
+bool window_placement(Window window, WindowPlacement* placement) noexcept {
+    if (!is_window(window))
+        return false;
+    *placement = {0, 0, static_cast<i32>(g.window.floating_width), static_cast<i32>(g.window.floating_height), kDefaultDpi,
+                  (g.window.states & (1u << xdg_toplevel_state_maximized)) != 0};
+    return window_placement_valid(*placement);
+}
+
+// The band of the resize border the app's frame draws inside the top of the window, in pixels.
 u32 window_resize_border(Window, u32 dpi) noexcept {
-    return (8 * dpi + 48) / 96;
+    return (static_cast<u32>(kResizeBand) * dpi + 48) / 96;
 }
 
 // The app draws the whole frame: no shadow border beside the client.

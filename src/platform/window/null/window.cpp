@@ -328,6 +328,11 @@ bool window_frame_inset(Window, u32* pixels) noexcept {
     return true;
 }
 
+// The headless window has no placement: the app saves none.
+bool window_placement(Window, WindowPlacement*) noexcept {
+    return false;
+}
+
 bool window_frame_callback_request(Window) noexcept {
     return true;
 }

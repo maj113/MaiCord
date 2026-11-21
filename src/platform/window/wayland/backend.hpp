@@ -28,7 +28,9 @@ struct EventRing {
 struct PointerState {
     wl_pointer* pointer;
     wp_cursor_shape_device_v1* shape_device;
-    bool inside;
+    bool inside;  // over the window's surface
+    bool margin;  // over the resize margin (window.cpp): the window takes these events, the app never sees them
+    FrameHit margin_hit;  // the edge under the pointer in the margin
     u32 enter_serial;
     float x, y;  // client pixels, the last position the compositor reported
     u8 buttons;  // 1 << PointerButton, as the compositor sent them
@@ -114,7 +116,7 @@ struct OfferSlot {
     u32 mimes;  // MimeBit
 };
 
-// What a selection we own offers; freed when the source is cancelled or replaced.
+// What a selection we own offers; freed when the source is gone and no transfer still writes it.
 struct Payload {
     u8* text;
     u32 text_bytes;
@@ -122,6 +124,18 @@ struct Payload {
     u32 png_bytes;
     u8* html;
     u32 html_bytes;
+    u32 references;  // one for the source, one for each transfer
+};
+
+inline constexpr u32 kMaxTransfers = 8;
+
+// A `send` whose bytes did not all fit into the receiver's pipe: the loop writes the rest (data_transfers_run).
+struct Transfer {
+    Payload* payload;  // null: the slot is free; else a reference that keeps `next` valid
+    const u8* next;
+    u32 left;
+    int fd;
+    u64 deadline_ms;
 };
 
 struct DataState {
@@ -133,6 +147,8 @@ struct DataState {
     bool drop_target;  // window_set_drop_target
     wl_data_source* source;  // the clipboard we own
     Payload* payload;
+    Transfer transfers[kMaxTransfers];
+    u32 transfer_count;
 };
 
 inline constexpr u32 kImeUnits = 8192;
@@ -230,6 +246,15 @@ struct WindowState {
     // both until another value comes.
     i32 viewport_width, viewport_height;
     u32 buffer_scale;
+    // The resize margin: a band of kResizeBand logical units around the window, outside its geometry. It is a subsurface
+    // below the window, with a transparent 1x1 buffer that the viewport stretches. It takes the pointer where the side
+    // and bottom resize borders of a Windows frame are, which a client-side frame has no other place for.
+    wl_surface* margin_surface;
+    wl_subsurface* margin_subsurface;
+    wp_viewport* margin_viewport;
+    wl_buffer* margin_buffer;
+    i32 margin_width, margin_height;  // the size last committed in surface units, 0 while the margin is unmapped
+    i32 geometry_width, geometry_height;  // the window geometry last sent, 0 until sent
 };
 
 struct Backend {
@@ -244,6 +269,7 @@ struct Backend {
     xdg_wm_base* wm_base;
     wl_seat* seat;
     wp_viewporter* viewporter;
+    wl_subcompositor* subcompositor;
     wp_fractional_scale_manager_v1* fractional_manager;
     wp_cursor_shape_manager_v1* cursor_shape_manager;
     zxdg_decoration_manager_v1* decoration_manager;
@@ -362,6 +388,9 @@ void global_keys_clear() noexcept;
 
 // Cursor codes at or above this are frame hits (kFrameCursorBase + FrameHit); below are UiCursor values.
 inline constexpr u8 kFrameCursorBase = 32;
+// The width of the resize border in logical units, as on the Windows frame at 96 DPI. It is the width of the band inside
+// the top of the window (window_resize_border) and of the resize margin.
+inline constexpr i32 kResizeBand = 8;
 // Client-side decorations: asks the app where a pointer event lies (hit_test) and takes the presses that start a move,
 // a resize, a maximize or the window menu. True when the window took the event and the app must not see it. Also
 // records the hit under the pointer for the cursor.
@@ -372,6 +401,9 @@ bool frame_filter(const WindowEvent& event) noexcept;
 // Creates the data device once the seat and the manager are bound.
 void data_attach() noexcept;
 void data_shutdown() noexcept;
+// Writes what the clipboard's receivers take now, and never waits for them. Ends the transfers that are complete,
+// failed or older than their time limit.
+void data_transfers_run(u64 now_ms) noexcept;
 
 // text_input.cpp -----------------------------------------------------------------------------------------------------
 

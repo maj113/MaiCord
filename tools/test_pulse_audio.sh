@@ -6,6 +6,7 @@
 #   tools/test_pulse_audio.sh                    pick a server (below), build and run through ctest
 #   tools/test_pulse_audio.sh --binary PATH      pick a server, run an already built MaiCordPulseLoopbackTests
 #   tools/test_pulse_audio.sh --private          start a private pulseaudio with a null sink, even where a server exists
+#   tools/test_pulse_audio.sh --quantum 2048     run against pipewire-pulse with every graph cycle forced to 2048 frames
 #
 # The server is, in this order: $PULSE_SERVER as it is set; WSLg's /mnt/wslg/PulseServer; a private `pulseaudio
 # --daemonize` in a temporary runtime directory (needs the pulseaudio package). A pipewire-pulse socket works through
@@ -17,6 +18,12 @@
 # disabled, and the tests that need no server (maicord_audio_pure, maicord_notification_audio,
 # maicord_audio_no_server, maicord_audio_no_library) stay in the normal suite.
 #
+# --quantum N sets PipeWire's clock.force-quantum to N frames (pw-metadata -n settings 0 clock.force-quantum N) for the
+# run and sets it back to 0 at exit. The server must be pipewire-pulse: $PULSE_SERVER, else the session's
+# $XDG_RUNTIME_DIR/pulse/native. A large quantum makes the server read more than 20 ms in each cycle. Voice output then
+# keeps playing only when its worker writes all of each request. The change affects the whole session's
+# audio while the test runs.
+#
 # Exit status: nonzero when the test fails (a skipped test, status 77, is not a failure).
 
 set -uo pipefail
@@ -24,12 +31,17 @@ set -uo pipefail
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 binary=""
 private=0
+quantum=""
+forced=0
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --binary) binary="$2"; shift 2 ;;
         --private) private=1; shift ;;
-        -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+        --quantum)
+            [ "$#" -ge 2 ] || { echo "--quantum takes a number of frames" >&2; exit 2; }
+            quantum="$2"; shift 2 ;;
+        -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -45,9 +57,25 @@ cleanup() {
         PULSE_RUNTIME_PATH="$daemon_directory" pulseaudio --kill 2>/dev/null
         rm -rf "$daemon_directory"
     fi
+    if [ "$forced" = 1 ]; then
+        pw-metadata -n settings 0 clock.force-quantum 0 >/dev/null 2>&1
+    fi
     return 0
 }
 trap cleanup EXIT
+
+if [ -n "$quantum" ]; then
+    case "$quantum" in
+        *[!0-9]*|0) echo "--quantum takes a number of frames above 0" >&2; exit 2 ;;
+    esac
+    [ "$private" = 0 ] || { echo "--quantum needs pipewire-pulse, not --private" >&2; exit 2; }
+    command -v pw-metadata >/dev/null && command -v pactl >/dev/null ||
+        { echo "--quantum needs pw-metadata and pactl" >&2; exit 1; }
+    runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    if [ -z "${PULSE_SERVER:-}" ] && [ -S "$runtime/pulse/native" ]; then
+        export PULSE_SERVER="unix:$runtime/pulse/native"
+    fi
+fi
 
 if [ "$private" = 0 ] && [ -n "${PULSE_SERVER:-}" ]; then
     echo "Server: PULSE_SERVER=$PULSE_SERVER"
@@ -66,6 +94,15 @@ elif command -v pulseaudio >/dev/null; then
 else
     echo "No PulseAudio server: set PULSE_SERVER, run inside WSLg, or install pulseaudio." >&2
     exit 1
+fi
+
+if [ -n "$quantum" ]; then
+    pactl info 2>/dev/null | grep -q "on PipeWire" ||
+        { echo "The server is not pipewire-pulse: --quantum needs it." >&2; exit 1; }
+    pw-metadata -n settings 0 clock.force-quantum "$quantum" >/dev/null ||
+        { echo "pw-metadata could not set clock.force-quantum." >&2; exit 1; }
+    forced=1
+    echo "Quantum: $quantum frames (clock.force-quantum, set back to 0 at exit)"
 fi
 
 export PULSE_SINK=maicord_test_sink

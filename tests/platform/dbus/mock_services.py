@@ -7,6 +7,7 @@ Run with DBUS_SESSION_BUS_ADDRESS pointing at a private bus (tools/test_dbus.sh)
   org.freedesktop.portal.Desktop      Settings, Notification, OpenURI, Inhibit (version only), ScreenCast
   org.freedesktop.Notifications       the notification daemon
   org.freedesktop.secrets             the Secret Service (plain sessions)
+  org.kde.ksmserver                   /KSMServer           Plasma's session manager: isShuttingDown (mode ksmserver-logout)
   org.maicord.Mock                    /org/maicord/Mock    the test's control: Take, SetSetting, signals, modes, Quit
 
 Everything a service receives is recorded as one line of text per call (the arguments in a canonical, type-tagged form
@@ -88,7 +89,7 @@ def canon_value(v):
 bus = dbus.SessionBus()
 names = [dbus.service.BusName(n, bus) for n in (
     'org.maicord.Test', 'org.maicord.Mock', 'org.freedesktop.portal.Desktop',
-    'org.freedesktop.Notifications', 'org.freedesktop.secrets')]
+    'org.freedesktop.Notifications', 'org.freedesktop.secrets', 'org.kde.ksmserver')]
 
 
 # --- org.maicord.Test ------------------------------------------------------------------------------------------------
@@ -590,6 +591,18 @@ class SecretService(dbus.service.Object):
         pass
 
 
+# --- Plasma's session manager ----------------------------------------------------------------------------------------
+
+class KSMServer(dbus.service.Object):
+    def __init__(self):
+        super().__init__(bus, '/KSMServer')
+
+    @dbus.service.method('org.kde.KSMServerInterface', in_signature='', out_signature='b')
+    def isShuttingDown(self):
+        record('isShuttingDown')
+        return dbus.Boolean(modes.get('ksmserver-logout', False))
+
+
 # --- the control -----------------------------------------------------------------------------------------------------
 
 class Control(dbus.service.Object):
@@ -697,6 +710,7 @@ Test()
 portal = Portal()
 notifications = Notifications()
 SecretService()
+KSMServer()
 Collection('%s/collection/login' % SECRETS)
 Control(portal, notifications)
 

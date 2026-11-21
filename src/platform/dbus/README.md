@@ -16,6 +16,7 @@ An in-house D-Bus client: no libdbus, no sd-bus. Headers are in `include/maicord
 | `instance.hpp` | Single instance and `discord://` links over `org.freedesktop.Application` on the application id, or an abstract Unix socket when there is no bus. |
 | `file_chooser.hpp` | FileChooser portal, same shape as `native_file_picker`. |
 | `launcher_entry.hpp` | The Unity launcher badge signal. |
+| `logout.hpp` | Whether Plasma's session manager (ksmserver) is logging out: the close of the main window then quits instead of hiding to the tray. |
 | portal probe | `portal.cpp`: whether and at which version a portal interface exists. |
 
 ## Rules

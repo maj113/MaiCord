@@ -239,9 +239,9 @@ u32 render_audio(Runtime& r, Transport& t, Engine& e, u32 rate) noexcept {
     if (played > consumed)
         retire_played(r, static_cast<u32>(minimum<u64>(submitted - played, ~u32{0})), rate);
     const u32 needed = notification_audio_mixer_needed_rate(r.mixer, rate);
-    const u32 frames = minimum(needed, pulse::request_frames(pulse::track_writable(&e.track), kFrameBytes,
-                                                             pulse::frames_in_milliseconds(
-                                                                 rate, pulse::kNotificationBufferMs)));
+    // All of the request (timing.hpp: request_frames). The stream has no prebuffer, and the server's first cycle reads
+    // a whole quantum: a fill shorter than the server asked for loses the audio that the cycle reads past.
+    const u32 frames = minimum(needed, pulse::request_frames(pulse::track_writable(&e.track), kFrameBytes));
     const u64 epoch = r.mixer.epoch;
     bool wrote = false, canceled = false;
     for (u32 offset = 0; offset < frames;) {

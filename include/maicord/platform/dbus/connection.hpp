@@ -64,9 +64,9 @@ using ReplyHandler = void (*)(void* context, Status status, const Message* reply
 bool connection_call(Connection* connection, const CallTarget& target, const Builder* body, u32 timeout_ms,
                      ReplyHandler handler, void* context, u8 flags = 0) noexcept;
 // Sends a call and waits for the reply, dispatching other traffic meanwhile. On Status::ok or Status::error_reply
-// `*reply` holds the message (the caller releases it with message_release).
+// `*reply` holds the message (the caller releases it with message_release). `flags` are connection_call's.
 Status connection_call_sync(Connection* connection, const CallTarget& target, const Builder* body, u32 timeout_ms,
-                            Message* reply) noexcept;
+                            Message* reply, u8 flags = 0) noexcept;
 // What a failed call reports: the error name of an error reply, else `fallback` (the handler's `reply` may be null).
 const char* reply_error_name(Status status, const Message* reply, const char* fallback) noexcept;
 

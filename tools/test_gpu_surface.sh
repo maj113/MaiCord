@@ -139,6 +139,9 @@ def expect(name, x, y, rgb, tolerance=8):
 expect("solid blue rounded rectangle", 12, 28, (49, 107, 211))
 expect("yellow disc", 132, 24, (221, 187, 50))
 expect("background", 380, 300, (31, 33, 41))
+# Sway resizes the 480x320 window to 640x400 when it maps it. The buffer must take the new size. The compositor scales a
+# stale or larger buffer into the window: the scene moves, or the far corner does not show the frame's background.
+expect("background at the far corner of 640x400", 632, 392, (31, 33, 41))
 # The white square moves along its row; some pixel of the row must show it (opacity 0.9 over the clear colour).
 white = 0
 for x in range(8, 410):

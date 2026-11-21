@@ -35,7 +35,8 @@ void application_platform_window_prepare() noexcept {
 
 bool application_platform_window_create(Window* out, const char** failure) noexcept {
     // The application id is the name of the desktop entry, which is how the compositor finds the icon.
-    if (!window_create({utf8_literal("MaiCord"), utf8_literal("io.github.maj113.MaiCord"), 1280, 800, false},
+    if (!window_create({utf8_literal("MaiCord"), utf8_literal("io.github.maj113.MaiCord"), 1280, 800, false,
+                        application_window_saved_placement()},
                        application_window_event, nullptr, out)) {
         *failure = "create_window_failed";
         return false;

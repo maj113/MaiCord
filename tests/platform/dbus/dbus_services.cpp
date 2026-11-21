@@ -2,6 +2,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/platform/dbus/connection.hpp"
 #include "maicord/platform/dbus/desktop_settings.hpp"
+#include "maicord/platform/dbus/logout.hpp"
 #include "maicord/platform/dbus/notifications.hpp"
 #include "maicord/platform/dbus/open_uri.hpp"
 #include "maicord/platform/dbus/portal.hpp"
@@ -13,11 +14,11 @@
 #include "../../support/test_output.hpp"
 
 // The desktop services over the session bus (tools/test_dbus.sh): the settings portal, notifications (the daemon and the
-// portal), OpenURI with its xdg-open fallback, the Secret Service and the portal probes, each against the python mock
-// services, whose libdbus decodes every request (the mock logs what it received in a canonical, type-tagged form that
-// the expectations below spell out). Four runs share this program:
+// portal), OpenURI with its xdg-open fallback, the Secret Service, the portal probes and the logout query, each against
+// the python mock services, whose libdbus decodes every request (the mock logs what it received in a canonical,
+// type-tagged form that the expectations below spell out). Four runs share this program:
 //
-//   (no argument)  the mock bus: settings, direct notifications, open-uri, secrets, probes
+//   (no argument)  the mock bus: settings, direct notifications, open-uri, secrets, probes, logout
 //   --portal       the mock bus with MAICORD_NOTIFICATION_BACKEND=portal: the portal notification backend
 //   --plain        the mock bus with a notification daemon that does not read markup in the body
 //   --bare         a bus without any service: every client reports its absence, open-uri falls back to xdg-open
@@ -767,6 +768,28 @@ void test_probes() noexcept {
     check(portal_interface_version("org.freedesktop.portal.NoSuchThing", 2000) == 0, "an unknown interface is version 0");
 }
 
+// Plasma's logout ----------------------------------------------------------------------------------------------------------
+
+void set_logout(bool logging_out) noexcept {
+    Builder mode;
+    builder_init(&mode);
+    builder_string(&mode, "ksmserver-logout");
+    builder_bool(&mode, logging_out);
+    control("SetMode", &mode);
+    builder_release(&mode);
+}
+
+void test_logout() noexcept {
+    take_log();
+    check(!logout_in_progress(), "no logout: ksmserver is not shutting down");
+    take_log();
+    expect_line("isShuttingDown", "isShuttingDown", "the query is ksmserver's isShuttingDown");
+    set_logout(true);
+    check(logout_in_progress(), "a logout: ksmserver is shutting down");
+    set_logout(false);
+    check(!logout_in_progress(), "a cancelled logout: ksmserver is not shutting down again");
+}
+
 // A bus without any service --------------------------------------------------------------------------------------------
 
 bool g_bare_failed;
@@ -801,6 +824,7 @@ void test_bare() noexcept {
               secret_store("x", attributes, 1, secret, 32) == SecretStatus::unavailable,
           "no Secret Service: unavailable");
     check(portal_interface_version("org.freedesktop.portal.Inhibit", 1000) == 0, "no portal: version 0");
+    check(!logout_in_progress(), "no session manager: no logout");
 
     check(open_uri("https://fallback.example/bare", nullptr), "open_uri falls back to xdg-open at once");
     check(pump(spawn_log_has_bare, 4000), "xdg-open ran with the URI");
@@ -850,6 +874,7 @@ MAICORD_TEST_ENTRY(maicord_dbus_services_entry) {
     test_open_uri_portal();
     test_secrets();
     test_probes();
+    test_logout();
     connection_close(g_control);
     test_exit(g_failures, "dbus_services");
 }
