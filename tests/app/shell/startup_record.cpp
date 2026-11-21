@@ -155,9 +155,11 @@ MAICORD_TEST_ENTRY(maicord_startup_record_entry) {
 #if defined(_WIN32)
     check(line_has(text, 2, "[start] system os=Windows version=10.0."), "startup_record_names_the_windows_build");
 #else
+    // The test's registration sets XDG_CURRENT_DESKTOP=KDE and GDMSESSION=plasma.
     check(line_has(text, 2, "[start] system os=Linux kernel=") && line_has(text, 2, " distro=\"") &&
-              line_has(text, 2, " libc=") && line_has(text, 2, " runtime="),
-          "startup_record_names_the_kernel_distribution_and_libc");
+              line_has(text, 2, " desktop=\"KDE,plasma\"") && line_has(text, 2, " libc=") &&
+              line_has(text, 2, " runtime="),
+          "startup_record_names_the_kernel_distribution_desktop_and_libc");
 #endif
     check(line_has(text, 3, "[start] machine cpu=\"") && line_has(text, 3, " cores=") &&
               line_has(text, 3, " ram_mib=") && line_has(text, 3, " locale=") && line_has(text, 3, pid) &&

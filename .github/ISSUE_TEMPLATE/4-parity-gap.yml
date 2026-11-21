@@ -1,6 +1,7 @@
 name: Missing Discord feature
 description: Something the official client does that MaiCord doesn't (yet), or does differently.
 labels: [parity]
+type: Feature
 body:
   - type: textarea
     id: feature

@@ -198,8 +198,7 @@ static u32 linux_client_preferred_languages(const LinuxClientEnvironment& enviro
     return used;
 }
 
-// "<XDG_CURRENT_DESKTOP>,<GDMSESSION>", an unset one as "unknown".
-static u32 linux_client_window_manager(const LinuxClientEnvironment& environment, Slice<char> output) noexcept {
+u32 linux_client_window_manager(const LinuxClientEnvironment& environment, Slice<char> output) noexcept {
     const auto part = [](Utf8View value) noexcept {
         return usable(value, kPartBytes) ? value : utf8_literal("unknown");
     };

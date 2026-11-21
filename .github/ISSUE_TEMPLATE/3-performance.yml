@@ -1,0 +1,25 @@
+name: Performance problem
+description: High CPU, GPU or memory use, slow startup, stutter or battery drain.
+labels: [performance]
+type: Bug
+body:
+  - type: textarea
+    id: symptom
+    attributes:
+      label: What is slow or heavy?
+      description: >-
+        What was on screen and how to make it happen. Numbers help (CPU % and memory from Task Manager or `top`; the
+        environment variable `MAICORD_FPS_TITLE=1` shows the frame rate in the title).
+    validations:
+      required: true
+  - type: upload
+    id: log
+    attributes:
+      label: maicord.log
+      description: >-
+        On Windows press Win+R, paste `%LOCALAPPDATA%\MaiCord\logs` and press Enter; on Linux run
+        `xdg-open ~/.local/state/maicord/logs`. Drag `maicord.log` here. It names your MaiCord version, system, CPU, GPU
+        and display, and keeps passwords, tokens and messages out.
+    validations:
+      required: true
+      accept: ".log,.txt,.zip,.gz"

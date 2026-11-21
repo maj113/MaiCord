@@ -44,6 +44,8 @@ LinuxClientEnvironment linux_client_environment_read(LinuxClientEnvironmentBuffe
 u32 linux_client_system_locale(const LinuxClientEnvironment& environment, Slice<char> output) noexcept;
 // The distribution description (lsb_release -ds, else os-release's PRETTY_NAME); 0 when the host names none.
 u32 linux_client_distro(const LinuxClientEnvironment& environment, Slice<char> output) noexcept;
+// "<XDG_CURRENT_DESKTOP>,<GDMSESSION>", an unset or unusable one as "unknown", NUL-terminated; 0 when it does not fit.
+u32 linux_client_window_manager(const LinuxClientEnvironment& environment, Slice<char> output) noexcept;
 // "native", "flatpak", "snap" or "appimage".
 Utf8View linux_client_runtime_environment(const LinuxClientEnvironment& environment) noexcept;
 

@@ -109,6 +109,8 @@ void application_log_start_record() noexcept {
     system.field("kernel", text);
     text[linux_client_distro(environment, {text, sizeof(text) - 1})] = 0;
     system.quoted("distro", text[0] ? text : "unknown");
+    text[linux_client_window_manager(environment, {text, sizeof(text)})] = 0;
+    system.quoted("desktop", text[0] ? text : "unknown");
     if (process_libc_is_musl()) {
         system.field("libc", "musl");
     } else {

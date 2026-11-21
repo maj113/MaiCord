@@ -1,1 +1,5 @@
 blank_issues_enabled: false
+contact_links:
+  - name: FAQ and missing features
+    url: https://github.com/maj113/MaiCord#faq
+    about: Answers about accounts, tokens and Discord's terms, and the list of features MaiCord doesn't have yet.

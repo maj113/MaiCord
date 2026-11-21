@@ -37,6 +37,7 @@
 #include "../../src/app/chat/composer/game_search.hpp"
 #include "../../src/app/settings/user_settings.hpp"
 #include "../support/counted_text_measure.hpp"
+#include "maicord/ui/text/timestamp_format.hpp"
 
 namespace maicord::app_detail {
 constinit Application g_app{};
@@ -1554,6 +1555,9 @@ bool composer_ui_probe() noexcept {
     fixture->theme = kDefaultTheme;
     fixture->refresh_ok = true;
     fixture->expected_width = 304;
+    // The header time follows the user's locale. A 24-hour "14:30" at 96 DPI has only about 8 pixels at the
+    // exact secondary colour, below the 24 that stage 213 needs, so the probe sets the 12-hour cycle.
+    timestamp_set_hour_cycle(HourCycle::h12);
     const HINSTANCE instance = GetModuleHandleW(nullptr);
     WNDCLASSW type{};
     type.lpfnWndProc = DefWindowProcW;

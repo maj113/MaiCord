@@ -1,0 +1,38 @@
+name: Bug on Windows
+description: Something in MaiCord on Windows is broken or behaves unexpectedly.
+title: "[Windows] "
+labels: [bug]
+type: Bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two things are needed: what happened, and your **`maicord.log`**. The log names your MaiCord version, Windows
+        version, GPU and display, so you don't need to type them. **Without the log the cause can't be found**, so the
+        form asks for it.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: What you did, what you expected and what happened instead. Steps that make it happen again help most.
+      placeholder: I clicked Log in with a QR code and scanned it with my phone. The phone said it worked, but MaiCord stayed on the QR code.
+    validations:
+      required: true
+  - type: upload
+    id: log
+    attributes:
+      label: maicord.log
+      description: >-
+        Press Win+R, paste `%LOCALAPPDATA%\MaiCord\logs` and press Enter, then drag `maicord.log` here (and
+        `maicord.previous.log` if there is one). The log keeps earlier sessions, so you can attach it after a restart.
+        MaiCord keeps passwords, tokens and messages out of it.
+    validations:
+      required: true
+      accept: ".log,.txt,.zip,.gz"
+  - type: upload
+    id: media
+    attributes:
+      label: Screenshots or a video
+      description: Optional. Hide names and messages you don't want public.
+    validations:
+      accept: ".png,.jpg,.jpeg,.gif,.webp,.mp4,.mov,.webm"
