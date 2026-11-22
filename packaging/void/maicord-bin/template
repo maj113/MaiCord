@@ -6,7 +6,7 @@
 #
 # Per release: set version and the two checksums (the .sha256 files of the release's tarballs).
 pkgname=maicord-bin
-version=0.8.2
+version=0.8.3
 revision=1
 only_for_archs="x86_64 x86_64-musl"
 short_desc="Lightweight, native Discord client (unofficial), release build"
@@ -29,12 +29,12 @@ provides="maicord-${version}_${revision}"
 case "$XBPS_TARGET_MACHINE" in
 	x86_64)
 		distfiles="https://github.com/maj113/MaiCord/releases/download/v${version}/maicord-${version}-linux-x86_64.tar.gz"
-		checksum=4e2d0400064fa9f2cc513a3da127ea27ad2f7c669ec1dd7ae36770ab1c184823
+		checksum=fab0dfba5c532169fb700e0a57dd388c6f45f4e780b1a9035c4a56d1bee9e355
 		wrksrc="maicord-${version}-linux-x86_64"
 		;;
 	x86_64-musl)
 		distfiles="https://github.com/maj113/MaiCord/releases/download/v${version}/maicord-${version}-linux-x86_64-musl.tar.gz"
-		checksum=78a6ec08f135a52173fa41c625c6e16b8131467ddc493b78a99612af99e3d4f4
+		checksum=77059c33181bc09ceaad4cb41039b601c1f446c34be177addc5d9d665c33d28f
 		wrksrc="maicord-${version}-linux-x86_64-musl"
 		;;
 esac

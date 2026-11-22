@@ -3,6 +3,6 @@
      %changelog entry); `osc service remoterun` or a commit runs it. -->
 <services>
   <service name="download_url">
-    <param name="url">https://github.com/maj113/MaiCord/releases/download/v0.8.2/maicord-0.8.2-linux-x86_64.tar.gz</param>
+    <param name="url">https://github.com/maj113/MaiCord/releases/download/v0.8.3/maicord-0.8.3-linux-x86_64.tar.gz</param>
   </service>
 </services>

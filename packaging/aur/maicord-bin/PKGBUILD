@@ -8,7 +8,7 @@
 # Per release: set pkgver, run `updpkgsums` (the tarball's SHA-256 is also in its .sha256 asset), `makepkg --printsrcinfo >
 # .SRCINFO`, and push both to the AUR repository of maicord-bin (docs: packaging/README.md).
 pkgname=maicord-bin
-pkgver=0.8.2
+pkgver=0.8.3
 pkgrel=1
 pkgdesc='A lightweight, native Discord client (unofficial), from the release tarball'
 arch=('x86_64')
@@ -42,7 +42,7 @@ conflicts=('maicord')
 # The program is a hardened, stripped, size-optimized image: leave its bytes as released.
 options=('!strip' '!debug')
 source_x86_64=("$pkgname-$pkgver-x86_64.tar.gz::https://github.com/maj113/MaiCord/releases/download/v$pkgver/maicord-$pkgver-linux-x86_64.tar.gz")
-sha256sums_x86_64=('4e2d0400064fa9f2cc513a3da127ea27ad2f7c669ec1dd7ae36770ab1c184823') # updpkgsums
+sha256sums_x86_64=('fab0dfba5c532169fb700e0a57dd388c6f45f4e780b1a9035c4a56d1bee9e355') # updpkgsums
 
 package() {
     cd "maicord-$pkgver-linux-x86_64"

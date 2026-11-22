@@ -12,12 +12,12 @@
   # The source package, for its run-time libraries.
   maicord,
   stdenv,
-  version ? "0.8.2",
+  version ? "0.8.3",
   # Not called src: callPackage would fill that from the (renamed) top-level attribute of nixpkgs.
   tarball ? fetchurl {
     url = "https://github.com/maj113/MaiCord/releases/download/v${version}/maicord-${version}-linux-x86_64.tar.gz";
     # Per version: the release's .sha256 asset (nix-prefetch-url prints the same hash; hex is accepted).
-    sha256 = "4e2d0400064fa9f2cc513a3da127ea27ad2f7c669ec1dd7ae36770ab1c184823";
+    sha256 = "fab0dfba5c532169fb700e0a57dd388c6f45f4e780b1a9035c4a56d1bee9e355";
   },
 }:
 

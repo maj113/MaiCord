@@ -8,7 +8,7 @@
 #
 # Per release: set pkgver; `updpkgsums`, `makepkg --printsrcinfo > .SRCINFO`, push to the AUR repository.
 pkgname=maicord
-pkgver=0.8.2
+pkgver=0.8.3
 pkgrel=1
 pkgdesc='A lightweight, native Discord client (unofficial), built from source'
 arch=('x86_64')
