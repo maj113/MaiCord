@@ -1,5 +1,6 @@
 #include "maicord/core/memory.hpp"
 #include "user_payload.hpp"
+#include "dispatch_common.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
 
@@ -48,19 +49,17 @@ bool call_field(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 GatewayClientDispatchRouteResult gateway_route_call(const GatewayEnvelope& envelope, Slice<u32> scratch, u32 depth,
     u64 self_user_id, GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
-    const auto scan = json_scan_structurals_avx1(envelope.data.source, scratch);
-    if (!scan.ok()) return {GatewayEventDecodeError::scan_failed, GatewayClientDispatchRouteError::decode};
+    JsonIndexedDocument frame;
+    const auto indexed = gateway_frame_index(envelope, scratch, &frame);
+    if (!indexed.ok()) return indexed;
     Call call{};
     call.self = self_user_id;
-    const auto read = json_visit_value_object(envelope.data, {scratch.data, scan.count}, depth, call_field, &call);
+    const auto read = json_visit_indexed_object(frame, envelope.data, depth, call_field, &call);
     if (!read.ok() || !(call.fields & 1) || !call.channel) return {call.error == GatewayEventDecodeError::none ?
         GatewayEventDecodeError::invalid_data : call.error, GatewayClientDispatchRouteError::decode};
-    if (call.ringing.kind == JsonValueKind::array) {
-        const auto ringing = json_scan_structurals_avx1(call.ringing.source, scratch);
-        if (!ringing.ok() ||
-            !json_visit_value_array(call.ringing, {scratch.data, ringing.count}, depth, ringing_entry, &call).ok())
-            return {GatewayEventDecodeError::invalid_data, GatewayClientDispatchRouteError::decode};
-    }
+    if (call.ringing.kind == JsonValueKind::array &&
+        !json_visit_indexed_array(frame, call.ringing, depth, ringing_entry, &call).ok())
+        return {GatewayEventDecodeError::invalid_data, GatewayClientDispatchRouteError::decode};
     const bool deleted = json_string_equals_ascii(envelope.event_name, utf8_literal("CALL_DELETE"));
     event->state.id = call.channel;
     event->state.record_count = !deleted && call.rung ? 1u : 0u;
@@ -71,14 +70,15 @@ GatewayClientDispatchRouteResult gateway_route_call(const GatewayEnvelope& envel
 }
 GatewayClientDispatchRouteResult gateway_route_recipient(const GatewayEnvelope& envelope,
     Slice<u32> scratch, u32 depth, Slice<char> storage, GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
-    const auto scan = json_scan_structurals_avx1(envelope.data.source, scratch);
-    if (!scan.ok()) return {GatewayEventDecodeError::scan_failed, GatewayClientDispatchRouteError::decode};
+    JsonIndexedDocument frame;
+    const auto indexed = gateway_frame_index(envelope, scratch, &frame);
+    if (!indexed.ok()) return indexed;
     Recipient record{};
-    const auto read = json_visit_value_object(envelope.data, {scratch.data, scan.count}, depth, visit, &record);
+    const auto read = json_visit_indexed_object(frame, envelope.data, depth, visit, &record);
     if (!read.ok() || (record.fields & 3) != 3) return {record.error == GatewayEventDecodeError::none ?
         GatewayEventDecodeError::invalid_data : record.error, GatewayClientDispatchRouteError::decode};
     GatewayPayloadWriter writer{storage, 0};
-    const auto decoded = gateway_append_user(record.user, scratch, depth, &writer);
+    const auto decoded = gateway_append_user(frame, record.user, depth, &writer);
     if (!decoded.ok()) return decoded;
     if ((record.fields & 4) && !record.nick_null) {
         char nick[128];

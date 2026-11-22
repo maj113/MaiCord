@@ -415,10 +415,10 @@ void guild_presences() noexcept {
         R"([{"user_id":"42","status":"online","activities":[{"type":0,"name":"Mossrun","timestamps":{"start":5}}]},)"
         R"({"user_id":"43","status":"online","activities":[]}],)"
         R"([{"bad":true},{"user_id":"44","status":"idle","activities":[{"type":4,"name":"Custom Status","state":"Away"}]}]]}})");
-    static u32 objects[4096];
     static Captured captured{};
-    const auto routed = gateway_client_publish_guild_presences({data, 0, JsonValueKind::object}, {scratch, 16384},
-                                                               {objects, 4096}, 9, 1, capture, &captured);
+    const JsonIndexedDocument document{data, {scratch, json_scan_structurals_avx1(data, {scratch, 16384}).count}};
+    const auto routed =
+        gateway_client_publish_guild_presences(document, {data, 0, JsonValueKind::object}, 9, 1, capture, &captured);
     UserAppearance appearance{};
     UserActivitySet restored{};
     u32 consumed = 0;

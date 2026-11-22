@@ -2640,26 +2640,21 @@ void test_gateway_message_events() noexcept {
                 R"({"op":0,"d":{"id":"123","channel_id":"456","guild_id":"789"},"s":1,"t":"MESSAGE_DELETE"})"),
             &envelope)
                 .ok() &&
-            gateway_decode_message_delete(envelope.data, Slice<u32>{scratch, 256}, 8, &deleted).ok() &&
+            gateway_decode_message_delete(envelope.document, envelope.data, 8, &deleted).ok() &&
             deleted.id == 123 && deleted.channel_id == 456,
         "gateway_message_delete_typed_decode");
 
     u64 ids[3]{};
     GatewayMessageBulkDeleteEvent bulk{};
-    expect(
-        decode_gateway(
-            utf8_literal(
-                R"({"op":0,"d":{"ids":["1","2","\u0033"],"channel_id":"456"},"s":1,"t":"MESSAGE_DELETE_BULK"})"),
-            &envelope)
-                .ok() &&
-            gateway_decode_message_bulk_delete(envelope.data, Slice<u32>{scratch, 256}, 8,
-                                               Slice<u64>{ids, 3}, &bulk)
-                .ok() &&
-            bulk.channel_id == 456 && bulk.id_count == 3 && ids[0] == 1 && ids[1] == 2 && ids[2] == 3,
-        "gateway_message_bulk_delete_typed_decode");
-    expect(gateway_client_route_dispatch(
-               envelope, Slice<u32>{scratch, 256}, 8, Slice<char>{routed_content, 64},
-               Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload, gateway_test_message_scratch())
+    // The routed payload and its unpacking below hold the decoded IDs, the escaped third one included.
+    expect(decode_gateway(utf8_literal(
+                              R"({"op":0,"d":{"ids":["1","2","\u0033"],"channel_id":"456"},"s":1,"t":"MESSAGE_DELETE_BULK"})"),
+                          &envelope)
+                   .ok() &&
+               gateway_client_route_dispatch(
+                   envelope, Slice<u32>{scratch, 256}, 8, Slice<char>{routed_content, 64},
+                   Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload,
+                   gateway_test_message_scratch())
                    .ok() &&
                routed_event.dispatch_kind == GatewayClientDispatchKind::message_bulk_delete &&
                routed_event.dispatch_payload_bytes == 3 * sizeof(u64),
@@ -2671,8 +2666,7 @@ void test_gateway_message_events() noexcept {
                unpacked_bulk.channel_id == 456 && unpacked_bulk.id_count == 3 && unpacked_ids[0] == 1 &&
                unpacked_ids[1] == 2 && unpacked_ids[2] == 3,
            "gateway_client_unpack_bulk_payload");
-    expect(gateway_decode_message_bulk_delete(envelope.data, Slice<u32>{scratch, 256}, 8,
-                                              Slice<u64>{ids, 2}, &bulk)
+    expect(gateway_decode_message_bulk_delete(envelope.document, envelope.data, 8, Slice<u64>{ids, 2}, &bulk)
                    .error == GatewayEventDecodeError::message_id_capacity,
            "gateway_message_bulk_delete_capacity");
     expect(
@@ -2680,8 +2674,7 @@ void test_gateway_message_events() noexcept {
             utf8_literal(R"({"op":0,"d":{"ids":[],"channel_id":"456"},"s":1,"t":"MESSAGE_DELETE_BULK"})"),
             &envelope)
                 .ok() &&
-            gateway_decode_message_bulk_delete(envelope.data, Slice<u32>{scratch, 256}, 8,
-                                               Slice<u64>{ids, 3}, &bulk)
+            gateway_decode_message_bulk_delete(envelope.document, envelope.data, 8, Slice<u64>{ids, 3}, &bulk)
                     .error == GatewayEventDecodeError::invalid_message_ids,
         "gateway_message_bulk_delete_nonempty");
 

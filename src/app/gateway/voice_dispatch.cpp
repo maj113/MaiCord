@@ -9,7 +9,7 @@ namespace maicord {
 namespace {
 struct Batch {
     GatewayVoiceControl* voice;
-    Slice<u32> scratch;
+    const JsonIndexedDocument* document;
     JsonValue states;
     u64 now_ms;
     u32 depth;
@@ -28,31 +28,21 @@ bool field(void* opaque, JsonString name, JsonValue value) noexcept {
 bool item(void* opaque, u32, JsonValue value) noexcept {
     auto& batch = *static_cast<Batch*>(opaque);
     GatewayVoiceState state{};
-    if (!gateway_decode_voice_state(value, batch.scratch, batch.depth, &state).ok())
+    if (!gateway_decode_voice_state(*batch.document, value, batch.depth, &state).ok())
         return false;
     gateway_voice_state(batch.voice, state, batch.now_ms);
     return true;
 }
-inline bool decode_batch(GatewayVoiceControl* voice, JsonValue data, Slice<u32> scratch, u32 depth,
-                  u64 now_ms) noexcept {
-    if (!scratch.data || scratch.count < 2 || !depth || data.kind != JsonValueKind::object)
-        return false;
-    const u32 outer_capacity = scratch.count / 2;
-    Batch batch{voice, {scratch.data + outer_capacity, scratch.count - outer_capacity}, {}, now_ms, depth,
-                false};
-    auto scan = json_scan_structurals_avx1(data.source, {scratch.data, outer_capacity});
-    if (!scan.ok() ||
-        !json_visit_value_object(data, {scratch.data, scan.count}, depth, field, &batch).ok() ||
-        !batch.found)
-        return false;
-    scan = json_scan_structurals_avx1(batch.states.source, {scratch.data, outer_capacity});
-    return scan.ok() &&
-           json_visit_value_array(batch.states, {scratch.data, scan.count}, depth, item, &batch).ok();
+inline bool decode_batch(GatewayVoiceControl* voice, const JsonIndexedDocument& document, JsonValue data,
+                         u32 depth, u64 now_ms) noexcept {
+    Batch batch{voice, &document, {}, now_ms, depth, false};
+    return json_visit_indexed_object(document, data, depth, field, &batch).ok() && batch.found &&
+           json_visit_indexed_array(document, batch.states, depth, item, &batch).ok();
 }
 } // namespace
 
-bool gateway_voice_dispatch(GatewayVoiceControl* voice, const GatewayEnvelope& envelope, Slice<u32> scratch,
-                            u32 maximum_depth, u64 now_ms) noexcept {
+bool gateway_voice_dispatch(GatewayVoiceControl* voice, const GatewayEnvelope& envelope, u32 maximum_depth,
+                            u64 now_ms) noexcept {
     const u32 event_index = protocol_detail::skim_member_index<"VOICE_STATE_UPDATE", "VOICE_SERVER_UPDATE",
                                                                "VOICE_STATE_UPDATE_BATCH">(envelope.event_name);
     const bool state_event = event_index == 0;
@@ -60,21 +50,23 @@ bool gateway_voice_dispatch(GatewayVoiceControl* voice, const GatewayEnvelope& e
     if (event_index > 2)
         return false;
     // Nothing from these documents belongs in the UI mailbox, even while idle.
-    if (!voice || !voice->requested)
+    if (!voice->requested)
         return true;
+    // The envelope's index of the frame is still intact: the earlier Gateway steps only scan other events.
+    const JsonIndexedDocument& frame = envelope.document;
     bool valid = false;
     if (state_event) {
         GatewayVoiceState state{};
-        valid = gateway_decode_voice_state(envelope.data, scratch, maximum_depth, &state).ok();
+        valid = gateway_decode_voice_state(frame, envelope.data, maximum_depth, &state).ok();
         if (valid)
             gateway_voice_state(voice, state, now_ms);
     } else if (server_event) {
         GatewayVoiceServer server{};
-        valid = gateway_decode_voice_server(envelope.data, scratch, maximum_depth, &server).ok();
+        valid = gateway_decode_voice_server(frame, envelope.data, maximum_depth, &server).ok();
         if (valid)
             gateway_voice_server(voice, server);
     } else
-        valid = decode_batch(voice, envelope.data, scratch, maximum_depth, now_ms);
+        valid = decode_batch(voice, frame, envelope.data, maximum_depth, now_ms);
     // Batch callbacks cannot start a transport. Retire all partial setup if a
     // later member is invalid, before the caller can consume credentials.
     if (!valid)
@@ -93,7 +85,6 @@ static_assert(kVoiceRecordBytes + kUserBatchRecords * kUserRecordMaximumBytes <=
 
 struct Projection {
     JsonIndexedDocument array;
-    Slice<u32> item_scratch;
     Slice<char> payload;
     GatewayRelationshipPublish publish;
     void* context;
@@ -152,7 +143,7 @@ bool find_member(void* opaque, JsonString name, JsonValue value) noexcept {
 bool append_user(Projection& p, JsonValue user) noexcept {
     GatewayPayloadWriter writer{{p.payload.data + kVoiceRecordBytes, p.payload.count - kVoiceRecordBytes},
                                 p.user_bytes};
-    if (!gateway_append_user(user, p.item_scratch, p.depth, &writer).ok())
+    if (!gateway_append_user(p.array, user, p.depth, &writer).ok())
         return false;
     p.user_bytes = writer.used;
     if (++p.users == kUserBatchRecords ||
@@ -168,7 +159,7 @@ bool project_item(void* opaque, u32, JsonValue value) noexcept {
     auto& p = *static_cast<Projection*>(opaque);
     GatewayVoiceState state{};
     // Other users' rows need no session; only the local connection compares it.
-    if (!gateway_decode_voice_state_row(value, p.item_scratch, p.depth, &state).ok() ||
+    if (!gateway_decode_voice_state_row(p.array, value, p.depth, &state).ok() ||
         (state.guild_id && p.guild_id && state.guild_id != p.guild_id))
         return false;
     MemberLookup member{&p.array, {}, p.depth};
@@ -201,14 +192,9 @@ bool project_removed(void* opaque, u32, JsonValue value) noexcept {
         return false;
     return !p.publishing || append_record(p, {p.guild_id, 0, user_id, 0, 0});
 }
-bool visit_array(Projection& p, JsonValue array, const Slice<u32>& index, JsonArrayVisitor visit) noexcept {
-    if (array.kind != JsonValueKind::array)
-        return true;
-    const auto scan = json_scan_structurals_avx1(array.source, index);
-    if (!scan.ok())
-        return false;
-    p.array = {array.source, {index.data, scan.count}};
-    return json_visit_value_array(array, p.array.structurals, p.depth, visit, &p).ok();
+// An absent or non-array value has no rows.
+bool visit_array(Projection& p, JsonValue array, JsonArrayVisitor visit) noexcept {
+    return array.kind != JsonValueKind::array || json_visit_indexed_array(p.array, array, p.depth, visit, &p).ok();
 }
 struct PassiveFields {
     JsonValue guild_id, states, removed, members;
@@ -226,59 +212,59 @@ bool passive_field(void* opaque, JsonString name, JsonValue value) noexcept {
     return true;
 }
 struct SupplementalPass {
-    JsonIndexedDocument guilds;
-    Slice<u32> scratch;
+    const JsonIndexedDocument* document;
     Slice<char> payload;
     GatewayRelationshipPublish publish;
     void* context;
     u64 sequence, now_ms;
     bool failed;
 };
+struct GuildVoice {
+    JsonValue id, states;
+};
+bool guild_voice_field(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& guild = *static_cast<GuildVoice*>(opaque);
+    switch (protocol_detail::member_index<"id", "voice_states">(name)) {
+    case 0: guild.id = value; break;
+    case 1: guild.states = value; break;
+    default: break;
+    }
+    return true;
+}
 bool supplemental_guild(void* opaque, u32, JsonValue value) noexcept {
     auto& pass = *static_cast<SupplementalPass*>(opaque);
-    JsonValue id{};
-    GatewayNamedMember id_target{utf8_literal("id"), &id};
+    GuildVoice guild{};
     u64 guild_id = 0;
     // A malformed guild entry only skips that guild's voice states.
     if (value.kind != JsonValueKind::object ||
-        !json_visit_indexed_object(pass.guilds, value, 32, gateway_store_named_member, &id_target).ok() ||
-        !json_value_to_snowflake(id, &guild_id) || !guild_id)
+        !json_visit_indexed_object(*pass.document, value, 32, guild_voice_field, &guild).ok() ||
+        !json_value_to_snowflake(guild.id, &guild_id) || !guild_id)
         return true;
-    if (gateway_client_publish_voice_states(value, GatewayVoiceStateSource::guild, guild_id, pass.scratch,
-                                            pass.payload, pass.sequence, pass.now_ms, pass.publish,
-                                            pass.context))
+    if (gateway_client_publish_voice_states(*pass.document, guild.states, GatewayVoiceStateSource::guild, guild_id,
+                                            pass.payload, pass.sequence, pass.now_ms, pass.publish, pass.context))
         return true;
     pass.failed = true;
     return false;
 }
 } // namespace
 
-bool gateway_client_publish_voice_states(JsonValue data, GatewayVoiceStateSource source, u64 guild_id,
-                                         Slice<u32> scratch, Slice<char> payload, u64 sequence,
-                                         u64 now_ms, GatewayRelationshipPublish publish,
-                                         void* context, const JsonValue* located) noexcept {
-    if (!publish || !scratch.data || scratch.count < 64 || !payload.data ||
-        payload.count < kGatewayClientDispatchPayloadCapacity || data.kind != JsonValueKind::object)
-        return true;
-    // A single update is wrapped as a one-item array view of its own source.
-    JsonValue states{};
-    if (source == GatewayVoiceStateSource::update)
-        states = data;
-    else if (located) {
-        if (located->kind != JsonValueKind::array)
-            return true;
-        states = *located;
-    } else {
+bool gateway_client_publish_voice_states(const JsonIndexedDocument& document, JsonValue data,
+                                         GatewayVoiceStateSource source, u64 guild_id, Slice<char> payload,
+                                         u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
+                                         void* context) noexcept {
+    // An update is one row, a batch lists its rows in voice_states, a guild source is such a list.
+    JsonValue states = data;
+    if (source == GatewayVoiceStateSource::batch) {
+        states = {};
         GatewayNamedMember target{utf8_literal("voice_states"), &states};
-        const auto scan = json_scan_structurals_avx1(data.source, scratch);
-        if (!scan.ok() ||
-            !json_visit_value_object(data, {scratch.data, scan.count}, 64, gateway_store_named_member, &target).ok() ||
-            states.kind != JsonValueKind::array)
+        if (!json_visit_indexed_object(document, data, 64, gateway_store_named_member, &target).ok())
             return true;
     }
-    const u32 half = scratch.count / 2;
+    const bool update = source == GatewayVoiceStateSource::update;
+    if (states.kind != (update ? JsonValueKind::object : JsonValueKind::array))
+        return true;
     Projection p{};
-    p.item_scratch = {scratch.data + half, scratch.count - half};
+    p.array = document;
     p.payload = payload;
     p.publish = publish;
     p.context = context;
@@ -286,15 +272,8 @@ bool gateway_client_publish_voice_states(JsonValue data, GatewayVoiceStateSource
     p.sequence = sequence;
     p.now_ms = now_ms;
     p.depth = 32;
-    const auto scan = json_scan_structurals_avx1(states.source, {scratch.data, half});
-    if (!scan.ok())
-        return true;
-    p.array = {states.source, {scratch.data, scan.count}};
     const auto visit = [&]() noexcept {
-        if (source != GatewayVoiceStateSource::update)
-            return json_visit_value_array(states, p.array.structurals, p.depth, project_item, &p).ok();
-        JsonValue root{states.source, 0, JsonValueKind::object};
-        return project_item(&p, 0, root);
+        return update ? project_item(&p, 0, states) : visit_array(p, states, project_item);
     };
     if (!visit())
         return true;
@@ -305,24 +284,20 @@ bool gateway_client_publish_voice_states(JsonValue data, GatewayVoiceStateSource
     return flush_records(p, true) && flush_users(p);
 }
 
-bool gateway_client_publish_passive_voice_states(JsonValue data, Slice<u32> scratch, Slice<char> payload,
-                                                 u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
-                                                 void* context) noexcept {
-    if (!publish || !scratch.data || scratch.count < 64 || !payload.data ||
-        payload.count < kGatewayClientDispatchPayloadCapacity || data.kind != JsonValueKind::object)
-        return true;
+bool gateway_client_publish_passive_voice_states(const GatewayEnvelope& envelope, Slice<u32> scratch,
+                                                 Slice<char> payload, u64 sequence, u64 now_ms,
+                                                 GatewayRelationshipPublish publish, void* context) noexcept {
+    // Read through the frame's index, which the channel cursor route reads after this.
+    JsonIndexedDocument frame;
     PassiveFields fields{};
-    const auto scan = json_scan_structurals_avx1(data.source, scratch);
     u64 guild_id = 0;
-    if (!scan.ok() ||
-        !json_visit_value_object(data, {scratch.data, scan.count}, 64, passive_field, &fields).ok() ||
+    if (!gateway_frame_index(envelope, scratch, &frame).ok() ||
+        !json_visit_indexed_object(frame, envelope.data, 64, passive_field, &fields).ok() ||
         !json_value_to_snowflake(fields.guild_id, &guild_id) || !guild_id ||
         (fields.states.kind != JsonValueKind::array && fields.removed.kind != JsonValueKind::array))
         return true;
-    const u32 half = scratch.count / 2;
-    const Slice<u32> index{scratch.data, half};
     Projection p{};
-    p.item_scratch = {scratch.data + half, scratch.count - half};
+    p.array = frame;
     p.payload = payload;
     p.publish = publish;
     p.context = context;
@@ -331,9 +306,8 @@ bool gateway_client_publish_passive_voice_states(JsonValue data, Slice<u32> scra
     p.now_ms = now_ms;
     p.depth = 32;
     const auto visit = [&]() noexcept {
-        return visit_array(p, fields.members, index, project_member) &&
-               visit_array(p, fields.states, index, project_item) &&
-               visit_array(p, fields.removed, index, project_removed);
+        return visit_array(p, fields.members, project_member) && visit_array(p, fields.states, project_item) &&
+               visit_array(p, fields.removed, project_removed);
     };
     // Validate everything before queueing, as for the other sources.
     if (!visit())
@@ -344,36 +318,16 @@ bool gateway_client_publish_passive_voice_states(JsonValue data, Slice<u32> scra
     return flush_records(p, true) && flush_users(p);
 }
 
-bool gateway_client_publish_supplemental_voice_states(JsonValue data, Slice<u32> array_scratch,
-                                                      Slice<u32> object_scratch, Slice<char> payload,
-                                                      u64 sequence, u64 now_ms,
+bool gateway_client_publish_supplemental_voice_states(const JsonIndexedDocument& document, JsonValue data,
+                                                      Slice<char> payload, u64 sequence, u64 now_ms,
                                                       GatewayRelationshipPublish publish, void* context) noexcept {
-    if (!publish || !array_scratch.data || !array_scratch.count || !object_scratch.data ||
-        object_scratch.count < 64 || data.kind != JsonValueKind::object)
-        return true;
-    // The whole document and then the guild list index into array_scratch; the
-    // list index stays live while each guild rescans into object_scratch.
     JsonValue guilds{};
     GatewayNamedMember target{utf8_literal("guilds"), &guilds};
-    auto scan = json_scan_structurals_avx1(data.source, array_scratch);
-    if (!scan.ok() ||
-        !json_visit_value_object(data, {array_scratch.data, scan.count}, 64, gateway_store_named_member,
-                                &target)
-             .ok() ||
+    if (!json_visit_indexed_object(document, data, 64, gateway_store_named_member, &target).ok() ||
         guilds.kind != JsonValueKind::array)
         return true;
-    scan = json_scan_structurals_avx1(guilds.source, array_scratch);
-    if (!scan.ok())
-        return true;
-    SupplementalPass pass{{guilds.source, {array_scratch.data, scan.count}},
-                          object_scratch,
-                          payload,
-                          publish,
-                          context,
-                          sequence,
-                          now_ms,
-                          false};
-    json_visit_value_array(guilds, pass.guilds.structurals, 64, supplemental_guild, &pass);
+    SupplementalPass pass{&document, payload, publish, context, sequence, now_ms, false};
+    json_visit_indexed_array(document, guilds, 64, supplemental_guild, &pass);
     return !pass.failed;
 }
 } // namespace maicord

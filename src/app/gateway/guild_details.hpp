@@ -44,9 +44,9 @@ void gateway_guild_detail_merge(GatewayGuildDetailValues* to, const GatewayGuild
 // the boost and member counts counts as observed, absent ones as zero or
 // null, since such a record replaces the guild. A description or feature
 // list that cannot be carried leaves its bit clear. False only when the
-// writer is full; *bytes is the record size.
+// writer is full; *bytes is the record size. `document` holds the guild and the values.
 bool gateway_guild_details_append(const GatewayGuildDetailValues& values, JsonValue features, bool features_seen,
-                                  Slice<u32> scratch, u32 maximum_depth, GatewayPayloadWriter* writer,
-                                  u16* bytes) noexcept;
+                                  const JsonIndexedDocument& document, u32 maximum_depth,
+                                  GatewayPayloadWriter* writer, u16* bytes) noexcept;
 
 } // namespace maicord

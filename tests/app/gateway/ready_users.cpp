@@ -1082,7 +1082,8 @@ void auth_session_change(void (*check)(bool, const char*) noexcept) noexcept {
     envelope.data = {utf8_literal(R"({"auth_session_id_hash":"abc="})"), 0, JsonValueKind::object};
     envelope.sequence = 4;
     envelope.has_sequence = true;
-    publish_auth_session_change(&client, &runtime, envelope, 10);
+    u32 index[16];
+    publish_auth_session_change(&client, &runtime, envelope, {index, 16}, 10);
     GatewayClientEvent event{};
     const auto popped = spsc_mailbox_pop(&runtime.events, &event, {output, sizeof(output)});
     static UserSettingsStore store{};
@@ -1197,16 +1198,21 @@ void test_gateway_ready_users(void (*check)(bool, const char*) noexcept) noexcep
     check(batch(ready_with_users(rich_user(), 64), 64, true),
           "ready rich users retain maximum names and serialized appearance");
     constexpr auto invalid = utf8_literal("{\"id\":\"123\",\"username\":\"first\",\"username\":\"duplicate\"}");
+    const auto append = [](Utf8View user, GatewayPayloadWriter* writer) noexcept {
+        const auto scan = json_scan_structurals_avx1(user, main_index_view(&runtime));
+        return gateway_append_user({user, {main_index_view(&runtime).data, scan.count}},
+                                   {user, 0, JsonValueKind::object}, 64, writer);
+    };
     char bytes[2048];
     GatewayPayloadWriter writer{{bytes, sizeof(bytes)}, 7};
-    auto result = gateway_append_user({invalid, 0, JsonValueKind::object}, main_index_view(&runtime), 64, &writer);
+    auto result = append(invalid, &writer);
     check(!result.ok() && writer.used == 7, "user parse errors do not append partial records");
     writer = {{bytes, 8}, 0};
-    result = gateway_append_user({basic, 0, JsonValueKind::object}, main_index_view(&runtime), 64, &writer);
+    result = append(basic, &writer);
     check(result.error == GatewayClientDispatchRouteError::payload_capacity && writer.used == 0,
           "user output capacity failure is atomic");
     writer = {{bytes, sizeof(bytes)}, 0};
-    result = gateway_append_user({utf8_literal("\"123\""), 0, JsonValueKind::string}, {}, 64, &writer, true);
+    result = gateway_append_user({}, {utf8_literal("\"123\""), 0, JsonValueKind::string}, 64, &writer, true);
     GatewayClientUserMutation id_only{};
     Utf8View name{}, avatar{}, username{}; ConstSlice<u8> appearance{}; u32 cursor = 0;
     check(result.ok() && gateway_client_user_record({reinterpret_cast<const u8*>(bytes), writer.used},

@@ -46,6 +46,13 @@ GatewayEventDecodeResult decode(Utf8View body, bool complete = false,
         {body, {f.structurals, scan.count}}, 32, {f.text, text_capacity}, &f.used, scratch, &f.output,
         complete);
 }
+// A vote body indexed as a document of its own, as the Gateway frame is.
+bool decode_vote(Utf8View body, bool add, GatewayMessagePollVoteEvent* vote) noexcept {
+    const auto scan = json_scan_structurals_avx1(body, {f.structurals, 2048});
+    return scan.ok() && gateway_decode_message_poll_vote({body, {f.structurals, scan.count}},
+                                                         {body, 0, JsonValueKind::object}, 32, add, vote)
+                            .ok();
+}
 GatewayMessageRichScratch rich() noexcept {
     return {{f.reactions, 20},
             {f.attachments, 10},
@@ -120,11 +127,16 @@ bool reaction_batch_publish_sink(void* opaque, const GatewayClientEvent& event,
 }
 void reaction_batch_checks(void (*check)(bool, const char*) noexcept) noexcept {
     ReactionBatchCapture capture{};
+    // The batch reads the frame's index: here the body's own scan.
     const auto visit = [&](Utf8View body,
                            u32 name_capacity = kMessageReactionMaximumEmojiNameBytes) noexcept {
-        return gateway_visit_message_reaction_add_many({body, 0, JsonValueKind::object},
-                                                       {f.structurals, 2048}, 32, {f.text, name_capacity},
-                                                       &capture, reaction_batch_sink);
+        const auto scan = json_scan_structurals_avx1(body, {f.structurals, 2048});
+        if (!scan.ok())
+            return GatewayReactionBatchVisitResult{
+                {scan.error_offset, GatewayEventDecodeError::scan_failed, scan.error}, 0, false};
+        return gateway_visit_message_reaction_add_many({body, {f.structurals, scan.count}},
+                                                       {body, 0, JsonValueKind::object}, 32,
+                                                       {f.text, name_capacity}, &capture, reaction_batch_sink);
     };
     constexpr auto batch = utf8_literal(
         R"({"channel_id":"7","message_id":"77","guild_id":"9","reactions":[{"users":["11","12","11"],"emoji":{"id":null,"name":"\u2764\ufe0f"}},{"users":["11"],"emoji":{"id":"44","name":null,"animated":true}},{"users":["12"],"emoji":{"id":"45","name":"wave","animated":true}}]})");
@@ -260,13 +272,6 @@ void reaction_batch_checks(void (*check)(bool, const char*) noexcept) noexcept {
     const auto streamed = visit(large);
     check(written && streamed.ok() && streamed.visited == 300 && capture.calls == 300,
           "reaction batch streams a populated message linearly without a small actor table cap");
-    capture = {};
-    const auto aliased = gateway_visit_message_reaction_add_many(
-        {large, 0, JsonValueKind::object}, {f.structurals, 2048}, 32,
-        {reinterpret_cast<char*>(f.generated), 128}, &capture, reaction_batch_sink);
-    check(!aliased.ok() && aliased.decoded.error == GatewayEventDecodeError::invalid_input &&
-              !capture.calls && f.generated[0] == '{',
-          "reaction batch rejects scratch aliasing before overwriting its source");
 }
 } // namespace
 struct VoteBatchCapture {
@@ -297,8 +302,13 @@ bool vote_batch_publish_sink(void* opaque, const GatewayClientEvent& event, Cons
 void poll_vote_batch_checks(void (*check)(bool, const char*) noexcept) noexcept {
     VoteBatchCapture capture{};
     const auto visit = [&](Utf8View body) noexcept {
-        return gateway_visit_message_poll_vote_add_many({body, 0, JsonValueKind::object}, {f.structurals, 2048}, 32,
-                                                        &capture, vote_batch_sink);
+        const auto scan = json_scan_structurals_avx1(body, {f.structurals, 2048});
+        if (!scan.ok())
+            return GatewayReactionBatchVisitResult{
+                {scan.error_offset, GatewayEventDecodeError::scan_failed, scan.error}, 0, false};
+        return gateway_visit_message_poll_vote_add_many({body, {f.structurals, scan.count}},
+                                                        {body, 0, JsonValueKind::object}, 32, &capture,
+                                                        vote_batch_sink);
     };
     constexpr auto batch = utf8_literal(
         R"({"channel_id":"7","message_id":"77","guild_id":"9","votes":[{"answer_id":1,"users":["11","12"]},{"answer_id":2,"users":["13"],"extra":true}]})");
@@ -403,9 +413,7 @@ void etf_integer_id_checks(void (*check)(bool, const char*) noexcept) noexcept {
     check(utf8_equal(vote_json, utf8_literal(R"({"answer_id":"2","channel_id":"1097750000000000001",)"
                                              R"("guild_id":"1097750000000000002","message_id":"1097750000000000003",)"
                                              R"("user_id":"1097750000000000004"})")) &&
-              gateway_decode_message_poll_vote({vote_json, 0, JsonValueKind::object}, {f.structurals, 2048}, 32,
-                                               true, &decoded_vote)
-                  .ok() &&
+              decode_vote(vote_json, true, &decoded_vote) &&
               decoded_vote.answer_id == 2 && decoded_vote.user_id == user && decoded_vote.message_id == message,
           "ETF poll vote: the transcoded answer_id string decodes as the answer");
     EtfTerm poll;
@@ -580,40 +588,27 @@ void test_gateway_message_poll(void (*check)(bool, const char*) noexcept) noexce
     constexpr auto vote_body = utf8_literal(
         R"({"channel_id":"7","message_id":"900","user_id":"11","guild_id":"19","answer_id":42})");
     GatewayMessagePollVoteEvent vote{};
-    check(gateway_decode_message_poll_vote({vote_body, 0, JsonValueKind::object}, {f.structurals, 2048}, 32,
-                                           true, &vote)
-                  .ok() &&
+    check(decode_vote(vote_body, true, &vote) &&
               vote.channel_id == 7 && vote.message_id == 900 && vote.user_id == 11 && vote.guild_id == 19 &&
               vote.has_guild && vote.answer_id == 42 && vote.add,
           "poll vote add parser retains exact channel message actor guild and arbitrary answer identity");
     constexpr auto dm_vote =
         utf8_literal(R"({"channel_id":"7","message_id":"900","user_id":"11","answer_id":7})");
-    check(gateway_decode_message_poll_vote({dm_vote, 0, JsonValueKind::object}, {f.structurals, 2048}, 32,
-                                           false, &vote)
-                  .ok() &&
+    check(decode_vote(dm_vote, false, &vote) &&
               !vote.add && !vote.has_guild && !vote.guild_id,
           "poll vote removal permits absent guild for direct messages without inventing guild authority");
     const auto old_vote = vote;
     constexpr auto malformed_vote =
         utf8_literal(R"({"channel_id":"7","message_id":"900","user_id":"11","answer_id":0})");
-    check(!gateway_decode_message_poll_vote({malformed_vote, 0, JsonValueKind::object},
-                                            {f.structurals, 2048}, 32, true, &vote)
-                  .ok() &&
+    check(!decode_vote(malformed_vote, true, &vote) &&
               vote.answer_id == old_vote.answer_id && vote.add == old_vote.add,
           "poll malformed vote cannot partially overwrite a previous typed receipt");
 
     constexpr auto duplicate_vote = utf8_literal(
         R"({"channel_id":"7","message_id":"900","user_id":"11","answer_id":7,"answer_id":42})");
-    check(!gateway_decode_message_poll_vote({duplicate_vote, 0, JsonValueKind::object},
-                                            {f.structurals, 2048}, 32, true, &vote)
-                  .ok() &&
+    check(!decode_vote(duplicate_vote, true, &vote) &&
               vote.answer_id == old_vote.answer_id && !vote.add,
           "poll duplicate vote answer identity cannot overwrite a retained receipt");
-    check(!gateway_decode_message_poll_vote({vote_body, 0, JsonValueKind::object}, {f.structurals, 2048},
-                                            32, true,
-                                            reinterpret_cast<GatewayMessagePollVoteEvent*>(f.structurals))
-               .ok(),
-          "poll vote output overlapping structural scratch rejects before scanning or publication");
     writer.used = 0;
     written = append_message(writer, 900, complete_poll);
     GatewayMessageEvent basic{};

@@ -455,9 +455,10 @@ struct SelfSettingsJson {
 
 bool self_settings_json(Utf8View source, SelfSettingsJson* parsed) noexcept;
 bool self_settings_observe_locked(GatewayClientRuntime* runtime, JsonValue value, bool partial) noexcept;
+// USER_SETTINGS_PROTO_UPDATE, parsed once by self_settings_json for both.
 bool self_settings_dispatch(GatewayClient* client, GatewayClientRuntime* runtime,
-                            Utf8View source) noexcept;
-void settings_stores_dispatch(GatewayClient* client, GatewayClientRuntime* runtime,
+                            const SelfSettingsJson& parsed) noexcept;
+void settings_stores_dispatch(GatewayClient* client, GatewayClientRuntime* runtime, const SelfSettingsJson& parsed,
                               const GatewayEnvelope& envelope, u64 now_ms) noexcept;
 bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, NetworkLoop* loop,
                       u64 now_ms) noexcept;
@@ -519,10 +520,11 @@ struct PrivateChannelPublish {
     bool publish_failed;
 };
 
-// READY_SUPPLEMENTAL's lazy private channels, each routed as CHANNEL_CREATE and published; the first one that
-// cannot be routed or published stops the rest.
+// READY_SUPPLEMENTAL's lazy private channels, read through `document` (which holds them), each routed as
+// CHANNEL_CREATE and published; the first one that cannot be routed or published stops the rest.
 PrivateChannelPublish publish_private_channels(GatewayClient* client, GatewayClientRuntime* runtime,
-                                               JsonValue channels, u64 sequence, u64 now_ms) noexcept;
+                                               const JsonIndexedDocument& document, JsonValue channels,
+                                               u64 sequence, u64 now_ms) noexcept;
 PlaintextDrive drive_queued_actions(GatewayClient* client, GatewayClientRuntime* runtime,
                                     u64 now_ms) noexcept;
 PlaintextDrive resume_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept;

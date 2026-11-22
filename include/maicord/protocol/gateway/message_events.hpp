@@ -15,7 +15,7 @@ GatewayEventDecodeResult gateway_decode_message_poll(JsonValue data, const JsonI
                                                      const GatewayMessagePollScratch& scratch,
                                                      GatewayMessagePoll* output,
                                                      bool require_complete = false) noexcept;
-GatewayEventDecodeResult gateway_decode_message_poll_vote(JsonValue data, Slice<u32> structural_scratch,
+GatewayEventDecodeResult gateway_decode_message_poll_vote(const JsonIndexedDocument& document, JsonValue data,
                                                           u32 maximum_depth, bool add,
                                                           GatewayMessagePollVoteEvent* output) noexcept;
 
@@ -63,10 +63,10 @@ GatewayEventDecodeResult gateway_decode_message_update(
     Slice<u64> mention_role_scratch, Slice<u64> member_role_scratch,
     Slice<GatewayMessageNamedUser> mention_user_scratch, const GatewayMessageRichScratch& rich_scratch,
     u64 current_user_id, GatewayMessageEvent* output) noexcept;
-GatewayEventDecodeResult gateway_decode_message_delete(JsonValue data, Slice<u32> structural_scratch,
+GatewayEventDecodeResult gateway_decode_message_delete(const JsonIndexedDocument& document, JsonValue data,
                                                        u32 maximum_depth,
                                                        GatewayMessageDeleteEvent* output) noexcept;
-GatewayEventDecodeResult gateway_decode_message_bulk_delete(JsonValue data, Slice<u32> structural_scratch,
+GatewayEventDecodeResult gateway_decode_message_bulk_delete(const JsonIndexedDocument& document, JsonValue data,
                                                             u32 maximum_depth, Slice<u64> ids,
                                                             GatewayMessageBulkDeleteEvent* output) noexcept;
 

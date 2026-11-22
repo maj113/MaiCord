@@ -31,8 +31,8 @@ void gateway_voice_server(GatewayVoiceControl* voice, const GatewayVoiceServer& 
 bool gateway_voice_expire(GatewayVoiceControl* voice, u64 now_ms) noexcept;
 void gateway_voice_cancel(GatewayVoiceControl* voice, GatewayVoiceError error) noexcept;
 void gateway_voice_release(GatewayVoiceControl* voice) noexcept;
-// Consumes secret-bearing dispatches entirely on the worker. A malformed voice
-// event cancels voice setup, never the main Gateway or its message state.
-bool gateway_voice_dispatch(GatewayVoiceControl* voice, const GatewayEnvelope& envelope, Slice<u32> scratch,
-                            u32 maximum_depth, u64 now_ms) noexcept;
+// Consumes secret-bearing dispatches entirely on the worker, from the envelope's index of the frame. A malformed
+// voice event cancels voice setup, never the main Gateway or its message state.
+bool gateway_voice_dispatch(GatewayVoiceControl* voice, const GatewayEnvelope& envelope, u32 maximum_depth,
+                            u64 now_ms) noexcept;
 } // namespace maicord

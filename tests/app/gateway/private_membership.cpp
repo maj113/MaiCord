@@ -107,7 +107,7 @@ void test_private_membership(void (*check)(bool, const char*) noexcept) noexcept
     const auto supplemental = [&](Utf8View json, JsonValue* array) noexcept {
         GatewayEnvelope envelope{};
         return gateway_decode_envelope(json, {scratch, 4096}, 64, &envelope).ok() &&
-            gateway_decode_supplemental_private_channels(envelope.data, {scratch, 4096}, 64, array).ok();
+            gateway_decode_supplemental_private_channels(envelope.document, envelope.data, 64, array).ok();
     };
     JsonValue array{};
     check(supplemental(utf8_literal(R"({"op":0,"t":"READY_SUPPLEMENTAL","s":12,"d":{"guilds":[],"lazy_private_channels":[{"id":"12","type":1,"recipients":[{"id":"6","username":"Late peer"}]}]}})"), &array) &&

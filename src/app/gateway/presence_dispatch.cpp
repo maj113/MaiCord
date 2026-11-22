@@ -93,8 +93,6 @@ GatewayEventDecodeResult read_object(const JsonIndexedDocument& document, JsonVa
 GatewayEventDecodeResult gateway_client_decode_presence(
     const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth,
     GatewayClientPresenceUpdate* output, UserAppearance* appearance, JsonValue* activities) noexcept {
-    if (maximum_depth == 0 || !data.source.data || data.source.bytes == 0)
-        return {0, GatewayEventDecodeError::invalid_input};
     reset_value(output);
     PresenceContext context{&document};
     auto decoded = read_object(document, data, maximum_depth, false, &context);

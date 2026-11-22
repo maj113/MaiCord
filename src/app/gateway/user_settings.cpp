@@ -1,5 +1,5 @@
 #include "maicord/app/gateway/user_settings.hpp"
-#include "maicord/core/json_reader.hpp"
+#include "dispatch_common.hpp"
 #include "maicord/protocol/user/settings_proto.hpp"
 
 namespace maicord {
@@ -10,10 +10,6 @@ GatewayClientDispatchRouteResult gateway_client_publish_user_settings(
     void* context) noexcept {
     GatewayClientDispatchRouteResult result{};
     constexpr u32 output_bytes = kUserSettingsProtoArenaBytes + 16;
-    if (!publish || !storage.data || storage.count < output_bytes) {
-        result.error = GatewayClientDispatchRouteError::invalid_input;
-        return result;
-    }
     // A READY without settings (missing or "") is an empty message: every
     // setting at its default and editable, as the official client loads it. A
     // partial update without settings carries only a new session hash
@@ -60,12 +56,8 @@ GatewayClientDispatchRouteResult gateway_client_publish_user_settings(
         output.data[bytes++] = static_cast<u8>(key >> 7);
         output.data[bytes++] = 1;
     }
-    GatewayClientEvent event{};
-    event.kind = GatewayClientEventKind::dispatch;
-    event.dispatch_kind = GatewayClientDispatchKind::user_settings;
-    event.sequence = sequence;
+    GatewayClientEvent event = gateway_dispatch_event(GatewayClientDispatchKind::user_settings, sequence, now_ms);
     event.has_sequence = has_sequence;
-    event.timestamp_ms = now_ms;
     event.dispatch_payload_bytes = bytes;
     if (!publish(context, event, {output.data, bytes}))
         result.error = GatewayClientDispatchRouteError::payload_capacity;

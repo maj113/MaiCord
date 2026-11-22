@@ -28,7 +28,7 @@ bool make_record(const GatewayStageInstance& instance, u64 guild_id, GatewayClie
     return record->guild_id != 0;
 }
 struct GuildPass {
-    Slice<u32> item_scratch;
+    JsonIndexedDocument instances; // The array's index: each row is read through it.
     GatewayClientStageInstanceRecord* records;
     u64 guild_id;
     u32 count;
@@ -39,7 +39,7 @@ bool guild_row(void* opaque, u32, JsonValue value) noexcept {
     GatewayClientStageInstanceRecord record{};
     // A malformed row only skips that instance.
     if (pass.count >= kSnapshotRecords ||
-        !gateway_decode_stage_instance(value, pass.item_scratch, kDepth, &instance).ok() || !instance.id ||
+        !gateway_decode_stage_instance(pass.instances, value, kDepth, &instance).ok() || !instance.id ||
         !make_record(instance, pass.guild_id, &record) || record.guild_id != pass.guild_id)
         return true;
     copy_bytes(pass.records + pass.count++, &record, sizeof(record));
@@ -52,13 +52,12 @@ bool gateway_client_publish_stage_instances(JsonValue instances, u64 guild_id, S
                                             GatewayRelationshipPublish publish, void* context) noexcept {
     if (instances.kind != JsonValueKind::array)
         return true;
-    const u32 half = scratch.count / 2;
-    const auto scan = json_scan_structurals_avx1(instances.source, {scratch.data, half});
+    const auto scan = json_scan_structurals_avx1(instances.source, scratch);
     if (!scan.ok())
         return true;
-    GuildPass pass{{scratch.data + half, scratch.count - half},
+    GuildPass pass{{instances.source, {scratch.data, scan.count}},
                    reinterpret_cast<GatewayClientStageInstanceRecord*>(payload.data), guild_id, 0};
-    if (!json_visit_value_array(instances, {scratch.data, scan.count}, kDepth, guild_row, &pass).ok())
+    if (!json_visit_indexed_array(pass.instances, instances, kDepth, guild_row, &pass).ok())
         return true;
     GatewayClientEvent event =
         gateway_dispatch_event(GatewayClientDispatchKind::stage_instance_snapshot, sequence, now_ms);
@@ -74,10 +73,10 @@ GatewayClientDispatchRouteResult gateway_client_route_stage_instance(const Gatew
                                                                      ConstSlice<u8>* payload) noexcept {
     GatewayStageInstance instance{};
     GatewayClientStageInstanceRecord record{};
-    if (payload_scratch.count < sizeof(record) || !payload_scratch.data ||
-        !gateway_decode_stage_instance(envelope.data, scratch, maximum_depth ? maximum_depth : kDepth, &instance)
-             .ok() ||
-        !instance.id || !make_record(instance, 0, &record))
+    JsonIndexedDocument frame;
+    if (!gateway_frame_index(envelope, scratch, &frame).ok() ||
+        !gateway_decode_stage_instance(frame, envelope.data, maximum_depth, &instance).ok() || !instance.id ||
+        !make_record(instance, 0, &record))
         return {}; // Ancillary: an unusable instance stays an unknown dispatch.
     if (json_string_equals_ascii(envelope.event_name, utf8_literal("STAGE_INSTANCE_DELETE"))) {
         record.id = 0;

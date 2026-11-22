@@ -52,8 +52,9 @@ GatewayReadyProjectionResult gateway_ready_project(const GatewayReady& ready,
     GatewayReadyPublish publish, GatewayReadyContinue work, void* context) noexcept;
 // Ancillary, row-atomic supplemental hydration. Invalid rows are skipped. The
 // caller pins the source and fences the current Gateway session until return.
+// `data` is read through `document`, which holds it; `records` indexes each row.
 GatewayClientDispatchRouteResult gateway_ready_publish_supplemental_members(
-    JsonValue data, u64 self_user_id, Slice<u32> arrays, Slice<u32> records, Slice<char> payload,
+    const JsonIndexedDocument& document, JsonValue data, u64 self_user_id, Slice<u32> records, Slice<char> payload,
     u64 sequence, u64 now_ms, GatewayReadyPublish publish, void* context) noexcept;
 // Internal READY routes; merged members replace the guild-local member list. `document` is null or the READY
 // document that holds the guild (GatewayReadyProjectionScratch::document).

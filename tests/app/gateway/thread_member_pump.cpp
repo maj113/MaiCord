@@ -65,7 +65,7 @@ bool route(Utf8View source, GatewayClientEvent* event, ConstSlice<u8>* payload) 
     bool handled = false;
     if (!gateway_decode_envelope(source, {f.structurals, 4096}, 32, &envelope).ok() ||
         !gateway_client_route_thread_member_dispatch(envelope, {f.structurals, 4096}, 32,
-            {f.packet, sizeof(f.packet)}, event, payload, &handled).ok() || !handled) return false;
+            {f.packet, sizeof(f.packet)}, 0, event, payload, &handled).ok() || !handled) return false;
     event->kind = GatewayClientEventKind::dispatch;
     event->dispatch_payload_bytes = payload->count;
     return true;

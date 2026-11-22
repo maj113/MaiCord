@@ -21,15 +21,14 @@ inline void adopt_refreshed_token(GatewayClient* client, GatewayClientRuntime* r
 }
 
 // AUTH_SESSION_CHANGE {auth_session_id_hash}: the settings store's session hash (the Devices list's current
-// session) follows it, as a partial settings update that carries the hash alone.
+// session) follows it, as a partial settings update that carries the hash alone. Read through the frame's index.
 void publish_auth_session_change(GatewayClient* client, GatewayClientRuntime* runtime,
-                                 const GatewayEnvelope& envelope, u64 now_ms) noexcept {
-    u32 structurals[16];
+                                 const GatewayEnvelope& envelope, Slice<u32> index, u64 now_ms) noexcept {
+    JsonIndexedDocument frame;
     JsonValue hash{};
     GatewayNamedMember member{utf8_literal("auth_session_id_hash"), &hash};
-    const JsonScanResult scan = json_scan_structurals_avx1(envelope.data.source, {structurals, 16});
-    if (envelope.data.kind != JsonValueKind::object || !scan.ok() ||
-        !json_visit_value_object(envelope.data, {structurals, scan.count}, 4, gateway_store_named_member, &member).ok() ||
+    if (!gateway_frame_index(envelope, index, &frame).ok() ||
+        !json_visit_indexed_object(frame, envelope.data, 4, gateway_store_named_member, &member).ok() ||
         hash.kind != JsonValueKind::string)
         return;
     RelationshipStreamBinding binding{client, runtime};
@@ -317,13 +316,16 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             }
             if (named == Named::auth_session) {
                 // The session's auth session changed (a password reset, say): its new hash replaces READY's.
-                publish_auth_session_change(client, runtime, event.envelope, now_ms);
+                publish_auth_session_change(client, runtime, event.envelope, index, now_ms);
                 checkpoint_resume_sequence(runtime);
                 continue;
             }
             if (named == Named::user_settings) {
-                self_settings_dispatch(client, runtime, event.envelope.data.source);
-                settings_stores_dispatch(client, runtime, event.envelope, now_ms);
+                SelfSettingsJson settings{};
+                if (self_settings_json(event.envelope.data.source, &settings)) {
+                    self_settings_dispatch(client, runtime, settings);
+                    settings_stores_dispatch(client, runtime, settings, event.envelope, now_ms);
+                }
             }
             // STREAM_* carry the stream token: consumed here, never mailboxed.
             // Each control takes the events of its own key (watched / ours).
@@ -333,16 +335,17 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 checkpoint_resume_sequence(runtime);
                 continue;
             }
-            if (gateway_voice_dispatch(&runtime->voice, event.envelope, index, 64,
-                                       now_ms)) {
+            if (gateway_voice_dispatch(&runtime->voice, event.envelope, 64, now_ms)) {
                 publish_voice_snapshot(client, runtime);
+                // Other members' rows, read through the frame's index.
                 const bool batch = named == Named::voice_batch;
+                JsonIndexedDocument frame;
                 if ((batch || named == Named::voice_update) &&
+                    gateway_frame_index(event.envelope, index, &frame).ok() &&
                     !gateway_client_publish_voice_states(
-                        event.envelope.data,
-                        batch ? GatewayVoiceStateSource::batch : GatewayVoiceStateSource::update, 0,
-                        index, scratch, event.envelope.sequence,
-                        now_ms, publish_relationship_stream, &binding))
+                        frame, event.envelope.data,
+                        batch ? GatewayVoiceStateSource::batch : GatewayVoiceStateSource::update, 0, scratch,
+                        event.envelope.sequence, now_ms, publish_relationship_stream, &binding))
                     return resume_reconnect(client, runtime, now_ms);
                 checkpoint_resume_sequence(runtime);
                 continue;
@@ -351,7 +354,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 // Other members' voice joins/moves/leaves in passively synced
                 // guilds; the rest of the document keeps its existing route.
                 if (!gateway_client_publish_passive_voice_states(
-                        event.envelope.data, index, scratch,
+                        event.envelope, index, scratch,
                         event.envelope.sequence, now_ms, publish_relationship_stream, &binding))
                     return resume_reconnect(client, runtime, now_ms);
             }
@@ -384,49 +387,50 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 routed = route_decode_error(batch.decoded);
             } else if (supplemental) {
                 runtime->mailbox_deadline_ms = clock_monotonic_milliseconds() + kPhaseTimeoutMs;
-                const Slice<u32> objects = object_scratch(runtime);
+                // Each part is read through the frame's index; only the private channel routes scan (each its
+                // channel, into the object scratch).
+                JsonIndexedDocument frame;
                 JsonValue channels{};
-                const auto decoded = gateway_decode_supplemental_private_channels(
-                    event.envelope.data, index, 64, &channels);
-                if (!decoded.ok()) {
-                    routed = route_decode_error(decoded);
-                } else if (channels.kind == JsonValueKind::array) {
-                    const auto published =
-                        publish_private_channels(client, runtime, channels, event.envelope.sequence, now_ms);
-                    routed = published.route;
-                    if (published.publish_failed)
-                        return resume_reconnect(client, runtime, now_ms);
+                routed = gateway_frame_index(event.envelope, index, &frame);
+                if (routed.ok()) {
+                    const auto decoded =
+                        gateway_decode_supplemental_private_channels(frame, event.envelope.data, 64, &channels);
+                    if (!decoded.ok()) {
+                        routed = route_decode_error(decoded);
+                    } else if (channels.kind == JsonValueKind::array) {
+                        const auto published = publish_private_channels(client, runtime, frame, channels,
+                                                                        event.envelope.sequence, now_ms);
+                        routed = published.route;
+                        if (published.publish_failed)
+                            return resume_reconnect(client, runtime, now_ms);
+                    }
                 }
                 if (routed.ok()) {
                     JsonValue merged{};
-                    routed = gateway_relationship_merged_presences(event.envelope.data,
-                                                                   index, &merged);
+                    routed = gateway_relationship_merged_presences(frame, event.envelope.data, &merged);
                     if (routed.ok()) {
                         routed = gateway_client_publish_friend_presences(
-                            merged, index, objects,
-                            event.envelope.sequence, now_ms, publish_relationship_stream, &binding);
+                            frame, merged, event.envelope.sequence, now_ms, publish_relationship_stream, &binding);
                     }
                 }
                 // Server presences' rich activities; the member list carries their status.
                 if (routed.ok()) {
                     routed = gateway_client_publish_guild_presences(
-                        event.envelope.data, index, objects,
-                        event.envelope.sequence, now_ms, publish_relationship_stream, &binding);
+                        frame, event.envelope.data, event.envelope.sequence, now_ms, publish_relationship_stream,
+                        &binding);
                 }
                 // Initial voice states of the other members arrive only here;
                 // READY guilds carry none. Malformed guild rows are skipped.
                 if (routed.ok()) {
                     if (!gateway_client_publish_supplemental_voice_states(
-                            event.envelope.data, index, objects,
-                            scratch, event.envelope.sequence, now_ms,
+                            frame, event.envelope.data, scratch, event.envelope.sequence, now_ms,
                             publish_relationship_stream, &binding))
                         return resume_reconnect(client, runtime, now_ms);
                 }
                 if (routed.ok()) {
                     if (!gateway_ready_publish_supplemental_members(
-                             event.envelope.data, runtime->self_user_id, index,
-                             objects, scratch, event.envelope.sequence,
-                             now_ms, publish_relationship_stream, &binding)
+                             frame, event.envelope.data, runtime->self_user_id, object_scratch(runtime), scratch,
+                             event.envelope.sequence, now_ms, publish_relationship_stream, &binding)
                              .ok())
                         return resume_reconnect(client, runtime, now_ms);
                 }

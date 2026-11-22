@@ -105,6 +105,8 @@ struct Pass {
     // position in its input. Values keep offsets from the array's start, as with a scan of the array alone.
     const JsonIndexedDocument* document;
     u32 base;
+    // *document, or the array's own scan: users are read through it.
+    JsonIndexedDocument index;
 };
 // A staged record: descriptor, payload size, then the payload, 8-byte aligned.
 struct StagedRecord {
@@ -192,15 +194,12 @@ bool record(void* opaque, u32, JsonValue value) noexcept {
     value.source_offset -= pass.base;
     if (pass.kind == RecordKind::user) {
         if (pass.user_count == 64 && !flush_users(pass)) return false;
-        GatewayPayloadWriter writer{};
-        do {
-            writer = {pass.scratch.payload, pass.user_bytes};
-            pass.result.route = gateway_append_user(value, pass.scratch.records, 64, &writer);
-        } while (!pass.result.route.ok() && grow_record_index(pass));
+        GatewayPayloadWriter writer{pass.scratch.payload, pass.user_bytes};
+        pass.result.route = gateway_append_user(pass.index, value, 64, &writer);
         // A user the typed route cannot hold is left out (its name shows as unknown) rather than failing READY;
         // a failed append wrote nothing.
         if (!pass.result.route.ok()) {
-            if (pass.result.interrupted || pass.result.route.error == GatewayClientDispatchRouteError::payload_capacity)
+            if (pass.result.route.error == GatewayClientDispatchRouteError::payload_capacity)
                 return false;
             reset_value(&pass.result.route);
             return true;
@@ -273,15 +272,11 @@ bool record(void* opaque, u32, JsonValue value) noexcept {
 }
 bool records(Pass& pass, JsonValue array, RecordKind kind, GatewayClientFailureStage stage) noexcept {
     pass.kind = kind; pass.result.failure_stage = stage;
-    pass.document = nullptr;
+    pass.document = pass.scratch.document;
     pass.base = 0;
     if (!allowed(pass)) return false;
-    if (kind == RecordKind::user && array.kind == JsonValueKind::object)
-        return record(&pass, 0, array) && flush_users(pass);
-    ConstSlice<u32> index{};
-    if (pass.scratch.document) {
-        pass.document = pass.scratch.document;
-        pass.base = static_cast<u32>(array.source.data - pass.document->input.data);
+    if (pass.document) {
+        pass.index = *pass.document;
     } else {
         const auto scan = json_scan_structurals_avx1(array.source, pass.scratch.arrays);
         if (!scan.ok()) {
@@ -290,10 +285,13 @@ bool records(Pass& pass, JsonValue array, RecordKind kind, GatewayClientFailureS
             pass.result.route.scan_error = scan.error; pass.result.route.error_offset = scan.error_offset;
             return false;
         }
-        index = {pass.scratch.arrays.data, scan.count};
+        pass.index = {array.source, {pass.scratch.arrays.data, scan.count}};
     }
+    if (kind == RecordKind::user && array.kind == JsonValueKind::object)
+        return record(&pass, 0, array) && flush_users(pass);
+    if (pass.document) pass.base = static_cast<u32>(array.source.data - pass.document->input.data);
     const auto visit = [&](JsonArrayVisitor visitor) noexcept {
-        if (!pass.document) return json_visit_value_array(array, index, 64, visitor, &pass);
+        if (!pass.document) return json_visit_value_array(array, pass.index.structurals, 64, visitor, &pass);
         auto read = json_visit_indexed_array(*pass.document, array, 64, visitor, &pass);
         if (!read.ok() && read.error_offset >= pass.base) read.error_offset -= pass.base;
         return read;
@@ -332,7 +330,7 @@ bool run(Pass& pass) noexcept {
     if (ready.users.kind == JsonValueKind::array &&
         !records(pass, ready.users, RecordKind::user, GatewayClientFailureStage::ready_user_route)) return false;
     pass.result.route=gateway_client_publish_notification_snapshot(ready,pass.scratch.arrays,
-        pass.scratch.records,pass.scratch.payload,pass.sequence,pass.now_ms,relay,&pass);
+        pass.scratch.records,pass.scratch.payload,pass.sequence,pass.now_ms,relay,&pass,pass.scratch.document);
     if(!pass.result.route.ok()||pass.result.interrupted)return false;
     // The folder layout is ancillary: a malformed group never fails READY.
     if (!allowed(pass)) return false;
@@ -363,7 +361,7 @@ bool run(Pass& pass) noexcept {
     }
     if (!allowed(pass)) return false;
     pass.result.route = gateway_client_publish_relationship_snapshot(ready.relationships, ready.merged_presences,
-        pass.scratch.arrays, pass.scratch.records, pass.sequence, pass.now_ms, relay, &pass);
+        pass.scratch.arrays, pass.scratch.records, pass.sequence, pass.now_ms, relay, &pass, pass.scratch.document);
     if (!pass.result.route.ok() || pass.result.interrupted) return false;
     const auto complete = descriptor(pass, GatewayClientDispatchKind::ready_state_complete);
     if (!emit(pass, complete, {})) return false;
@@ -452,28 +450,16 @@ GatewayReadyProjectionResult gateway_ready_project(const GatewayReady& ready,
 }
 
 GatewayClientDispatchRouteResult gateway_ready_publish_supplemental_members(
-    JsonValue data, u64 self_user_id, Slice<u32> arrays, Slice<u32> records, Slice<char> storage,
+    const JsonIndexedDocument& document, JsonValue data, u64 self_user_id, Slice<u32> records, Slice<char> storage,
     u64 sequence, u64 now_ms, GatewayReadyPublish publish, void* context) noexcept {
     GatewayClientDispatchRouteResult invalid{};
     invalid.error = GatewayClientDispatchRouteError::invalid_input;
-    if (!self_user_id || !publish || !arrays.data || !arrays.count || !records.data || !records.count ||
-        arrays.count > kGatewaySessionMaximumStructuralCount ||
-        records.count > kGatewaySessionMaximumStructuralCount ||
-        storage.count > kGatewayClientDispatchPayloadCapacity ||
-        data.source.bytes > kGatewaySessionMaximumDecodedMessageBytes || !storage.data || !storage.count ||
-        data.kind != JsonValueKind::object)
+    if (!self_user_id)
         return invalid;
-    const ConstSlice<u8> buffers[]{{reinterpret_cast<const u8*>(arrays.data), arrays.count * 4u},
-                                   {reinterpret_cast<const u8*>(records.data), records.count * 4u},
-                                   {reinterpret_cast<const u8*>(storage.data), storage.count},
-                                   {reinterpret_cast<const u8*>(data.source.data), data.source.bytes}};
-    if (!byte_ranges_all_disjoint({buffers, 4}))
-        return invalid;
-    const auto scan = json_scan_structurals_avx1(data.source, arrays);
     // Optional authority stays unchanged on an unsupported shape.
     protocol_detail::FieldSet<"guilds", "merged_members"> fields;
     MemberArrayCursor guilds, members;
-    if (!scan.ok() || !protocol_detail::fields_at<64>({data.source, {arrays.data, scan.count}}, data, fields) ||
+    if (!protocol_detail::fields_at<64>(document, data, fields) ||
         !fields[0].seen || !fields[1].seen || !guilds.init(fields[0].value, records) ||
         !members.init(fields[1].value, records) || guilds.count != members.count)
         return {};

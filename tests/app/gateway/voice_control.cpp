@@ -161,7 +161,7 @@ void test_gateway_voice_control(void (*check)(bool, const char*) noexcept) noexc
         GatewayEnvelope envelope{};
         if (!gateway_decode_envelope(json, {scratch, 512}, 32, &envelope).ok())
             return false;
-        return gateway_voice_dispatch(&voice, envelope, {scratch, 512}, 32, now);
+        return gateway_voice_dispatch(&voice, envelope, 32, now);
     };
     gateway_voice_request(&voice, join);
     gateway_voice_next(voice, &command);

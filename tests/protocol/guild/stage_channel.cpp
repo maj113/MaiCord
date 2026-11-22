@@ -39,6 +39,17 @@ bool capture(void* opaque, const GatewayClientEvent& event, ConstSlice<u8> paylo
 JsonValue object(Utf8View text) noexcept {
     return {text, 0, JsonValueKind::object};
 }
+// A document of its own, indexed in `scratch`.
+JsonIndexedDocument indexed(Utf8View text) noexcept {
+    const auto scan = json_scan_structurals_avx1(text, {scratch, 8192});
+    return {text, {scratch, scan.count}};
+}
+GatewayEventDecodeResult voice_row(Utf8View text, GatewayVoiceState* state) noexcept {
+    return gateway_decode_voice_state_row(indexed(text), object(text), 32, state);
+}
+GatewayEventDecodeResult stage_instance(Utf8View text, GatewayStageInstance* instance) noexcept {
+    return gateway_decode_stage_instance(indexed(text), object(text), 32, instance);
+}
 GatewayEnvelope envelope(Utf8View name, Utf8View data) noexcept {
     GatewayEnvelope value{};
     value.opcode = 0;
@@ -58,19 +69,16 @@ GatewayClientStageInstanceRecord stage_record(const u8* payload, u32 index) noex
 
 void gateway_cases(Check check) noexcept {
     GatewayStageInstance instance{};
-    check(gateway_decode_stage_instance(
-              object(utf8_literal(R"({"id":"900","guild_id":"5","channel_id":"7","topic":"Town hall",)"
-                                  R"("privacy_level":2,"discoverable_disabled":false,"guild_scheduled_event_id":null})")),
-              {scratch, 8192}, 32, &instance)
+    check(stage_instance(utf8_literal(R"({"id":"900","guild_id":"5","channel_id":"7","topic":"Town hall",)"
+                                      R"("privacy_level":2,"discoverable_disabled":false,"guild_scheduled_event_id":null})"),
+                         &instance)
                   .ok() &&
               instance.id == 900 && instance.guild_id == 5 && instance.channel_id == 7 && instance.privacy_level == 2,
           "stage gateway: an instance decodes its IDs, topic and privacy");
-    check(gateway_decode_stage_instance(object(utf8_literal(R"({"id":"900","topic":"x"})")), {scratch, 8192}, 32,
-                                        &instance)
-                      .error == GatewayEventDecodeError::missing_required_field &&
-              gateway_decode_stage_instance(object(utf8_literal(R"({"id":"1","channel_id":"7","channel_id":"8"})")),
-                                            {scratch, 8192}, 32, &instance)
-                      .error == GatewayEventDecodeError::duplicate_field,
+    check(stage_instance(utf8_literal(R"({"id":"900","topic":"x"})"), &instance).error ==
+                  GatewayEventDecodeError::missing_required_field &&
+              stage_instance(utf8_literal(R"({"id":"1","channel_id":"7","channel_id":"8"})"), &instance).error ==
+                  GatewayEventDecodeError::duplicate_field,
           "stage gateway: instances without a channel or with duplicate fields are refused");
 
     GatewayClientEvent event{};
@@ -125,29 +133,25 @@ void gateway_cases(Check check) noexcept {
 
     // Voice states: suppress and request_to_speak_timestamp.
     GatewayVoiceState state{};
-    check(gateway_decode_voice_state_row(
-              object(utf8_literal(R"({"channel_id":"7","user_id":"9","suppress":true,)"
-                                  R"("request_to_speak_timestamp":"2026-10-07T00:00:05.250000+00:00"})")),
-              {scratch, 8192}, 32, &state)
+    check(voice_row(utf8_literal(R"({"channel_id":"7","user_id":"9","suppress":true,)"
+                                 R"("request_to_speak_timestamp":"2026-10-07T00:00:05.250000+00:00"})"),
+                    &state)
                   .ok() &&
               (state.flags & gateway_voice_suppress) && (state.flags & gateway_voice_request_to_speak) &&
               (state.present_flags & gateway_voice_request_to_speak) && state.request_to_speak_ms == 1'791'331'205'250ull,
           "stage gateway: a raised hand sets the flag and its time");
-    check(gateway_decode_voice_state_row(
-              object(utf8_literal(R"({"channel_id":"7","user_id":"9","suppress":false,"request_to_speak_timestamp":null})")),
-              {scratch, 8192}, 32, &state)
+    check(voice_row(utf8_literal(R"({"channel_id":"7","user_id":"9","suppress":false,"request_to_speak_timestamp":null})"),
+                    &state)
                   .ok() &&
               !(state.flags & (gateway_voice_suppress | gateway_voice_request_to_speak)) &&
               (state.present_flags & gateway_voice_request_to_speak) &&
-              !gateway_decode_voice_state_row(
-                   object(utf8_literal(R"({"channel_id":"7","user_id":"9","request_to_speak_timestamp":"soon"})")),
-                   {scratch, 8192}, 32, &state)
+              !voice_row(utf8_literal(R"({"channel_id":"7","user_id":"9","request_to_speak_timestamp":"soon"})"), &state)
                    .ok(),
           "stage gateway: a null timestamp lowers the hand; a malformed one is refused");
     published = {};
     constexpr auto update = utf8_literal(R"({"guild_id":"5","channel_id":"7","user_id":"9","session_id":"s",)"
                                          R"("suppress":true,"request_to_speak_timestamp":"2026-10-07T00:00:05+00:00"})");
-    check(gateway_client_publish_voice_states(object(update), GatewayVoiceStateSource::update, 0, {scratch, 8192},
+    check(gateway_client_publish_voice_states(indexed(update), object(update), GatewayVoiceStateSource::update, 0,
                                               {storage, sizeof(storage)}, 3, 4, capture, &published) &&
               published.count == 1,
           "stage gateway: a stage voice state publishes one row");

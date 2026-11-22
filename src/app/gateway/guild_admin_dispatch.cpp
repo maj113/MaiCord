@@ -74,15 +74,14 @@ GatewayClientDispatchRouteResult gateway_client_route_guild_admin_dispatch(
     *handled = event_index < 4;
     if (!*handled)
         return {};
-    if (!structural_scratch.data || !structural_scratch.count || !payload_scratch.data || !maximum_depth ||
-        envelope.data.kind != JsonValueKind::object)
+    if (envelope.data.kind != JsonValueKind::object)
         return route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
-    const auto scan = json_scan_structurals_avx1(envelope.data.source, structural_scratch);
-    if (!scan.ok())
-        return route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed);
+    JsonIndexedDocument frame;
+    const auto indexed = gateway_frame_index(envelope, structural_scratch, &frame);
+    if (!indexed.ok())
+        return indexed;
     MembershipRoot root{};
-    const auto read = json_visit_value_object(envelope.data, {structural_scratch.data, scan.count},
-                                             maximum_depth, visit_root, &root);
+    const auto read = json_visit_indexed_object(frame, envelope.data, maximum_depth, visit_root, &root);
     if (stickers) {
         // The full list travels verbatim when it fits; otherwise only the
         // guild, and Server Settings refetch it.
@@ -109,9 +108,8 @@ GatewayClientDispatchRouteResult gateway_client_route_guild_admin_dispatch(
                            root.error != GatewayEventDecodeError::none ? root.error
                            : read.ok() ? GatewayEventDecodeError::missing_required_field
                                        : GatewayEventDecodeError::invalid_json);
-    // The envelope index is no longer needed; the user record rescans its object.
     GatewayPayloadWriter writer{payload_scratch, 0};
-    const auto user = gateway_append_user(root.user, structural_scratch, maximum_depth, &writer);
+    const auto user = gateway_append_user(frame, root.user, maximum_depth, &writer);
     if (!user.ok())
         return user;
     event->dispatch_kind = member_remove ? GatewayClientDispatchKind::guild_member_remove

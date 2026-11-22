@@ -59,14 +59,13 @@ RestRouteKey stage_route(const StageRequest&) noexcept;
 StageWriteResult stage_write_target(const StageRequest&, Slice<u8> output) noexcept;
 StageWriteResult stage_write_body(const StageRequest&, Slice<u8> output) noexcept;
 
-// STAGE_INSTANCE_CREATE/UPDATE/DELETE data and guild stage_instances[] rows.
-// The topic borrows the input document.
+// STAGE_INSTANCE_CREATE/UPDATE/DELETE data and guild stage_instances[] rows, read through `document`, which
+// holds `data`. The topic borrows the input document.
 struct GatewayStageInstance {
     u64 id, guild_id, channel_id;
     JsonString topic;
     u8 privacy_level;
 };
-GatewayEventDecodeResult gateway_decode_stage_instance(JsonValue data, const Slice<u32>& scratch,
-                                                       u32 maximum_depth,
-                                                       GatewayStageInstance* output) noexcept;
+GatewayEventDecodeResult gateway_decode_stage_instance(const JsonIndexedDocument& document, JsonValue data,
+                                                       u32 maximum_depth, GatewayStageInstance* output) noexcept;
 } // namespace maicord

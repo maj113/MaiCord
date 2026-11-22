@@ -112,8 +112,9 @@ GatewayEventDecodeResult gateway_decode_member_chunk_receipt(const JsonIndexedDo
 // stays intact for what follows.
 GatewayEventDecodeResult gateway_decode_ready(const JsonIndexedDocument& document, JsonValue data,
                                               u32 maximum_depth, GatewayReady* output) noexcept;
-GatewayEventDecodeResult gateway_decode_supplemental_private_channels(JsonValue data, Slice<u32> scratch,
-    u32 maximum_depth, JsonValue* channels) noexcept;
+// `document` holds `data` (READY_SUPPLEMENTAL's frame); nothing is scanned.
+GatewayEventDecodeResult gateway_decode_supplemental_private_channels(const JsonIndexedDocument& document,
+    JsonValue data, u32 maximum_depth, JsonValue* channels) noexcept;
 // Validates the optional _trace array; RESUMED carries nothing else that is kept.
 GatewayEventDecodeResult gateway_decode_resumed(JsonValue data, Slice<u32> structural_scratch,
                                                 u32 maximum_depth) noexcept;

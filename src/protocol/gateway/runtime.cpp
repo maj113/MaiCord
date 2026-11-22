@@ -33,28 +33,22 @@ GatewayResumeCaptureError gateway_resume_capture(GatewayResumeState* state, cons
         return GatewayResumeCaptureError::invalid_input;
     }
 
-    const JsonStringDecodeResult session_size =
-        json_string_decode_utf8(ready.session_id, Slice<char>{nullptr, 0});
-    const JsonStringDecodeResult url_size =
-        json_string_decode_utf8(ready.resume_gateway_url, Slice<char>{nullptr, 0});
-    if (session_size.error != JsonStringDecodeError::output_too_small ||
-        url_size.error != JsonStringDecodeError::output_too_small) {
-        return GatewayResumeCaptureError::invalid_string;
-    }
-    if (session_size.bytes >= kGatewaySessionIdCapacity) {
-        return GatewayResumeCaptureError::session_id_too_large;
-    }
-    if (url_size.bytes >= kGatewayResumeUrlCapacity) {
-        return GatewayResumeCaptureError::resume_url_too_large;
-    }
-
+    // One pass per string: the decoder validates the whole string and sizes it before it writes, and writes
+    // nothing that does not fit.
     GatewayResumeState captured{};
     const JsonStringDecodeResult session = json_string_decode_utf8(
         ready.session_id, Slice<char>{captured.session_id, kGatewaySessionIdCapacity - 1});
     const JsonStringDecodeResult url = json_string_decode_utf8(
         ready.resume_gateway_url, Slice<char>{captured.resume_url, kGatewayResumeUrlCapacity - 1});
-    if (!session.ok() || !url.ok()) {
+    if ((!session.ok() && session.error != JsonStringDecodeError::output_too_small) ||
+        (!url.ok() && url.error != JsonStringDecodeError::output_too_small)) {
         return GatewayResumeCaptureError::invalid_string;
+    }
+    if (!session.ok()) {
+        return GatewayResumeCaptureError::session_id_too_large;
+    }
+    if (!url.ok()) {
+        return GatewayResumeCaptureError::resume_url_too_large;
     }
     captured.session_id[session.bytes] = 0;
     captured.resume_url[url.bytes] = 0;

@@ -1046,10 +1046,7 @@ bool self_settings_observe_locked(GatewayClientRuntime* runtime, JsonValue value
 // complete canonical protobuf validates; malformed envelopes cannot fabricate
 // a remote settings revision. No settings bank is allocated on this path.
 bool self_settings_dispatch(GatewayClient* client, GatewayClientRuntime* runtime,
-                            Utf8View source) noexcept {
-    SelfSettingsJson parsed{};
-    if (!self_settings_json(source, &parsed))
-        return false;
+                            const SelfSettingsJson& parsed) noexcept {
     if (parsed.type == 2) {
         if (!parsed.typed_settings || (parsed.seen & 7) != 7)
             return false;
@@ -1078,11 +1075,9 @@ bool self_settings_dispatch(GatewayClient* client, GatewayClientRuntime* runtime
 
 // Type 1 settings carry the guild folder layout beside the status group, and feed the app's user
 // settings store.
-void settings_stores_dispatch(GatewayClient* client, GatewayClientRuntime* runtime,
+void settings_stores_dispatch(GatewayClient* client, GatewayClientRuntime* runtime, const SelfSettingsJson& parsed,
                               const GatewayEnvelope& envelope, u64 now_ms) noexcept {
-    SelfSettingsJson parsed{};
-    if (!self_settings_json(envelope.data.source, &parsed) || parsed.type != 1 ||
-        parsed.encoded.kind != JsonValueKind::string)
+    if (parsed.type != 1 || parsed.encoded.kind != JsonValueKind::string)
         return;
     RelationshipStreamBinding binding{client, runtime};
     gateway_client_publish_guild_folders(parsed.encoded, parsed.partial, dispatch_scratch(runtime),

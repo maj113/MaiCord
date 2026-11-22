@@ -25,10 +25,11 @@ bool gateway_client_notification_trim(const GatewayClientEvent&, ConstSlice<u8>,
 struct GatewayClientDispatchRouteResult;
 // Same two-pass READY producer used by the outer preflight. Policy
 // failure emits incomplete plus nonarming completion, never transport failure.
+// `document`: null, or READY's document (its index lies outside both scratches).
 GatewayClientDispatchRouteResult gateway_client_publish_notification_snapshot(
     const GatewayReady&, Slice<u32> array_scratch, Slice<u32> object_scratch, Slice<char> payload_scratch,
     u64 sequence, u64 now_ms, bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept,
-    void* context) noexcept;
+    void* context, const JsonIndexedDocument* document = nullptr) noexcept;
 
 struct GatewayClientDispatchRouteResult {
     GatewayEventDecodeError event_error;
@@ -54,32 +55,33 @@ using GatewayRelationshipPublish = bool (*)(void* context, const GatewayClientEv
                                             ConstSlice<u8> payload) noexcept;
 // Used by the READY worker and by credential-free queue fixtures. A
 // completion is queued only after every relationship and initial presence
-// record validates and is queued. Consumers stage rows until that completion.
+// record validates and is queued. Consumers stage rows until that completion. `document`: null, or a document
+// that holds both values (READY's), which they are then read through.
 GatewayClientDispatchRouteResult gateway_client_publish_relationship_snapshot(
     JsonValue relationships, JsonValue merged_presences, Slice<u32> array_scratch,
     Slice<u32> object_scratch, u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
-    void* context) noexcept;
+    void* context, const JsonIndexedDocument* document = nullptr) noexcept;
 enum class GatewayVoiceStateSource : u8 {
-    guild,  // READY guild or GUILD_CREATE object: replaces guild_id's states.
+    guild,  // The voice_states value of a READY guild or GUILD_CREATE object: replaces guild_id's states.
     update, // VOICE_STATE_UPDATE data.
     batch,  // VOICE_STATE_UPDATE_BATCH data.
 };
 // Queues session-free voice_state_snapshot chunks, preceded by user_snapshot
 // batches for embedded member users. Every row validates before anything is
-// queued; malformed or oversized documents are skipped. Returns false only
-// when queueing fails. payload must hold kGatewayClientDispatchPayloadCapacity.
-// `located`: the guild's voice_states value from gateway_client_publish_guild_arrays,
-// so a guild source is not scanned again (absent: located->kind is not array).
-bool gateway_client_publish_voice_states(JsonValue data, GatewayVoiceStateSource source, u64 guild_id,
-                                         Slice<u32> scratch, Slice<char> payload, u64 sequence,
-                                         u64 now_ms, GatewayRelationshipPublish publish,
-                                         void* context, const JsonValue* located = nullptr) noexcept;
+// queued; malformed documents are skipped. Returns false only when queueing
+// fails. `data` (see the source) is read through `document`, which holds it.
+// payload must hold kGatewayClientDispatchPayloadCapacity.
+bool gateway_client_publish_voice_states(const JsonIndexedDocument& document, JsonValue data,
+                                         GatewayVoiceStateSource source, u64 guild_id, Slice<char> payload,
+                                         u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
+                                         void* context) noexcept;
 // PASSIVE_UPDATE_V2: the server sends voice joins, moves and leaves for guilds the
 // session does not actively subscribe as updated_voice_states/removed_voice_states
-// instead of VOICE_STATE_UPDATE. updated_members users precede the rows.
-bool gateway_client_publish_passive_voice_states(JsonValue data, Slice<u32> scratch, Slice<char> payload,
-                                                 u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
-                                                 void* context) noexcept;
+// instead of VOICE_STATE_UPDATE. updated_members users precede the rows. The data is read through the frame's
+// index (gateway_client_route_dispatch reads it after this), else scanned into `scratch`.
+bool gateway_client_publish_passive_voice_states(const GatewayEnvelope& envelope, Slice<u32> scratch,
+                                                 Slice<char> payload, u64 sequence, u64 now_ms,
+                                                 GatewayRelationshipPublish publish, void* context) noexcept;
 // The next three publish one array of a READY guild or GUILD_CREATE object, the value that
 // gateway_client_publish_guild_arrays found. Each needs a publish callback, a nonzero guild_id, 64 entries
 // of scratch and a payload of kGatewayClientDispatchPayloadCapacity bytes.
@@ -110,23 +112,21 @@ GatewayClientDispatchRouteResult gateway_client_route_stage_instance(const Gatew
                                                                      ConstSlice<u8>* payload) noexcept;
 // READY_SUPPLEMENTAL guilds[] carry the initial voice_states of every available
 // guild (READY guilds do not). Each listed guild replaces its states; entries
-// without voice_states are skipped. array_scratch indexes the whole document and
-// then the guild list; it must stay disjoint from object_scratch, which indexes
-// each guild and its rows.
-bool gateway_client_publish_supplemental_voice_states(JsonValue data, Slice<u32> array_scratch,
-                                                      Slice<u32> object_scratch, Slice<char> payload,
-                                                      u64 sequence, u64 now_ms,
+// without voice_states are skipped. `data` is read through `document`, which holds it.
+bool gateway_client_publish_supplemental_voice_states(const JsonIndexedDocument& document, JsonValue data,
+                                                      Slice<char> payload, u64 sequence, u64 now_ms,
                                                       GatewayRelationshipPublish publish, void* context) noexcept;
+// The friends' presences of `merged_presences`, read through `document`, which holds it.
 GatewayClientDispatchRouteResult gateway_client_publish_friend_presences(
-    JsonValue merged_presences, Slice<u32> array_scratch, Slice<u32> object_scratch, u64 sequence,
-    u64 now_ms, GatewayRelationshipPublish publish, void* context) noexcept;
+    const JsonIndexedDocument& document, JsonValue merged_presences, u64 sequence, u64 now_ms,
+    GatewayRelationshipPublish publish, void* context) noexcept;
 // READY_SUPPLEMENTAL merged_presences.guilds, aligned with its guilds array:
 // each presence that carries activities or a custom status is published as a
 // PRESENCE_UPDATE of its guild; the rest add nothing the member list lacks.
-// array_scratch indexes the whole document, object_scratch each presence.
+// `data` and each presence are read through `document`, which holds them.
 // Malformed rows are skipped; only a full mailbox fails.
 GatewayClientDispatchRouteResult gateway_client_publish_guild_presences(
-    JsonValue data, Slice<u32> array_scratch, Slice<u32> object_scratch, u64 sequence, u64 now_ms,
+    const JsonIndexedDocument& document, JsonValue data, u64 sequence, u64 now_ms,
     GatewayRelationshipPublish publish, void* context) noexcept;
 
 // Shared unread-channel normalization. Staging storage may be touched on error;
@@ -197,10 +197,6 @@ GatewayClientDispatchRouteResult gateway_client_route_guild_admin_dispatch(
 // Validates the exact single-record payload; name prefers the display name.
 bool gateway_client_event_guild_membership(const GatewayClientEvent& event, ConstSlice<u8> payload, u64* guild_id,
                                            u64* user_id, Utf8View* name) noexcept;
-GatewayClientDispatchRouteResult gateway_client_route_thread_member_dispatch(
-    const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
-    Slice<char> payload_scratch, GatewayClientEvent* event, ConstSlice<u8>* payload,
-    bool* handled) noexcept;
 GatewayClientDispatchRouteResult gateway_client_route_thread_member_dispatch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> payload_scratch, u64 self_user_id, GatewayClientEvent* event, ConstSlice<u8>* payload,

@@ -503,25 +503,14 @@ GatewayEventDecodeResult gateway_decode_message_poll(JsonValue data, const JsonI
     *output = context.value;
     return decode_failure(GatewayEventDecodeError::none);
 }
-GatewayEventDecodeResult gateway_decode_message_poll_vote(JsonValue data, Slice<u32> structural_scratch,
+GatewayEventDecodeResult gateway_decode_message_poll_vote(const JsonIndexedDocument& document, JsonValue data,
                                                           u32 maximum_depth, bool add,
                                                           GatewayMessagePollVoteEvent* output) noexcept {
-    if (!output || data.kind != JsonValueKind::object || !data.source.data || !data.source.bytes ||
-        data.source.bytes > 4096 || !structural_scratch.data || !structural_scratch.count ||
-        !maximum_depth ||
-        byte_ranges_conflict(data.source.data, data.source.bytes, structural_scratch.data,
-                static_cast<u64>(structural_scratch.count) * sizeof(u32)) ||
-        byte_ranges_conflict(output, sizeof(*output), data.source.data, data.source.bytes) ||
-        byte_ranges_conflict(output, sizeof(*output), structural_scratch.data,
-                static_cast<u64>(structural_scratch.count) * sizeof(u32)))
+    if (data.kind != JsonValueKind::object || data.source.bytes > 4096)
         return decode_failure(GatewayEventDecodeError::invalid_input);
-    const auto scan = json_scan_structurals_avx1(data.source, structural_scratch);
-    if (!scan.ok())
-        return {scan.error_offset, GatewayEventDecodeError::scan_failed, scan.error};
     Vote context{};
     context.value.add = add;
-    const auto read = json_visit_value_object(data, {structural_scratch.data, scan.count},
-                                             maximum_depth, vote_member, &context);
+    const auto read = json_visit_indexed_object(document, data, maximum_depth, vote_member, &context);
     if (!read.ok())
         return read_failure(context.error, read, GatewayEventDecodeError::invalid_data);
     if ((context.fields & 23) != 23)
@@ -530,19 +519,12 @@ GatewayEventDecodeResult gateway_decode_message_poll_vote(JsonValue data, Slice<
     return decode_failure(GatewayEventDecodeError::none);
 }
 GatewayReactionBatchVisitResult gateway_visit_message_poll_vote_add_many(
-    JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, void* context,
+    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth, void* context,
     bool (*visit)(void*, const GatewayMessagePollVoteEvent&) noexcept) noexcept {
-    if (!visit || data.kind != JsonValueKind::object || !data.source.data || !data.source.bytes ||
-        !maximum_depth || !structural_scratch.data || !structural_scratch.count ||
-        structural_scratch.count > ~u32{0} / sizeof(u32) ||
-        byte_ranges_conflict(data.source.data, data.source.bytes, structural_scratch.data,
-                static_cast<u64>(structural_scratch.count) * sizeof(u32)))
+    if (data.kind != JsonValueKind::object)
         return {decode_failure(GatewayEventDecodeError::invalid_input), 0, false};
-    const auto scan = json_scan_structurals_avx1(data.source, structural_scratch);
-    if (!scan.ok())
-        return {decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error), 0, false};
     VoteBatchVisit batch{};
-    batch.document = {data.source, {structural_scratch.data, scan.count}};
+    batch.document = document;
     batch.depth = maximum_depth;
     VoteBatchRoot root{};
     if (!vote_batch_read(batch, json_visit_indexed_object(batch.document, data, maximum_depth, vote_batch_root, &root),

@@ -1,5 +1,5 @@
 #include "maicord/app/gateway/guild_folders.hpp"
-#include "maicord/core/json_reader.hpp"
+#include "dispatch_common.hpp"
 #include "maicord/protocol/guild/folders.hpp"
 
 namespace maicord {
@@ -8,10 +8,6 @@ GatewayClientDispatchRouteResult gateway_client_publish_guild_folders(
     JsonValue settings_proto, bool partial, Slice<char> storage, u64 sequence, bool has_sequence, u64 now_ms,
     bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept, void* context) noexcept {
     GatewayClientDispatchRouteResult result{};
-    if (!publish || !storage.data || storage.count < kGuildFoldersMaximumGroupBytes) {
-        result.error = GatewayClientDispatchRouteError::invalid_input;
-        return result;
-    }
     JsonString text{};
     if (!json_value_as_string(settings_proto, &text)) {
         result.error = GatewayClientDispatchRouteError::decode;
@@ -38,12 +34,8 @@ GatewayClientDispatchRouteResult gateway_client_publish_guild_folders(
     }
     if (partial && !present)
         return result;
-    GatewayClientEvent event{};
-    event.kind = GatewayClientEventKind::dispatch;
-    event.dispatch_kind = GatewayClientDispatchKind::guild_folders;
-    event.sequence = sequence;
+    GatewayClientEvent event = gateway_dispatch_event(GatewayClientDispatchKind::guild_folders, sequence, now_ms);
     event.has_sequence = has_sequence;
-    event.timestamp_ms = now_ms;
     event.dispatch_payload_bytes = bytes;
     if (!publish(context, event, {group.data, bytes}))
         result.error = GatewayClientDispatchRouteError::payload_capacity;

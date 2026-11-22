@@ -34,8 +34,9 @@ GatewayClientDispatchRouteResult snapshot(Utf8View text, GatewayClientEvent* eve
 }
 GatewayClientDispatchRouteResult ack(Utf8View text, GatewayClientEvent* event,
     ConstSlice<u8>* payload) noexcept {
-    return gateway_client_route_message_ack({text, 0, JsonValueKind::object},
-        {structurals, structural_count}, 64, event, payload);
+    GatewayEnvelope envelope{};
+    envelope.data = {text, 0, JsonValueKind::object};
+    return gateway_client_route_message_ack(envelope, {structurals, structural_count}, 64, event, payload);
 }
 bool publication(Utf8View text, u32 capacity, bool expected) noexcept {
     GatewayClientEvent event{}; event.sequence = 17; event.has_sequence = true;

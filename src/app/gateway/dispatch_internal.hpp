@@ -27,14 +27,18 @@ struct NotificationFields {
 };
 
 bool notification_fields(void* opaque, JsonString name, JsonValue v) noexcept;
+// Visits `source` into `fields` through `doc`. An empty `doc` receives the index of a scan of `source` alone.
+// False when `source` is no object or a field is invalid.
 bool notification_document(JsonValue source, Slice<u32> scratch, JsonIndexedDocument* doc,
                            NotificationFields* fields) noexcept;
 bool restriction_inactive(const JsonIndexedDocument& doc, const NotificationFields& f, bool full) noexcept;
 void notification_incomplete(GatewayClientEvent* e, ConstSlice<u8>* payload, u64 guild) noexcept;
-bool notification_entry(JsonValue source, Slice<u32> scratch, Slice<char> storage, GatewayClientEvent* e,
-                        ConstSlice<u8>* payload) noexcept;
+// The entry `source` of `doc` as a notification_settings_entry (or notification_incomplete) event. False when the
+// visit of its fields into `f` failed.
+bool notification_entry(const JsonIndexedDocument& doc, JsonValue source, Slice<char> storage, GatewayClientEvent* e,
+                        ConstSlice<u8>* payload, NotificationFields* f) noexcept;
 bool notification_proto(JsonValue value, Slice<char> storage, MessageNotificationGlobal* g) noexcept;
-bool notification_route(const GatewayEnvelope& env, Slice<u32> scratch, Slice<char> storage,
+void notification_route(const GatewayEnvelope& env, Slice<u32> scratch, Slice<char> storage,
                         GatewayClientEvent* e, ConstSlice<u8>* payload, u32 kind) noexcept;
 
 } // namespace dispatch_detail

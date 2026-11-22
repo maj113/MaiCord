@@ -209,19 +209,14 @@ bool visit_instance(void* opaque, JsonString key, JsonValue value) noexcept {
 }
 } // namespace
 
-GatewayEventDecodeResult gateway_decode_stage_instance(JsonValue data, const Slice<u32>& scratch, u32 depth,
-                                                       GatewayStageInstance* output) noexcept {
-    if (!output || !data.source.data || !data.source.bytes || !scratch.data || !scratch.count || !depth)
-        return {0, GatewayEventDecodeError::invalid_input};
+GatewayEventDecodeResult gateway_decode_stage_instance(const JsonIndexedDocument& document, JsonValue data,
+                                                       u32 depth, GatewayStageInstance* output) noexcept {
     if (data.kind != JsonValueKind::object)
         return {data.source_offset, GatewayEventDecodeError::invalid_data};
-    const auto scan = json_scan_structurals_avx1(data.source, scratch);
-    if (!scan.ok())
-        return {data.source_offset + scan.error_offset, GatewayEventDecodeError::scan_failed, scan.error};
     InstanceDecode d{};
-    const auto read = json_visit_value_object(data, {scratch.data, scan.count}, depth, visit_instance, &d);
+    const auto read = json_visit_indexed_object(document, data, depth, visit_instance, &d);
     if (!read.ok())
-        return {data.source_offset + read.error_offset,
+        return {read.error_offset,
                 d.error == GatewayEventDecodeError::none ? GatewayEventDecodeError::invalid_json : d.error,
                 JsonScanError::none, read.error};
     if (!d.value.channel_id)

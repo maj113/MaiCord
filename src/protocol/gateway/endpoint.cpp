@@ -147,9 +147,7 @@ GatewayEndpointError gateway_endpoint_parse_with_policy(Utf8View url, GatewayEnd
     parsed.policy = policy;
 
     parsed.authority_bytes = authority_end - authority_begin;
-    for (u32 index = 0; index < parsed.authority_bytes; ++index) {
-        parsed.authority[index] = url.data[authority_begin + index];
-    }
+    copy_bytes(parsed.authority, url.data + authority_begin, parsed.authority_bytes);
     parsed.authority[parsed.authority_bytes] = 0;
 
     const u32 port_digits = decimal_write(parsed.service_wide, port);
@@ -201,47 +199,20 @@ bool gateway_endpoint_validate(const GatewayEndpoint& endpoint) noexcept {
         return false;
     }
     char url[6 + kGatewayEndpointAuthorityCapacity + kGatewayEndpointTargetCapacity];
-    static constexpr char scheme[] = "wss://";
-    u32 bytes = 0;
-    for (u32 index = 0; index < sizeof(scheme) - 1; ++index) {
-        url[bytes++] = scheme[index];
-    }
-    for (u32 index = 0; index < endpoint.authority_bytes; ++index) {
-        url[bytes++] = endpoint.authority[index];
-    }
-    for (u32 index = 0; index < endpoint.target_bytes; ++index) {
-        url[bytes++] = endpoint.target[index];
-    }
+    copy_bytes(url, "wss://", 6);
+    copy_bytes(url + 6, endpoint.authority, endpoint.authority_bytes);
+    copy_bytes(url + 6 + endpoint.authority_bytes, endpoint.target, endpoint.target_bytes);
     GatewayEndpoint reparsed{};
-    if (gateway_endpoint_parse_with_policy(Utf8View{url, bytes}, endpoint.policy, &reparsed) !=
-            GatewayEndpointError::none ||
-        reparsed.host_bytes != endpoint.host_bytes ||
-        reparsed.authority_bytes != endpoint.authority_bytes ||
-        reparsed.target_bytes != endpoint.target_bytes || reparsed.port != endpoint.port ||
-        reparsed.policy != endpoint.policy) {
-        return false;
-    }
-    for (u32 index = 0; index <= endpoint.host_bytes; ++index) {
-        if (reparsed.host_wide[index] != endpoint.host_wide[index]) {
-            return false;
-        }
-    }
-    for (u32 index = 0; index <= endpoint.authority_bytes; ++index) {
-        if (reparsed.authority[index] != endpoint.authority[index]) {
-            return false;
-        }
-    }
-    for (u32 index = 0; index <= endpoint.target_bytes; ++index) {
-        if (reparsed.target[index] != endpoint.target[index]) {
-            return false;
-        }
-    }
-    for (u32 index = 0; index < 6; ++index) {
-        if (reparsed.service_wide[index] != endpoint.service_wide[index]) {
-            return false;
-        }
-    }
-    return true;
+    // Equal byte counts, so each comparison covers both terminators.
+    return gateway_endpoint_parse_with_policy(Utf8View{url, 6 + endpoint.authority_bytes + endpoint.target_bytes},
+                                              endpoint.policy, &reparsed) == GatewayEndpointError::none &&
+           reparsed.host_bytes == endpoint.host_bytes && reparsed.authority_bytes == endpoint.authority_bytes &&
+           reparsed.target_bytes == endpoint.target_bytes && reparsed.port == endpoint.port &&
+           reparsed.policy == endpoint.policy &&
+           bytes_equal(reparsed.host_wide, endpoint.host_wide, (endpoint.host_bytes + 1) * sizeof(wchar_t)) &&
+           bytes_equal(reparsed.authority, endpoint.authority, endpoint.authority_bytes + 1) &&
+           bytes_equal(reparsed.target, endpoint.target, endpoint.target_bytes + 1) &&
+           bytes_equal(reparsed.service_wide, endpoint.service_wide, 6 * sizeof(wchar_t));
 }
 
 } // namespace maicord

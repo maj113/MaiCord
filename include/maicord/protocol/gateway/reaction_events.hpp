@@ -23,8 +23,9 @@ struct GatewayMessageReactionEvent {
     bool animated;
 };
 
+// `data` is a value of `document`, which stays intact.
 GatewayEventDecodeResult gateway_decode_message_reaction(
-    JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth,
+    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth,
     Slice<char> name_output, GatewayMessageReactionEventKind kind,
     GatewayMessageReactionEvent* output) noexcept;
 
@@ -40,12 +41,13 @@ struct GatewayReactionBatchVisitResult {
 
 // Validate the complete debounced batch before the first synchronous callback,
 // then visit one normal add per user entry in wire order, including repeats.
+// `data` is read through `document`, which holds it (the frame's index); nothing is scanned.
 // Names borrow name_scratch until the next callback. The callback must not
-// modify or invalidate data, structural_scratch or name_scratch during the
+// modify or invalidate data, its index or name_scratch during the
 // visit. False stops immediately; visited counts only accepted callbacks.
-// Scratch buffers must be disjoint from each other and the source document.
+// name_scratch is disjoint from the document.
 GatewayReactionBatchVisitResult gateway_visit_message_reaction_add_many(
-    JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<char> name_scratch,
+    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth, Slice<char> name_scratch,
     void* context, bool (*visit)(void*, const GatewayMessageReactionEvent&) noexcept) noexcept;
 
 struct GatewayMessagePollVoteEvent;
@@ -54,7 +56,7 @@ struct GatewayMessagePollVoteEvent;
 // the whole batch validates first, then one vote add per user entry is
 // visited in wire order with batched set.
 GatewayReactionBatchVisitResult gateway_visit_message_poll_vote_add_many(
-    JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, void* context,
+    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth, void* context,
     bool (*visit)(void*, const GatewayMessagePollVoteEvent&) noexcept) noexcept;
 
 } // namespace maicord

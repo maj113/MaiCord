@@ -86,15 +86,12 @@ bool visit(void* opaque, JsonString key, JsonValue value) noexcept {
         d.error = GatewayEventDecodeError::invalid_data;
     return valid;
 }
-GatewayEventDecodeResult decode(JsonValue data, Slice<u32> scratch, u32 depth, Decode* d) noexcept {
+GatewayEventDecodeResult decode(const JsonIndexedDocument& document, JsonValue data, u32 depth, Decode* d) noexcept {
     if (data.kind != JsonValueKind::object)
         return {data.source_offset, GatewayEventDecodeError::invalid_data};
-    const auto scan = json_scan_structurals_avx1(data.source, scratch);
-    if (!scan.ok())
-        return {data.source_offset + scan.error_offset, GatewayEventDecodeError::scan_failed, scan.error};
-    const auto read = json_visit_value_object(data, {scratch.data, scan.count}, depth, visit, d);
+    const auto read = json_visit_indexed_object(document, data, depth, visit, d);
     if (!read.ok())
-        return {data.source_offset + read.error_offset,
+        return {read.error_offset,
                 d->error == GatewayEventDecodeError::none ? GatewayEventDecodeError::invalid_json
                                                           : d->error,
                 JsonScanError::none, read.error};
@@ -107,27 +104,28 @@ GatewayEventDecodeResult decode(JsonValue data, Slice<u32> scratch, u32 depth, D
     return {};
 }
 template <typename T>
-GatewayEventDecodeResult decode_as(T Decode::*member, bool server_event, bool session_optional, JsonValue data,
-                                   Slice<u32> scratch, u32 depth, T* output) noexcept {
+GatewayEventDecodeResult decode_as(T Decode::*member, bool server_event, bool session_optional,
+                                   const JsonIndexedDocument& document, JsonValue data, u32 depth,
+                                   T* output) noexcept {
     Decode d{};
     d.server_event = server_event;
     d.session_optional = session_optional;
-    const auto result = decode(data, scratch, depth, &d);
+    const auto result = decode(document, data, depth, &d);
     if (result.ok())
         *output = d.*member;
     return result;
 }
 } // namespace
-GatewayEventDecodeResult gateway_decode_voice_state(JsonValue data, const Slice<u32>& scratch, u32 depth,
+GatewayEventDecodeResult gateway_decode_voice_state(const JsonIndexedDocument& document, JsonValue data, u32 depth,
                                                     GatewayVoiceState* output) noexcept {
-    return decode_as(&Decode::state, false, false, data, scratch, depth, output);
+    return decode_as(&Decode::state, false, false, document, data, depth, output);
 }
-GatewayEventDecodeResult gateway_decode_voice_state_row(JsonValue data, Slice<u32> scratch, u32 depth,
-                                                        GatewayVoiceState* output) noexcept {
-    return decode_as(&Decode::state, false, true, data, scratch, depth, output);
+GatewayEventDecodeResult gateway_decode_voice_state_row(const JsonIndexedDocument& document, JsonValue data,
+                                                        u32 depth, GatewayVoiceState* output) noexcept {
+    return decode_as(&Decode::state, false, true, document, data, depth, output);
 }
-GatewayEventDecodeResult gateway_decode_voice_server(JsonValue data, Slice<u32> scratch, u32 depth,
+GatewayEventDecodeResult gateway_decode_voice_server(const JsonIndexedDocument& document, JsonValue data, u32 depth,
                                                      GatewayVoiceServer* output) noexcept {
-    return decode_as(&Decode::server, true, false, data, scratch, depth, output);
+    return decode_as(&Decode::server, true, false, document, data, depth, output);
 }
 } // namespace maicord

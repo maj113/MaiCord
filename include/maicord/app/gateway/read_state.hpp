@@ -45,7 +45,7 @@ GatewayClientDispatchRouteResult gateway_client_read_state_metadata(JsonValue da
 GatewayClientDispatchRouteResult gateway_client_route_read_state_snapshot(JsonValue data,
     Slice<u32> scratch, u32 maximum_depth, Slice<char> storage,
     GatewayClientEvent* event, ConstSlice<u8>* payload, GatewayClientLargeRecord large) noexcept;
-GatewayClientDispatchRouteResult gateway_client_route_message_ack(JsonValue data,
+GatewayClientDispatchRouteResult gateway_client_route_message_ack(const GatewayEnvelope& envelope,
     Slice<u32> scratch, u32 maximum_depth, GatewayClientEvent* event,
     ConstSlice<u8>* payload) noexcept;
 bool gateway_client_read_state_record(ConstSlice<u8> payload, u32 index,

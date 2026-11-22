@@ -12,12 +12,17 @@ struct GatewayPayloadWriter;
 
 // Appends the shared notification metadata to an already normalized state
 // record, using the same final storage as its typed payload. `document`: null, or
-// a document that holds the envelope's data and whose index lies outside `structural_scratch`.
+// a document that holds the envelope's data (nothing is then scanned into `structural_scratch`).
 void gateway_client_append_notification_sidecar(const GatewayEnvelope& envelope,
                                                 Slice<u32> structural_scratch, Slice<char> storage,
                                                 u64 self_user_id, GatewayClientEvent* event,
                                                 ConstSlice<u8>* payload,
                                                 const JsonIndexedDocument* document = nullptr) noexcept;
+// The index of the dispatch's frame: the envelope's own while `structural_scratch` still holds it (every route
+// filters by event name before it scans, and a second route of one envelope removes it), else one scan of the
+// data into `structural_scratch` for an envelope built by hand.
+GatewayClientDispatchRouteResult gateway_frame_index(const GatewayEnvelope& envelope, Slice<u32> structural_scratch,
+                                                     JsonIndexedDocument* frame) noexcept;
 
 // Worker-owned, session-scoped progress. Keep through RESUME and clear when
 // invalidating the saved session or committing a fresh READY.

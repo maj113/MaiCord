@@ -67,17 +67,18 @@ bool channel_pins_update_field(void* opaque, JsonString name, JsonValue value) n
     return context.error == GatewayEventDecodeError::none;
 }
 
-GatewayClientDispatchRouteResult route_channel_pins_update(JsonValue data, Slice<u32> scratch,
+GatewayClientDispatchRouteResult route_channel_pins_update(const GatewayEnvelope& envelope, Slice<u32> scratch,
                                                            u32 maximum_depth,
                                                            GatewayClientEvent* event) noexcept {
-    if (data.kind != JsonValueKind::object)
+    if (envelope.data.kind != JsonValueKind::object)
         return route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
-    const auto scan = json_scan_structurals_avx1(data.source, scratch);
-    if (!scan.ok())
-        return route_decode_error({scan.error_offset, GatewayEventDecodeError::scan_failed, scan.error});
+    JsonIndexedDocument frame;
+    const GatewayClientDispatchRouteResult indexed = gateway_frame_index(envelope, scratch, &frame);
+    if (!indexed.ok())
+        return indexed;
     ChannelPinsUpdateContext context{};
-    const auto read = json_visit_value_object(data, {scratch.data, scan.count}, maximum_depth,
-                                             channel_pins_update_field, &context);
+    const auto read = json_visit_indexed_object(frame, envelope.data, maximum_depth, channel_pins_update_field,
+                                               &context);
     if (!read.ok())
         return route_decode_error(
             {read.error_offset,
@@ -92,19 +93,18 @@ GatewayClientDispatchRouteResult route_channel_pins_update(JsonValue data, Slice
     return {};
 }
 
-void route_command_index_update(JsonValue data, Slice<u32> scratch, u32 maximum_depth,
+void route_command_index_update(const GatewayEnvelope& envelope, Slice<u32> scratch, u32 maximum_depth,
                                 GatewayClientEvent* event) noexcept {
-    if (data.kind != JsonValueKind::object)
-        return;
-    const auto scan = json_scan_structurals_avx1(data.source, scratch);
-    if (!scan.ok())
+    JsonIndexedDocument frame;
+    if (!gateway_frame_index(envelope, scratch, &frame).ok())
         return;
     struct Context {
         u64 guild_id;
         bool seen;
     } context{};
-    const auto read = json_visit_value_object(
-        data, {scratch.data, scan.count}, maximum_depth,
+    // A visit of data that is no object fails.
+    const auto read = json_visit_indexed_object(
+        frame, envelope.data, maximum_depth,
         [](void* opaque, JsonString name, JsonValue value) noexcept {
             if (!json_name_is(name, utf8_literal("guild_id")))
                 return true;
@@ -122,16 +122,11 @@ void route_command_index_update(JsonValue data, Slice<u32> scratch, u32 maximum_
 }
 
 bool copy_event_name(JsonString source, GatewayClientEvent* destination) noexcept {
-    const JsonStringDecodeResult size = json_string_decode_utf8(source, Slice<char>{nullptr, 0});
-    if (size.error != JsonStringDecodeError::output_too_small ||
-        size.bytes >= kGatewayClientEventNameCapacity) {
-        return false;
-    }
+    // One pass: the decoder checks the room before it writes. An empty name is no name.
     const JsonStringDecodeResult decoded = json_string_decode_utf8(
         source, Slice<char>{destination->event_name, kGatewayClientEventNameCapacity - 1});
-    if (!decoded.ok()) {
+    if (!decoded.ok() || !decoded.bytes)
         return false;
-    }
     destination->event_name[decoded.bytes] = 0;
     destination->event_name_bytes = static_cast<u8>(decoded.bytes);
     return true;
@@ -500,6 +495,14 @@ GatewayReactionBatchVisitResult settle_batch(GatewayReactionBatchVisitResult res
     }
     return result;
 }
+// The batch reads the frame's index (the worker indexed the frame in structural_scratch), else one scan.
+bool batch_frame(const GatewayEnvelope& envelope, Slice<u32> structural_scratch, JsonIndexedDocument* frame,
+                 GatewayReactionBatchVisitResult* failure) noexcept {
+    const auto indexed = gateway_frame_index(envelope, structural_scratch, frame);
+    if (!indexed.ok())
+        *failure = {{indexed.error_offset, indexed.event_error, indexed.scan_error}, 0, false};
+    return indexed.ok();
+}
 
 } // namespace
 
@@ -510,8 +513,12 @@ GatewayReactionBatchVisitResult gateway_client_publish_reaction_batch(
     if (batch_rejected(envelope, publish, utf8_literal("MESSAGE_REACTION_ADD_MANY")))
         return {{0, GatewayEventDecodeError::invalid_data}, 0, false};
     BatchBinding binding = batch_binding(envelope, now_ms, publish, context, cursor);
+    JsonIndexedDocument frame;
+    GatewayReactionBatchVisitResult failed{};
+    if (!batch_frame(envelope, structural_scratch, &frame, &failed))
+        return failed;
     const auto result = gateway_visit_message_reaction_add_many(
-        envelope.data, structural_scratch, maximum_depth, name_scratch, &binding,
+        frame, envelope.data, maximum_depth, name_scratch, &binding,
         [](void* opaque, const GatewayMessageReactionEvent& reaction) noexcept {
             auto& binding = *static_cast<BatchBinding*>(opaque);
             if (batch_skips_record(binding))
@@ -534,8 +541,12 @@ GatewayReactionBatchVisitResult gateway_client_publish_poll_vote_batch(
     if (batch_rejected(envelope, publish, utf8_literal("MESSAGE_POLL_VOTE_ADD_MANY")))
         return {{0, GatewayEventDecodeError::invalid_data}, 0, false};
     BatchBinding binding = batch_binding(envelope, now_ms, publish, context, cursor);
+    JsonIndexedDocument frame;
+    GatewayReactionBatchVisitResult failed{};
+    if (!batch_frame(envelope, structural_scratch, &frame, &failed))
+        return failed;
     const auto result = gateway_visit_message_poll_vote_add_many(
-        envelope.data, structural_scratch, maximum_depth, &binding,
+        frame, envelope.data, maximum_depth, &binding,
         [](void* opaque, const GatewayMessagePollVoteEvent& vote) noexcept {
             auto& binding = *static_cast<BatchBinding*>(opaque);
             if (batch_skips_record(binding))
@@ -549,13 +560,8 @@ GatewayReactionBatchVisitResult gateway_client_publish_poll_vote_batch(
     return settle_batch(result, binding, cursor);
 }
 
-namespace {
-
-// The index of the dispatch's frame: the envelope's own while it still holds it (every route before the
-// by-name decoders filters by event name before it scans), else one scan of the data for an envelope built
-// by hand.
-GatewayClientDispatchRouteResult frame_index(const GatewayEnvelope& envelope, Slice<u32> structural_scratch,
-                                             JsonIndexedDocument* frame) noexcept {
+GatewayClientDispatchRouteResult gateway_frame_index(const GatewayEnvelope& envelope, Slice<u32> structural_scratch,
+                                                     JsonIndexedDocument* frame) noexcept {
     if (envelope.document.structurals.data && envelope.document.structurals.data == structural_scratch.data) {
         *frame = envelope.document;
         return route_error(GatewayClientDispatchRouteError::none);
@@ -567,6 +573,8 @@ GatewayClientDispatchRouteResult frame_index(const GatewayEnvelope& envelope, Sl
     *frame = JsonIndexedDocument{envelope.data.source, {structural_scratch.data, scan.count}};
     return route_error(GatewayClientDispatchRouteError::none);
 }
+
+namespace {
 
 // Out of line: the activity set (3.5 KB) would otherwise cost every dispatch route a stack probe. Appends
 // the rich-presence record behind the appearance bytes already written; false when it does not fit.
@@ -586,19 +594,13 @@ __declspec(noinline) bool append_presence_activities(const JsonIndexedDocument& 
     return true;
 }
 
-// Decodes a MESSAGE_CREATE/UPDATE with the arrays of `scratch`.
+// Decodes a MESSAGE_CREATE/UPDATE of `frame` with the arrays of `scratch`.
 __declspec(noinline) GatewayClientDispatchRouteResult route_message_create_update(
-    const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
+    const GatewayEnvelope& envelope, const JsonIndexedDocument& frame, u32 maximum_depth,
     Slice<char> content_scratch, Slice<u64> bulk_ids, u64 self_user_id, bool create, GatewayClientEvent* event,
     ConstSlice<u8>* payload, GatewayMessageDecodeScratch* scratch) noexcept {
     GatewayMessageEvent message;
     const GatewayMessageRichScratch rich_scratch = scratch->rich.view(true);
-    // The envelope's index is still intact here (every earlier route filters by name before it scans), so a
-    // message is decoded from it instead of being scanned again.
-    JsonIndexedDocument frame;
-    const GatewayClientDispatchRouteResult indexed = frame_index(envelope, structural_scratch, &frame);
-    if (!indexed.ok())
-        return indexed;
     const Slice<u64> member_roles{scratch->member_roles, kGatewayMessageMemberRoleMaximumIds};
     const Slice<GatewayMessageNamedUser> mention_users{scratch->mention_users, kGatewayMessageMentionUserMaximum};
     const GatewayEventDecodeResult decoded =
@@ -660,17 +662,17 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     if (early <= 1)
         return gateway_client_route_channel_cursors(envelope, structural_scratch, maximum_depth,
                                                      content_scratch, event, payload);
-    if (early >= 38 && early <= 40 &&
-        notification_route(envelope, structural_scratch, content_scratch, event, payload, early - 38))
+    if (early >= 38 && early <= 40) {
+        notification_route(envelope, structural_scratch, content_scratch, event, payload, early - 38);
         return {};
+    }
     if (early == 2)
-        return gateway_client_route_message_ack(envelope.data, structural_scratch, maximum_depth, event,
-                                                payload);
+        return gateway_client_route_message_ack(envelope, structural_scratch, maximum_depth, event, payload);
     if (early == 3)
-        return route_channel_pins_update(envelope.data, structural_scratch, maximum_depth, event);
+        return route_channel_pins_update(envelope, structural_scratch, maximum_depth, event);
     if (early == 4) {
         // A cache hint is ancillary; malformed data never fails the session.
-        route_command_index_update(envelope.data, structural_scratch, maximum_depth, event);
+        route_command_index_update(envelope, structural_scratch, maximum_depth, event);
         return {};
     }
     if (early == 5) {
@@ -764,7 +766,10 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         if (!copy_event_name(envelope.event_name, event))
             return route_error(GatewayClientDispatchRouteError::event_name_capacity);
         GatewayPayloadWriter writer{content_scratch, 0};
-        const auto result = gateway_append_user(envelope.data, structural_scratch, maximum_depth, &writer);
+        JsonIndexedDocument frame;
+        GatewayClientDispatchRouteResult result = gateway_frame_index(envelope, structural_scratch, &frame);
+        if (result.ok())
+            result = gateway_append_user(frame, envelope.data, maximum_depth, &writer);
         if (!result.ok())
             return result;
         event->dispatch_kind = GatewayClientDispatchKind::user_snapshot;
@@ -772,24 +777,29 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         event->dispatch_payload_bytes = writer.used;
         *payload = {reinterpret_cast<const u8*>(content_scratch.data), writer.used};
         gateway_client_append_notification_sidecar(envelope, structural_scratch, content_scratch,
-                                                   self_user_id, event, payload);
+                                                   self_user_id, event, payload, &frame);
         return {};
     }
 
     // The state and thread member routes end the same way: one copy of that tail serves both.
-    bool handled = false;
+    bool handled = false, thread = false;
     GatewayClientDispatchRouteResult routed =
         gateway_client_route_state_dispatch(envelope, structural_scratch, maximum_depth, content_scratch,
                                             self_user_id, event, payload, &handled);
-    if (!handled)
+    if (!handled) {
         routed = gateway_client_route_thread_member_dispatch(envelope, structural_scratch, maximum_depth,
                                                              content_scratch, self_user_id, event, payload,
                                                              &handled);
+        thread = handled;
+    }
     if (handled) {
         if (routed.ok()) {
             event->dispatch_payload_bytes = payload->count;
-            gateway_client_append_notification_sidecar(envelope, structural_scratch, content_scratch,
-                                                       self_user_id, event, payload);
+            // The thread member route reads the data through the frame's index and leaves it intact.
+            gateway_client_append_notification_sidecar(
+                envelope, structural_scratch, content_scratch, self_user_id, event, payload,
+                thread && envelope.document.structurals.data == structural_scratch.data ? &envelope.document
+                                                                                         : nullptr);
         }
         return routed;
     }
@@ -814,9 +824,11 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         "MESSAGE_POLL_VOTE_REMOVE", "MESSAGE_REACTION_ADD", "MESSAGE_REACTION_REMOVE",
         "MESSAGE_REACTION_REMOVE_ALL", "MESSAGE_REACTION_REMOVE_EMOJI", "MESSAGE_DELETE",
         "MESSAGE_DELETE_BULK">(envelope.event_name);
+    // The envelope's index is still intact here (every earlier route filters by name before it scans), so these
+    // events are decoded from it instead of being scanned again.
     JsonIndexedDocument frame;
-    if (late <= 1) {
-        const GatewayClientDispatchRouteResult indexed = frame_index(envelope, structural_scratch, &frame);
+    if (late < 12) {
+        const GatewayClientDispatchRouteResult indexed = gateway_frame_index(envelope, structural_scratch, &frame);
         if (!indexed.ok())
             return indexed;
     }
@@ -850,16 +862,15 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         // Messages decode into the caller's scratch; without one the route cannot decode them.
         const GatewayClientDispatchRouteResult routed_message =
             message_scratch
-                ? route_message_create_update(envelope, structural_scratch, maximum_depth, content_scratch,
-                                              bulk_ids, self_user_id, late == 2, event, payload, message_scratch)
+                ? route_message_create_update(envelope, frame, maximum_depth, content_scratch, bulk_ids,
+                                              self_user_id, late == 2, event, payload, message_scratch)
                 : route_error(GatewayClientDispatchRouteError::invalid_input);
         if (!routed_message.ok())
             return routed_message;
     } else if (late == 4 || late == 5) {
         const bool add = late == 4;
         GatewayMessagePollVoteEvent vote{};
-        decoded =
-            gateway_decode_message_poll_vote(envelope.data, structural_scratch, maximum_depth, add, &vote);
+        decoded = gateway_decode_message_poll_vote(frame, envelope.data, maximum_depth, add, &vote);
         if (!decoded.ok())
             return route_decode_error(decoded);
         event->dispatch_kind = add ? GatewayClientDispatchKind::message_poll_vote_add
@@ -871,7 +882,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
                       static_cast<u32>(GatewayClientDispatchKind::message_reaction_remove_emoji) ==
                           static_cast<u32>(GatewayClientDispatchKind::message_reaction_add) + 3);
         GatewayMessageReactionEvent reaction{};
-        decoded = gateway_decode_message_reaction(envelope.data, structural_scratch, maximum_depth, content_scratch,
+        decoded = gateway_decode_message_reaction(frame, envelope.data, maximum_depth, content_scratch,
                                                   static_cast<GatewayMessageReactionEventKind>(late - 6), &reaction);
         if (!decoded.ok()) {
             return route_decode_error(decoded);
@@ -882,7 +893,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         *payload = ConstSlice<u8>{reinterpret_cast<const u8*>(content_scratch.data), reaction.name.bytes};
     } else if (late == 10) {
         GatewayMessageDeleteEvent message{};
-        decoded = gateway_decode_message_delete(envelope.data, structural_scratch, maximum_depth, &message);
+        decoded = gateway_decode_message_delete(frame, envelope.data, maximum_depth, &message);
         if (!decoded.ok()) {
             return route_decode_error(decoded);
         }
@@ -892,8 +903,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         event->message.fields = gateway_message_field_id | gateway_message_field_channel_id;
     } else if (late == 11) {
         GatewayMessageBulkDeleteEvent message{};
-        decoded = gateway_decode_message_bulk_delete(envelope.data, structural_scratch, maximum_depth,
-                                                     bulk_ids, &message);
+        decoded = gateway_decode_message_bulk_delete(frame, envelope.data, maximum_depth, bulk_ids, &message);
         if (!decoded.ok()) {
             return route_decode_error(decoded);
         }
@@ -946,7 +956,6 @@ void gateway_client_route_failure_event(const GatewayEnvelope& envelope,
 namespace {
 
 struct NotificationSnapshot {
-    Slice<u32> objects;
     Slice<char> storage;
     bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept;
     void* context;
@@ -986,10 +995,9 @@ bool snapshot_entry(void* opaque, u32 index, JsonValue value) noexcept {
     auto e = gateway_dispatch_event(GatewayClientDispatchKind::notification_settings_entry, s.sequence,
                                     s.now);
     ConstSlice<u8> payload{};
-    notification_entry(value, s.objects, s.storage, &e, &payload);
     // What a visit of the earlier entries finds about this one when later entries look back.
     NotificationFields fields{};
-    const bool fields_ok = json_visit_indexed_object(*s.doc, value, 64, notification_fields, &fields).ok();
+    const bool fields_ok = notification_entry(*s.doc, value, s.storage, &e, &payload, &fields);
     if (e.dispatch_kind == GatewayClientDispatchKind::notification_settings_entry) {
         const u64 guild = e.notification.guild_id;
         const u32 bit = prior_guild_bit(guild);
@@ -1022,14 +1030,11 @@ bool snapshot_entry(void* opaque, u32 index, JsonValue value) noexcept {
 GatewayClientDispatchRouteResult gateway_client_publish_notification_snapshot(
     const GatewayReady& ready, Slice<u32> arrays, Slice<u32> objects, Slice<char> storage, u64 sequence,
     u64 now, bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept,
-    void* context) noexcept {
-    if (!publish || !arrays.data || !arrays.count || !objects.data || !objects.count || !storage.data)
-        return route_error(GatewayClientDispatchRouteError::invalid_input);
-    NotificationSnapshot s{
-        objects, storage, publish, context, sequence, now, ready.notification_policy_invalid,
-        false,   nullptr, {}};
+    void* context, const JsonIndexedDocument* document) noexcept {
+    NotificationSnapshot s{storage, publish, context, sequence, now, ready.notification_policy_invalid,
+                           false,   nullptr, {}};
     NotificationFields f{};
-    JsonIndexedDocument doc{};
+    JsonIndexedDocument doc = document ? *document : JsonIndexedDocument{};
     const bool valid = ready.user_guild_settings.source.data &&
                        notification_document(ready.user_guild_settings, arrays, &doc, &f) &&
                        f.entries.kind == JsonValueKind::array;
@@ -1058,7 +1063,7 @@ GatewayClientDispatchRouteResult gateway_client_publish_notification_snapshot(
     auto global = gateway_dispatch_event(GatewayClientDispatchKind::notification_global, s.sequence, s.now);
     MessageNotificationGlobal g{};
     NotificationFields account{};
-    JsonIndexedDocument account_doc{};
+    JsonIndexedDocument account_doc = document ? *document : JsonIndexedDocument{};
     const bool account_valid =
         ready.notification_settings.source.data &&
         notification_document(ready.notification_settings, objects, &account_doc, &account) &&
@@ -1069,7 +1074,7 @@ GatewayClientDispatchRouteResult gateway_client_publish_notification_snapshot(
                                 (!proto_valid ? gateway_notification_incomplete : 0u);
     global.notification.account_flags = account.flags;
     NotificationFields user{};
-    JsonIndexedDocument user_doc{};
+    JsonIndexedDocument user_doc = document ? *document : JsonIndexedDocument{};
     if (notification_document(ready.user, objects, &user_doc, &user) &&
         restriction_inactive(user_doc, user, true))
         global.notification.flags |= gateway_notification_restricted_known;

@@ -1,4 +1,5 @@
 #include "dispatch_internal.hpp"
+#include "dispatch_common.hpp"
 #include "maicord/protocol/user/notification_settings.hpp"
 
 namespace maicord {
@@ -163,12 +164,13 @@ bool notification_document(JsonValue source, Slice<u32> scratch, JsonIndexedDocu
                            NotificationFields* fields) noexcept {
     if (source.kind != JsonValueKind::object)
         return false;
-    const auto scan = json_scan_structurals_avx1(source.source, scratch);
-    if (!scan.ok())
-        return false;
-    *doc = {source.source, {scratch.data, scan.count}};
-    return json_visit_value_object(source, doc->structurals, 64, notification_fields, fields).ok() &&
-           !fields->bad;
+    if (!doc->structurals.data) {
+        const auto scan = json_scan_structurals_avx1(source.source, scratch);
+        if (!scan.ok())
+            return false;
+        *doc = {source.source, {scratch.data, scan.count}};
+    }
+    return json_visit_indexed_object(*doc, source, 64, notification_fields, fields).ok() && !fields->bad;
 }
 
 } // namespace dispatch_detail
@@ -239,13 +241,12 @@ void notification_global_incomplete(GatewayClientEvent* e, ConstSlice<u8>* paylo
 } // namespace
 namespace dispatch_detail {
 
-bool notification_entry(JsonValue source, Slice<u32> scratch, Slice<char> storage, GatewayClientEvent* e,
-                        ConstSlice<u8>* payload) noexcept {
-    JsonIndexedDocument doc{};
-    NotificationFields f{};
-    if (!notification_document(source, scratch, &doc, &f)) {
+bool notification_entry(const JsonIndexedDocument& doc, JsonValue source, Slice<char> storage, GatewayClientEvent* e,
+                        ConstSlice<u8>* payload, NotificationFields* fields) noexcept {
+    NotificationFields& f = *fields;
+    if (!json_visit_indexed_object(doc, source, 64, notification_fields, &f).ok() || f.bad) {
         notification_incomplete(e, payload, f.guild);
-        return true;
+        return false;
     }
     const usize address = reinterpret_cast<usize>(storage.data);
     const u32 padding = static_cast<u32>((8 - (address & 7)) & 7);
@@ -261,8 +262,7 @@ bool notification_entry(JsonValue source, Slice<u32> scratch, Slice<char> storag
         reinterpret_cast<MessageNotificationOverride*>(start + sizeof(MessageNotificationGuildSetting));
     MessageNotificationGuildSetting guild{};
     NotificationSettingsPacket packet{};
-    const auto err = decode_notification_settings(doc, {doc.input, 0, JsonValueKind::object},
-                                                  {&guild, 1}, {overrides, capacity}, &packet);
+    const auto err = decode_notification_settings(doc, source, {&guild, 1}, {overrides, capacity}, &packet);
     if (err != NotificationSettingsDecodeError::none) {
         notification_incomplete(e, payload, f.guild);
         return true;
@@ -295,16 +295,22 @@ bool notification_proto(JsonValue value, Slice<char> storage, MessageNotificatio
     }
     return decode_notification_global_base64(encoded, g) == NotificationSettingsDecodeError::none;
 }
-bool notification_route(const GatewayEnvelope& env, Slice<u32> scratch, Slice<char> storage,
+void notification_route(const GatewayEnvelope& env, Slice<u32> scratch, Slice<char> storage,
                         GatewayClientEvent* e, ConstSlice<u8>* payload, u32 kind) noexcept {
-    if (kind == 0)
-        return notification_entry(env.data, scratch, storage, e, payload);
-    const bool proto_update = kind == 1;
     JsonIndexedDocument doc{};
     NotificationFields f{};
-    if (!notification_document(env.data, scratch, &doc, &f)) {
+    const bool indexed = gateway_frame_index(env, scratch, &doc).ok();
+    if (kind == 0) {
+        if (indexed)
+            notification_entry(doc, env.data, storage, e, payload, &f);
+        else
+            notification_incomplete(e, payload, 0);
+        return;
+    }
+    const bool proto_update = kind == 1;
+    if (!indexed || !notification_document(env.data, scratch, &doc, &f)) {
         notification_global_incomplete(e, payload);
-        return true;
+        return;
     }
     MessageNotificationGlobal global{};
     u32 flags = proto_update && f.partial ? gateway_notification_partial : 0u;
@@ -314,32 +320,31 @@ bool notification_route(const GatewayEnvelope& env, Slice<u32> scratch, Slice<ch
         if (f.settings.kind != JsonValueKind::object ||
             !json_visit_indexed_object(doc, f.settings, 64, notification_fields, &nested).ok()) {
             notification_global_incomplete(e, payload);
-            return true;
+            return;
         }
         if ((nested.seen & 1048576) && nested.type != 1)
-            return true;
+            return;
         if (!(nested.seen & 1048576) || !notification_proto(nested.proto, storage, &global)) {
             notification_global_incomplete(e, payload);
-            return true;
+            return;
         }
     } else {
         if (!(f.seen & 4096)) {
             notification_global_incomplete(e, payload);
-            return true;
+            return;
         }
         flags = gateway_notification_partial | gateway_notification_account_flags_known;
         account_flags = f.flags;
     }
     if (storage.count < sizeof(global)) {
         notification_global_incomplete(e, payload);
-        return true;
+        return;
     }
     copy_bytes(storage.data, &global, sizeof(global));
     e->dispatch_kind = GatewayClientDispatchKind::notification_global;
     e->notification = {0, 0, 0, 0, flags, account_flags, 0};
     e->dispatch_payload_bytes = sizeof(global);
     *payload = {reinterpret_cast<const u8*>(storage.data), sizeof(global)};
-    return true;
 }
 
 } // namespace dispatch_detail
@@ -494,15 +499,9 @@ void gateway_client_append_notification_sidecar(const GatewayEnvelope& env, Slic
     const bool sync = named == 7;
     const bool channel = thread || named == 8 || named == 9;
     const bool user = named == 10;
-    JsonIndexedDocument doc{};
+    JsonIndexedDocument doc = document ? *document : JsonIndexedDocument{};
     NotificationFields f{};
-    bool valid;
-    if (document) {
-        doc = *document;
-        valid = json_visit_indexed_object(doc, env.data, 64, notification_fields, &f).ok() && !f.bad;
-    } else {
-        valid = notification_document(env.data, scratch, &doc, &f);
-    }
+    bool valid = notification_document(env.data, scratch, &doc, &f);
     if (user && (f.id != self || !(f.seen & 4194304)))
         return;
     const u32 base = payload->count;

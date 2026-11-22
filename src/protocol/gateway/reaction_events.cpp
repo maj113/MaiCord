@@ -1,7 +1,6 @@
 #include "maicord/protocol/gateway/reaction_events.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "decode.hpp"
 #include "../encoding/json_field_lists.hpp"
 
@@ -229,21 +228,14 @@ bool visit_batch_reaction(void* opaque, u32, JsonValue value) noexcept {
 } // namespace
 
 GatewayEventDecodeResult gateway_decode_message_reaction(
-    JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth,
+    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth,
     Slice<char> name_output, GatewayMessageReactionEventKind kind,
     GatewayMessageReactionEvent* output) noexcept {
     reset_value<GatewayMessageReactionEvent>(output);
-    const JsonScanResult scan =
-        json_scan_structurals_avx1(data.source, structural_scratch);
-    if (!scan.ok()) {
-        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-    }
     ReactionContext context{};
     context.event.kind = kind;
     context.event.type = MessageReactionType::normal;
-    const JsonReadResult read = json_visit_value_object(
-        data, ConstSlice<u32>{structural_scratch.data, scan.count},
-        maximum_depth, visit_reaction, &context);
+    const JsonReadResult read = json_visit_indexed_object(document, data, maximum_depth, visit_reaction, &context);
     if (!read.ok()) {
         return read_failure(context.error, read);
     }
@@ -264,18 +256,9 @@ GatewayEventDecodeResult gateway_decode_message_reaction(
         *output = context.event;
         return GatewayEventDecodeResult{};
     }
-
-    const JsonScanResult emoji_scan =
-        json_scan_structurals_avx1(context.emoji.source, structural_scratch);
-    if (!emoji_scan.ok()) {
-        return decode_failure(GatewayEventDecodeError::scan_failed, emoji_scan.error_offset,
-                              emoji_scan.error);
-    }
     EmojiContext emoji{};
-    const JsonReadResult emoji_read = json_visit_value_object(
-        context.emoji,
-        ConstSlice<u32>{structural_scratch.data, emoji_scan.count},
-        maximum_depth, visit_emoji, &emoji);
+    const JsonReadResult emoji_read =
+        json_visit_indexed_object(document, context.emoji, maximum_depth, visit_emoji, &emoji);
     if (!emoji_read.ok()) {
         return read_failure(emoji.error, emoji_read);
     }
@@ -287,27 +270,14 @@ GatewayEventDecodeResult gateway_decode_message_reaction(
 }
 
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+// The caller's name scratch is apart from the document (client_session.cpp gives dispatch scratch).
 GatewayReactionBatchVisitResult gateway_visit_message_reaction_add_many(
-    JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<char> name_scratch,
+    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth, Slice<char> name_scratch,
     void* context, bool (*visit)(void*, const GatewayMessageReactionEvent&) noexcept) noexcept {
-    const ConstSlice<u8> source{reinterpret_cast<const u8*>(data.source.data), data.source.bytes};
-    const ConstSlice<u8> names{reinterpret_cast<const u8*>(name_scratch.data), name_scratch.count};
-    if (!visit || data.kind != JsonValueKind::object || !data.source.bytes || !maximum_depth ||
-        !structural_scratch.data || !structural_scratch.count ||
-        structural_scratch.count > ~u32{0} / sizeof(u32) || !byte_range_valid(source) ||
-        !byte_range_valid(names))
+    if (data.kind != JsonValueKind::object)
         return {decode_failure(GatewayEventDecodeError::invalid_input), 0, false};
-    const ConstSlice<u8> indices{reinterpret_cast<const u8*>(structural_scratch.data),
-                                 structural_scratch.count * static_cast<u32>(sizeof(u32))};
-    if (!byte_range_valid(indices) || byte_ranges_overlap(source, indices) ||
-        byte_ranges_overlap(source, names) || byte_ranges_overlap(indices, names))
-        return {decode_failure(GatewayEventDecodeError::invalid_input), 0, false};
-    const auto scan = json_scan_structurals_avx1(data.source, structural_scratch);
-    if (!scan.ok())
-        return {decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error), 0,
-                false};
     ReactionBatchVisit batch{};
-    batch.document = {data.source, {structural_scratch.data, scan.count}};
+    batch.document = document;
     batch.name_scratch = name_scratch;
     batch.maximum_depth = maximum_depth;
     ReactionBatchRoot root{};

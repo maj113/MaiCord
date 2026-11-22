@@ -473,17 +473,17 @@ GatewayEventDecodeResult gateway_decode_resumed(JsonValue data, Slice<u32> struc
     return result.ok() ? decode_failure(GatewayEventDecodeError::none) : result;
 }
 
-GatewayEventDecodeResult gateway_decode_supplemental_private_channels(JsonValue data, Slice<u32> scratch,
-                                                                      u32 maximum_depth,
+GatewayEventDecodeResult gateway_decode_supplemental_private_channels(const JsonIndexedDocument& document,
+                                                                      JsonValue data, u32 maximum_depth,
                                                                       JsonValue* channels) noexcept {
     reset_value(channels);
     if (data.kind != JsonValueKind::object)
         return decode_failure(GatewayEventDecodeError::invalid_data);
     SupplementalPrivateContext context{};
-    const auto result = visit_object(data, scratch, maximum_depth, visit_supplemental_private, &context,
-                                     &context.error, GatewayEventDecodeError::invalid_json);
-    if (!result.ok())
-        return result;
+    const JsonReadResult read =
+        json_visit_indexed_object(document, data, maximum_depth, visit_supplemental_private, &context);
+    if (!read.ok())
+        return read_failure(context.error, read);
     *channels = context.channels;
     return decode_failure(GatewayEventDecodeError::none);
 }

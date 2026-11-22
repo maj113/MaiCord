@@ -30,6 +30,8 @@ struct Stream {
     // Guild presences (zero for friends): rows without activities are skipped
     // and malformed rows do not fail the stream.
     u64 guild_id;
+    // The document that holds the presences: each one is read through it.
+    const JsonIndexedDocument* document;
 };
 GatewayClientEvent event_for(const Stream& stream, GatewayClientDispatchKind kind) noexcept {
     return gateway_dispatch_event(kind, stream.sequence, stream.now_ms);
@@ -98,11 +100,9 @@ bool publish_presence(void* opaque, u32, JsonValue value) noexcept {
     if (value.kind == JsonValueKind::null_value) return true; // compressed payload permits empty positions
     auto& stream = *static_cast<Stream*>(opaque);
     if (value.kind != JsonValueKind::object) return true;
-    const auto scan = json_scan_structurals_avx1(value.source, stream.object_scratch);
-    if (!scan.ok()) { stream.error = fail(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed); return false; }
-    const JsonIndexedDocument document{value.source, {stream.object_scratch.data, scan.count}};
+    const JsonIndexedDocument& document = *stream.document;
     Presence presence{&document};
-    const auto read = json_visit_value_object(value, document.structurals, 64, presence_member, &presence);
+    const auto read = json_visit_indexed_object(document, value, 64, presence_member, &presence);
     // Malformed rows are skipped, never fatal: a guild row is advisory and a friend's stays unknown.
     if (!read.ok() || !presence.valid || !(presence.seen & 4)) return true;
     if (presence.seen & 2) {
@@ -122,14 +122,13 @@ bool publish_presence(void* opaque, u32, JsonValue value) noexcept {
     UserAppearance appearance{};
     appearance.user_id = presence.value.user_id;
     appearance.guild_id = stream.guild_id;
-    const JsonValue root{value.source, 0, JsonValueKind::object};
-    if (activity_decode(document, root, &appearance) && appearance.fields)
+    if (activity_decode(document, value, &appearance) && appearance.fields)
         extra_bytes = user_appearance_write(appearance, {extra, sizeof(extra)});
     u32 rich = 0;
     if (extra_bytes) {
         UserActivitySet activities; // user_activities_decode resets it
         bool has_activities = false;
-        if (user_activities_decode(document, root, presence.value.user_id, &activities, &has_activities) &&
+        if (user_activities_decode(document, value, presence.value.user_id, &activities, &has_activities) &&
             has_activities && activities.count) {
             rich = user_activities_write(activities, {extra + extra_bytes, static_cast<u32>(sizeof(extra) - extra_bytes)});
             extra_bytes += rich;
@@ -153,40 +152,45 @@ bool friends_member(void* opaque, JsonString name, JsonValue value) noexcept {
     friends.array = value;
     return true;
 }
-bool visit_array(JsonValue array, Slice<u32> scratch, JsonArrayVisitor visitor, Stream* stream) noexcept {
+// The index `value` is read through: `document` when it holds the value, else a scan of the value into `scratch`.
+bool index_of(JsonValue value, const JsonIndexedDocument* document, Slice<u32> scratch,
+              JsonIndexedDocument* index) noexcept {
+    if (document) {
+        *index = *document;
+        return true;
+    }
+    const auto scan = json_scan_structurals_avx1(value.source, scratch);
+    *index = {value.source, {scratch.data, scan.count}};
+    return scan.ok();
+}
+bool visit_array(JsonValue array, const JsonIndexedDocument* document, Slice<u32> scratch, JsonArrayVisitor visitor,
+                 Stream* stream) noexcept {
     if (!array.source.bytes || array.kind == JsonValueKind::null_value) return true;
     if (array.kind != JsonValueKind::array) { stream->error = fail(GatewayClientDispatchRouteError::decode); return false; }
-    const auto scan = json_scan_structurals_avx1(array.source, scratch);
-    if (!scan.ok()) { stream->error = fail(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed); return false; }
-    const auto read = json_visit_value_array(array, {scratch.data, scan.count}, 64, visitor, stream);
+    JsonIndexedDocument index;
+    if (!index_of(array, document, scratch, &index)) { stream->error = fail(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed); return false; }
+    const auto read = json_visit_indexed_array(index, array, 64, visitor, stream);
     if (!read.ok() && stream->error.ok()) stream->error = fail(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_json);
     return read.ok() && stream->error.ok();
 }
-GatewayClientDispatchRouteResult publish_merged(JsonValue merged, Slice<u32> array_scratch, Stream* stream) noexcept {
+// `document`: null, or a document that holds `merged`.
+GatewayClientDispatchRouteResult publish_merged(JsonValue merged, const JsonIndexedDocument* document,
+                                                Slice<u32> array_scratch, Stream* stream) noexcept {
     if (!merged.source.bytes || merged.kind == JsonValueKind::null_value) return {};
     if (merged.kind != JsonValueKind::object) return fail(GatewayClientDispatchRouteError::decode);
-    const auto scan = json_scan_structurals_avx1(merged.source, array_scratch);
-    if (!scan.ok()) return fail(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed);
+    JsonIndexedDocument index;
+    if (!index_of(merged, document, array_scratch, &index))
+        return fail(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed);
     Friends friends{utf8_literal("friends"), JsonValueKind::array};
-    const auto read = json_visit_value_object(merged, {array_scratch.data, scan.count}, 64, friends_member, &friends);
+    const auto read = json_visit_indexed_object(index, merged, 64, friends_member, &friends);
     if (!read.ok() || !friends.valid) return fail(GatewayClientDispatchRouteError::decode);
-    if (!visit_array(friends.array, array_scratch, publish_presence, stream)) return stream->error;
+    stream->document = &index;
+    if (!visit_array(friends.array, &index, {}, publish_presence, stream)) return stream->error;
     return {};
 }
-bool valid_stream_inputs(JsonValue relationships, JsonValue merged, Slice<u32> array_scratch,
-    Slice<u32> object_scratch) noexcept {
-    if (!array_scratch.data || !array_scratch.count || !object_scratch.data || !object_scratch.count ||
-        array_scratch.count > ~u32{0} / sizeof(u32) || object_scratch.count > ~u32{0} / sizeof(u32)) return false;
-    const ConstSlice<u8> arrays{reinterpret_cast<const u8*>(array_scratch.data), array_scratch.count * static_cast<u32>(sizeof(u32))};
-    const ConstSlice<u8> objects{reinterpret_cast<const u8*>(object_scratch.data), object_scratch.count * static_cast<u32>(sizeof(u32))};
-    if (!byte_range_valid(arrays) || !byte_range_valid(objects) || byte_ranges_overlap(arrays, objects)) return false;
-    const ConstSlice<u8> sources[]{
-        {reinterpret_cast<const u8*>(relationships.source.data), relationships.source.bytes},
-        {reinterpret_cast<const u8*>(merged.source.data), merged.source.bytes}};
-    for (const auto source : sources)
-        if (!byte_range_valid(source) || source.count > kRelationshipsMaximumBytes ||
-            byte_ranges_overlap(source, arrays) || byte_ranges_overlap(source, objects)) return false;
-    return true;
+// Discord's lists are bounded: a larger one is refused. The callers' scratch is their own disjoint storage.
+bool within_bounds(JsonValue relationships, JsonValue merged) noexcept {
+    return relationships.source.bytes <= kRelationshipsMaximumBytes && merged.source.bytes <= kRelationshipsMaximumBytes;
 }
 // The producer found no room. It announces the wait, re-checks, then wakes the consumer and blocks.
 // Returns true when room appeared (re-checked or signaled), false on cancellation, timeout or failure.
@@ -339,33 +343,26 @@ GatewayClientDispatchRouteResult gateway_route_relationship(const GatewayEnvelop
     *payload = {reinterpret_cast<const u8*>(output.data), sizeof(mutation)};
     return {};
 }
-GatewayClientDispatchRouteResult gateway_relationship_merged_presences(JsonValue data, Slice<u32> scratch, JsonValue* output) noexcept {
-    if (!output || data.kind != JsonValueKind::object || !data.source.bytes || data.source.bytes > kRelationshipsMaximumBytes ||
-        !scratch.count || scratch.count > ~u32{0} / sizeof(u32)) return fail(GatewayClientDispatchRouteError::invalid_input);
-    const ConstSlice<u8> source{reinterpret_cast<const u8*>(data.source.data), data.source.bytes};
-    const ConstSlice<u8> structural{reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))};
-    const ConstSlice<u8> destination{reinterpret_cast<const u8*>(output), sizeof(*output)};
-    if (!byte_range_valid(source) || !byte_range_valid(structural) || !byte_range_valid(destination) ||
-        byte_ranges_overlap(source, structural) || byte_ranges_overlap(source, destination) ||
-        byte_ranges_overlap(structural, destination)) return fail(GatewayClientDispatchRouteError::invalid_input);
-    const auto scan = json_scan_structurals_avx1(data.source, scratch);
-    if (!scan.ok()) return fail(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed);
+GatewayClientDispatchRouteResult gateway_relationship_merged_presences(const JsonIndexedDocument& document,
+    JsonValue data, JsonValue* output) noexcept {
+    if (data.source.bytes > kRelationshipsMaximumBytes)
+        return fail(GatewayClientDispatchRouteError::invalid_input);
     Friends merged{utf8_literal("merged_presences"), JsonValueKind::object};
-    const auto read = json_visit_value_object(data, {scratch.data, scan.count}, 64, friends_member, &merged);
+    const auto read = json_visit_indexed_object(document, data, 64, friends_member, &merged);
     if (!read.ok() || !merged.valid) return fail(GatewayClientDispatchRouteError::decode);
     *output = merged.array;
     return {};
 }
 GatewayClientDispatchRouteResult gateway_client_publish_relationship_snapshot(JsonValue relationships, JsonValue merged,
     Slice<u32> array_scratch, Slice<u32> object_scratch, u64 sequence, u64 now_ms,
-    GatewayRelationshipPublish publish, void* opaque) noexcept {
-    if (!publish || !valid_stream_inputs(relationships, merged, array_scratch, object_scratch))
+    GatewayRelationshipPublish publish, void* opaque, const JsonIndexedDocument* document) noexcept {
+    if (!within_bounds(relationships, merged))
         return fail(GatewayClientDispatchRouteError::invalid_input);
     Stream stream{publish, opaque, object_scratch, sequence, now_ms};
     auto begin = event_for(stream, GatewayClientDispatchKind::relationship_snapshot_begin);
     if (!publish(opaque, begin, {})) return fail(GatewayClientDispatchRouteError::payload_capacity);
-    if (!visit_array(relationships, array_scratch, publish_relationship, &stream)) return stream.error;
-    const auto presences = publish_merged(merged, array_scratch, &stream);
+    if (!visit_array(relationships, document, array_scratch, publish_relationship, &stream)) return stream.error;
+    const auto presences = publish_merged(merged, document, array_scratch, &stream);
     if (!presences.ok()) return presences;
     auto complete = event_for(stream, GatewayClientDispatchKind::relationship_snapshot_complete);
     complete.state.record_count = stream.count;
@@ -407,13 +404,9 @@ bool guild_presences_item(void* opaque, u32 index, JsonValue value) noexcept {
     return g.stream->error.ok();
 }
 } // namespace
-GatewayClientDispatchRouteResult gateway_client_publish_guild_presences(JsonValue data, Slice<u32> array_scratch,
-    Slice<u32> object_scratch, u64 sequence, u64 now_ms, GatewayRelationshipPublish publish, void* opaque) noexcept {
-    if (!publish || data.kind != JsonValueKind::object || !valid_stream_inputs(data, {}, array_scratch, object_scratch))
-        return fail(GatewayClientDispatchRouteError::invalid_input);
-    const auto scan = json_scan_structurals_avx1(data.source, array_scratch);
-    if (!scan.ok()) return {};
-    const JsonIndexedDocument document{data.source, {array_scratch.data, scan.count}};
+// Both read the data that gateway_relationship_merged_presences bounded.
+GatewayClientDispatchRouteResult gateway_client_publish_guild_presences(const JsonIndexedDocument& document,
+    JsonValue data, u64 sequence, u64 now_ms, GatewayRelationshipPublish publish, void* opaque) noexcept {
     NamedMembers root{utf8_literal("guilds"), utf8_literal("merged_presences")};
     NamedMembers merged{utf8_literal("guilds"), {}};
     if (!json_visit_indexed_object(document, data, 64, named_members, &root).ok() ||
@@ -421,7 +414,8 @@ GatewayClientDispatchRouteResult gateway_client_publish_guild_presences(JsonValu
         !json_visit_indexed_object(document, root.vb, 64, named_members, &merged).ok() ||
         merged.va.kind != JsonValueKind::array)
         return {};
-    Stream stream{publish, opaque, object_scratch, sequence, now_ms};
+    Stream stream{publish, opaque, {}, sequence, now_ms};
+    stream.document = &document;
     // About 4 KiB of guild IDs, written before they are read; READY_SUPPLEMENTAL lists at most a few hundred.
     GuildPresences guilds;
     guilds.document = &document;
@@ -431,11 +425,9 @@ GatewayClientDispatchRouteResult gateway_client_publish_guild_presences(JsonValu
     json_visit_indexed_array(document, merged.va, 64, guild_presences_item, &guilds);
     return stream.error;
 }
-GatewayClientDispatchRouteResult gateway_client_publish_friend_presences(JsonValue merged, Slice<u32> array_scratch,
-    Slice<u32> object_scratch, u64 sequence, u64 now_ms, GatewayRelationshipPublish publish, void* opaque) noexcept {
-    if (!publish || !valid_stream_inputs({}, merged, array_scratch, object_scratch))
-        return fail(GatewayClientDispatchRouteError::invalid_input);
-    Stream stream{publish, opaque, object_scratch, sequence, now_ms};
-    return publish_merged(merged, array_scratch, &stream);
+GatewayClientDispatchRouteResult gateway_client_publish_friend_presences(const JsonIndexedDocument& document,
+    JsonValue merged, u64 sequence, u64 now_ms, GatewayRelationshipPublish publish, void* opaque) noexcept {
+    Stream stream{publish, opaque, {}, sequence, now_ms};
+    return publish_merged(merged, &document, {}, &stream);
 }
 } // namespace maicord

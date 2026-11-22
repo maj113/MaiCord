@@ -38,6 +38,7 @@ void gateway_mailbox_signal_space(GatewayClientMailbox* mailbox, HANDLE space) n
 GatewayClientDispatchRouteResult gateway_route_relationship(const GatewayEnvelope& envelope,
     Slice<u32> scratch, Slice<char> output, GatewayClientEvent* event,
     ConstSlice<u8>* payload, bool* handled) noexcept;
-GatewayClientDispatchRouteResult gateway_relationship_merged_presences(JsonValue data,
-    Slice<u32> scratch, JsonValue* merged) noexcept;
+// READY_SUPPLEMENTAL merged_presences, read through `document`, which holds `data`.
+GatewayClientDispatchRouteResult gateway_relationship_merged_presences(const JsonIndexedDocument& document,
+    JsonValue data, JsonValue* merged) noexcept;
 } // namespace maicord

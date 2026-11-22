@@ -717,10 +717,6 @@ GatewayEventDecodeResult decode_message(const JsonIndexedDocument& document, Jso
             return decode_failure(GatewayEventDecodeError::message_content_capacity,
                                   context.content.source_offset);
         }
-        if (!decoded.ok()) {
-            return decode_failure(GatewayEventDecodeError::invalid_message_content,
-                                  context.content.source_offset);
-        }
         context.event.content = Utf8View{content_scratch.data, decoded.bytes};
         transient_used = decoded.bytes;
     }
@@ -946,21 +942,16 @@ GatewayEventDecodeResult gateway_decode_message_update(
                           true, false, output);
 }
 
-GatewayEventDecodeResult gateway_decode_message_delete(JsonValue data, Slice<u32> structural_scratch,
+GatewayEventDecodeResult gateway_decode_message_delete(const JsonIndexedDocument& document, JsonValue data,
                                                        u32 maximum_depth,
                                                        GatewayMessageDeleteEvent* output) noexcept {
     reset_value<GatewayMessageDeleteEvent>(output);
     if (data.kind != JsonValueKind::object) {
         return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     }
-    const JsonScanResult scan = json_scan_structurals_avx1(data.source, structural_scratch);
-    if (!scan.ok()) {
-        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-    }
     DeleteContext context{};
     const JsonReadResult read =
-        json_visit_value_object(data, ConstSlice<u32>{structural_scratch.data, scan.count},
-                               maximum_depth, visit_delete_member, &context);
+        json_visit_indexed_object(document, data, maximum_depth, visit_delete_member, &context);
     if (!read.ok()) {
         return read_failure(context.error, read);
     }
@@ -973,38 +964,27 @@ GatewayEventDecodeResult gateway_decode_message_delete(JsonValue data, Slice<u32
 
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 GatewayEventDecodeResult gateway_decode_message_bulk_delete(
-    JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<u64> ids,
+    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth, Slice<u64> ids,
     GatewayMessageBulkDeleteEvent* output) noexcept {
     reset_value<GatewayMessageBulkDeleteEvent>(output);
     if (data.kind != JsonValueKind::object) {
         return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     }
-    JsonScanResult scan = json_scan_structurals_avx1(data.source, structural_scratch);
-    if (!scan.ok()) {
-        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-    }
     BulkContext context{};
-    JsonReadResult read =
-        json_visit_value_object(data, ConstSlice<u32>{structural_scratch.data, scan.count},
-                               maximum_depth, visit_bulk_member, &context);
+    JsonReadResult read = json_visit_indexed_object(document, data, maximum_depth, visit_bulk_member, &context);
     if (!read.ok()) {
         return read_failure(context.error, read);
     }
     if (context.fields != 3u) {
         return decode_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
     }
-
-    scan = json_scan_structurals_avx1(context.ids.source, structural_scratch);
-    if (!scan.ok()) {
-        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-    }
     BulkIdContext id_context{ids, GatewayEventDecodeError::none};
-    read = json_visit_value_array(context.ids, ConstSlice<u32>{structural_scratch.data, scan.count},
-                                 maximum_depth, visit_bulk_id, &id_context);
+    read = json_visit_indexed_array(document, context.ids, maximum_depth, visit_bulk_id, &id_context);
     if (!read.ok()) {
         return read_failure(id_context.error, read);
     }
-    if (read.member_count == 0 || read.member_count > kGatewayBulkDeleteMaximumIds) {
+    // visit_bulk_id rejects an index from kGatewayBulkDeleteMaximumIds on, so only an empty array is left to refuse.
+    if (read.member_count == 0) {
         return decode_failure(GatewayEventDecodeError::invalid_message_ids, context.ids.source_offset);
     }
     context.event.id_count = read.member_count;

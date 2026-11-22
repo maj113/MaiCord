@@ -35,7 +35,7 @@ struct User {
     bool nsfw_allowed, nsfw_known;
     u8 age_verification_status;
     bool parent_managed;
-    JsonIndexedDocument document;
+    const JsonIndexedDocument* document;
     u32 depth;
     GatewayEventDecodeError error;
 };
@@ -62,7 +62,7 @@ bool visit(void* opaque, JsonString key, JsonValue value) noexcept {
         // Future statuses carry no adult proof until their semantics are known.
         user.age_verification_status = static_cast<u8>(status <= 4 ? status : 0);
     } else if (field == 256)
-        valid = gateway_client_linked_parent(user.document, value, user.depth, &user.parent_managed);
+        valid = gateway_client_linked_parent(*user.document, value, user.depth, &user.parent_managed);
     else if (value.kind == JsonValueKind::null_value) valid = field != 2;
     else valid = json_value_as_string(value, field == 2 ? &user.username : field == 4 ? &user.global_name : &user.avatar);
     if (!valid) user.error = GatewayEventDecodeError::invalid_user;
@@ -82,35 +82,23 @@ bool gateway_client_linked_parent(const JsonIndexedDocument& document, JsonValue
     return true;
 }
 
-GatewayClientDispatchRouteResult gateway_append_user(JsonValue value, Slice<u32> scratch,
+GatewayClientDispatchRouteResult gateway_append_user(const JsonIndexedDocument& document, JsonValue value,
     u32 maximum_depth, GatewayPayloadWriter* writer, bool id_only) noexcept {
-    if (!writer || !writer->output.data) return error(GatewayClientDispatchRouteError::invalid_input);
     User decoded{};
-    u32 structural_count = 0;
+    UserAppearance appearance;
+    u8 appearance_data[1024]; u32 appearance_bytes = 0;
     if (id_only) {
         if (!json_value_to_snowflake(value, &decoded.id))
             return error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_user);
     } else {
-        if (value.kind != JsonValueKind::object) return error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_user);
-        const auto scan = json_scan_structurals_avx1(value.source, scratch);
-        if (!scan.ok()) {
-            auto failed = error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed);
-            failed.scan_error = scan.error;
-            failed.error_offset = scan.error_offset;
-            return failed;
-        }
-        structural_count = scan.count;
-        decoded.document = {value.source, {scratch.data, scan.count}};
+        decoded.document = &document;
         decoded.depth = maximum_depth;
-        const auto read = json_visit_value_object(value, {scratch.data, scan.count}, maximum_depth, visit, &decoded);
+        // A visit of a value that is no object fails.
+        const auto read = json_visit_indexed_object(document, value, maximum_depth, visit, &decoded);
         if (!read.ok() || !decoded.id) return error(GatewayClientDispatchRouteError::decode,
             decoded.error != GatewayEventDecodeError::none ? decoded.error : GatewayEventDecodeError::invalid_user);
-    }
-    UserAppearance appearance;
-    u8 appearance_data[1024]; u32 appearance_bytes = 0;
-    if (!id_only) {
-        if (!user_appearance_decode({value.source, {scratch.data, structural_count}},
-            {value.source, 0, JsonValueKind::object}, decoded.id, 0, &appearance)) return error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_user);
+        if (!user_appearance_decode(document, value, decoded.id, 0, &appearance))
+            return error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_user);
         appearance_bytes = user_appearance_write(appearance, {appearance_data, sizeof(appearance_data)});
         if (appearance.fields && !appearance_bytes) return error(GatewayClientDispatchRouteError::payload_capacity);
     }
@@ -143,7 +131,7 @@ GatewayClientDispatchRouteResult gateway_append_user(JsonValue value, Slice<u32>
                         decoded.age_verification_status, static_cast<u8>(((decoded.seen & 128) ? 1 : 0) |
                             ((decoded.seen & 256) ? 2 : 0) | (decoded.parent_managed ? 4 : 0)), 0};
     const u32 bytes = sizeof(user) + name_bytes + avatar_bytes + username_bytes + appearance_bytes;
-    if (writer->used > writer->output.count || bytes > writer->output.count - writer->used)
+    if (bytes > writer->output.count - writer->used)
         return error(GatewayClientDispatchRouteError::payload_capacity);
     gateway_payload_append(writer, &user, sizeof(user));
     gateway_payload_append(writer, display, name_bytes);
@@ -155,8 +143,7 @@ GatewayClientDispatchRouteResult gateway_append_user(JsonValue value, Slice<u32>
 
 bool gateway_client_user_record(ConstSlice<u8> payload, u32* cursor,
     GatewayClientUserMutation* user, Utf8View* name, Utf8View* avatar, Utf8View* username, ConstSlice<u8>* appearance) noexcept {
-    if (!cursor || !user || !name || !avatar || !payload.data || *cursor > payload.count ||
-        sizeof(*user) > payload.count - *cursor) return false;
+    if (*cursor > payload.count || sizeof(*user) > payload.count - *cursor) return false;
     copy_bytes(user, payload.data + *cursor, sizeof(*user));
     const u32 first = *cursor + sizeof(*user);
     const u32 bytes = static_cast<u32>(user->name_bytes) + user->avatar_bytes + user->username_bytes + user->appearance_bytes;

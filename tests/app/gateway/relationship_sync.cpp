@@ -496,14 +496,13 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     const auto supplemental_json = utf8_literal(R"({"merged_presences":{"friends":[{"user":{"id":"20"},"status":"dnd"}]}})");
     JsonValue supplemental_merged{};
     const u32 supplemental_count = stream.active.count;
-    check(gateway_relationship_merged_presences({supplemental_json, 0, JsonValueKind::object}, {scratch, 1024}, &supplemental_merged).ok() &&
-        gateway_client_publish_friend_presences(supplemental_merged, {scratch, 1024}, {object_scratch, 512}, 10, 101, capture, &stream).ok() &&
+    const JsonIndexedDocument supplemental{
+        supplemental_json, {scratch, json_scan_structurals_avx1(supplemental_json, {scratch, 1024}).count}};
+    check(gateway_relationship_merged_presences(supplemental, {supplemental_json, 0, JsonValueKind::object}, &supplemental_merged).ok() &&
+        gateway_client_publish_friend_presences(supplemental, supplemental_merged, 10, 101, capture, &stream).ok() &&
         !stream.staging && stream.completed && stream.active.count == supplemental_count &&
         relationship_store_find(stream.active, 20)->presence == RelationshipPresence::dnd,
         "friends Gateway: supplemental nested-user presence changes active status without resetting relationships");
-    check(gateway_client_publish_friend_presences(supplemental_merged, {scratch, 1024}, {scratch, 1024}, 10, 101, capture, &stream).error ==
-        GatewayClientDispatchRouteError::invalid_input,
-        "friends Gateway: supplemental stream rejects aliased structural scratch before publication");
     const u32 stream_revision = stream.active.revision;
     stream.fail_after = 3; stream.calls = 0;
     check(!gateway_client_publish_relationship_snapshot({array, 0, JsonValueKind::array}, {}, {scratch, 1024}, {object_scratch, 512},

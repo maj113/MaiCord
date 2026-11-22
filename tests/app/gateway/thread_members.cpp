@@ -40,7 +40,7 @@ bool decode(Utf8View source, GatewayClientEvent* event, ConstSlice<u8>* payload)
     GatewayEnvelope envelope{}; bool handled = false;
     if (!gateway_decode_envelope(source, {structurals, 4096}, 64, &envelope).ok()) return false;
     *event = {}; event->kind = GatewayClientEventKind::dispatch;
-    return gateway_client_route_thread_member_dispatch(envelope, {structurals, 4096}, 64, {packet, sizeof(packet)}, event, payload, &handled).ok() && handled;
+    return gateway_client_route_thread_member_dispatch(envelope, {structurals, 4096}, 64, {packet, sizeof(packet)}, 0, event, payload, &handled).ok() && handled;
 }
 bool apply(GatewayClientEvent event, ConstSlice<u8> payload) noexcept {
     auto& f = fixture;

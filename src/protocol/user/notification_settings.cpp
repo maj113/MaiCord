@@ -111,7 +111,7 @@ bool proto(const Wire&w,u32 begin,u32 end,u32 context,MessageNotificationGlobal&
 }
 NotificationSettingsDecodeError decode_notification_settings(const JsonIndexedDocument&d,JsonValue v,
     Slice<MessageNotificationGuildSetting>g,Slice<MessageNotificationOverride>o,NotificationSettingsPacket*out) noexcept {
-    if(d.input.bytes>kNotificationSettingsMaximumBytes||g.count>~u32{0}/sizeof(*g.data)||o.count>~u32{0}/sizeof(*o.data)||
+    if(v.source.bytes>kNotificationSettingsMaximumBytes||g.count>~u32{0}/sizeof(*g.data)||o.count>~u32{0}/sizeof(*o.data)||
        d.structurals.count>~u32{0}/sizeof(u32))return E::input;
     const ConstSlice<u8> gb{reinterpret_cast<const u8*>(g.data),g.count*static_cast<u32>(sizeof(*g.data))};
     const ConstSlice<u8> ob{reinterpret_cast<const u8*>(o.data),o.count*static_cast<u32>(sizeof(*o.data))};

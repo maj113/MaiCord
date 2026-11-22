@@ -198,16 +198,15 @@ bool visit_entry(void* opaque, u32, JsonValue value) noexcept {
 
 GatewayClientDispatchRouteResult gateway_client_route_thread_member_dispatch(const GatewayEnvelope& envelope,
     Slice<u32> scratch, u32 depth, Slice<char> storage, u64 self_user_id, GatewayClientEvent* event, ConstSlice<u8>* payload, bool* handled) noexcept {
-    if (!event || !payload || !handled || !scratch.data || !scratch.count || !storage.data || !depth) return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};
     Root root{};
     const u32 event_index = protocol_detail::skim_member_index<"THREAD_MEMBER_LIST_UPDATE", "THREAD_MEMBERS_UPDATE">(envelope.event_name);
     root.snapshot = event_index == 0;
     *handled = event_index < 2;
     if (!*handled) return {};
-    const auto scan = json_scan_structurals_avx1(envelope.data.source, scratch);
-    if (!scan.ok()) return {GatewayEventDecodeError::scan_failed, GatewayClientDispatchRouteError::decode, scan.error};
-    const JsonIndexedDocument document{envelope.data.source, {scratch.data, scan.count}};
-    const auto read = json_visit_root_object(document.input, document.structurals, depth, visit_root, &root);
+    JsonIndexedDocument document;
+    const auto indexed = gateway_frame_index(envelope, scratch, &document);
+    if (!indexed.ok()) return indexed;
+    const auto read = json_visit_indexed_object(document, envelope.data, depth, visit_root, &root);
     if (!read.ok() || !root.guild_seen || !root.thread_seen || (root.snapshot && !root.members_seen)) return {root.error == GatewayEventDecodeError::none ? GatewayEventDecodeError::missing_required_field : root.error, GatewayClientDispatchRouteError::decode};
     Array array{{storage, 0}, &document, depth, 0, root.guild, root.thread, root.snapshot ? GatewayClientMemberListOperation::sync : GatewayClientMemberListOperation::insert, {}};
     array.self = self_user_id;
@@ -242,11 +241,6 @@ GatewayClientDispatchRouteResult gateway_client_route_thread_member_dispatch(con
     if (self_proof & gateway_thread_self_joined)
         event->thread_members.authority_join_seconds = thread_join_seconds_from_ms(array.self_join_ms);
     return {};
-}
-
-GatewayClientDispatchRouteResult gateway_client_route_thread_member_dispatch(const GatewayEnvelope& envelope,
-    Slice<u32> scratch, u32 depth, Slice<char> storage, GatewayClientEvent* event, ConstSlice<u8>* payload, bool* handled) noexcept {
-    return gateway_client_route_thread_member_dispatch(envelope, scratch, depth, storage, 0, event, payload, handled);
 }
 
 bool gateway_client_event_thread_member_record(const GatewayClientEvent& event,

@@ -86,7 +86,9 @@ bool gateway_self_status_test_create(GatewayClient* client, u64 profile, u64 sel
 }
 // The live session's typed settings dispatch classifier.
 bool gateway_self_status_test_observe(GatewayClient* client, Utf8View dispatch) noexcept {
-    return self_settings_dispatch(client, static_cast<GatewayClientRuntime*>(client->runtime), dispatch);
+    SelfSettingsJson parsed{};
+    return self_settings_json(dispatch, &parsed) &&
+           self_settings_dispatch(client, static_cast<GatewayClientRuntime*>(client->runtime), parsed);
 }
 void gateway_self_status_test_ready(GatewayClient* client, bool ready) noexcept {
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);

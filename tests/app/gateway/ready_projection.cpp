@@ -906,9 +906,10 @@ void supplemental_self_member_roles(void (*check)(bool, const char*) noexcept) n
         utf8_literal(R"([[{"user_id":"1","roles":["80"]}],[{"user_id":"1","roles":["90"]}]])"));
     auto& p = self_members;
     const auto supplement = [&](Utf8View text, u32 capacity = sizeof(payload)) noexcept {
-        return gateway_ready_publish_supplemental_members(
-            {text, 0, JsonValueKind::object}, 1, {arrays, 32768}, {records, 16384}, {payload, capacity}, 89,
-            100, publish_self_members, &p);
+        const JsonIndexedDocument document{text, {arrays, json_scan_structurals_avx1(text, {arrays, 32768}).count}};
+        return gateway_ready_publish_supplemental_members(document, {text, 0, JsonValueKind::object}, 1,
+                                                          {records, 16384}, {payload, capacity}, 89, 100,
+                                                          publish_self_members, &p);
     };
     const auto metadata = supplement(utf8_literal(
         R"({"guilds":[{"id":"8"},{"id":"9"}],"merged_members":[[{"user_id":"2","roles":[]}],[{"user_id":"1","flags":128}]]})"));
@@ -1199,7 +1200,7 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
         (self_thread.thread.setting.fields&notification_muted)&&!self_thread.thread.setting.muted,
         "self thread copied with proven full-member muted default and other users excluded");
     GatewayClientEvent legacy{};legacy.kind=GatewayClientEventKind::dispatch;ConstSlice<u8>legacy_payload{};bool handled=false;
-    check(gateway_client_route_thread_member_dispatch(envelope,{records,16384},64,{header,sizeof(header)},&legacy,&legacy_payload,&handled).ok()&&handled&&
+    check(gateway_client_route_thread_member_dispatch(envelope,{records,16384},64,{header,sizeof(header)},0,&legacy,&legacy_payload,&handled).ok()&&handled&&
         ordinary_payload.count==legacy_payload.count&&bytes_equal(ordinary_payload.data,legacy_payload.data,legacy_payload.count)&&
         ordinary.thread_members.record_count==legacy.thread_members.record_count,
         "notification trimming preserves exact ordinary participant body and count");

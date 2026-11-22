@@ -25,6 +25,10 @@ inline constexpr u32 kGatewayGuildRoleMaximum = 256;
 inline constexpr u32 kGatewayGuildIconHashMaximumBytes = 34;
 
 struct StateObjectContext {
+    // The index the object was read through: the caller's document, or `own`, a scan of the object in the decoder's
+    // scratch. Nested values are read through it while that storage stays unwritten. The context is never copied.
+    const JsonIndexedDocument* document;
+    JsonIndexedDocument own;
     GatewayClientStateMutation mutation;
     JsonString name;
     JsonString icon;
@@ -117,7 +121,7 @@ bool safety_warning_item(void* opaque, u32, JsonValue value) noexcept;
 
 struct RecipientContext {
     PayloadWriter* writer;
-    Slice<u32> scratch;
+    const JsonIndexedDocument* document;
     u32 depth;
     u16 count;
     bool ids;
@@ -135,6 +139,8 @@ struct NicknameContext {
 
 bool append_nickname(void* opaque, u32, JsonValue value) noexcept;
 bool append_recipient(void* opaque, u32, JsonValue value) noexcept;
+// Reads `value` through `document`, or through a scan of `value` into `scratch` when `document` is null. Nothing
+// else is written to `scratch`.
 GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch, u32 maximum_depth,
                                              StateObjectContext* output, bool private_name_allowed = false,
                                              const JsonIndexedDocument* document = nullptr) noexcept;
@@ -143,42 +149,37 @@ bool append_name(PayloadWriter* writer, JsonString source, u16* bytes) noexcept;
 bool append_icon(PayloadWriter* writer, JsonString source, u8* bytes) noexcept;
 u32 grown_record_capacity(u32 capacity) noexcept;
 u8 role_flags(const StateObjectContext& object) noexcept;
-// `frame` (optional) in the array appends: READY's document, which holds the array and whose index lies outside
-// every scratch. The array is then read through it instead of a scan of its own.
-GatewayEventDecodeResult append_role_array(JsonValue array, Slice<u32> array_scratch,
-                                           Slice<u32> object_scratch, u32 maximum_depth,
-                                           PayloadWriter* writer, u32* count,
-                                           const JsonIndexedDocument* frame = nullptr) noexcept;
-GatewayEventDecodeResult append_snowflake_array(JsonValue array, Slice<u32> scratch, u32 maximum_depth,
-                                                PayloadWriter* writer, u32* count, u32 limit = kGatewayGuildRoleMaximum) noexcept;
-GatewayEventDecodeResult append_emoji_array(JsonValue array, Slice<u32> array_scratch,
-                                            Slice<u32> object_scratch, Slice<u32> role_scratch,
-                                            u32 maximum_depth, PayloadWriter* writer, u32* count,
-                                            u32* role_count, const JsonIndexedDocument* frame = nullptr) noexcept;
-GatewayEventDecodeResult append_overwrite_array(JsonValue array, Slice<u32> array_scratch,
-                                                Slice<u32> object_scratch, u32 maximum_depth,
-                                                PayloadWriter* writer, u32* count,
-                                                const JsonIndexedDocument* document = nullptr) noexcept;
+// The array appends read the array through `document`, which holds it (READY's document, or the index of the
+// event or object that holds it), and write nothing to any index.
+GatewayEventDecodeResult append_role_array(JsonValue array, u32 maximum_depth, PayloadWriter* writer, u32* count,
+                                           const JsonIndexedDocument& document) noexcept;
+GatewayEventDecodeResult append_snowflake_array(JsonValue array, u32 maximum_depth, PayloadWriter* writer,
+                                                u32* count, u32 limit, const JsonIndexedDocument& document) noexcept;
+GatewayEventDecodeResult append_emoji_array(JsonValue array, u32 maximum_depth, PayloadWriter* writer, u32* count,
+                                            u32* role_count, const JsonIndexedDocument& document) noexcept;
+GatewayEventDecodeResult append_overwrite_array(JsonValue array, u32 maximum_depth, PayloadWriter* writer,
+                                                u32* count, const JsonIndexedDocument& document) noexcept;
 
 struct MemberIdentity {
+    const JsonIndexedDocument* document; // Holds the member; its nested user is read through it.
     u64 user_id, nested_id;
     bool user_id_seen, user_seen, nested_id_seen;
 };
 
-bool member_identity(JsonValue value, Slice<u32> scratch, u32 maximum_depth,
+// Reads the member `value` of `document`.
+bool member_identity(const JsonIndexedDocument& document, JsonValue value, u32 maximum_depth,
                      MemberIdentity* identity) noexcept;
-GatewayEventDecodeResult append_self_member_roles(JsonValue members, Slice<u32> array_scratch,
-                                                  Slice<u32> object_scratch, u32 maximum_depth,
+// `frame`: null (the members are scanned into `array_scratch`), or a document that holds them.
+GatewayEventDecodeResult append_self_member_roles(JsonValue members, Slice<u32> array_scratch, u32 maximum_depth,
                                                   u64 self_user_id, PayloadWriter* writer,
                                                   u32* count, GatewayClientStateMutation* guild,
-                                                  bool* found) noexcept;
+                                                  bool* found, const JsonIndexedDocument* frame = nullptr) noexcept;
 bool hydrate_self_member(StateObjectContext* object, u64 self_user_id) noexcept;
-GatewayEventDecodeResult append_channel_array(JsonValue array, Slice<u32> array_scratch,
-                                              Slice<u32> object_scratch, u32 maximum_depth, u64 guild_id,
-                                              PayloadWriter* writer, u32* count,
-                                              u32* overwrite_count, u64 self_user_id = 0,
-                                              u32* skipped = nullptr,
-                                              const JsonIndexedDocument* frame = nullptr) noexcept;
+// `skipped` (guild snapshots): a malformed channel is skipped and counted there; null (THREAD_LIST_SYNC): it fails.
+GatewayEventDecodeResult append_channel_array(JsonValue array, u32 maximum_depth, u64 guild_id,
+                                              PayloadWriter* writer, u32* count, u32* overwrite_count,
+                                              u64 self_user_id, u32* skipped,
+                                              const JsonIndexedDocument& document) noexcept;
 
 struct ReadyContext {
     PayloadWriter* writer;

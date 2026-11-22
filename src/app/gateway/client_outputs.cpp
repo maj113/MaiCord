@@ -523,16 +523,10 @@ bool publish_private_channel(void* opaque, u32, JsonValue value) noexcept {
 namespace client_detail {
 
 PrivateChannelPublish publish_private_channels(GatewayClient* client, GatewayClientRuntime* runtime,
-                                               JsonValue channels, u64 sequence, u64 now_ms) noexcept {
+                                               const JsonIndexedDocument& document, JsonValue channels,
+                                               u64 sequence, u64 now_ms) noexcept {
     PrivateChannelPublish context{client, runtime, sequence, now_ms, {}, false};
-    const JsonScanResult scan = json_scan_structurals_avx1(channels.source, main_index_view(runtime));
-    if (!scan.ok()) {
-        context.route = route_decode_error({scan.error_offset, GatewayEventDecodeError::scan_failed, scan.error});
-        return context;
-    }
-    const JsonReadResult read =
-        json_visit_value_array(channels, ConstSlice<u32>{main_index_view(runtime).data, scan.count}, 64,
-                               publish_private_channel, &context);
+    const JsonReadResult read = json_visit_indexed_array(document, channels, 64, publish_private_channel, &context);
     if (!read.ok() && context.route.ok() && !context.publish_failed)
         context.route = route_decode_error(
             {read.error_offset, GatewayEventDecodeError::invalid_json, JsonScanError::none, read.error});

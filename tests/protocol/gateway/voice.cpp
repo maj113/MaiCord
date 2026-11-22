@@ -4,8 +4,13 @@ namespace maicord {
 void test_gateway_voice(void (*check)(bool, const char*) noexcept) noexcept {
     u32 scratch[256]{};
     GatewayVoiceState state{};
+    // The fixture as a document of its own, indexed as the Gateway frame is; a malformed one has no index.
+    auto document = [&](Utf8View text) noexcept {
+        const auto scan = json_scan_structurals_avx1(text, {scratch, 256});
+        return JsonIndexedDocument{text, {scratch, scan.ok() ? scan.count : 0}};
+    };
     auto state_read = [&](Utf8View text) noexcept {
-        return gateway_decode_voice_state({text, 0, JsonValueKind::object}, {scratch, 256}, 16, &state);
+        return gateway_decode_voice_state(document(text), {text, 0, JsonValueKind::object}, 16, &state);
     };
     const auto full = utf8_literal(
         R"({"guild_id":"10","channel_id":"20","user_id":"30","session_id":"session-test","self_mute":true,"self_deaf":false,"mute":false,"deaf":true,"self_video":true,"self_stream":true,"suppress":false,"member":{"roles":["40"]}})");
@@ -38,7 +43,7 @@ void test_gateway_voice(void (*check)(bool, const char*) noexcept) noexcept {
     }
     GatewayVoiceServer server{};
     auto server_read = [&](Utf8View text) noexcept {
-        return gateway_decode_voice_server({text, 0, JsonValueKind::object}, {scratch, 256}, 16, &server);
+        return gateway_decode_voice_server(document(text), {text, 0, JsonValueKind::object}, 16, &server);
     };
     check(server_read(
               utf8_literal(R"({"guild_id":"10","token":"fixture-only","endpoint":"example.invalid:443"})"))
@@ -67,10 +72,6 @@ void test_gateway_voice(void (*check)(bool, const char*) noexcept) noexcept {
     check(server_read(escaped).ok() && server.token.has_escapes &&
               json_string_equals_ascii(server.token, utf8_literal("fixture-only")),
           "voice tokens preserve valid escaped JSON strings");
-    check(
-        gateway_decode_voice_server({escaped, 0, JsonValueKind::object}, {scratch, 1}, 16, &server).error ==
-            GatewayEventDecodeError::scan_failed,
-        "voice decoder reports structural scratch exhaustion");
     u8 output[256];
     const GatewayVoiceStateUpdate updates[] = {{10, 20, false, true, false},
                                                {0, 20, true, false, true},

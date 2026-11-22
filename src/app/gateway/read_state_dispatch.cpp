@@ -5,6 +5,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
+#include "dispatch_common.hpp"
 
 namespace maicord {
 
@@ -264,24 +265,16 @@ bool cursor_row(void* opaque, u32, JsonValue value) noexcept {
 GatewayClientDispatchRouteResult gateway_client_route_channel_cursors(const GatewayEnvelope& envelope,
     Slice<u32> scratch, u32 depth, Slice<char> storage,
     GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
-    if (payload) reset_value(payload);
-    if (!event || !payload || !scratch.data || !scratch.count || !depth ||
-        (!storage.data && storage.count) || scratch.count > 0x3fffffffu ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(envelope.data.source.data), envelope.data.source.bytes},
-                            {reinterpret_cast<const u8*>(storage.data), storage.count}) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(scratch.data), scratch.count * 4u},
-                            {reinterpret_cast<const u8*>(storage.data), storage.count}))
-        return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};
+    reset_value(payload);
     CursorRoot root{};
-    const u32 event_index = member_index<"PASSIVE_UPDATE_V2", "CHANNEL_UNREAD_UPDATE">(envelope.event_name);
-    if (event_index > 1) return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};
-    root.unread_update = event_index == 1;
+    root.unread_update =
+        member_index<"PASSIVE_UPDATE_V2", "CHANNEL_UNREAD_UPDATE">(envelope.event_name) == 1;
     if (envelope.data.kind != JsonValueKind::object)
         return failure(GatewayEventDecodeError::invalid_data);
-    const auto scan = json_scan_structurals_avx1(envelope.data.source, scratch);
-    if (!scan.ok()) return failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-    const JsonIndexedDocument document{envelope.data.source, {scratch.data, scan.count}};
-    const auto read = json_visit_value_object(envelope.data, document.structurals, depth, cursor_root_field, &root);
+    JsonIndexedDocument document;
+    const auto indexed = gateway_frame_index(envelope, scratch, &document);
+    if (!indexed.ok()) return indexed;
+    const auto read = json_visit_indexed_object(document, envelope.data, depth, cursor_root_field, &root);
     if (!read.ok()) return failure(root.error != GatewayEventDecodeError::none ? root.error :
         GatewayEventDecodeError::invalid_json, read.error_offset, JsonScanError::none, read.error);
     if (root.seen != 3) return failure(GatewayEventDecodeError::missing_required_field);
@@ -369,17 +362,17 @@ GatewayClientDispatchRouteResult gateway_client_route_read_state_snapshot(JsonVa
     *payload = {reinterpret_cast<const u8*>(storage.data), event->dispatch_payload_bytes};
     return {};
 }
-GatewayClientDispatchRouteResult gateway_client_route_message_ack(JsonValue data,
+GatewayClientDispatchRouteResult gateway_client_route_message_ack(const GatewayEnvelope& envelope,
     Slice<u32> scratch, u32 depth, GatewayClientEvent* event,
     ConstSlice<u8>* payload) noexcept {
-    if (payload) reset_value(payload);
-    if (!event || !payload || !data.source.data || !data.source.bytes || !scratch.data || !scratch.count || !depth)
-        return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};
-    if (data.kind != JsonValueKind::object) return failure(GatewayEventDecodeError::invalid_data, data.source_offset);
-    const auto scan = json_scan_structurals_avx1(data.source, scratch);
-    if (!scan.ok()) return failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+    reset_value(payload);
+    if (envelope.data.kind != JsonValueKind::object)
+        return failure(GatewayEventDecodeError::invalid_data, envelope.data.source_offset);
+    JsonIndexedDocument frame;
+    const auto indexed = gateway_frame_index(envelope, scratch, &frame);
+    if (!indexed.ok()) return indexed;
     Entry source{}; source.ack = true;
-    const auto read = json_visit_value_object(data, {scratch.data, scan.count}, depth, visit_entry, &source);
+    const auto read = json_visit_indexed_object(frame, envelope.data, depth, visit_entry, &source);
     if (!read.ok()) return failure(source.error != GatewayEventDecodeError::none ? source.error :
         GatewayEventDecodeError::invalid_json, read.error_offset, JsonScanError::none, read.error);
     GatewayClientReadStateEvent descriptor{}; bool ignored = false;

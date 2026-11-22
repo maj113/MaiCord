@@ -29,30 +29,35 @@ bool arrays_field(void* opaque, JsonString name, JsonValue value) noexcept {
 bool gateway_client_publish_guild_arrays(JsonValue guild, u64 guild_id, Slice<u32> scratch, Slice<char> payload,
                                          u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
                                          void* context, const JsonIndexedDocument* document) noexcept {
+    JsonIndexedDocument index;
+    if (document) {
+        index = *document;
+    } else {
+        const auto scan = json_scan_structurals_avx1(guild.source, scratch);
+        if (!scan.ok())
+            return true;
+        index = {guild.source, {scratch.data, scan.count}};
+    }
     GuildArrays arrays{};
     arrays.scheduled_events.kind = JsonValueKind::null_value;
     // The publishers' own visits used depths 64 (voice) and 32: the stricter one decides. When this visit fails,
-    // the voice states are looked up again, and the other three arrays publish nothing.
-    bool located = false;
-    if (scratch.data && scratch.count >= 64 && guild.kind == JsonValueKind::object) {
-        if (document) {
-            located = json_visit_indexed_object(*document, guild, kDepth, arrays_field, &arrays).ok();
-        } else {
-            const auto scan = json_scan_structurals_avx1(guild.source, scratch);
-            located = scan.ok() &&
-                      json_visit_value_object(guild, {scratch.data, scan.count}, kDepth, arrays_field, &arrays).ok();
-        }
+    // the voice states are looked up again at depth 64, and the other three arrays publish nothing.
+    if (!json_visit_indexed_object(index, guild, kDepth, arrays_field, &arrays).ok()) {
+        GatewayNamedMember target{utf8_literal("voice_states"), &arrays.voice_states};
+        return !json_visit_indexed_object(index, guild, 64, gateway_store_named_member, &target).ok() ||
+               gateway_client_publish_voice_states(index, arrays.voice_states, GatewayVoiceStateSource::guild,
+                                                   guild_id, payload, sequence, now_ms, publish, context);
     }
-    if (!gateway_client_publish_voice_states(guild, GatewayVoiceStateSource::guild, guild_id, scratch, payload, sequence,
-                                             now_ms, publish, context, located ? &arrays.voice_states : nullptr))
-        return false;
-    return !located || !publish || !guild_id || !payload.data || payload.count < kGatewayClientDispatchPayloadCapacity ||
-           (gateway_client_publish_stage_instances(arrays.stage_instances, guild_id, scratch, payload, sequence, now_ms,
-                                                   publish, context) &&
-            gateway_client_publish_scheduled_events(arrays.scheduled_events, guild_id, payload, sequence, now_ms,
-                                                    publish, context) &&
-            gateway_client_publish_guild_stickers(arrays.stickers, guild_id, scratch, payload, sequence, now_ms,
-                                                  publish, context));
+    // The voice states are read before the other publishers scan into `scratch`.
+    return gateway_client_publish_voice_states(index, arrays.voice_states, GatewayVoiceStateSource::guild, guild_id,
+                                               payload, sequence, now_ms, publish, context) &&
+           (!guild_id ||
+            (gateway_client_publish_stage_instances(arrays.stage_instances, guild_id, scratch, payload, sequence,
+                                                    now_ms, publish, context) &&
+             gateway_client_publish_scheduled_events(arrays.scheduled_events, guild_id, payload, sequence, now_ms,
+                                                     publish, context) &&
+             gateway_client_publish_guild_stickers(arrays.stickers, guild_id, scratch, payload, sequence, now_ms,
+                                                   publish, context)));
 }
 
 // Events are ancillary like stage instances: a missing, malformed or

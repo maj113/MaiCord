@@ -61,17 +61,18 @@ Put put_text(GatewayPayloadWriter* writer, JsonValue value, u32 maximum, u32* by
     JsonString text{};
     if (!json_value_as_string(value, &text))
         return Put::invalid;
-    const auto sized = json_string_decode_utf8(text, Slice<char>{nullptr, 0});
-    if ((sized.error != JsonStringDecodeError::output_too_small && !sized.ok()) || sized.bytes > maximum)
+    // One pass: the decoder validates the whole string and sizes it before it writes, and writes nothing that
+    // does not fit.
+    const u32 room = writer->used <= writer->output.count ? writer->output.count - writer->used : 0;
+    const auto decoded = json_string_decode_utf8(text, Slice<char>{writer->output.data + writer->used, room});
+    if ((decoded.error != JsonStringDecodeError::output_too_small && !decoded.ok()) || decoded.bytes > maximum)
         return Put::invalid;
-    if (writer->used > writer->output.count || sized.bytes > writer->output.count - writer->used) {
+    if (!decoded.ok() || writer->used > writer->output.count) {
         writer->overflow = true;
         return Put::full;
     }
-    // The sizing pass validated the string, so the decode fills exactly sized.bytes of valid UTF-8.
-    json_string_decode_utf8(text, Slice<char>{writer->output.data + writer->used, writer->output.count - writer->used});
-    writer->used += sized.bytes;
-    *bytes = sized.bytes;
+    writer->used += decoded.bytes;
+    *bytes = decoded.bytes;
     return Put::ok;
 }
 
@@ -185,15 +186,12 @@ bool visit_space_member(void* opaque, JsonString name, JsonValue value) noexcept
     return true;
 }
 // The bits of one object, with `known` when the object is there. Null settings count as an empty object.
-u8 space_bits(JsonValue value, Slice<u32> scratch, u8 known) noexcept {
+u8 space_bits(const JsonIndexedDocument& document, JsonValue value, u8 known) noexcept {
     if (!value.source.bytes)
         return 0;
-    SpaceGate g{};
-    const auto scan = json_scan_structurals_avx1(value.source, scratch);
-    if (value.kind == JsonValueKind::object && scan.ok()) {
-        g.document = {value.source, {scratch.data, scan.count}};
-        json_visit_root_object(value.source, g.document.structurals, 4, visit_space_member, &g);
-    }
+    SpaceGate g{document};
+    if (value.kind == JsonValueKind::object)
+        json_visit_indexed_object(document, value, 4, visit_space_member, &g);
     if (g.enabled == 2)
         g.bits |= guild_space_disabled;
     else if (g.enabled && g.status)
@@ -305,11 +303,9 @@ void gateway_guild_detail_merge(GatewayGuildDetailValues* to, const GatewayGuild
 }
 
 bool gateway_guild_details_append(const GatewayGuildDetailValues& v, JsonValue features, bool features_seen,
-                                  Slice<u32> scratch, u32 maximum_depth, GatewayPayloadWriter* writer,
-                                  u16* bytes) noexcept {
+                                  const JsonIndexedDocument& document, u32 maximum_depth,
+                                  GatewayPayloadWriter* writer, u16* bytes) noexcept {
     *bytes = 0;
-    if (!scratch.data || !scratch.count)
-        return true;
     const u32 mark = writer->used;
     const auto rollback = [&](bool result) noexcept {
         writer->used = mark;
@@ -332,8 +328,8 @@ bool gateway_guild_details_append(const GatewayGuildDetailValues& v, JsonValue f
     header.premium_progress_bar_enabled = v.premium_progress_bar_enabled;
     header.owner_configured_content_level = v.owner_configured_content_level;
     header.nsfw_level = v.nsfw_level;
-    header.space = static_cast<u8>(space_bits(v.experiments, scratch, guild_space_trial_known) |
-                                   space_bits(v.space_settings, scratch, guild_space_settings_known));
+    header.space = static_cast<u8>(space_bits(document, v.experiments, guild_space_trial_known) |
+                                   space_bits(document, v.space_settings, guild_space_settings_known));
     if (v.seen & guild_detail_preferred_locale) {
         JsonString text{};
         const Slice<char> locale{header.preferred_locale, sizeof(header.preferred_locale)};
@@ -393,10 +389,7 @@ bool gateway_guild_details_append(const GatewayGuildDetailValues& v, JsonValue f
     }
 
     if ((v.seen & guild_detail_incidents) && v.incidents_data.kind == JsonValueKind::object) {
-        const auto scan = json_scan_structurals_avx1(v.incidents_data.source, scratch);
-        if (!scan.ok() || !json_visit_value_object(v.incidents_data, {scratch.data, scan.count}, maximum_depth,
-                                                   visit_incident, &header)
-                               .ok()) {
+        if (!json_visit_indexed_object(document, v.incidents_data, maximum_depth, visit_incident, &header).ok()) {
             header.invites_disabled_until_ms = header.dms_disabled_until_ms = 0;
             header.raid_detected_at_ms = header.dm_spam_detected_at_ms = 0;
             header.lockdown_duration_hours = 0;
@@ -408,11 +401,7 @@ bool gateway_guild_details_append(const GatewayGuildDetailValues& v, JsonValue f
         header.known |= guild_detail_features;
     else if (features.kind == JsonValueKind::array) {
         FeatureNames names{writer, 0, Put::ok};
-        const auto scan = json_scan_structurals_avx1(features.source, scratch);
-        const bool read = scan.ok() &&
-                          json_visit_value_array(features, {scratch.data, scan.count}, maximum_depth, visit_feature,
-                                                 &names)
-                              .ok();
+        const bool read = json_visit_indexed_array(document, features, maximum_depth, visit_feature, &names).ok();
         if (names.result == Put::full)
             return rollback(false);
         if (read && names.result == Put::ok && names.count <= 0xFFFF && writer->used - names_mark <= 0xFFFF) {

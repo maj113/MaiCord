@@ -29,6 +29,17 @@ bool capture(void* opaque, const GatewayClientEvent& event, ConstSlice<u8> paylo
 JsonValue object(Utf8View text) noexcept {
     return {text, 0, JsonValueKind::object};
 }
+// An envelope built by hand: its data has no index yet.
+GatewayEnvelope envelope_of(Utf8View data) noexcept {
+    GatewayEnvelope envelope{};
+    envelope.data = object(data);
+    return envelope;
+}
+// `text` indexed whole, as the frame's index holds a dispatch's data.
+JsonIndexedDocument indexed(Utf8View text, Slice<u32> scratch) noexcept {
+    const auto scan = json_scan_structurals_avx1(text, scratch);
+    return {text, {scratch.data, scan.count}};
+}
 GatewayClientVoiceStateRecord record_at(const Published& published, u32 event, u32 index) noexcept {
     GatewayClientVoiceStateRecord record{};
     copy_bytes(&record, published.payloads[event] + index * sizeof(record), sizeof(record));
@@ -117,8 +128,8 @@ void projection_cases(Check check) noexcept {
         "\"alice\",\"global_name\":\"Alice\",\"avatar\":null}}},{\"channel_id\":\"7\",\"user_id\":\"9\","
         "\"session_id\":\"other\",\"self_deaf\":true}]}");
     published = {};
-    check(gateway_client_publish_voice_states(object(guild), GatewayVoiceStateSource::guild, 5, {scratch, 2048},
-                                              {payload, sizeof(payload)}, 3, 4, capture, &published) &&
+    check(gateway_client_publish_guild_arrays(object(guild), 5, {scratch, 2048}, {payload, sizeof(payload)}, 3, 4,
+                                              capture, &published) &&
               published.count == 2,
           "guild snapshot publishes member users then voice rows");
     const auto& users = published.events[0];
@@ -141,23 +152,24 @@ void projection_cases(Check check) noexcept {
 
     constexpr auto empty = utf8_literal("{\"id\":\"5\",\"voice_states\":[]}");
     published = {};
-    check(gateway_client_publish_voice_states(object(empty), GatewayVoiceStateSource::guild, 5, {scratch, 2048},
-                                              {payload, sizeof(payload)}, 3, 4, capture, &published) &&
+    check(gateway_client_publish_guild_arrays(object(empty), 5, {scratch, 2048}, {payload, sizeof(payload)}, 3, 4,
+                                              capture, &published) &&
               published.count == 1 && published.events[0].voice_states.replace &&
               published.events[0].voice_states.record_count == 0,
           "empty guild snapshot still clears the guild");
     constexpr auto absent = utf8_literal("{\"id\":\"5\",\"unavailable\":true}");
     published = {};
-    check(gateway_client_publish_voice_states(object(absent), GatewayVoiceStateSource::guild, 5, {scratch, 2048},
-                                              {payload, sizeof(payload)}, 3, 4, capture, &published) &&
+    check(gateway_client_publish_guild_arrays(object(absent), 5, {scratch, 2048}, {payload, sizeof(payload)}, 3, 4,
+                                              capture, &published) &&
               published.count == 0,
           "guild without voice_states publishes nothing");
 
     constexpr auto leave = utf8_literal(
         "{\"guild_id\":\"5\",\"channel_id\":null,\"user_id\":\"8\",\"session_id\":\"s\",\"mute\":true}");
     published = {};
-    check(gateway_client_publish_voice_states(object(leave), GatewayVoiceStateSource::update, 0, {scratch, 2048},
-                                              {payload, sizeof(payload)}, 6, 4, capture, &published) &&
+    check(gateway_client_publish_voice_states(indexed(leave, {scratch, 2048}), object(leave),
+                                              GatewayVoiceStateSource::update, 0, {payload, sizeof(payload)}, 6, 4,
+                                              capture, &published) &&
               published.count == 1 && !published.events[0].voice_states.replace &&
               published.events[0].voice_states.record_count == 1 && record_at(published, 0, 0).guild_id == 5 &&
               record_at(published, 0, 0).channel_id == 0,
@@ -167,8 +179,9 @@ void projection_cases(Check check) noexcept {
         "{\"voice_states\":[{\"guild_id\":\"5\",\"channel_id\":\"7\",\"user_id\":\"8\",\"session_id\":\"s\"},"
         "{\"guild_id\":\"6\",\"channel_id\":\"9\",\"user_id\":\"10\",\"session_id\":\"t\"}]}");
     published = {};
-    check(gateway_client_publish_voice_states(object(batch), GatewayVoiceStateSource::batch, 0, {scratch, 2048},
-                                              {payload, sizeof(payload)}, 6, 4, capture, &published) &&
+    check(gateway_client_publish_voice_states(indexed(batch, {scratch, 2048}), object(batch),
+                                              GatewayVoiceStateSource::batch, 0, {payload, sizeof(payload)}, 6, 4,
+                                              capture, &published) &&
               published.count == 1 && published.events[0].voice_states.record_count == 2 &&
               record_at(published, 0, 1).guild_id == 6,
           "batch publishes rows for several guilds");
@@ -177,24 +190,22 @@ void projection_cases(Check check) noexcept {
         "{\"id\":\"5\",\"voice_states\":[{\"channel_id\":\"7\",\"user_id\":\"8\",\"session_id\":\"s\"},"
         "{\"channel_id\":\"7\",\"session_id\":\"s\"}]}");
     published = {};
-    check(gateway_client_publish_voice_states(object(malformed), GatewayVoiceStateSource::guild, 5,
-                                              {scratch, 2048}, {payload, sizeof(payload)}, 3, 4, capture,
-                                              &published) &&
+    check(gateway_client_publish_guild_arrays(object(malformed), 5, {scratch, 2048}, {payload, sizeof(payload)}, 3,
+                                              4, capture, &published) &&
               published.count == 0,
           "a malformed row skips the whole snapshot before publishing");
     constexpr auto foreign = utf8_literal(
         "{\"id\":\"5\",\"voice_states\":[{\"guild_id\":\"6\",\"channel_id\":\"7\",\"user_id\":\"8\","
         "\"session_id\":\"s\"}]}");
     published = {};
-    check(gateway_client_publish_voice_states(object(foreign), GatewayVoiceStateSource::guild, 5,
-                                              {scratch, 2048}, {payload, sizeof(payload)}, 3, 4, capture,
-                                              &published) &&
+    check(gateway_client_publish_guild_arrays(object(foreign), 5, {scratch, 2048}, {payload, sizeof(payload)}, 3, 4,
+                                              capture, &published) &&
               published.count == 0,
           "a row naming another guild is rejected");
     published = {};
     published.fail = true;
-    check(!gateway_client_publish_voice_states(object(guild), GatewayVoiceStateSource::guild, 5, {scratch, 2048},
-                                               {payload, sizeof(payload)}, 3, 4, capture, &published),
+    check(!gateway_client_publish_guild_arrays(object(guild), 5, {scratch, 2048}, {payload, sizeof(payload)}, 3, 4,
+                                               capture, &published),
           "publish failure is reported to the caller");
 }
 // Mirrors the UI pump: a replacing snapshot clears its guild before its rows.
@@ -234,7 +245,6 @@ bool channel_users(const VoiceStateStore& store, u64 channel, ConstSlice<u64> us
 // store, and the channel-row projection draws those members, not only self.
 void roster_cases(Check check) noexcept {
     static u32 scratch[4096];
-    static u32 guild_scratch[2048];
     static char payload[kGatewayClientDispatchPayloadCapacity];
     static Published published;
     static VoiceState records[16];
@@ -254,9 +264,9 @@ void roster_cases(Check check) noexcept {
         R"("activity_instances":[]},{"id":"6","activity_instances":[]},{"id":"11","voice_states":[]}],)"
         R"("lazy_private_channels":[]})");
     published = {};
-    check(gateway_client_publish_supplemental_voice_states(object(supplemental), {scratch, 4096},
-                                                           {guild_scratch, 2048}, {payload, sizeof(payload)}, 12,
-                                                           4, capture, &published) &&
+    check(gateway_client_publish_supplemental_voice_states(indexed(supplemental, {scratch, 4096}),
+                                                           object(supplemental), {payload, sizeof(payload)}, 12, 4,
+                                                           capture, &published) &&
               published.count == 2 && published.events[0].voice_states.guild_id == 5 &&
               published.events[0].voice_states.replace && published.events[0].voice_states.record_count == 2 &&
               published.events[1].voice_states.guild_id == 11 && published.events[1].voice_states.replace &&
@@ -283,8 +293,8 @@ void roster_cases(Check check) noexcept {
         R"("removed_voice_states":["9"],"updated_members":[{"user":{"id":"10","username":"bob","global_name":"Bob",)"
         R"("avatar":null},"roles":[]}],"updated_channels":[{"id":"7","last_message_id":"1"}]})");
     published = {};
-    check(gateway_client_publish_passive_voice_states(object(passive), {scratch, 4096}, {payload, sizeof(payload)},
-                                                      13, 4, capture, &published) &&
+    check(gateway_client_publish_passive_voice_states(envelope_of(passive), {scratch, 4096},
+                                                      {payload, sizeof(payload)}, 13, 4, capture, &published) &&
               published.count == 2 &&
               published.events[0].dispatch_kind == GatewayClientDispatchKind::user_snapshot &&
               published.events[0].state.record_count == 1 &&
@@ -307,16 +317,41 @@ void roster_cases(Check check) noexcept {
     constexpr auto bad_passive = utf8_literal(
         R"({"guild_id":"5","updated_voice_states":[{"user_id":"10","channel_id":"7"}],"removed_voice_states":[false]})");
     published = {};
-    check(gateway_client_publish_passive_voice_states(object(bad_passive), {scratch, 4096},
+    check(gateway_client_publish_passive_voice_states(envelope_of(bad_passive), {scratch, 4096},
                                                       {payload, sizeof(payload)}, 13, 4, capture, &published) &&
               published.count == 0,
           "malformed PASSIVE_UPDATE_V2 publishes nothing");
     constexpr auto no_voice = utf8_literal(R"({"guild_id":"5","updated_channels":[]})");
     published = {};
-    check(gateway_client_publish_passive_voice_states(object(no_voice), {scratch, 4096}, {payload, sizeof(payload)},
-                                                      13, 4, capture, &published) &&
+    check(gateway_client_publish_passive_voice_states(envelope_of(no_voice), {scratch, 4096},
+                                                      {payload, sizeof(payload)}, 13, 4, capture, &published) &&
               published.count == 0,
           "PASSIVE_UPDATE_V2 without voice fields publishes nothing");
+    // The worker publishes the voice rows of a PASSIVE_UPDATE_V2 frame, then routes its channel cursors through the
+    // frame's index in the same scratch: the voice rows must leave that index intact.
+    constexpr auto passive_frame = utf8_literal(
+        R"({"op":0,"s":13,"t":"PASSIVE_UPDATE_V2","d":{"guild_id":"5","updated_voice_states":[{"user_id":"10",)"
+        R"("channel_id":"7"}],"removed_voice_states":["9"],"updated_channels":[{"id":"81","last_message_id":"1"},)"
+        R"({"id":"80","last_message_id":"200"}]}})");
+    GatewayEnvelope envelope{};
+    published = {};
+    check(gateway_decode_envelope(passive_frame, {scratch, 4096}, 64, &envelope).ok() &&
+              gateway_client_publish_passive_voice_states(envelope, {scratch, 4096}, {payload, sizeof(payload)}, 13,
+                                                          4, capture, &published) &&
+              published.count == 1 && published.events[0].voice_states.record_count == 2,
+          "PASSIVE_UPDATE_V2 frame publishes its voice rows");
+    GatewayClientEvent cursor_event{};
+    ConstSlice<u8> cursor_payload{};
+    GatewayClientChannelCursor first{}, second{};
+    check(gateway_client_route_dispatch(envelope, {scratch, 4096}, 64, {payload, sizeof(payload)}, {}, &cursor_event,
+                                        &cursor_payload)
+                  .ok() &&
+              cursor_event.dispatch_kind == GatewayClientDispatchKind::channel_cursor_update &&
+              cursor_event.state.guild_id == 5 && cursor_event.state.record_count == 2 &&
+              gateway_client_channel_cursor_record(cursor_payload, 0, &first) && first.channel_id == 81 &&
+              first.last_message_id == 1 && gateway_client_channel_cursor_record(cursor_payload, 1, &second) &&
+              second.channel_id == 80 && second.last_message_id == 200,
+          "PASSIVE_UPDATE_V2 channel cursors route after its voice rows");
 
     // VOICE_STATE_UPDATE for another user: join (with member), move, leave.
     constexpr auto join = utf8_literal(
@@ -325,8 +360,9 @@ void roster_cases(Check check) noexcept {
     constexpr auto move = utf8_literal(R"({"guild_id":"5","channel_id":"12","user_id":"20","session_id":"x"})");
     constexpr auto leave = utf8_literal(R"({"guild_id":"5","channel_id":null,"user_id":"20","session_id":"x"})");
     published = {};
-    check(gateway_client_publish_voice_states(object(join), GatewayVoiceStateSource::update, 0, {scratch, 4096},
-                                              {payload, sizeof(payload)}, 14, 4, capture, &published) &&
+    check(gateway_client_publish_voice_states(indexed(join, {scratch, 4096}), object(join),
+                                              GatewayVoiceStateSource::update, 0, {payload, sizeof(payload)}, 14, 4,
+                                              capture, &published) &&
               published.count == 2 &&
               published.events[0].dispatch_kind == GatewayClientDispatchKind::user_snapshot,
           "another user's join publishes their member user before the row");
@@ -336,8 +372,9 @@ void roster_cases(Check check) noexcept {
     check(channel_users(store, 7, {joined, 2}) && carol && (carol->flags & voice_self_deaf),
           "another user's join is drawn in the channel");
     published = {};
-    check(gateway_client_publish_voice_states(object(move), GatewayVoiceStateSource::update, 0, {scratch, 4096},
-                                              {payload, sizeof(payload)}, 15, 4, capture, &published) &&
+    check(gateway_client_publish_voice_states(indexed(move, {scratch, 4096}), object(move),
+                                              GatewayVoiceStateSource::update, 0, {payload, sizeof(payload)}, 15, 4,
+                                              capture, &published) &&
               published.count == 1,
           "another user's move publishes");
     apply_published(&store, published);
@@ -345,8 +382,9 @@ void roster_cases(Check check) noexcept {
     check(channel_users(store, 7, {after_passive, 1}) && channel_users(store, 12, {moved_both, 2}),
           "another user's move re-joins the target channel");
     published = {};
-    check(gateway_client_publish_voice_states(object(leave), GatewayVoiceStateSource::update, 0, {scratch, 4096},
-                                              {payload, sizeof(payload)}, 16, 4, capture, &published) &&
+    check(gateway_client_publish_voice_states(indexed(leave, {scratch, 4096}), object(leave),
+                                              GatewayVoiceStateSource::update, 0, {payload, sizeof(payload)}, 16, 4,
+                                              capture, &published) &&
               published.count == 1,
           "another user's leave publishes");
     apply_published(&store, published);
@@ -357,9 +395,8 @@ void roster_cases(Check check) noexcept {
     constexpr auto guild_create = utf8_literal(
         R"({"id":"5","voice_states":[{"user_id":"21","channel_id":"7","mute":true},{"user_id":"22","channel_id":"7"}]})");
     published = {};
-    check(gateway_client_publish_voice_states(object(guild_create), GatewayVoiceStateSource::guild, 5,
-                                              {scratch, 4096}, {payload, sizeof(payload)}, 17, 4, capture,
-                                              &published) &&
+    check(gateway_client_publish_guild_arrays(object(guild_create), 5, {scratch, 4096}, {payload, sizeof(payload)},
+                                              17, 4, capture, &published) &&
               published.count == 1,
           "GUILD_CREATE voice states without sessions publish");
     apply_published(&store, published);
