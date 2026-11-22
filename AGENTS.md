@@ -56,9 +56,12 @@ One entry point per system with the same options: `tools\build.ps1` (from Window
   and FMA only in `MAICORD_HASWELL_FMA` ones, with no other path, so the minimum processor is Haswell. Each client's
   entry checks the processor first (`maicord/app/shell/processor_check.hpp`). The code that runs before the check returns
   is `MAICORD_ANY_PROCESSOR`. FMA goes only where no output must keep its exact rounding (never in layout, hit tests or
-  an output pinned bit for bit; the Opus float paths are held to libopus by PSNR, not to their own PCM), through the fmadd
-  intrinsics, in a function that starts with `#pragma clang fp contract(off)` so that both systems fuse the same
-  operations.
+  an output pinned bit for bit), through the fmadd intrinsics, in a function that starts with `#pragma clang fp
+  contract(off)` so that both systems fuse the same operations.
+- Lossy decoders (Opus, JPEG, WebP/VP8, video) are held to high PSNR against their reference and output the same to the
+  eye, not bit for bit: the Opus float paths to libopus (RFC 8251 `opus_compare` and a PSNR floor), not to their own PCM.
+  A change that moves their output replaces a bit-exact pin with a PSNR floor against a reference decoder and says so.
+  SILK stays bit-exact (the format defines it in integers), and so do lossless formats (PNG, GIF, lossless WebP).
 - UI colors, radii and spacing come from theme tokens (`include/maicord/ui/theme/tokens.inc`).
 - Shaders: the HLSL in `src/render/shaders` and its hand-written GLSL ES 3.10 twin in `src/render/shaders/gles` change in one
   commit; `tools/check_shader_twins.py --stamp <twin>` records the reviewed pair.
