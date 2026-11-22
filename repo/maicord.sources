@@ -1,0 +1,16 @@
+Types: deb
+URIs: https://maj113.github.io/MaiCord/repo/apt
+Suites: stable
+Components: main
+Architectures: amd64
+Signed-By:
+ -----BEGIN PGP PUBLIC KEY BLOCK-----
+ .
+ mDMEauzYcBYJKwYBBAHaRw8BAQdAd65QYQDLRtblQcHdimko4TvFqyZjUAkNzQxm
+ yhJjbRq0O01haUNvcmQgUGFja2FnZXMgPGh0dHBzOi8vZ2l0aHViLmNvbS9tYWox
+ MTMvTWFpQ29yZC9pc3N1ZXM+iJkEExYKAEEWIQQn762cJS8+OYh8oo6suHeqhJZP
+ yAUCauzYcAIbAwUJCWYBgAULCQgHAgIiAgYVCgkICwIEFgIDAQIeBwIXgAAKCRCs
+ uHeqhJZPyE82AP9h91WRq9e8zvhQkvoPG8QA555OAPxDlYQ+QPjOVRUACAD8DmIv
+ XQyaFjY9rMXwXxbLPsJi50pDk68kKYC0t6ysxgc=
+ =jer6
+ -----END PGP PUBLIC KEY BLOCK-----
