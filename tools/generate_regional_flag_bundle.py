@@ -26,6 +26,7 @@ draws.
 """
 import argparse
 from collections import Counter
+import hashlib
 import pathlib
 import re
 import zlib
@@ -378,13 +379,10 @@ def main():
     parser.add_argument("output", type=pathlib.Path)
     args = parser.parse_args()
 
-    flags = sorted((sequence_of(p.stem), compact(p.read_bytes())) for p in args.source.glob("*.svg"))
-    if len({s for s, _ in flags}) != len(flags):
+    sources = sorted((sequence_of(p.stem), compact(p.read_bytes())) for p in args.source.glob("*.svg"))
+    if len({s for s, _ in sources}) != len(sources):
         raise SystemExit("duplicate flag sequence")
-    for index, (sequence, svg) in enumerate(flags):
-        record = encode(svg)
-        verify(svg, record)
-        flags[index] = (sequence, record)
+    flags = [(sequence, encode(svg)) for sequence, svg in sources]
     checksum = 0xCBF29CE484222325
     for _, record in flags:
         for byte in record:
@@ -396,6 +394,11 @@ def main():
             offsets[record] = len(raw_data)
             raw_data += record
     cache = optimal_deflate.DeflateCache("regional_flags_zstd", zstd=True)
+    # The cache holds only streams an update run wrote, and that run verified their records: a build verifies the
+    # records only when they make a stream the cache does not have yet.
+    if cache.update or (cache.namespace, hashlib.sha256(raw_data).hexdigest()) not in cache.entries:
+        for (_, svg), (_, record) in zip(sources, flags):
+            verify(svg, record)
     blob = cache.stream(bytes(raw_data), best_deflate)
     cache.save()
     assert len(raw_data) < 1 << 32

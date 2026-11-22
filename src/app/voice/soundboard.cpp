@@ -8,7 +8,7 @@
 #include "voice.hpp"
 #include "maicord/app/voice/account_soundboard.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/ascii.hpp"
+#include "maicord/core/ascii_search.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"

@@ -1,5 +1,6 @@
 #include "picker_internal.hpp"
 #include "../settings/emoji_preferences.hpp"
+#include "maicord/core/ascii_search.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/protocol/user/emoji_preferences.hpp"

@@ -1,5 +1,7 @@
 // One executable for both read runtimes: the read-state suite is compiled in
 // here and runs when the command line carries --read-state.
+// First, so that the unit uses the application PCH: the scanner stops at a #define.
+#include "shell/state.hpp"
 #define maicord_read_state_runtime_entry maicord_scoped_read_runtime_reused_entry
 #include "read_state_runtime.cpp"
 #undef maicord_read_state_runtime_entry

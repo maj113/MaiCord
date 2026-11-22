@@ -2,7 +2,7 @@
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/core/ascii.hpp"
+#include "maicord/core/ascii_search.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/user/settings_proto.hpp"

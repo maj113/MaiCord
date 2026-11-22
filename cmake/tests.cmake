@@ -48,16 +48,12 @@ if(MAICORD_LINUX)
     # The tests link the twin of the application library: it uses its own PCHs.
     maicord_precompile_test_application_sources(maicord_test_targets maicord_app_client_test)
 else()
-    # The tests compiling the most application sources use the application PCH too.
-    maicord_precompile_test_application_sources(maicord_test_targets
-        MaiCordUiProbe MaiCordSettingsRuntimeTests MaiCordTests)
     # The tests/ sources only drive the code under test (src/, still /O2), so they
     # compile at /Od: several times faster, and nothing measures their own speed.
-    # Sources using an application PCH keep its /O2 (clang rejects a mismatch),
     # received_attachment_open.cpp, which crashes unoptimized (its `resolver = {}`
     # temporaries are about 130 KB each), stays optimized, and so does the reference
     # driver of MaiCordNativeAppLineTests, the largest share of the suite's CPU time
-    # (its cases ran about 15% faster with it optimized). The test code of the background theme probe, the frame damage
+    # (its 147 cases took twice as long with it unoptimized). The test code of the background theme probe, the frame damage
     # probe, the profile media fit test, the Arabic plan test, the glyph topology probe and the GPU stream encoder test
     # compares pixels or shaping plans in its own loops, and the media fixture encodes its pictures in its own loops:
     # unoptimized it took most of their time (the background probe ran on the suite's longest GPU chain). The Opus
@@ -87,14 +83,23 @@ else()
             endif()
             set(path "${source}")
             cmake_path(ABSOLUTE_PATH path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE)
-            get_source_file_property(pch_mode "${path}" MAICORD_APPLICATION_PCH_MODE)
-            if(path MATCHES "^${CMAKE_CURRENT_SOURCE_DIR}/tests/" AND NOT pch_mode
+            if(path MATCHES "^${CMAKE_CURRENT_SOURCE_DIR}/tests/"
                     AND NOT path IN_LIST maicord_optimized_test_sources AND NOT path IN_LIST maicord_unoptimized_sources)
                 set_property(SOURCE "${path}" APPEND PROPERTY COMPILE_OPTIONS /Od)
                 list(APPEND maicord_unoptimized_sources "${path}")
             endif()
         endforeach()
     endforeach()
+    # The test images and the shared objects share the application PCHs by compile settings (an Od PCH for the tests/
+    # sources).
+    set(maicord_test_images)
+    foreach(target IN LISTS maicord_test_targets)
+        get_target_property(type ${target} TYPE)
+        if(type MATCHES "^(EXECUTABLE|SHARED_LIBRARY|OBJECT_LIBRARY)$")
+            list(APPEND maicord_test_images ${target})
+        endif()
+    endforeach()
+    maicord_precompile_test_application_sources(maicord_test_targets ${maicord_test_images})
 endif()
 # The compiles of the tests follow the client's, so its LTO link starts early
 # and overlaps them. A client built elsewhere has nothing to wait for.

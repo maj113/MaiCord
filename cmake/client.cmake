@@ -307,43 +307,136 @@ function(maicord_application_state_headers variable directory)
     set(${variable} ${app_headers} PARENT_SCOPE)
 endfunction()
 
-# maicord_reaches_application_state(<variable> <source> <directory> <header>...):
-# whether <source> includes one of the <header> paths before any #define,
-# #undef or #pragma of its own.
-function(maicord_reaches_application_state variable source directory)
-    set(app_headers ${ARGN})
+# maicord_reaches_application_state(<variable> <source> <directory> <names> <paths>):
+# whether <source> includes one of the application state headers before any
+# #define, #undef or #pragma of its own. <paths> holds the headers' paths and
+# <names> their file names, each between two | (one string search per
+# candidate, and a path only for a header's file name). A src/app source or a
+# tests/ header that a test includes counts by its own includes (one answer per
+# file; <variable>_stopped is true when such a source stopped the search first).
+# The macros of a header do not stop it, as for every other header.
+function(maicord_reaches_application_state variable source directory names app_headers)
     set(app FALSE)
+    set(stopped FALSE)
+    set(tests "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    cmake_path(GET source PARENT_PATH base)
     file(STRINGS "${source}" lines REGEX "^[ \t]*#[ \t]*(include|define|undef|pragma)")
     foreach(line IN LISTS lines)
         if(line MATCHES "^[ \t]*#[ \t]*include[ \t]*\"([^\"]+)\"")
-            maicord_quoted_include_paths(included "${CMAKE_MATCH_1}" "${source}" "${directory}")
-            foreach(path IN LISTS included)
-                if(path IN_LIST app_headers)
+            set(spelling "${CMAKE_MATCH_1}")
+            cmake_path(GET spelling FILENAME name)
+            string(FIND "${names}" "|${name}|" found)
+            if(found LESS 0)
+                cmake_path(ABSOLUTE_PATH spelling BASE_DIRECTORY "${base}" NORMALIZE OUTPUT_VARIABLE path)
+                cmake_path(IS_PREFIX tests "${path}" in_tests)
+                cmake_path(IS_PREFIX directory "${path}" in_app)
+                if(EXISTS "${path}" AND (in_tests OR (in_app AND path MATCHES "\\.cpp$")))
+                    string(SHA1 key "${path}")
+                    get_property(known GLOBAL PROPERTY MAICORD_APPLICATION_STATE_${key} SET)
+                    if(NOT known)
+                        # An include cycle reads the provisional answer.
+                        set_property(GLOBAL PROPERTY MAICORD_APPLICATION_STATE_${key} FALSE)
+                        maicord_reaches_application_state(nested "${path}" "${directory}" "${names}" "${app_headers}")
+                        if(nested_stopped)
+                            set(nested STOP)
+                        endif()
+                        set_property(GLOBAL PROPERTY MAICORD_APPLICATION_STATE_${key} ${nested})
+                    endif()
+                    get_property(nested GLOBAL PROPERTY MAICORD_APPLICATION_STATE_${key})
+                    if(nested STREQUAL "TRUE")
+                        set(app TRUE)
+                        break()
+                    elseif(nested STREQUAL "STOP")
+                        set(stopped TRUE)
+                        break()
+                    endif()
+                endif()
+                continue()
+            endif()
+            foreach(root IN ITEMS "${base}" "${directory}")
+                cmake_path(ABSOLUTE_PATH spelling BASE_DIRECTORY "${root}" NORMALIZE OUTPUT_VARIABLE path)
+                string(FIND "${app_headers}" "|${path}|" found)
+                if(found GREATER_EQUAL 0)
                     set(app TRUE)
                 endif()
             endforeach()
             if(app)
                 break()
             endif()
-        elseif(NOT line MATCHES "^[ \t]*#[ \t]*(include|pragma[ \t]+once)")
+        elseif(NOT source MATCHES "\\.(h|hpp|inc|inl)$" AND NOT line MATCHES "^[ \t]*#[ \t]*(include|pragma[ \t]+once)")
+            set(stopped TRUE)
             break()
         endif()
     endforeach()
     set(${variable} ${app} PARENT_SCOPE)
+    set(${variable}_stopped ${stopped} PARENT_SCOPE)
+endfunction()
+
+# maicord_application_pch_mode(<variable> <source>): the application PCH mode of
+# <source> (see maicord_precompile_application_sources): O2, Os for the size
+# option or Od for a tests/ source compiled /Od on Windows, one per option set
+# on Linux; empty when <source> does not qualify for a PCH.
+function(maicord_application_pch_mode variable path)
+    set(${variable} "" PARENT_SCOPE)
+    get_source_file_property(definitions "${path}" COMPILE_DEFINITIONS)
+    if(definitions)
+        return()
+    endif()
+    get_source_file_property(app "${path}" MAICORD_REACHES_APPLICATION_STATE)
+    if(app STREQUAL "NOTFOUND")
+        # Each source asks the same question once: the header set and each source's answer are computed one time.
+        get_property(app_headers GLOBAL PROPERTY MAICORD_APPLICATION_STATE_HEADERS)
+        get_property(names GLOBAL PROPERTY MAICORD_APPLICATION_STATE_NAMES)
+        if(NOT app_headers)
+            maicord_application_state_headers(headers "${CMAKE_CURRENT_SOURCE_DIR}/src/app")
+            string(JOIN "|" app_headers "" ${headers} "")
+            set(names "|")
+            foreach(header IN LISTS headers)
+                cmake_path(GET header FILENAME name)
+                string(APPEND names "${name}|")
+            endforeach()
+            set_property(GLOBAL PROPERTY MAICORD_APPLICATION_STATE_HEADERS "${app_headers}")
+            set_property(GLOBAL PROPERTY MAICORD_APPLICATION_STATE_NAMES "${names}")
+        endif()
+        maicord_reaches_application_state(app "${path}" "${CMAKE_CURRENT_SOURCE_DIR}/src/app" "${names}" "${app_headers}")
+        set_property(SOURCE "${path}" PROPERTY MAICORD_REACHES_APPLICATION_STATE ${app})
+    endif()
+    if(NOT app)
+        return()
+    endif()
+    get_source_file_property(options "${path}" COMPILE_OPTIONS)
+    get_source_file_property(tagged "${path}" MAICORD_APPLICATION_PCH_MODE)
+    set(mode O2)
+    if(MSVC)
+        if(options MATCHES "${MAICORD_SIZE_OPTION}")
+            set(mode Os)
+        elseif(options MATCHES "(^|;)/Od(;|$)")
+            set(mode Od)
+        endif()
+    elseif(tagged)
+        set(mode ${tagged})
+    elseif(options MATCHES "(^|;)-[IW]")
+        # Three Linux sources have include and warning options of their own: a PCH for them alone costs more.
+        return()
+    elseif(options)
+        string(REGEX REPLACE "[^A-Za-z0-9]" "" mode "${options}")
+        set_property(GLOBAL PROPERTY MAICORD_APPLICATION_PCH_OPTIONS_${mode} ${options})
+    endif()
+    set(${variable} ${mode} PARENT_SCOPE)
 endfunction()
 
 # Application sources share a precompiled header (src/app/shell/pch.hpp:
-# shell/state.hpp), about half of each source's front-end time. A /Yu object
-# also leaves the header's inline code to the PCH object, which shrinks the LTO
-# link input. One PCH per optimization mode, since cold sources carry -Oz and
+# shell/state.hpp), about half of each source's front-end time. Each user still
+# emits the inline code it uses: the /Yc object holds no code (no
+# -fpch-codegen). One PCH per optimization mode, since cold sources carry -Oz and
 # clang rejects a PCH built with other options. A source qualifies when it
-# reaches shell/state.hpp (directly or through another src/app header) before
+# reaches shell/state.hpp (directly, through another src/app header, or for a
+# test through a src/app source or tests/ header it includes) before
 # any #define, #undef or #pragma of its own and has no definitions of its own,
 # so the PCH holds only declarations it already includes. The options apply
 # only to targets with MAICORD_APPLICATION_PCH, the path prefix of their own
 # PCHs, so every target compiling a source uses a PCH built with its settings,
-# or none. A source with the property MAICORD_NO_APPLICATION_PCH set never
-# uses one.
+# or none.
 # maicord_precompile_application_sources(<target> [STUBS <object library>]):
 # without STUBS the PCHs are built in <target> and each qualifying source names
 # them in OBJECT_DEPENDS, which has no per-target form, so a configuration that
@@ -355,19 +448,14 @@ endfunction()
 # (-x c++-header), which no image links, and a source uses it with
 # -include-pch. clang also rejects a PCH built with other inlining options, so
 # Linux has one PCH for each option set of the sources. Two targets with the
-# same settings can name one STUBS library and share its PCHs.
+# same settings can name one STUBS library and share its PCHs. MODES limits
+# the PCHs to those modes; the other sources of <target> compile without one.
 function(maicord_precompile_application_sources target)
-    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "STUBS" "")
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "STUBS" "MODES")
     if(NOT ARG_STUBS)
         set(ARG_STUBS ${target})
     endif()
     set(header "${CMAKE_CURRENT_SOURCE_DIR}/src/app/shell/pch.hpp")
-    # Each target asks the same questions: the header set and each source's answer are computed one time.
-    get_property(app_headers GLOBAL PROPERTY MAICORD_APPLICATION_STATE_HEADERS)
-    if(NOT app_headers)
-        maicord_application_state_headers(app_headers "${CMAKE_CURRENT_SOURCE_DIR}/src/app")
-        set_property(GLOBAL PROPERTY MAICORD_APPLICATION_STATE_HEADERS "${app_headers}")
-    endif()
     set(directory "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${ARG_STUBS}.dir")
     # Where the PCH of a mode is: beside its stub, or (Linux) the stub's object file.
     set(pch_prefix "${directory}/application_pch_")
@@ -376,7 +464,6 @@ function(maicord_precompile_application_sources target)
         set(pch_prefix "${directory}/CMakeFiles/${ARG_STUBS}.dir/application_pch_")
         set(pch_suffix ".cpp.o")
     endif()
-    set(enabled "$<BOOL:$<TARGET_PROPERTY:MAICORD_APPLICATION_PCH>>")
     set(modes)
     get_target_property(sources ${target} SOURCES)
     foreach(source IN LISTS sources)
@@ -385,41 +472,16 @@ function(maicord_precompile_application_sources target)
         endif()
         set(path "${source}")
         cmake_path(ABSOLUTE_PATH path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE)
-        get_source_file_property(definitions "${path}" COMPILE_DEFINITIONS)
-        if(definitions)
+        maicord_application_pch_mode(mode "${path}")
+        if(NOT mode OR (ARG_MODES AND NOT mode IN_LIST ARG_MODES))
             continue()
         endif()
-        get_source_file_property(no_pch "${path}" MAICORD_NO_APPLICATION_PCH)
-        if(no_pch)
-            continue()
-        endif()
-        get_source_file_property(app "${path}" MAICORD_REACHES_APPLICATION_STATE)
-        if(app STREQUAL "NOTFOUND")
-            maicord_reaches_application_state(app "${path}" "${CMAKE_CURRENT_SOURCE_DIR}/src/app" ${app_headers})
-            set_property(SOURCE "${path}" PROPERTY MAICORD_REACHES_APPLICATION_STATE ${app})
-        endif()
-        if(NOT app)
-            continue()
-        endif()
-        get_source_file_property(options "${path}" COMPILE_OPTIONS)
         get_source_file_property(tagged "${path}" MAICORD_APPLICATION_PCH_MODE)
-        set(mode O2)
-        if(MSVC)
-            if(options MATCHES "${MAICORD_SIZE_OPTION}")
-                set(mode Os)
-            endif()
-        elseif(tagged)
-            set(mode ${tagged})
-        elseif(options MATCHES "(^|;)-[IW]")
-            # Three Linux sources have include and warning options of their own: a PCH for them alone costs more.
-            continue()
-        elseif(options)
-            string(REGEX REPLACE "[^A-Za-z0-9]" "" mode "${options}")
-            set_property(GLOBAL PROPERTY MAICORD_APPLICATION_PCH_OPTIONS_${mode} ${options})
-        endif()
         list(APPEND modes ${mode})
-        # The options are the same for every target; the first one sets them.
+        # The options are the same for every target; the first one sets them. A target uses the PCH of the mode when
+        # its MAICORD_APPLICATION_PCH_MODES lists it.
         if(NOT tagged)
+            set(enabled "$<IN_LIST:${mode},$<TARGET_PROPERTY:MAICORD_APPLICATION_PCH_MODES>>")
             set(pch "$<TARGET_PROPERTY:MAICORD_APPLICATION_PCH>${mode}${pch_suffix}")
             set_property(SOURCE "${path}" PROPERTY MAICORD_APPLICATION_PCH_MODE ${mode})
             if(MSVC)
@@ -438,6 +500,9 @@ function(maicord_precompile_application_sources target)
         endif()
     endforeach()
     list(REMOVE_DUPLICATES modes)
+    if(NOT modes)
+        return()
+    endif()
     set(pchs)
     get_target_property(built ${ARG_STUBS} MAICORD_APPLICATION_PCH_MODES)
     foreach(mode IN LISTS modes)
@@ -449,26 +514,30 @@ function(maicord_precompile_application_sources target)
         endif()
         file(CONFIGURE OUTPUT "${stub}" CONTENT "#include \"${header}\"\n")
         if(MSVC)
-            # The Os stub carries the size option first, the position of the cold sources' own option.
+            # The Os stub carries the size option first, the position of the cold sources' own option; the Od stub
+            # carries /Od, which tests/ sources add after the target's options.
             set(options "/Yc${header}" "/Fp${pch}")
             if(mode STREQUAL "Os")
                 list(PREPEND options ${MAICORD_SIZE_OPTION})
+            elseif(mode STREQUAL "Od")
+                list(PREPEND options /Od)
             endif()
             set_source_files_properties("${stub}" PROPERTIES COMPILE_OPTIONS "${options}" OBJECT_OUTPUTS "${pch}")
         else()
             get_property(options GLOBAL PROPERTY MAICORD_APPLICATION_PCH_OPTIONS_${mode})
             set_source_files_properties("${stub}" PROPERTIES COMPILE_OPTIONS "${options};-x;c++-header")
         endif()
-        # The PCH object holds the header's code; every image using the PCH links it.
+        # Every image using the PCH links the stub's object (empty: see above).
         target_sources(${ARG_STUBS} PRIVATE "${stub}")
     endforeach()
     set_property(TARGET ${ARG_STUBS} APPEND PROPERTY MAICORD_APPLICATION_PCH_MODES ${modes})
     if(NOT ARG_STUBS STREQUAL target)
+        set_property(TARGET ${target} APPEND PROPERTY MAICORD_APPLICATION_PCH_MODES ${modes})
         # A custom command output of the target orders all of its objects after
         # the PCHs, and only its own; it waits for nothing else the target needs.
+        # It has no command: Ninja's edge for it starts no process.
         set(stamp "${directory}/${target}_application_pch.stamp")
-        add_custom_command(OUTPUT "${stamp}" COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}" DEPENDS ${pchs}
-            DEPENDS_EXPLICIT_ONLY VERBATIM)
+        add_custom_command(OUTPUT "${stamp}" DEPENDS ${pchs} DEPENDS_EXPLICIT_ONLY VERBATIM)
         target_sources(${target} PRIVATE "${stamp}")
         if(MSVC)
             target_sources(${target} PRIVATE "$<TARGET_OBJECTS:${ARG_STUBS}>")

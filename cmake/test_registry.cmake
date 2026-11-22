@@ -547,9 +547,10 @@ maicord_test(MaiCordNativeExtensionTests ONLY WINDOWS ENTRY maicord_native_exten
         maicord_account_host maicord_account_paths maicord_account_media maicord_message_media
         maicord_ui_input maicord_text maicord_render_core maicord_model kernel32 user32 bcrypt crypt32 ws2_32
         maicord_sspicli ole32 ntdll advapi32
-    INCLUDES src/app "${MAICORD_GENERATED_DIRECTORY}"
-    DEFINES "MAICORD_THEME_EXAMPLE_PATH=L\"${CMAKE_CURRENT_SOURCE_DIR}/assets/themes/example.maicord-theme.json\""
-    USES_CLIENT MaiCord)
+    INCLUDES src/app "${MAICORD_GENERATED_DIRECTORY}")
+# A definition of the one source that reads it: the executable's src/ sources share their objects with other tests.
+set_property(SOURCE tests/ui/theme/tokens.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+    "MAICORD_THEME_EXAMPLE_PATH=L\"${CMAKE_CURRENT_SOURCE_DIR}/assets/themes/example.maicord-theme.json\"")
 # The fixtures run once across four private process/profile owners. Shard 0 keeps the 5 durable update fixtures
 # serial. The other fixtures go round-robin to the four shards.
 foreach(maicord_extension_shard RANGE 0 3)
@@ -585,9 +586,10 @@ maicord_test(MaiCordUpdateClientTests ONLY WINDOWS ENTRY maicord_update_client_t
     LIBS maicord_core maicord_platform maicord_app_core maicord_ui maicord_client_preferences kernel32 bcrypt ws2_32
         maicord_sspicli
     INCLUDES src/app
-    DEFINES "MAICORD_UPDATE_TEST_EXECUTABLE=L\"$<TARGET_FILE:MaiCord>\""
     USES_CLIENT MaiCord
     TIMEOUT 15 TEST maicord_update_client)
+set_property(SOURCE tests/app/update/client.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+    "MAICORD_UPDATE_TEST_EXECUTABLE=L\"$<TARGET_FILE:MaiCord>\"")
 maicord_test(MaiCordUpdateChangelogTests ENTRY maicord_update_changelog_tests_entry SOURCES tests/app/update/changelog.cpp
     BUNDLE MaiCordAppUnitTests TIMEOUT 10 TEST maicord_update_changelog)
 # The startup record a session's log begins with: its lines and fields, and no user name, path or token.
@@ -870,10 +872,10 @@ maicord_test(MaiCordPluginDevTests ONLY WINDOWS ENTRY maicord_plugin_dev_tests_e
     LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_catalog maicord_plugin_runtime
         maicord_protocol maicord_packages kernel32 bcrypt ws2_32 maicord_sspicli crypt32
     INCLUDES src/app
-    DEFINES "MAICORD_DX_FOLDER=L\"${maicord_dx}\""
     DEPENDS MaiCordPluginReloadAFixture MaiCordPluginReloadBFixture MaiCordPluginReloadCFixture MaiCordPluginReloadDFixture
         MaiCordDevToolFixtures
     TEST maicord_plugin_dev)
+set_property(SOURCE tests/app/plugins/plugin_dev.cpp APPEND PROPERTY COMPILE_DEFINITIONS "MAICORD_DX_FOLDER=L\"${maicord_dx}\"")
 # Nested rounded rectangles, clipped highlights and per-component padding
 # across representative synthetic scenes.
 maicord_test(MaiCordLayoutConsistencyTests ENTRY maicord_layout_consistency_tests_entry
@@ -1184,22 +1186,16 @@ maicord_test(MaiCordMediaVisibilityTests ONLY WINDOWS ENTRY maicord_media_visibi
         maicord_account_media maicord_atlas_gpu maicord_renderer kernel32 user32 ${maicord_tls_libs} d3d11 dxgi dcomp
     INCLUDES src/app
     TEST maicord_media_visibility)
-if(NOT MAICORD_LINUX)
-    add_executable(MaiCordAccountPumpTests tests/app/account/account_pump.cpp tests/app/account/account_pump_stubs.cpp
+maicord_test(MaiCordAccountPumpTests ONLY WINDOWS ENTRY maicord_account_pump_tests_entry
+    SOURCES tests/app/account/account_pump.cpp tests/app/account/account_pump_stubs.cpp
         src/app/chat/threads/header_activation.cpp
-        tests/app/account/application_account_text_retry_runtime.hpp
         src/app/account/account_pump.cpp src/app/shell/scheduler.cpp src/app/chat/application_channel_memory.cpp
         src/app/account/account_host.cpp src/app/shell/state.cpp src/core/log.cpp
         src/app/chat/messages/mutation_notice.cpp ${maicord_account_fake}
-        $<TARGET_OBJECTS:maicord_runtime>)
-    target_link_libraries(MaiCordAccountPumpTests PRIVATE
-        maicord_compile_contract maicord_core maicord_platform maicord_protocol maicord_app_core
+    LIBS maicord_core maicord_platform maicord_protocol maicord_app_core
         maicord_text maicord_ui maicord_ui_input maicord_model maicord_message_runtime maicord_media_core
-        kernel32 user32 ws2_32 maicord_sspicli bcrypt crypt32)
-    target_link_options(MaiCordAccountPumpTests PRIVATE
-        /ENTRY:maicord_account_pump_tests_entry /SUBSYSTEM:CONSOLE,6.02)
-    maicord_add_tests(MaiCordAccountPumpTests TEST maicord_account_pump)
-endif()
+        kernel32 user32 ws2_32 maicord_sspicli bcrypt crypt32
+    TEST maicord_account_pump)
 maicord_test(MaiCordSurfaceMotionTests ONLY WINDOWS ENTRY maicord_surface_motion_entry
     SOURCES tests/app/shell/surface_motion.cpp src/app/shell/surface_motion_owner.cpp
     LIBS maicord_core maicord_ui kernel32
@@ -3178,12 +3174,6 @@ if(NOT MAICORD_LINUX)
     # default constant-evaluation step budget.
     set_source_files_properties(tests/integration/ui_probe.cpp tests/integration/showcase_probe.cpp
         PROPERTIES COMPILE_OPTIONS /clang:-fconstexpr-steps=8388608)
-    # These units are mostly their own code, so unoptimized without the
-    # application PCH (which is /O2) compiles them several times faster.
-    set_source_files_properties(tests/integration/ui_probe.cpp tests/integration/ui_probe_media.cpp
-        tests/integration/ui_probe_scenes.cpp tests/integration/ui_probe_renderer.cpp
-        tests/app/settings/settings_runtime.cpp tests/app/settings/settings_runtime_stubs.cpp
-        PROPERTIES MAICORD_NO_APPLICATION_PCH ON)
 endif()
 # The single-scene WIN32 probes link the renderer stack.
 set(maicord_scene_probe_libs maicord_core maicord_text maicord_ui maicord_ui_input maicord_model

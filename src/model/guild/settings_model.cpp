@@ -1,7 +1,7 @@
 #include "maicord/model/guild/settings_model.hpp"
 #include "maicord/model/guild/channel_reorder.hpp"
 #include "maicord/protocol/guild/assets.hpp"
-#include "maicord/core/ascii.hpp"
+#include "maicord/core/ascii_search.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"

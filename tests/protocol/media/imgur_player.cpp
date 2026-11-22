@@ -1,6 +1,6 @@
 #include "maicord/protocol/media/embed_player.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
-#include "maicord/core/ascii.hpp"
+#include "maicord/core/ascii_search.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {

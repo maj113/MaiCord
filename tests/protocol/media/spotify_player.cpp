@@ -3,7 +3,7 @@
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/media/core/encoded_cache.hpp"
-#include "maicord/core/ascii.hpp"
+#include "maicord/core/ascii_search.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {

@@ -1,7 +1,7 @@
 #include "maicord/ui/chat/composer/autocomplete.hpp"
 #include "maicord/ui/text/emoji_catalog.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
-#include "maicord/core/ascii.hpp"
+#include "maicord/core/ascii_search.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild/member_store.hpp"

@@ -1,7 +1,7 @@
 #include "maicord/protocol/media/embed_player.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/protocol/media/cdn_http.hpp"
-#include "maicord/core/ascii.hpp"
+#include "maicord/core/ascii_search.hpp"
 #include "maicord/core/log_event.hpp"
 #include "../../support/test_output.hpp"
 

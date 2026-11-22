@@ -1,6 +1,6 @@
 #include "maicord/ui/text/emoji_catalog.hpp"
 
-#include "maicord/core/ascii.hpp"
+#include "maicord/core/ascii_search.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/intrinsics.hpp"
 #include "maicord/core/memory.hpp"

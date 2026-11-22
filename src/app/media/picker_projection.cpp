@@ -1,6 +1,7 @@
 #include "picker_internal.hpp"
 #include "maicord/core/heap.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/ascii_search.hpp"
 #include "../chat/composer/reply_draft.hpp"
 #include "../shell/overlay_input.hpp"
 #include "../chat/composer/composer.hpp"

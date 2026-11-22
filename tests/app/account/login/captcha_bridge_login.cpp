@@ -2,10 +2,7 @@
 // Shipping coordinator and TU-local login owner with a synchronous fake REST
 // boundary; the real loopback bridge carries the solution. No browser, no
 // service request and no profile file is involved.
-#pragma warning(disable : 4505) // shared TU-local login helpers unused here
 #include "maicord/sys/winsock.hpp"
-#include "../../../../src/app/account/login/user_auth_coordinator.cpp"
-#include "../../../../src/app/account/login/user_auth_coordinator_responses.cpp"
 #include "account/login/account_login_captcha.hpp"
 #include "../../../support/test_output.hpp"
 #include "maicord/platform/desktop/browser_sign_in_launcher.hpp"

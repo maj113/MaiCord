@@ -2,7 +2,7 @@
 #include "maicord/protocol/media/embed_provider.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
-#include "maicord/core/ascii.hpp"
+#include "maicord/core/ascii_search.hpp"
 namespace maicord {
 namespace {
 u32 failures{};

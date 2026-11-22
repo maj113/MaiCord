@@ -3,6 +3,8 @@
 // The forum post suite is compiled in and runs alone under --forum-post; with
 // no attachment owner the actual media module gives the post host the same
 // answers as that suite's own stubs.
+// First, so that the unit uses the application PCH: the scanner stops at a #define.
+#include "shell/state.hpp"
 #define MAICORD_FORUM_ACTUAL_ATTACHMENTS
 #define maicord_application_forum_post_entry maicord_forum_post_mode_entry
 #include "forum_post.cpp"

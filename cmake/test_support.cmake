@@ -495,65 +495,57 @@ function(maicord_add_test_codegen_twins target_list_variable)
     endforeach()
     set(${target_list_variable} ${${target_list_variable}} ${twins} PARENT_SCOPE)
 endfunction()
-# Test executables and their non-/GL archives often compile the same source with identical settings
-# (app/shell/state.cpp in about 30, log.cpp in nearly 40). Each such source
-# is compiled once into an OBJECT library shared by the executables whose
-# settings match exactly: same own include directories, definitions, options,
-# features, language settings and runtime, and dependencies whose only usage
-# requirements come from the compile contract. The shared object is the one
-# each consumer would have built itself. Shared/module fixtures keep their
-# implicit export definitions and position-independent compilation separate.
-# Called after the codegen twins.
+# Test executables and their non-/GL archives often compile the same source with the same settings (src/core/log.cpp
+# in nine of them). Each such source is compiled once into an OBJECT library shared by the executables whose settings
+# match: same definitions, options, features and language settings, and dependencies whose only usage requirements
+# come from the compile contract. The shared object is the one each consumer would have built itself. Shared/module
+# fixtures keep their implicit export definitions and position-independent compilation separate. Two settings do not
+# split a source:
+# - the runtime (MSVC_RUNTIME_LIBRARY): every unit compiles /Zl and no source reads _DLL or _MT, so /MD and /MT
+#   objects are the same code (the client, /MT, already links the /MD libraries);
+# - for a src/ source, the include directories: it compiles with those of the production target that builds it (its
+#   library, or the client for the client's own sources), not with those a test adds for its own sources (src/app,
+#   tests, the generated directory), where no src/ source finds another header than in its own build.
+# A test's definitions and options still apply to its src/ sources (MAICORD_TEST_HOOKS, the /FI clock of the scoped
+# read probe). Called after the codegen twins.
 function(maicord_share_test_objects target_list_variable)
     set(properties INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FLAGS COMPILE_FEATURES
         PRECOMPILE_HEADERS CXX_STANDARD CXX_STANDARD_REQUIRED CXX_EXTENSIONS MSVC_RUNTIME_LIBRARY
         POSITION_INDEPENDENT_CODE CXX_VISIBILITY_PRESET VISIBILITY_INLINES_HIDDEN)
+    # The include directories of the first production target that builds each src/ source.
+    foreach(owner IN LISTS maicord_production_targets)
+        get_target_property(type ${owner} TYPE)
+        if(NOT type MATCHES "^(EXECUTABLE|STATIC_LIBRARY)$")
+            continue()
+        endif()
+        get_target_property(owner_directory ${owner} SOURCE_DIR)
+        get_property(owner_includes TARGET ${owner} PROPERTY INCLUDE_DIRECTORIES)
+        get_target_property(sources ${owner} SOURCES)
+        foreach(source IN LISTS sources)
+            if(source MATCHES "^\\$<" OR NOT source MATCHES "\\.cpp$")
+                continue()
+            endif()
+            cmake_path(ABSOLUTE_PATH source BASE_DIRECTORY "${owner_directory}" NORMALIZE)
+            string(SHA1 path_key "${source}")
+            if(NOT DEFINED owner_includes_${path_key})
+                set(owner_includes_${path_key} "${owner_includes}")
+            endif()
+        endforeach()
+    endforeach()
     set(signatures)
+    set(compared ${properties})
+    list(REMOVE_ITEM compared INCLUDE_DIRECTORIES MSVC_RUNTIME_LIBRARY)
     foreach(target IN LISTS ${target_list_variable})
         get_target_property(type ${target} TYPE)
         get_target_property(codegen ${target} MAICORD_TEST_CODEGEN)
-        get_target_property(links ${target} LINK_LIBRARIES)
-        if(NOT type MATCHES "^(EXECUTABLE|STATIC_LIBRARY)$" OR NOT codegen
-                OR NOT "maicord_compile_contract" IN_LIST links)
+        if(NOT type MATCHES "^(EXECUTABLE|STATIC_LIBRARY)$" OR NOT codegen)
             continue()
         endif()
-        # Every usage requirement must come from the compile contract.
-        set(pending ${links})
-        set(visited maicord_compile_contract)
-        set(plain TRUE)
-        while(pending AND plain)
-            list(POP_FRONT pending link)
-            if(link MATCHES "^\\$<LINK_ONLY:" OR link IN_LIST visited OR (NOT link MATCHES "^\\$<" AND NOT TARGET ${link}))
-                continue()
-            endif()
-            if(link MATCHES "^\\$<")
-                set(plain FALSE)
-                break()
-            endif()
-            list(APPEND visited ${link})
-            foreach(property IN ITEMS INTERFACE_COMPILE_DEFINITIONS INTERFACE_COMPILE_OPTIONS
-                    INTERFACE_INCLUDE_DIRECTORIES INTERFACE_COMPILE_FEATURES INTERFACE_PRECOMPILE_HEADERS
-                    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES)
-                get_target_property(value ${link} ${property})
-                if(value)
-                    set(plain FALSE)
-                endif()
-            endforeach()
-            get_target_property(interface ${link} INTERFACE_LINK_LIBRARIES)
-            if(interface)
-                list(APPEND pending ${interface})
-            endif()
-        endwhile()
-        if(NOT plain)
+        maicord_test_compile_signature(signature ${target} ${compared})
+        if(NOT signature)
             continue()
         endif()
-        set(signature)
-        foreach(property IN LISTS properties)
-            get_target_property(value ${target} ${property})
-            string(APPEND signature "${property}=${value}|")
-        endforeach()
-        string(SHA1 signature "${signature}")
-        set(signature_${target} ${signature})
+        get_property(includes TARGET ${target} PROPERTY INCLUDE_DIRECTORIES)
         get_target_property(sources ${target} SOURCES)
         foreach(source IN LISTS sources)
             if(source MATCHES "^\\$<" OR NOT source MATCHES "\\.cpp$")
@@ -565,10 +557,17 @@ function(maicord_share_test_objects target_list_variable)
             if(generated OR NOT EXISTS "${path}")
                 continue()
             endif()
-            string(SHA1 key "${path}|${signature}")
+            string(SHA1 path_key "${path}")
+            set(source_includes "${includes}")
+            if(DEFINED owner_includes_${path_key})
+                set(source_includes "${owner_includes_${path_key}}")
+            endif()
+            string(SHA1 key "${path}|${signature}INCLUDE_DIRECTORIES=${source_includes}")
+            set(key_${target}_${path_key} ${key})
             if(NOT DEFINED users_${key})
                 list(APPEND signatures ${key})
                 set(path_${key} "${path}")
+                set(includes_${key} "${source_includes}")
             endif()
             list(APPEND users_${key} ${target})
         endforeach()
@@ -591,6 +590,7 @@ function(maicord_share_test_objects target_list_variable)
                 set_property(TARGET ${library} PROPERTY ${property} "${value}")
             endif()
         endforeach()
+        set_property(TARGET ${library} PROPERTY INCLUDE_DIRECTORIES "${includes_${key}}")
         # The plain-usage gate proves this contract supplies every compile
         # requirement. Copying a user's link libraries here would create a
         # cycle when one of those archives itself consumes the shared object.
@@ -611,19 +611,20 @@ function(maicord_share_test_objects target_list_variable)
         list(APPEND rewritten ${users_${key}})
         list(APPEND shared ${library})
     endforeach()
-    # Each user's source with a shared object (the key of its path and
-    # signature) becomes that object, in place.
+    # Each user's source with a shared object becomes that object, in place.
     list(REMOVE_DUPLICATES rewritten)
     foreach(target IN LISTS rewritten)
         get_target_property(sources ${target} SOURCES)
         set(replaced)
         foreach(source IN LISTS sources)
-            set(path "${source}")
+            set(key)
             if(NOT source MATCHES "^\\$<")
+                set(path "${source}")
                 cmake_path(ABSOLUTE_PATH path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE)
+                string(SHA1 path_key "${path}")
+                set(key "${key_${target}_${path_key}}")
             endif()
-            string(SHA1 key "${path}|${signature_${target}}")
-            if(DEFINED library_${key})
+            if(key AND DEFINED library_${key})
                 list(APPEND replaced "$<TARGET_OBJECTS:${library_${key}}>")
             else()
                 list(APPEND replaced "${source}")
@@ -633,19 +634,132 @@ function(maicord_share_test_objects target_list_variable)
     endforeach()
     set(${target_list_variable} ${${target_list_variable}} ${shared} PARENT_SCOPE)
 endfunction()
+# maicord_test_plain_link(<variable> <link>): whether the link item <link> and every library it links through its
+# interface add no usage requirement (compile definitions, options, include directories, features, PCHs). Memoized
+# per target in global properties.
+function(maicord_test_plain_link variable link)
+    set(${variable} TRUE PARENT_SCOPE)
+    if(link MATCHES "^\\$<LINK_ONLY:" OR link STREQUAL "maicord_compile_contract"
+            OR (NOT link MATCHES "^\\$<" AND NOT TARGET ${link}))
+        return()
+    endif()
+    if(link MATCHES "^\\$<")
+        set(${variable} FALSE PARENT_SCOPE)
+        return()
+    endif()
+    get_property(known GLOBAL PROPERTY MAICORD_TEST_PLAIN_${link} SET)
+    if(known)
+        get_property(plain GLOBAL PROPERTY MAICORD_TEST_PLAIN_${link})
+        set(${variable} ${plain} PARENT_SCOPE)
+        return()
+    endif()
+    # A link cycle reads the provisional answer.
+    set_property(GLOBAL PROPERTY MAICORD_TEST_PLAIN_${link} TRUE)
+    set(plain TRUE)
+    foreach(property IN ITEMS INTERFACE_COMPILE_DEFINITIONS INTERFACE_COMPILE_OPTIONS INTERFACE_INCLUDE_DIRECTORIES
+            INTERFACE_COMPILE_FEATURES INTERFACE_PRECOMPILE_HEADERS INTERFACE_SYSTEM_INCLUDE_DIRECTORIES)
+        get_target_property(value ${link} ${property})
+        if(value)
+            set(plain FALSE)
+        endif()
+    endforeach()
+    get_target_property(interface ${link} INTERFACE_LINK_LIBRARIES)
+    if(plain AND interface)
+        foreach(child IN LISTS interface)
+            maicord_test_plain_link(plain "${child}")
+            if(NOT plain)
+                break()
+            endif()
+        endforeach()
+    endif()
+    set_property(GLOBAL PROPERTY MAICORD_TEST_PLAIN_${link} ${plain})
+    set(${variable} ${plain} PARENT_SCOPE)
+endfunction()
+# maicord_test_compile_signature(<variable> <target> <property>...): the values of the properties of <target>, joined,
+# when every usage requirement it compiles with comes from the compile contract (its other link libraries add none,
+# maicord_test_plain_link); empty otherwise. Two targets with the same signature compile a source the same way.
+function(maicord_test_compile_signature variable target)
+    set(${variable} "" PARENT_SCOPE)
+    get_target_property(links ${target} LINK_LIBRARIES)
+    if(NOT "maicord_compile_contract" IN_LIST links)
+        return()
+    endif()
+    foreach(link IN LISTS links)
+        maicord_test_plain_link(plain "${link}")
+        if(NOT plain)
+            return()
+        endif()
+    endforeach()
+    set(signature)
+    foreach(property IN LISTS ARGN)
+        get_target_property(value ${target} ${property})
+        string(APPEND signature "${property}=${value}|")
+    endforeach()
+    set(${variable} "${signature}" PARENT_SCOPE)
+endfunction()
 # maicord_precompile_test_application_sources(<target_list_variable> <target>...):
-# the application precompiled headers (cmake/client.cmake) for test
-# executables that compile many application sources. Each target's PCHs come
-# from an object library <target>_application_pch with the target's compile
-# settings (maicord_application_pch_library); appends
-# those libraries to the temporary target list. Called after the shared
-# objects, so a source compiled once for several tests keeps that one compile.
+# the application precompiled headers (cmake/client.cmake) for the sources of
+# these test targets that qualify. Targets with the same compile settings
+# (maicord_test_compile_signature) share the PCHs of one object library,
+# <first target>_application_pch (maicord_application_pch_library). A group
+# gets the PCH of a mode only for four or more sources: one PCH compile costs
+# about what three users save (0.19 s each). Appends those libraries to the
+# temporary target list. Called after the shared objects, so a source compiled
+# once for several tests keeps that one compile.
 function(maicord_precompile_test_application_sources target_list_variable)
-    set(libraries)
+    set(groups)
     foreach(target IN LISTS ARGN)
-        set(library ${target}_application_pch)
-        maicord_application_pch_library(${library} ${target})
-        maicord_precompile_application_sources(${target} STUBS ${library})
+        maicord_test_compile_signature(signature ${target} INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS
+            COMPILE_FLAGS COMPILE_FEATURES CXX_STANDARD CXX_STANDARD_REQUIRED CXX_EXTENSIONS MSVC_RUNTIME_LIBRARY
+            MAICORD_SDK_INCLUDES MAICORD_INLINE_ANY MAICORD_TEST_CODEGEN)
+        if(NOT signature)
+            set(signature ${target})
+        endif()
+        string(SHA1 group "${signature}")
+        if(NOT DEFINED members_${group})
+            list(APPEND groups ${group})
+        endif()
+        list(APPEND members_${group} ${target})
+        get_target_property(sources ${target} SOURCES)
+        foreach(source IN LISTS sources)
+            if(source MATCHES "^\\$<" OR NOT source MATCHES "\\.cpp$")
+                continue()
+            endif()
+            set(path "${source}")
+            cmake_path(ABSOLUTE_PATH path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE)
+            maicord_application_pch_mode(mode "${path}")
+            if(mode)
+                list(APPEND uses_${group} ${mode})
+            endif()
+        endforeach()
+    endforeach()
+    set(libraries)
+    foreach(group IN LISTS groups)
+        set(modes)
+        set(distinct ${uses_${group}})
+        list(REMOVE_DUPLICATES distinct)
+        foreach(mode IN LISTS distinct)
+            set(users ${uses_${group}})
+            list(FILTER users INCLUDE REGEX "^${mode}$")
+            list(LENGTH users count)
+            if(count GREATER_EQUAL 4)
+                list(APPEND modes ${mode})
+            endif()
+        endforeach()
+        if(NOT modes)
+            continue()
+        endif()
+        list(GET members_${group} 0 first)
+        set(library ${first}_application_pch)
+        maicord_application_pch_library(${library} ${first})
+        foreach(target IN LISTS members_${group})
+            maicord_precompile_application_sources(${target} STUBS ${library} MODES ${modes})
+            # The PCHs need what any member's sources need generated first.
+            get_target_property(dependencies ${target} MANUALLY_ADDED_DEPENDENCIES)
+            if(dependencies)
+                add_dependencies(${library} ${dependencies})
+            endif()
+        endforeach()
         list(APPEND libraries ${library})
     endforeach()
     set(${target_list_variable} ${${target_list_variable}} ${libraries} PARENT_SCOPE)

@@ -9,7 +9,6 @@
 #include "maicord/app/chat/composer/message_draft_persistence.hpp"
 #include "maicord/app/chat/composer/message_draft_session.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/protocol/messages/history.hpp"
 
 namespace maicord {
 namespace {

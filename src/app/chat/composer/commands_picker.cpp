@@ -1,5 +1,6 @@
 #include "commands_internal.hpp"
 #include "../../account/account_presentation.hpp"
+#include "maicord/core/ascii_search.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/model/chat/asset_hash.hpp"

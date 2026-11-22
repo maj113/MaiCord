@@ -7,7 +7,7 @@
 #include "../../chat/application_link_trust.hpp"
 #include "../../chat/composer/composer.hpp"
 #include "maicord/core/decimal.hpp"
-#include "maicord/core/ascii.hpp"
+#include "maicord/core/ascii_search.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/virtual_memory.hpp"

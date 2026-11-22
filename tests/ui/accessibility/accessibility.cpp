@@ -1,7 +1,5 @@
 #include "accessibility_internal.hpp"
-#include "../../../src/platform/uia/provider.cpp"
-#include "../../../src/platform/uia/provider_patterns.cpp"
-#include "../../../src/platform/uia/provider_text.cpp"
+#include "maicord/core/win32_user.hpp"
 #include "maicord/ui/core/widget_builder.hpp"
 #include "../../support/test_output.hpp"
 
