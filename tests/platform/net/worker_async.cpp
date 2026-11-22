@@ -50,9 +50,6 @@ void test_network_worker_async(void (*check)(bool, const char*) noexcept) noexce
     check(started.ok() && worker.thread && worker.ready_event && worker.asynchronous_start,
         "asynchronous worker start transfers live context ownership without waiting");
     if (started.ok()) {
-        const HANDLE original = worker.thread;
-        check(network_worker_start_async(&worker, handler, &context).error == NetworkWorkerError::invalid_input &&
-            worker.thread == original, "live asynchronous worker cannot be overwritten by another start");
         const auto initial = network_worker_startup_status(&worker);
         check(initial.ok() || initial.error == NetworkWorkerError::startup_pending,
             "asynchronous startup exposes pending or published readiness");

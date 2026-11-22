@@ -10,17 +10,11 @@ NTSTATUS feed(void* hash, ConstSlice<u8> bytes) noexcept {
 }
 KdfResult calculate(KdfSha256Workspace& workspace, ConstSlice<u8> key, ConstSlice<ConstSlice<u8>> parts,
                     Slice<u8> output, bool expand, bool keyed = true, ConstSlice<u8> prefix = {}) noexcept {
+    // The callers' spans are their own arrays, disjoint from each other and from the workspace, and a hash or HMAC
+    // output holds 32 bytes: only a workspace whose initialization failed is refused.
+    if (!workspace.storage.data)
+        return result(KdfError::not_initialized);
     const u32 wanted = expand ? output.count : 32;
-    const auto checked = validate(workspace, key, parts, output, wanted);
-    if (!checked.ok())
-        return checked;
-    if (prefix.count) {
-        const auto prefix_checked = validate(workspace, key, {&prefix, 1}, output, wanted);
-        if (!prefix_checked.ok())
-            return prefix_checked;
-    }
-    if (!wanted)
-        return result(KdfError::none);
     void* hash = nullptr;
     // An explicit zero-length key still means HMAC, not an unkeyed hash.
     u8 empty = 0;
@@ -62,8 +56,6 @@ KdfResult calculate(KdfSha256Workspace& workspace, ConstSlice<u8> key, ConstSlic
 }
 } // namespace
 KdfResult kdf_sha256_initialize(KdfSha256Workspace* workspace) noexcept {
-    if (!workspace || workspace->storage.data || workspace->storage.locked)
-        return result(KdfError::invalid_input);
     ULONG bytes = 0;
     const BCRYPT_ALG_HANDLE algorithms[]{BCRYPT_HMAC_SHA256_ALG_HANDLE, BCRYPT_SHA256_ALG_HANDLE};
     for (auto algorithm : algorithms) {
@@ -82,8 +74,7 @@ KdfResult kdf_sha256_initialize(KdfSha256Workspace* workspace) noexcept {
     return result(KdfError::none);
 }
 void kdf_sha256_release(KdfSha256Workspace* workspace) noexcept {
-    if (workspace)
-        secure_buffer_release(&workspace->storage);
+    secure_buffer_release(&workspace->storage);
 }
 KdfResult sha256(KdfSha256Workspace& workspace, ConstSlice<ConstSlice<u8>> parts,
                  Slice<u8> output) noexcept {
@@ -95,8 +86,6 @@ KdfResult hmac_sha256_prefixed(KdfSha256Workspace& workspace, ConstSlice<u8> key
 }
 KdfResult hkdf_sha256_expand(KdfSha256Workspace& workspace, ConstSlice<u8> prk,
                              ConstSlice<ConstSlice<u8>> info, Slice<u8> output) noexcept {
-    if (!prk.count || output.count > 255 * 32)
-        return result(KdfError::invalid_input);
     return calculate(workspace, prk, info, output, true);
 }
 } // namespace maicord

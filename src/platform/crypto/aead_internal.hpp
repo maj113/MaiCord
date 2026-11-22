@@ -9,11 +9,6 @@ inline AeadResult aead_result(AeadError error, u32 bytes = 0, i32 status = 0) no
     return {bytes, status, error};
 }
 
-// Both algorithms share argument/alias rules and failure erasure. The
-// initialized owner must validate before deriving/importing or changing storage.
-AeadResult aead_validate(ConstSlice<u8> owner, ConstSlice<u8> storage, u32 nonce_bytes,
-                         ConstSlice<u8> nonce, ConstSlice<u8> aad, ConstSlice<u8> input, Slice<u8> output,
-                         ConstSlice<u8> tag, bool encrypt, u32 tag_bytes = 16) noexcept;
 #if !defined(_WIN32)
 // One ChaCha20-Poly1305 operation (12-byte nonce, 16-byte tag) under a 32-byte key, through the system OpenSSL
 // (src/platform/crypto/openssl/aead_openssl.cpp). A failure erases the attempted output prefix.

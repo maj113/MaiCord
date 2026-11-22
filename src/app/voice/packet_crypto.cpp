@@ -17,8 +17,8 @@ VoicePacketResult failure(VoicePacketError error, const AeadResult& crypto) noex
     result.crypto = crypto;
     return result;
 }
-// The packet buffers are the callers' own (never the key owner or its storage: the ciphers reject such
-// aliasing too), so only the key's state and the output size are checked per packet.
+// The packet buffers are the callers' own (never the key owner or its storage; the send copy and the receive
+// slot are the same buffer or disjoint), so only the key's state and the output size are checked per packet.
 VoicePacketError validate(const VoicePacketCrypto& crypto, u64 generation, Slice<u8> output,
                           u32 written) noexcept {
     if (!crypto.generation)

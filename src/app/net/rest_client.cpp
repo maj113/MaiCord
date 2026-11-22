@@ -6,50 +6,31 @@
 
 namespace maicord {
 
-bool rest_transaction_acquire(RestTransaction* transaction, u64 request_id,
-                              const RestRateLease& lease, u64 deadline_ms,
-                              bool reused_connection) noexcept {
-    if (request_id == 0 || !lease.active || deadline_ms == 0 || transaction->phase != RestTransactionPhase::idle) {
-        return false;
-    }
+// The worker acquires only an idle transaction (a new request, or one a retry or a rate wait reset), with the
+// nonzero request ID submit checked, an active lease from rest_rate_acquire and a nonzero deadline.
+void rest_transaction_acquire(RestTransaction* transaction, u64 request_id, const RestRateLease& lease,
+                              u64 deadline_ms, bool reused_connection) noexcept {
     // begin_send sets the byte counts, and nothing reads them before it.
     transaction->lease = lease;
     transaction->request_id = request_id;
     transaction->deadline_ms = deadline_ms;
     transaction->phase = RestTransactionPhase::acquired;
     transaction->reused_connection = reused_connection;
-    return true;
 }
 
-bool rest_transaction_begin_send(RestTransaction* transaction, u32 request_bytes) noexcept {
-    if (request_bytes == 0 || transaction->phase != RestTransactionPhase::acquired) {
-        return false;
-    }
+// Once per acquired transaction, with the nonzero bytes of its head and body.
+void rest_transaction_begin_send(RestTransaction* transaction, u32 request_bytes) noexcept {
     transaction->request_bytes = request_bytes;
     transaction->committed_bytes = 0;
     transaction->phase = RestTransactionPhase::sending;
-    return true;
 }
 
-bool rest_transaction_commit_plaintext(RestTransaction* transaction, u32 bytes) noexcept {
-    if (bytes == 0 || transaction->phase != RestTransactionPhase::sending ||
-        bytes > transaction->request_bytes - transaction->committed_bytes) {
-        return false;
-    }
+// The TLS stream commits the head and body spans in order, each record's bytes once: their sum is request_bytes.
+void rest_transaction_commit_plaintext(RestTransaction* transaction, u32 bytes) noexcept {
     transaction->committed_bytes += bytes;
     if (transaction->committed_bytes == transaction->request_bytes) {
         transaction->phase = RestTransactionPhase::receiving;
     }
-    return true;
-}
-
-bool rest_transaction_complete(RestTransaction* transaction) noexcept {
-    // Receiving starts only when every request byte is committed.
-    if (transaction->lease.active || transaction->phase != RestTransactionPhase::receiving) {
-        return false;
-    }
-    transaction->phase = RestTransactionPhase::complete;
-    return true;
 }
 
 bool rest_transaction_cancel(RestTransaction* transaction) noexcept {
@@ -509,7 +490,7 @@ RestClientTakeResult rest_client_consume_user_auth_response(
     RestClient* client, RestClientResponse* response,
     RestUserAuthConsumeFunction consumer, void* context) noexcept {
     auto* runtime = runtime_of(client);
-    if (!runtime || !runtime->user_auth_mode || !response || !consumer) {
+    if (!runtime || !runtime->user_auth_mode) {
         return RestClientTakeResult{0, RestClientTakeError::invalid_input};
     }
     if (read_acquire(&client->request_state) != request_state_ready) {
@@ -525,7 +506,7 @@ RestClientTakeResult rest_client_consume_user_auth_response(
 }
 
 HANDLE rest_client_notification_handle(const RestClient* client) noexcept {
-    return client ? client->response_event : nullptr;
+    return client->response_event;
 }
 
 RestClientResult rest_client_status(const RestClient* client) noexcept {
@@ -533,8 +514,7 @@ RestClientResult rest_client_status(const RestClient* client) noexcept {
 }
 
 static void capture_user_auth_stop_receipt(RestClient* client, RestClientResponse* receipt) noexcept {
-    if (!receipt || !client || !client->runtime ||
-        read_acquire(&client->request_state) != request_state_ready)
+    if (!receipt || read_acquire(&client->request_state) != request_state_ready)
         return;
     const auto* runtime = static_cast<const RestClientRuntime*>(client->runtime);
     if (!runtime->user_auth_mode || !runtime->completed.transport_ok() ||
@@ -549,7 +529,7 @@ static RestClientResult stop_client(RestClient* client, u32 timeout_ms,
                                     RestClientResponse* receipt) noexcept {
     if (receipt)
         reset_value(receipt);
-    if (!client || !client->worker.thread)
+    if (!client->worker.thread)
         return invalid_result();
     if (client->shared) {
         AcquireSRWLockExclusive(client->shared->lock.native());
@@ -574,7 +554,7 @@ static RestClientResult stop_client(RestClient* client, u32 timeout_ms,
     if (client->response_event) {
         waitable_close(client->response_event);
     }
-    destroy_client_storage(client, nullptr);
+    destroy_client_storage(client);
     reset_value<RestClient>(client);
     value.phase = value.error == RestClientError::none ? RestClientPhase::stopped : RestClientPhase::failed;
     return value;

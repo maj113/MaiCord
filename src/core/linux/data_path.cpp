@@ -83,9 +83,8 @@ u32 xdg_root(Root root, wchar_t* output, u32 capacity) noexcept {
 
 } // namespace
 
+// Every caller (rooted_path, account_paths_build_slot) gives a root it read into its own array and an output array.
 u32 data_path_build(const wchar_t* root, wchar_t* output, u32 capacity, const wchar_t* relative) noexcept {
-    if (!root || !output)
-        return 0;
     u32 length = wide_length(root, capacity);
     while (length && separator(root[length - 1]))
         --length;

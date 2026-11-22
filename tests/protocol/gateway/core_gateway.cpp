@@ -563,12 +563,6 @@ void test_json_reader_and_gateway() noexcept {
                bad_utf8.read_error == JsonReadError::invalid_utf8,
            "json_reader_invalid_utf8");
 
-    const GatewayDecodeResult null_output = gateway_decode_envelope(
-        utf8_literal(R"({"op":1,"d":null})"), Slice<u32>{structurals, 64}, 16, nullptr);
-    expect(null_output.error == GatewayDecodeError::invalid_json &&
-               null_output.read_error == JsonReadError::invalid_input,
-           "gateway_null_output");
-
     constexpr Utf8View complete_payload =
         utf8_literal(R"({"op":0,"d":{"items":[1,{"ok":true}]},"s":9,"t":"READY"})");
     bool truncations_rejected = true;
@@ -2080,13 +2074,6 @@ void test_gateway_message_events() noexcept {
             utf8_equal(routed_avatar_hash, utf8_literal("0123456789abcdef0123456789abcdef")) &&
             utf8_equal(routed_message.author_avatar_hash, routed_avatar_hash),
         "gateway_client_route_message_create_owned_payload");
-
-    const GatewayClientDispatchRouteResult aliased_route = gateway_client_route_dispatch(
-        envelope, Slice<u32>{scratch, 256}, 16,
-        Slice<char>{const_cast<char*>(envelope.data.source.data), envelope.data.source.bytes},
-        Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload, gateway_test_message_scratch());
-    expect(!aliased_route.ok() && aliased_route.error == GatewayClientDispatchRouteError::invalid_input,
-           "gateway_client_route_rejects_source_output_aliasing");
 
     u32 tiny_route_scratch[1]{};
     const GatewayClientDispatchRouteResult overflow_route = gateway_client_route_dispatch(

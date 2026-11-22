@@ -142,7 +142,6 @@ struct RestClientRuntime {
     u32 decode_us;
     RestContentEncoding wire_encoding;
     bool transport_ready;
-    bool write_commit_failed;
     bool response_callback_failed;
     bool draining;
     bool stopping;
@@ -246,9 +245,8 @@ bool reject_restricted_request(RestClient* client, RestClientRuntime* runtime) n
 // 0 when it does not fit or is invalid.
 u32 write_request_head(RestClientRuntime* runtime) noexcept;
 TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime) noexcept;
-bool finalize_response(RestClient* client, RestClientRuntime* runtime,
-                       const RestResponseStep& step, u64 now_ms) noexcept;
-void destroy_client_storage(RestClient* client, SecureBuffer* restore) noexcept;
+bool finalize_response(RestClient* client, RestClientRuntime* runtime, u64 now_ms) noexcept;
+void destroy_client_storage(RestClient* client) noexcept;
 RestClientResult start_client(RestClient* client, SecureBuffer* credential,
                               RestAuthorization authorization,
                               const RestUserConfiguration* user_configuration,

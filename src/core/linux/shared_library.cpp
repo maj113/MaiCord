@@ -49,9 +49,6 @@ void* open_in(const char* directory, u32 length, const char* name, u32 name_leng
 } // namespace
 
 bool shared_library_open(SharedLibrary* library, const char* name) noexcept {
-    if (!library || !name || !*name) {
-        return false;
-    }
     library->handle = nullptr;
     if (contains_slash(name)) {
         library->handle = dlopen(name, kDlNow | kDlLocal);
@@ -103,7 +100,7 @@ void shared_library_log_missing(const char* component, const char* soname, const
 }
 
 void shared_library_close(SharedLibrary* library) noexcept {
-    if (library && library->handle) {
+    if (library->handle) {
         dlclose(library->handle);
         library->handle = nullptr;
     }

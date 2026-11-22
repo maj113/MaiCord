@@ -81,17 +81,6 @@ void accept_of(const ConstSlice<u8>& client_key, u8* output) noexcept {
     base64_encode({digest, sizeof(digest)}, {reinterpret_cast<char*>(output), kWebSocketAcceptBytes});
 }
 
-bool valid_client_key(const ConstSlice<u8>& key) noexcept {
-    if (key.count != kWebSocketClientKeyBytes) {
-        return false;
-    }
-    u8 decoded[kWebSocketNonceBytes];
-    const Base64Result result = base64_decode(Utf8View{reinterpret_cast<const char*>(key.data), key.count},
-                                              Slice<u8>{decoded, kWebSocketNonceBytes});
-    return result.ok() && result.bytes == kWebSocketNonceBytes;
-}
-
-
 inline bool equal_bytes(ConstSlice<u8> left, ConstSlice<u8> right) noexcept {
     if (left.count != right.count) {
         return false;
@@ -163,19 +152,11 @@ WebSocketHandshakeValidation validation_error(WebSocketHandshakeError error,
 
 } // namespace
 
+// Every caller encodes its own 16 random bytes into its own 24-byte key.
 WebSocketHandshakeWriteResult websocket_encode_client_key(const ConstSlice<u8>& nonce,
                                                           const Slice<u8>& output) noexcept {
-    if (!nonce.data || nonce.count != kWebSocketNonceBytes || !output.data) {
-        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_input};
-    }
-    if (output.count < kWebSocketClientKeyBytes) {
-        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
-    }
     const Base64Result encoded =
         base64_encode(nonce, Slice<char>{reinterpret_cast<char*>(output.data), output.count});
-    if (!encoded.ok() || encoded.bytes != kWebSocketClientKeyBytes) {
-        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_input};
-    }
     return WebSocketHandshakeWriteResult{encoded.bytes, WebSocketHandshakeError::none};
 }
 
@@ -185,10 +166,7 @@ WebSocketHandshakeWriteResult websocket_encode_client_key(const ConstSlice<u8>& 
 WebSocketHandshakeWriteResult websocket_write_opening_request(ConstSlice<u8> target, ConstSlice<u8> host,
                                                               ConstSlice<u8> client_key, Slice<u8> output,
                                                               const WebSocketPageFields* page) noexcept {
-    if (!output.data || !valid_client_key(client_key)) {
-        return WebSocketHandshakeWriteResult{0, output.data ? WebSocketHandshakeError::invalid_client_key
-                                                            : WebSocketHandshakeError::invalid_input};
-    }
+    // The client key is the caller's websocket_encode_client_key output, the output its own array.
     if (!valid_target(target)) {
         return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_target};
     }
@@ -232,9 +210,7 @@ WebSocketHandshakeValidation websocket_validate_opening_response(const ConstSlic
                                                                  const ConstSlice<u8>& client_key,
                                                                  u32 maximum_header_bytes,
                                                                  u32 maximum_fields) noexcept {
-    if ((!response.data && response.count != 0) || !valid_client_key(client_key)) {
-        return validation_error(WebSocketHandshakeError::invalid_input);
-    }
+    // The client key is the caller's websocket_encode_client_key output, the response its own byte queue.
     u8 expected[kWebSocketAcceptBytes];
     accept_of(client_key, expected);
     AcceptVisitor visitor{ConstSlice<u8>{expected, kWebSocketAcceptBytes}, 0, WebSocketHandshakeError::none};

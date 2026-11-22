@@ -60,7 +60,7 @@ struct RestClientProbe {
             CloseHandle(client.worker.thread);
         if (client.response_event)
             CloseHandle(client.response_event);
-        destroy_client_storage(&client, nullptr);
+        destroy_client_storage(&client);
     }
     // Consumes the request signal posted by an admitted submission.
     bool signal() noexcept {
@@ -81,17 +81,15 @@ struct RestClientProbe {
             return false;
         client.request_state = request_state_active;
         const auto lease = rest_rate_acquire(runtime->scheduler, runtime->command.route, 1);
-        if (!lease.acquired_request() ||
-            !rest_transaction_acquire(&runtime->transaction, runtime->command.request_id, lease.lease,
-                                      10'000, false) ||
-            !rest_transaction_begin_send(&runtime->transaction, runtime->command.body_bytes))
+        if (!lease.acquired_request())
             return false;
+        rest_transaction_acquire(&runtime->transaction, runtime->command.request_id, lease.lease, 10'000, false);
+        rest_transaction_begin_send(&runtime->transaction, runtime->command.body_bytes);
         request_plaintext_committed(runtime, {runtime->request_body, runtime->command.body_bytes});
-        if (!zeros({runtime->request_body, runtime->command.body_bytes}) ||
-            !rest_response_initialize(
-                &runtime->response, {runtime->response_input, kRestMaximumHeaderBytes},
-                {runtime->response_body, runtime->response_capacity}, RestMethod::post))
+        if (!zeros({runtime->request_body, runtime->command.body_bytes}))
             return false;
+        rest_response_initialize(&runtime->response, {runtime->response_input, kRestMaximumHeaderBytes},
+                                 {runtime->response_body, runtime->response_capacity}, RestMethod::post);
         u8 bytes[384]{};
         ProtocolWriter writer{{bytes, sizeof(bytes)}, 0};
         protocol_writer_append_literal(&writer, "HTTP/1.1 ");
@@ -107,7 +105,7 @@ struct RestClientProbe {
             step = response_plaintext_received(runtime,
                                                {reinterpret_cast<const u8*>(body.data), body.bytes}, false);
         return step == TlsStreamReadAction::complete &&
-               finalize_response(&client, runtime, runtime->response_step, 1);
+               finalize_response(&client, runtime, 1);
     }
 };
 

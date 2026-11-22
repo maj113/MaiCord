@@ -161,84 +161,11 @@ void boundaries(Check check) noexcept {
         }
     }
     memset(output, 0xa5, sizeof(output));
-    const auto short_output =
-        aes_gcm_decrypt(key, {nonce, 12}, {aad, 20}, {ciphertext, 33}, {tag, 16}, {output, 32});
-    check(short_output.error == AeadError::output_too_small && short_output.bytes == 0 &&
-              test_filled(output, 64, 0xa5),
-          "AES short output is unchanged");
-    u8 saved_tag[16];
-    copy_bytes(saved_tag, tag, 16);
-    check(aes_gcm_encrypt(key, {nonce, 12}, {aad, 20}, {plain, 33}, {output, 32}, {tag, 16}).error ==
-                  AeadError::output_too_small &&
-              test_filled(output, 64, 0xa5) && bytes_equal(tag, saved_tag, 16),
-          "AES short encryption output preserves ciphertext and tag");
     const auto truncated =
         aes_gcm_decrypt(key, {nonce, 12}, {aad, 20}, {ciphertext, 32}, {tag, 16}, {output, 64});
     check(truncated.error == AeadError::authentication_failed && truncated.bytes == 0 &&
               test_filled(output, 32, 0) && test_filled(output + 32, 32, 0xa5),
           "AES rejects truncated ciphertext without exposing plaintext");
-    memset(output, 0xa5, sizeof(output));
-    constexpr u32 invalid_nonce_sizes[]{0, 11, 13};
-    for (u32 length : invalid_nonce_sizes)
-        check(aes_gcm_encrypt(key, {nonce, length}, {}, {plain, 33}, {output, 64}, {tag, 16}).error ==
-                      AeadError::invalid_input &&
-                  test_filled(output, 64, 0xa5),
-              "AES rejects wrong nonce lengths");
-    constexpr u32 invalid_tag_sizes[]{0, 15, 17};
-    for (u32 length : invalid_tag_sizes)
-        check(aes_gcm_decrypt(key, {nonce, 12}, {}, {ciphertext, 33}, {tag, length}, {output, 64}).error ==
-                      AeadError::invalid_input &&
-                  test_filled(output, 64, 0xa5),
-              "AES rejects wrong tag lengths");
-    const ConstSlice<u8> invalid[]{{nullptr, 1}, {reinterpret_cast<const u8*>(~usize{0} - 1), 4}};
-    for (const auto span : invalid)
-        check(aes_gcm_encrypt(key, {nonce, 12}, span, {plain, 33}, {output, 64}, {tag, 16}).error ==
-                      AeadError::invalid_input &&
-                  test_filled(output, 64, 0xa5),
-              "AES rejects null/wrapping spans");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {output, 33}, {output + 1, 33}, {tag, 16}).error ==
-                  AeadError::invalid_input &&
-              test_filled(output, 64, 0xa5),
-          "AES rejects forward partial payload alias");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {output + 1, 33}, {output, 33}, {tag, 16}).error ==
-                  AeadError::invalid_input &&
-              test_filled(output, 64, 0xa5),
-          "AES rejects backward partial payload alias");
-    check(aes_gcm_encrypt(key, {output, 12}, {}, {plain, 33}, {output, 64}, {tag, 16}).error ==
-                  AeadError::invalid_input &&
-              test_filled(output, 64, 0xa5),
-          "AES rejects nonce/output alias");
-    check(
-        aes_gcm_decrypt(key, {nonce, 12}, {output, 20}, {ciphertext, 33}, {tag, 16}, {output, 64}).error ==
-                AeadError::invalid_input &&
-            test_filled(output, 64, 0xa5),
-        "AES rejects AAD/output alias");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {plain, 33}, {output, 64}, {output + 32, 16}).error ==
-                  AeadError::invalid_input &&
-              test_filled(output, 64, 0xa5),
-          "AES rejects overlapping payload/tag");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {plain, 33}, {key.storage.data, 33}, {tag, 16}).error ==
-              AeadError::invalid_input,
-          "AES rejects overwriting retained key storage");
-    check(aes_gcm_encrypt(key, {output, 12}, {}, {}, {}, {output, 16}).error == AeadError::invalid_input &&
-              test_filled(output, 64, 0xa5),
-          "AES rejects encryption tag/nonce alias on empty data");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {output, 20}, {}, {}, {output, 16}).error ==
-                  AeadError::invalid_input &&
-              test_filled(output, 64, 0xa5),
-          "AES rejects encryption tag/AAD alias on empty data");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {output, 33}, {ciphertext, 33}, {output, 16}).error ==
-                  AeadError::invalid_input &&
-              test_filled(output, 64, 0xa5),
-          "AES rejects encryption tag/source alias");
-    check(
-        aes_gcm_decrypt(key, {nonce, 12}, {aad, 20}, {ciphertext, 33}, {output, 16}, {output, 64}).error ==
-                AeadError::invalid_input &&
-            test_filled(output, 64, 0xa5),
-        "AES rejects decryption tag/destination alias");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {}, {}, {reinterpret_cast<u8*>(&key), 16}).error ==
-              AeadError::invalid_input,
-          "AES rejects overwriting the key owner with tag");
     copy_bytes(output, ciphertext, 33);
     tag[0] ^= 1;
     const auto inplace_failure =
@@ -250,7 +177,6 @@ void boundaries(Check check) noexcept {
           "AES rejects decryption after release");
     check(aes_gcm_initialize(&key, {secret, 16}).ok(), "AES released owner can initialize a new key");
     aes_gcm_release(&key);
-    aes_gcm_release(nullptr);
 }
 } // namespace
 

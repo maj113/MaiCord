@@ -154,7 +154,6 @@ void conversions_in_general() noexcept {
     check(!local_time_to_unix(reading(2024, 13, 1, 0, 0), &got), "month_13_is_refused");
     check(!local_time_to_unix(reading(2024, 1, 1, 24, 0), &got), "hour_24_is_refused");
     check(!local_time_to_unix(reading(0, 1, 1, 0, 0), &got), "year_0_is_refused");
-    check(!local_time_to_unix(reading(2024, 1, 1, 0, 0), nullptr), "null_output_is_refused");
     check(!local_time_from_unix(utc(10000, 1, 1), &local), "year_10000_is_refused");
     check(local_utc_offset(utc(10000, 1, 1)) == 0, "no_offset_beyond_the_range");
     // Local time and back is the identity except inside the hour that happens twice, so instants within a day of a

@@ -90,7 +90,7 @@ inline GatewayEventDecodeResult gateway_decode_message_rich_fields(JsonValue dat
     message_rich_detail::RootContext root{};
     const auto read = protocol_detail::read_object(data, document, maximum_depth, message_rich_detail::visit_root,
                                                    &root, &root.error);
-    return message_rich_detail::decode_rich_fields(document, data, maximum_depth, text_output, text_used, scratch,
+    return message_rich_detail::decode_rich_fields(document, maximum_depth, text_output, text_used, scratch,
                                                    output, root, read);
 }
 } // namespace maicord

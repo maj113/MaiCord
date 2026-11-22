@@ -108,9 +108,6 @@ void boundaries(Check check) noexcept {
     check(p256_export_private(pub, {output, 32}).error == P256Error::private_required &&
               p256_sign_digest(pub, {digest, 32}, {output, 64}).error == P256Error::private_required,
           "P256 public owner cannot expose private material or sign");
-    check(p256_export_public(key, {reinterpret_cast<u8*>(&key), 65}).error == P256Error::invalid_input &&
-              p256_sign_digest(key, {output, 32}, {output, 64}).error == P256Error::invalid_input,
-          "P256 protects owner/input aliases");
     scalar[31] = 2;
     check(!p256_import_private(&wrong, P256Kind::ecdh, {scalar, 32}, {point, 65}).ok() && !wrong.handle,
           "P256 rejects a mismatched public/private key pair");

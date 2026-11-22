@@ -503,10 +503,8 @@ bool http_chunk_decoder_initialize(HttpChunkDecoder* decoder, u64 maximum_body_b
 }
 
 HttpChunkStep http_chunk_decode(HttpChunkDecoder* decoder, ConstSlice<u8> input) noexcept {
-    if ((!input.data && input.count != 0) || decoder->state == HttpChunkState::failed) {
-        decoder->state = HttpChunkState::failed;
+    if (decoder->state == HttpChunkState::failed)
         return HttpChunkStep{{nullptr, 0}, 0, HttpError::invalid_input, HttpChunkStepState::error};
-    }
     if (decoder->state == HttpChunkState::complete)
         return chunk_step(HttpChunkStepState::complete, 0);
 
@@ -530,8 +528,7 @@ HttpChunkStep http_chunk_decode(HttpChunkDecoder* decoder, ConstSlice<u8> input)
                 return chunk_error(decoder, HttpError::chunk_size_overflow, offset);
             if (size_parse != ChunkSizeParse::ok)
                 return chunk_error(decoder, HttpError::invalid_chunk_size, offset);
-            if (decoder->body_bytes > decoder->maximum_body_bytes ||
-                chunk_size > decoder->maximum_body_bytes - decoder->body_bytes)
+            if (chunk_size > decoder->maximum_body_bytes - decoder->body_bytes)
                 return chunk_error(decoder, HttpError::chunk_too_large, offset);
             decoder->chunk_remaining = chunk_size;
             decoder->body_bytes += chunk_size;
@@ -611,9 +608,9 @@ HttpResponseDecoderStep decoder_failure(HttpResponseDecoder* decoder, HttpRespon
     return decoder_step(*decoder);
 }
 
+// The decoder's body bytes never pass its capacity, and every source holds its bytes.
 bool decoder_copy_body(HttpResponseDecoder* decoder, ConstSlice<u8> bytes) noexcept {
-    if ((!bytes.data && bytes.count != 0) || decoder->body_bytes > decoder->body.count ||
-        bytes.count > decoder->body.count - decoder->body_bytes)
+    if (bytes.count > decoder->body.count - decoder->body_bytes)
         return false;
     copy_bytes(decoder->body.data + decoder->body_bytes, bytes.data, bytes.count);
     decoder->body_bytes += bytes.count;
@@ -683,15 +680,11 @@ bool decode_body(HttpResponseDecoder* decoder, ConstSlice<u8> source, bool peer_
 
 } // namespace
 
-bool http_response_decoder_initialize(HttpResponseDecoder* decoder, Slice<u8> input_storage,
+// Every owner gives its fixed storage: input of at least maximum_header_bytes, an empty or a full-size retained head.
+void http_response_decoder_initialize(HttpResponseDecoder* decoder, Slice<u8> input_storage,
                                       Slice<u8> retained_head, Slice<u8> body_output, u32 maximum_header_bytes,
                                       u32 maximum_fields, bool request_was_head, HttpResponseHeadParser head_parser,
                                       void* head_parser_context) noexcept {
-    if (!input_storage.data || maximum_header_bytes < 4 || input_storage.count < maximum_header_bytes ||
-        maximum_fields == 0 || (!retained_head.data && retained_head.count != 0) ||
-        (retained_head.data && retained_head.count < maximum_header_bytes) ||
-        (!body_output.data && body_output.count != 0) || (!head_parser && head_parser_context))
-        return false;
     reset_value<HttpResponseDecoder>(decoder);
     decoder->body = body_output;
     decoder->retained_head = retained_head;
@@ -701,12 +694,12 @@ bool http_response_decoder_initialize(HttpResponseDecoder* decoder, Slice<u8> in
     decoder->maximum_fields = maximum_fields;
     decoder->request_was_head = request_was_head;
     decoder->state = HttpResponseDecoderState::head;
-    return byte_queue_initialize(&decoder->input, input_storage);
+    byte_queue_initialize(&decoder->input, input_storage);
 }
 
 HttpResponseDecoderStep http_response_decoder_feed(HttpResponseDecoder* decoder, ConstSlice<u8> input,
                                                    bool peer_closed) noexcept {
-    if ((!input.data && input.count != 0) || decoder->state == HttpResponseDecoderState::failed)
+    if (decoder->state == HttpResponseDecoderState::failed)
         return decoder_failure(decoder, HttpResponseDecoderError::invalid_input);
     if (decoder->state == HttpResponseDecoderState::complete) {
         if (input.count != 0)
@@ -741,15 +734,14 @@ HttpResponseDecoderStep http_response_decoder_feed(HttpResponseDecoder* decoder,
         if (!parsed.ok())
             return decoder_failure(decoder, HttpResponseDecoderError::head);
         if (parsed.head.status_code >= 100 && parsed.head.status_code < 200 && parsed.head.status_code != 101) {
-            if (!byte_queue_consume(&decoder->input, parsed.head.header_bytes) ||
-                ++decoder->informational_responses > 8)
+            byte_queue_consume(&decoder->input, parsed.head.header_bytes);
+            if (++decoder->informational_responses > 8)
                 return decoder_failure(decoder, HttpResponseDecoderError::head);
             continue;
         }
         if (!retain_final_head(decoder, ConstSlice<u8>{readable.data, parsed.head.header_bytes}))
             return decoder_failure(decoder, HttpResponseDecoderError::head_capacity);
-        if (!byte_queue_consume(&decoder->input, parsed.head.header_bytes))
-            return decoder_failure(decoder, HttpResponseDecoderError::body_framing);
+        byte_queue_consume(&decoder->input, parsed.head.header_bytes);
         decoder->parsed_head = parsed.head;
         decoder->connection_reusable = decoder_connection_reusable(parsed.head);
         const HttpBodyKind body_kind = http_response_body_kind(parsed.head, decoder->request_was_head);
@@ -774,8 +766,7 @@ HttpResponseDecoderStep http_response_decoder_feed(HttpResponseDecoder* decoder,
     }
     if (!decode_body(decoder, byte_queue_readable(decoder->input), peer_closed, &used))
         return decoder_step(*decoder);
-    if (!byte_queue_consume(&decoder->input, used))
-        return decoder_failure(decoder, HttpResponseDecoderError::body_framing);
+    byte_queue_consume(&decoder->input, used);
     return decoder->state == HttpResponseDecoderState::complete ? decoder_step(*decoder) : wait();
 }
 

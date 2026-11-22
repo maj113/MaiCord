@@ -22,19 +22,14 @@ i32 hash_stream_begin(HashStream* stream, HashAlgorithm algorithm) noexcept {
     return 0;
 }
 
+// Update and finish run only on a stream that begin made, so the library is loaded and the stream is live.
 i32 hash_stream_update(HashStream stream, const void* data, u32 bytes) noexcept {
     const openssl::Crypto* library = openssl::crypto();
-    if (!library || !stream)
-        return openssl::library_status(openssl::kFailureLibrary);
-    if (bytes == 0)
-        return 0;
     return library->EVP_DigestUpdate(stream, data, bytes) == 1 ? 0 : openssl::error_status(*library);
 }
 
 i32 hash_stream_finish(HashStream stream, u8* digest, u32 digest_bytes) noexcept {
     const openssl::Crypto* library = openssl::crypto();
-    if (!library || !stream)
-        return openssl::library_status(openssl::kFailureLibrary);
     u8 value[64];
     u32 length = 0;
     if (library->EVP_DigestFinal_ex(stream, value, &length) != 1)

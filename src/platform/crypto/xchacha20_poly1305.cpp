@@ -221,11 +221,8 @@ AeadResult crypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad, Cons
                  Slice<u8> output, ConstSlice<u8> tag, bool encrypt) noexcept {
     if (!key.storage.data || !key.storage.locked)
         return aead_result(AeadError::not_initialized);
-    const auto valid = aead_validate({reinterpret_cast<const u8*>(&key), sizeof(key)},
-                                     {key.storage.data, key.storage.capacity}, 24, nonce, aad, input,
-                                     output, tag, encrypt);
-    if (!valid.ok())
-        return valid;
+    // Every caller passes a 24-byte nonce, a 16-byte tag and an output of the input's size, in its own arrays
+    // (packet_crypto.cpp, the Linux secure buffer).
     // The storage holds the key, then the HChaCha20 subkey of the key and the first 16 nonce bytes.
     u8* subkey = key.storage.data + 32;
     blocks(key.storage.data, _mm_loadu_si128(reinterpret_cast<const __m128i*>(nonce.data)), subkey, true);
@@ -245,7 +242,7 @@ AeadResult crypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad, Cons
 } // namespace
 
 AeadResult xchacha_initialize(XChaChaKey* key, ConstSlice<u8> secret) noexcept {
-    if (!key || key->storage.data || key->storage.locked || secret.count != 32 ||
+    if (key->storage.data || key->storage.locked || secret.count != 32 ||
         !byte_range_valid(secret) ||
         byte_ranges_overlap(secret, {reinterpret_cast<const u8*>(key), sizeof(*key)}))
         return aead_result(AeadError::invalid_input);
@@ -263,8 +260,7 @@ AeadResult xchacha_initialize(XChaChaKey* key, ConstSlice<u8> secret) noexcept {
 }
 
 void xchacha_release(XChaChaKey* key) noexcept {
-    if (key)
-        secure_buffer_release(&key->storage);
+    secure_buffer_release(&key->storage);
 }
 
 AeadResult xchacha_encrypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,

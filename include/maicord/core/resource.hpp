@@ -15,10 +15,8 @@
 namespace maicord {
 
 #if defined(_WIN32)
-// The resource `id` of `module` (null: this program), empty when there is none.
+// The resource `id` of `module` (the one caller gives module_image()), empty when there is none.
 inline ConstSlice<u8> program_resource(HMODULE module, u32 id) noexcept {
-    if (!module)
-        module = module_image();
     HRSRC resource = FindResourceW(module, MAKEINTRESOURCEW(id), RT_RCDATA);
     const u32 count = resource ? SizeofResource(module, resource) : 0;
     HGLOBAL loaded = resource ? LoadResource(module, resource) : nullptr;

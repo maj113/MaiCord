@@ -1051,17 +1051,12 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
         close_start_events(client, runtime);
         return fail_start(client, GatewayClientError::event, native_error);
     }
-    if (!secure_buffer_transfer(&runtime->credential, credential)) {
-        close_start_events(client, runtime);
-        release_runtime_allocation(client);
-        reset_value<GatewayClient>(client);
-        return invalid_input_result();
-    }
+    // valid_credential holds the bytes and the runtime's own buffer is empty: the move cannot fail.
+    secure_buffer_transfer(&runtime->credential, credential);
     const NetworkWorkerResult started =
         network_worker_start(&client->worker, gateway_worker_handler, client);
     if (!started.ok()) {
-        if (runtime->credential.data)
-            secure_buffer_transfer(credential, &runtime->credential);
+        secure_buffer_transfer(credential, &runtime->credential);
         close_start_events(client, runtime);
         return fail_start(client, GatewayClientError::worker, started.native_error);
     }

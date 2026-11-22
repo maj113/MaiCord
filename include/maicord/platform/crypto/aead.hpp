@@ -8,7 +8,6 @@ enum class AeadError : u8 {
     none,
     invalid_input,
     not_initialized,
-    output_too_small,
     storage,
     platform_failure,
     authentication_failed,

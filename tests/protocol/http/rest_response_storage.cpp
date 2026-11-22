@@ -38,7 +38,7 @@ struct RestStorageProbe {
     }
     ~RestStorageProbe() noexcept {
         if (client.response_event) CloseHandle(client.response_event);
-        destroy_client_storage(&client, nullptr);
+        destroy_client_storage(&client);
     }
     bool begin_request(bool reusable, u32 request_bytes = 0, ConstSlice<u8> target = {}) noexcept {
         runtime->transport.state = TlsStreamState::ready;
@@ -56,9 +56,9 @@ struct RestStorageProbe {
                                  RestMajorParameter::none};
         const auto acquired = rest_rate_acquire(runtime->scheduler, route, 1);
         runtime->transaction = {};
-        if (!acquired.acquired_request() ||
-            !rest_transaction_acquire(&runtime->transaction, 1, acquired.lease, 1000, reusable) ||
-            !rest_transaction_begin_send(&runtime->transaction, runtime->request_head_capacity + request_bytes)) return false;
+        if (!acquired.acquired_request()) return false;
+        rest_transaction_acquire(&runtime->transaction, 1, acquired.lease, 1000, reusable);
+        rest_transaction_begin_send(&runtime->transaction, runtime->request_head_capacity + request_bytes);
         // A completed encrypted write releases and erases the outgoing header
         // before the same bytes become incoming HTTP-header storage.
         memset(runtime->request_head, 0xA5, runtime->request_head_capacity);
@@ -73,11 +73,10 @@ struct RestStorageProbe {
         for (u32 i = 0; i < request_bytes; i += 16384)
             request_plaintext_committed(runtime, {runtime->request_body + i, minimum(16384u, request_bytes - i)});
         for (u32 i = 0; i < request_bytes; ++i) if (runtime->request_body[i]) return false;
-        if (runtime->write_commit_failed || runtime->transaction.phase != RestTransactionPhase::receiving) return false;
+        if (runtime->transaction.phase != RestTransactionPhase::receiving) return false;
         client.request_state = request_state_active;
-        if (!rest_response_initialize(&runtime->response,
-            {runtime->response_input, kRestMaximumHeaderBytes},
-            {runtime->response_body, runtime->response_capacity}, RestMethod::get)) return false;
+        rest_response_initialize(&runtime->response, {runtime->response_input, kRestMaximumHeaderBytes},
+                                 {runtime->response_body, runtime->response_capacity}, RestMethod::get);
         return true;
     }
     bool prepare(const RestGzipFixture& fixture, bool reusable, bool corrupt = false,
@@ -95,7 +94,7 @@ struct RestStorageProbe {
         return true;
     }
     bool finish(u64 now_ms = 1) noexcept {
-        return finalize_response(&client, runtime, runtime->response_step, now_ms);
+        return finalize_response(&client, runtime, now_ms);
     }
     bool respond(u16 status, Utf8View body, Utf8View retry_header = {}, u64 now_ms = 1) noexcept {
         u8 head[256]{};
@@ -255,9 +254,9 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
     {
         RestSharedState shared{};
         RestStorageProbe probe;
-        bool valid = rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
-                                                    {shared.bindings, kRateBindingCount}) &&
-                     probe.initialize(4096, false, &shared);
+        rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
+                                       {shared.bindings, kRateBindingCount});
+        bool valid = probe.initialize(4096, false, &shared);
         RestEndpointLease active{};
         for (u32 i = 0; valid && i < kRestEndpointGateCapacity; ++i) {
             u8 target[96]{};
@@ -385,11 +384,12 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
     {
         RestSharedState shared{};
         RestEndpointKey retained{};
-        bool valid = rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
-                                                    {shared.bindings, kRateBindingCount});
+        rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
+                                       {shared.bindings, kRateBindingCount});
+        bool valid = true;
         {
             RestStorageProbe original;
-            valid = valid && original.initialize(4096, false, &shared) && original.begin_request(true);
+            valid = original.initialize(4096, false, &shared) && original.begin_request(true);
             if (valid) {
                 retained = original.runtime->command.endpoint_key;
                 const u32 target_bytes = original.runtime->command.target_bytes;
@@ -447,9 +447,9 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
     {
         RestSharedState shared{};
         RestStorageProbe sender;
-        bool valid = rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
-                                                    {shared.bindings, kRateBindingCount}) &&
-                     sender.initialize(4096, false, &shared) && sender.begin_request(true, 6);
+        rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
+                                       {shared.bindings, kRateBindingCount});
+        bool valid = sender.initialize(4096, false, &shared) && sender.begin_request(true, 6);
         if (valid) {
             auto* r = sender.runtime;
             RestEndpointLease peer{};
@@ -562,10 +562,9 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
             RestStorageProbe probe;
             RestClient peer{};
             peer.shared = &shared;
-            bool valid =
-                rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
-                                               {shared.bindings, kRateBindingCount}) &&
-                probe.initialize(4096, true, &shared) && probe.begin_request(true);
+            rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
+                                           {shared.bindings, kRateBindingCount});
+            bool valid = probe.initialize(4096, true, &shared) && probe.begin_request(true);
             if (valid) {
                 const bool gzip = scenario == 1 || scenario == 3 || scenario == 6 || scenario == 8;
                 const bool ordinary = scenario == 2 || scenario == 3;
@@ -901,9 +900,9 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
         auto* r = small.runtime;
         const RestRouteKey route{2, 0, RestMethod::post, RestMajorParameter::none};
         const auto acquired = rest_rate_acquire(r->scheduler, route, 1);
-        valid = acquired.acquired_request() &&
-            rest_transaction_acquire(&r->transaction, 2, acquired.lease, 1000, true) &&
-            rest_transaction_begin_send(&r->transaction, kRestClientMaximumRequestBodyBytes);
+        valid = acquired.acquired_request();
+        rest_transaction_acquire(&r->transaction, 2, acquired.lease, 1000, true);
+        rest_transaction_begin_send(&r->transaction, kRestClientMaximumRequestBodyBytes);
         r->command.body_bytes = kRestClientMaximumRequestBodyBytes;
         for (u32 i = 0; i < r->command.body_bytes; ++i) r->request_body[i] = 0xA5;
         request_plaintext_committed(r, {r->request_body, 16384});
@@ -944,9 +943,9 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
         auto* r = headers.runtime;
         const RestRouteKey route{3, 0, RestMethod::get, RestMajorParameter::none};
         const auto acquired = rest_rate_acquire(r->scheduler, route, 1);
-        valid = acquired.acquired_request() &&
-            rest_transaction_acquire(&r->transaction, 3, acquired.lease, 1000, true) &&
-            rest_transaction_begin_send(&r->transaction, r->request_head_capacity);
+        valid = acquired.acquired_request();
+        rest_transaction_acquire(&r->transaction, 3, acquired.lease, 1000, true);
+        rest_transaction_begin_send(&r->transaction, r->request_head_capacity);
         memset(r->request_head, 0xA5, r->request_head_capacity);
         request_plaintext_committed(r, {r->request_head, r->request_head_capacity / 2});
         valid = valid && r->request_head[0] == 0 && r->request_head[r->request_head_capacity - 1] == 0xA5;
@@ -1073,10 +1072,9 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
         RestStorageProbe lane;
         RestStorageProbe peer;
         const bool loop = network_loop_initialize(&peer.client.worker.loop).ok();
-        bool valid = loop &&
-                     rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
-                                                    {shared.bindings, kRateBindingCount}) &&
-                     lane.initialize(4096, false, &shared) && peer.initialize(4096, false, &shared);
+        rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
+                                       {shared.bindings, kRateBindingCount});
+        bool valid = loop && lane.initialize(4096, false, &shared) && peer.initialize(4096, false, &shared);
         shared.clients[0] = &lane.client;
         shared.clients[1] = &peer.client;
         // Counts the rate signals on the peer's loop. Any other completion counts as 100.

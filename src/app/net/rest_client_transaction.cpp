@@ -36,8 +36,6 @@ inline constexpr u64 kServiceUnavailableHoldMs = 5000;
 namespace rest_client_detail {
 
 RestEndpointKey endpoint_key(ConstSlice<u8> target) noexcept {
-    if (!target.data || !target.count)
-        return {};
     u32 bytes = 0;
     while (bytes < target.count && target[bytes] != '?')
         ++bytes;
@@ -381,8 +379,6 @@ bool worker_ending(const RestClient* client) noexcept {
 }
 
 RestClientResult client_result(const RestClient* client) noexcept {
-    if (!client)
-        return invalid_result();
     RestClientResult value{};
     value.authentication_rejected = authentication_rejected(client);
     value.phase = load_phase(client);
@@ -418,8 +414,7 @@ bool valid_user_configuration(const RestUserConfiguration& configuration) noexce
 
 bool copy_user_configuration(RestClientRuntime* runtime,
                              const RestUserConfiguration& configuration) noexcept {
-    if (!runtime->user_super_properties || !runtime->user_locale || !runtime->user_timezone ||
-        !valid_user_configuration(configuration) ||
+    if (!valid_user_configuration(configuration) ||
         !copy_bytes(runtime->user_super_properties, kRestUserSuperPropertiesMaximumBytes,
                     configuration.super_properties.data, configuration.super_properties.count) ||
         !copy_bytes(runtime->user_locale, kRestUserLocaleMaximumBytes, configuration.locale.data,
@@ -813,12 +808,8 @@ NetworkWorkerStep finish_drain(RestClient* client, RestClientRuntime* runtime) n
 
 static void request_plaintext_committed(void* opaque, ConstSlice<u8> committed) noexcept {
     auto* runtime = static_cast<RestClientRuntime*>(opaque);
-    if (!rest_transaction_commit_plaintext(&runtime->transaction, committed.count)) {
-        runtime->write_commit_failed = true;
-    }
-    if (committed.data && committed.count != 0) {
-        secure_clear_bytes(const_cast<u8*>(committed.data), committed.count);
-    }
+    rest_transaction_commit_plaintext(&runtime->transaction, committed.count);
+    secure_clear_bytes(const_cast<u8*>(committed.data), committed.count);
 }
 
 // Commits the default body through `bytes` of the response capacity, in steps of 64 KiB. False when the system
@@ -968,13 +959,11 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
         return {0, TlsStreamEventKind::drained};
     }
     const u32 head_bytes = runtime->user_auth_mode ? runtime->command.head_bytes : write_request_head(runtime);
-    if (head_bytes == 0 || head_bytes > runtime->request_head_capacity ||
-        !rest_transaction_begin_send(&runtime->transaction,
-                                     head_bytes + runtime->command.body_bytes)) {
+    if (head_bytes == 0) {
         secure_clear_bytes(runtime->request_head, runtime->request_head_capacity);
         return TlsStreamEvent{0, TlsStreamEventKind::failed, TlsStreamError::invalid_input};
     }
-    runtime->write_commit_failed = false;
+    rest_transaction_begin_send(&runtime->transaction, head_bytes + runtime->command.body_bytes);
     runtime->response_callback_failed = false;
     reset_value<RestResponseStep>(&runtime->response_step);
     increment_single_writer(&client->requests); // worker thread only
@@ -992,11 +981,8 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
                                   request_plaintext_committed, runtime);
 }
 
-bool finalize_response(RestClient* client, RestClientRuntime* runtime,
-                       const RestResponseStep& step, u64 now_ms) noexcept {
-    if (!step.ok() || step.state != RestResponseState::complete || step.extra_bytes != 0) {
-        return false;
-    }
+// The read handler completed the response: its step is ok, complete, and has no bytes past the body.
+bool finalize_response(RestClient* client, RestClientRuntime* runtime, u64 now_ms) noexcept {
     const auto& head = runtime->response.parsed_head;
     if (head.head.status_code == 503) {
         // The client holds the endpoint for the Retry-After seconds, or five seconds without a usable one.
@@ -1139,9 +1125,10 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
         endpoint_gate_release(runtime->endpoint_gate, &runtime->endpoint_lease, now_ms);
         rate_changed(runtime);
     }
-    if (!observation.ok() || !rest_transaction_complete(&runtime->transaction)) {
+    if (!observation.ok())
         return false;
-    }
+    // The observation or the lease cancel ended the lease, and the stream read only while the transaction received.
+    runtime->transaction.phase = RestTransactionPhase::complete;
     runtime->transport_idle_since_ms = now_ms;
     ++runtime->connection_request_count;
     if (!runtime->response.http.connection_reusable) {

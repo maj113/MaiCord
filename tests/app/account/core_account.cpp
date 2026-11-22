@@ -890,13 +890,6 @@ void test_gateway_client_contract() noexcept {
 
     account_profile_release(&returned);
     account_profile_release(&profile);
-    expect(gateway_client_pop_event_payload(nullptr, nullptr, Slice<u8>{nullptr, 0}).error ==
-                   GatewayClientPopError::invalid_input &&
-               gateway_client_notification_handle(nullptr) == nullptr &&
-               !gateway_client_snapshot_user_session(nullptr, nullptr) &&
-               gateway_client_stop_return_user_profile(nullptr, 1, &profile).error ==
-                   GatewayClientError::invalid_input,
-           "gateway_client_null_observer_contract");
 }
 
 } // namespace maicord

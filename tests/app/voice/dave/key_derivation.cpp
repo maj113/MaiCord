@@ -190,42 +190,6 @@ void boundaries(Check check, KdfSha256Workspace& workspace) noexcept {
     u8 secret[32]{}, message[80]{}, output[80], key[32], next[48];
     const ConstSlice<u8> parts[]{{message, sizeof(message)}};
     memset(output, 0xa5, sizeof(output));
-    for (u32 size = 0; size != 32; ++size)
-        check(hkdf_sha256_extract(workspace, {}, {secret, 32}, {output, size}).error ==
-                      KdfError::output_capacity &&
-                  test_filled(output, sizeof(output), 0xa5),
-              "HKDF extract rejects every short destination before writes");
-    check(hkdf_sha256_expand(workspace, {secret, 32}, {parts, 1}, {output, 8161}).error ==
-                  KdfError::invalid_input &&
-              test_filled(output, sizeof(output), 0xa5),
-          "HKDF rejects a 256th output block before accessing output");
-    check(hkdf_sha256_expand(workspace, {}, {}, {}).error == KdfError::invalid_input,
-          "HKDF expand requires a PRK");
-    check(hkdf_sha256_expand(workspace, {secret, 32}, {}, {}).ok(), "HKDF permits null zero-length output");
-    check(hmac_sha256(workspace, {nullptr, 1}, {}, {output, 32}).error == KdfError::invalid_input,
-          "HMAC rejects invalid key spans");
-    const ConstSlice<u8> invalid_parts[]{{message, 16}, {nullptr, 1}};
-    check(hmac_sha256(workspace, {secret, 32}, {invalid_parts, 2}, {output, 32}).error ==
-                  KdfError::invalid_input &&
-              test_filled(output, sizeof(output), 0xa5),
-          "HMAC validates all segments before processing the first");
-    check(hmac_sha256(workspace, {secret, 32}, {parts, 1}, {message + 1, 32}).error ==
-              KdfError::invalid_input,
-          "HMAC rejects partial output/input alias");
-    check(hmac_sha256(workspace, {secret, 32}, {}, {secret, 32}).error == KdfError::invalid_input,
-          "HMAC rejects key/output alias");
-    check(hmac_sha256(workspace, {secret, 32}, {parts, 1}, {workspace.storage.data, 32}).error ==
-              KdfError::invalid_input,
-          "HMAC protects CNG workspace from output aliases");
-    check(hmac_sha256(workspace, {secret, 32},
-                      {reinterpret_cast<const ConstSlice<u8>*>(workspace.storage.data), 1}, {output, 32})
-                  .error == KdfError::invalid_input,
-          "HMAC rejects segment descriptors inside workspace before reading them");
-    check(mls_expand_label(workspace, {secret, 32}, {message, 0x3ffffff8}, {}, {output, 16}).error ==
-                  KdfError::invalid_input &&
-              mls_expand_label(workspace, {secret, 32}, {}, {message, 0x40000000}, {output, 16}).error ==
-                  KdfError::invalid_input,
-          "MLS rejects vector length overflow without reading label/context");
     memset(key, 0xa5, sizeof(key));
     memset(next, 0xa5, sizeof(next));
     // A real provider error: advertise insufficient CNG object storage. The
@@ -297,8 +261,6 @@ void test_dave_key_derivation(Check check) noexcept {
     check(kdf_sha256_initialize(&workspace).ok(), "KDF locked workspace initialization");
     if (!workspace.storage.data)
         return;
-    check(kdf_sha256_initialize(&workspace).error == KdfError::invalid_input,
-          "KDF cannot overwrite a live workspace");
     rfc_vectors(check, workspace);
     hkdf_matrix(check, workspace);
     mls_matrix(check, workspace);

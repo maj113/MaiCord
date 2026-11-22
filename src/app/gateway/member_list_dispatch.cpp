@@ -889,10 +889,7 @@ GatewayClientDispatchRouteResult gateway_client_route_member_list_dispatch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> payload_scratch, GatewayClientEvent* event, ConstSlice<u8>* payload,
     bool* handled) noexcept {
-    if (!event || !payload || !handled || !structural_scratch.data || structural_scratch.count == 0 ||
-        maximum_depth == 0 || !payload_scratch.data || payload_scratch.count == 0) {
-        return result(GatewayClientDispatchRouteError::invalid_input);
-    }
+    // The one caller, gateway_client_route_dispatch, passes its own outputs, index and content storage.
     const u32 event_index = skim_member_index<"GUILD_MEMBERS_CHUNK", "GUILD_MEMBER_UPDATE", "GUILD_MEMBER_ADD",
                                               "GUILD_MEMBER_LIST_UPDATE">(envelope.event_name);
     const bool chunk = event_index == 0;

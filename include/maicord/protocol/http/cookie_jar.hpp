@@ -79,9 +79,9 @@ struct CookieRequest {
 u32 cookie_jar_store_response(CookieJar* jar, const CookieRequest& request, const ConstSlice<u8>& head,
                               u64 now_ms) noexcept;
 // Writes the Cookie header value for the request ("a=1; b=2", longer paths
-// first, then older cookies first) and marks the cookies used. Returns the
-// bytes, 0 when no cookie matches or output is smaller than
-// kCookieHeaderMaximumBytes. Expired cookies are dropped.
+// first, then older cookies first) into kCookieHeaderMaximumBytes of output
+// and marks the cookies used. Returns the bytes, 0 when no cookie matches.
+// Expired cookies are dropped.
 u32 cookie_jar_header(CookieJar* jar, const CookieRequest& request, u64 now_ms, Slice<u8> output) noexcept;
 
 // The unexpired persistent cookies as a self-contained record (session

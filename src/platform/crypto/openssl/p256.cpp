@@ -1,5 +1,5 @@
-// p256.hpp over the system OpenSSL: a key is an EVP_PKEY. The argument rules (scalar range, SEC1 shape, aliases
-// and output capacities) are src/platform/crypto/p256_internal.hpp's, the same as the Windows file; this file adds the
+// p256.hpp over the system OpenSSL: a key is an EVP_PKEY. The argument rules (scalar range, SEC1 shape and output
+// capacities) are src/platform/crypto/p256_internal.hpp's, the same as the Windows file; this file adds the
 // OpenSSL encodings:
 //   - a public key is imported with EVP_PKEY_fromdata (group "P-256", "pub" = the 65 SEC1 bytes), which rejects a
 //     point that is not on the curve;
@@ -11,7 +11,6 @@
 #include "../p256_internal.hpp"
 #include "openssl.hpp"
 #include "maicord/platform/crypto/random.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
@@ -71,8 +70,7 @@ void* private_key(const openssl::Crypto& library, ConstSlice<u8> scalar) noexcep
 
 P256Result import(P256Key* key, P256Kind kind, ConstSlice<u8> point, ConstSlice<u8> scalar,
                   bool private_scalar) noexcept {
-    if (!key || key->handle || !byte_range_valid(point) || !byte_range_valid(scalar) ||
-        byte_ranges_overlap(point, bytes(*key)) || byte_ranges_overlap(scalar, bytes(*key)))
+    if (key->handle)
         return {0, 0, P256Error::invalid_input};
     if ((!private_scalar || point.count) && !public_valid(point))
         return {0, 0, P256Error::invalid_key};
@@ -183,8 +181,6 @@ u32 raw_to_der(const u8 (&raw)[64], u8 (&der)[72]) noexcept {
 } // namespace
 
 void p256_release(P256Key* key) noexcept {
-    if (!key)
-        return;
     if (key->handle) {
         const openssl::Crypto* library = openssl::crypto();
         if (library)
@@ -251,8 +247,7 @@ P256Result p256_verify_digest(const P256Key& key, ConstSlice<u8> digest, ConstSl
         return {0, 0, P256Error::not_initialized};
     if (key.kind != P256Kind::ecdsa)
         return {0, 0, P256Error::wrong_kind};
-    if (digest.count != 32 || signature.count != 64 || !byte_range_valid(digest) || !byte_range_valid(signature) ||
-        byte_ranges_overlap(digest, bytes(key)) || byte_ranges_overlap(signature, bytes(key)))
+    if (digest.count != 32 || signature.count != 64)
         return {0, 0, P256Error::invalid_input};
     const openssl::Crypto* library = openssl::crypto();
     if (!library)

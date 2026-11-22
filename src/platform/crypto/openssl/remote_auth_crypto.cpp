@@ -22,9 +22,8 @@ bool initialized(const RemoteAuthCrypto& crypto) noexcept {
 
 } // namespace
 
+// The one caller (remote_auth_handshake_initialize) refuses a handshake whose crypto is already set.
 RemoteAuthCryptoResult remote_auth_crypto_initialize(RemoteAuthCrypto* crypto) noexcept {
-    if (!crypto || crypto->rsa_algorithm || crypto->rsa_key || crypto->sha256_algorithm)
-        return result(RemoteAuthCryptoError::invalid_input);
     u32 reason = 0;
     const openssl::Crypto* library = openssl::crypto(&reason);
     if (!library)
@@ -43,8 +42,6 @@ RemoteAuthCryptoResult remote_auth_crypto_initialize(RemoteAuthCrypto* crypto) n
 }
 
 void remote_auth_crypto_release(RemoteAuthCrypto* crypto) noexcept {
-    if (!crypto)
-        return;
     if (crypto->rsa_key) {
         const openssl::Crypto* library = openssl::crypto();
         if (library)
@@ -53,9 +50,8 @@ void remote_auth_crypto_release(RemoteAuthCrypto* crypto) noexcept {
     secure_clear_bytes(crypto, sizeof(*crypto));
 }
 
+// The callers give a local array (or, in a test, an empty size query).
 RemoteAuthCryptoResult remote_auth_crypto_export_spki(const RemoteAuthCrypto& crypto, Slice<u8> output) noexcept {
-    if (!output.data && output.count != 0)
-        return result(RemoteAuthCryptoError::invalid_input);
     if (!initialized(crypto))
         return result(RemoteAuthCryptoError::not_initialized);
     const openssl::Crypto* library = openssl::crypto();
@@ -66,7 +62,7 @@ RemoteAuthCryptoResult remote_auth_crypto_export_spki(const RemoteAuthCrypto& cr
         return failure(*library);
     if (static_cast<u32>(required) > kRemoteAuthPublicSpkiMaximumBytes)
         return result(RemoteAuthCryptoError::invalid_key_blob);
-    if (static_cast<u32>(required) > output.count || !output.data)
+    if (static_cast<u32>(required) > output.count)
         return result(RemoteAuthCryptoError::output_too_small, static_cast<u32>(required));
     u8 encoded[kRemoteAuthPublicSpkiMaximumBytes];
     u8* cursor = encoded;
@@ -84,9 +80,7 @@ RemoteAuthCryptoResult remote_auth_crypto_fingerprint(const RemoteAuthCrypto& cr
     if (!exported.ok())
         return exported;
     RemoteAuthCryptoResult hashed;
-    if (!digest.data && digest.count != 0) {
-        hashed = result(RemoteAuthCryptoError::invalid_input);
-    } else if (digest.count < kRemoteAuthSha256Bytes || !digest.data) {
+    if (digest.count < kRemoteAuthSha256Bytes) {
         hashed = result(RemoteAuthCryptoError::output_too_small, kRemoteAuthSha256Bytes);
     } else {
         const openssl::Crypto* library = openssl::crypto();
@@ -111,9 +105,10 @@ RemoteAuthCryptoResult remote_auth_crypto_fingerprint(const RemoteAuthCrypto& cr
     return hashed;
 }
 
+// The handshake gives its own arrays. The ciphertext size comes from a Remote Auth packet.
 RemoteAuthCryptoResult remote_auth_crypto_decrypt(const RemoteAuthCrypto& crypto, ConstSlice<u8> ciphertext,
                                                   Slice<u8> plaintext) noexcept {
-    if (!ciphertext.data || ciphertext.count != 256 || (!plaintext.data && plaintext.count != 0))
+    if (ciphertext.count != 256)
         return result(RemoteAuthCryptoError::invalid_input);
     if (!initialized(crypto))
         return result(RemoteAuthCryptoError::not_initialized);
@@ -132,9 +127,8 @@ RemoteAuthCryptoResult remote_auth_crypto_decrypt(const RemoteAuthCrypto& crypto
     RemoteAuthCryptoResult outcome;
     if (!good) {
         outcome = failure(*library);
-        if (plaintext.data && plaintext.count != 0)
-            secure_clear_bytes(plaintext.data, plaintext.count);
-    } else if (written > plaintext.count || (written != 0 && !plaintext.data)) {
+        secure_clear_bytes(plaintext.data, plaintext.count);
+    } else if (written > plaintext.count) {
         outcome = result(RemoteAuthCryptoError::output_too_small, static_cast<u32>(written));
     } else {
         copy_bytes(plaintext.data, decrypted, static_cast<u32>(written));

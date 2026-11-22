@@ -4,10 +4,8 @@
 
 namespace maicord {
 
+// Every caller fills a nonempty local array, field or secure buffer.
 SecureRandomResult secure_random_fill(Slice<u8> output) noexcept {
-    if (!output.data || output.count == 0) {
-        return SecureRandomResult{0, SecureRandomError::invalid_input};
-    }
     const NTSTATUS status =
         BCryptGenRandom(nullptr, output.data, output.count, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
     return status >= 0 ? SecureRandomResult{status, SecureRandomError::none}

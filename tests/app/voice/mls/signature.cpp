@@ -47,13 +47,6 @@ void codec(Check check) noexcept {
             check(p256_signature_from_der({der, encoded.bytes}, {decoded, 80}).ok() &&
                       bytes_equal(raw, decoded, 64) && filled(decoded + 64, 16),
                   "DER strict round trip/tail");
-            for (u32 cap = 0; cap < encoded.bytes; ++cap) {
-                memset(decoded, 0xa5, sizeof(decoded));
-                check(p256_signature_to_der({raw, 64}, {decoded, cap}).error ==
-                              SignatureEncodingError::output_capacity &&
-                          filled(decoded, 80),
-                      "DER encode all short capacities preserve output");
-            }
             for (u32 cut = 0; cut != encoded.bytes; ++cut) {
                 memset(decoded, 0xa5, sizeof(decoded));
                 check(!p256_signature_from_der({der, cut}, {decoded, 80}).ok() && filled(decoded, 80),
@@ -86,14 +79,6 @@ void codec(Check check) noexcept {
     memset(output, 0xa5, sizeof(output));
     check(!p256_signature_to_der({raw, 64}, {output, 80}).ok() && filled(output, 80),
           "DER rejects raw zero");
-    raw[31] = 1;
-    raw[63] = 1;
-    const u8 valid[]{0x30, 6, 2, 1, 1, 2, 1, 1};
-    for (u32 cap = 0; cap != 64; ++cap)
-        check(p256_signature_from_der({valid, 8}, {output, cap}).error ==
-                      SignatureEncodingError::output_capacity &&
-                  filled(output, 80),
-              "DER decode all short capacities preserve output");
     // Guard every possible bounded DER input length, including a fully populated
     // maximum signature and its truncations; no read may cross the last byte.
     SYSTEM_INFO info{};

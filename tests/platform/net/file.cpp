@@ -48,9 +48,8 @@ void test_network_file(void (*check)(bool, const char*) noexcept) noexcept {
     HANDLE conflicting = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
     check(conflicting == INVALID_HANDLE_VALUE, "retained upload source rejects concurrent writers");
     if (conflicting != INVALID_HANDLE_VALUE) CloseHandle(conflicting);
-    check(!network_file_read(&file, 256, {actual, 2}).ok() &&
-          network_file_read(&file, 0, {actual, sizeof(actual)}).ok() && file.pending &&
-          !network_file_read(&file, 0, {actual, 1}).ok(), "overlapped read bounds and one pending operation are enforced");
+    check(network_file_read(&file, 0, {actual, sizeof(actual)}).ok() && file.pending &&
+          !network_file_read(&file, 0, {actual, 1}).ok(), "one pending operation at a time is enforced");
     const auto read = network_loop_poll(&loop, 5000);
     bool equal = true;
     for (u32 i = 0; i < sizeof(expected); ++i) equal = equal && expected[i] == actual[i];
@@ -112,9 +111,8 @@ void test_network_file(void (*check)(bool, const char*) noexcept) noexcept {
     check(network_loop_initialize(&loop).ok() && network_file_create(&loop, &file, path).ok(),
         "staged output creates a new file on the existing completion loop");
     NetworkFile duplicate{};
-    check(!network_file_create(&loop, &duplicate, path).ok() && !duplicate.handle &&
-        !network_file_write(&file, 0, {}).ok() && !network_file_write(&file, 0x7fffffffffffffffull, {expected, 1}).ok(),
-        "staged output refuses overwrite, empty operation and offset overflow");
+    check(!network_file_create(&loop, &duplicate, path).ok() && !duplicate.handle,
+        "staged output refuses overwrite");
     check(network_file_write(&file, 0, {expected, sizeof(expected)}).ok() && file.pending &&
         !network_file_write(&file, 0, {expected, 1}).ok(),
         "async staged writes retain the one-operation owner until IOCP acknowledgement");

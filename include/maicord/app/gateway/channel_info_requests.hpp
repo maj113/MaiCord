@@ -33,10 +33,11 @@ inline bool gateway_channel_info_queued(const GatewayChannelInfoRequests& owner,
             return true;
     return false;
 }
-// False for a zero guild, one already asked this session or queued, or a full queue.
+// guild_id is not zero (both callers test it). False for a guild already asked this session or queued, or a full
+// queue.
 inline bool gateway_channel_info_admit(GatewayChannelInfoRequests* owner, u64 guild_id,
                                        u64 not_before_ms = 0) noexcept {
-    if (!guild_id || gateway_channel_info_requested(*owner, guild_id) ||
+    if (gateway_channel_info_requested(*owner, guild_id) ||
         gateway_channel_info_queued(*owner, guild_id) || owner->pending_count == kGatewayChannelInfoPending)
         return false;
     owner->pending[owner->pending_count++] = {guild_id, not_before_ms};
@@ -69,9 +70,8 @@ inline void gateway_channel_info_unqueue(GatewayChannelInfoRequests* owner, u64 
             return;
         }
 }
+// guild_id is the admitted guild that gateway_channel_info_next gave.
 inline void gateway_channel_info_sent(GatewayChannelInfoRequests* owner, u64 guild_id) noexcept {
-    if (!guild_id)
-        return;
     gateway_channel_info_unqueue(owner, guild_id);
     if (gateway_channel_info_requested(*owner, guild_id))
         return;

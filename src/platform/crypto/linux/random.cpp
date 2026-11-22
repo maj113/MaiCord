@@ -6,10 +6,8 @@ namespace maicord {
 
 // getrandom(2) with flags 0: blocks only before the kernel's pool is first seeded, never after. It is a system
 // call, so the RNG does not depend on libcrypto being installed (nonces and jitter work without it).
+// Every caller fills a nonempty local array, field or secure buffer.
 SecureRandomResult secure_random_fill(Slice<u8> output) noexcept {
-    if (!output.data || output.count == 0) {
-        return SecureRandomResult{0, SecureRandomError::invalid_input};
-    }
     u32 done = 0;
     while (done != output.count) {
         const long got = syscall3(kSysGetrandom, reinterpret_cast<long>(output.data + done),

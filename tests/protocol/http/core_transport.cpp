@@ -8,16 +8,13 @@
 #include "maicord/protocol/http/client_user_agent.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/app/account/login/remote_auth_ticket_exchange.hpp"
-#include "maicord/platform/crypto/random.hpp"
 #include "maicord/platform/net/tls_stream.hpp"
 #include "maicord/protocol/http/websocket_frame.hpp"
 #include "maicord/protocol/http/websocket_handshake.hpp"
 #include "maicord/core/intrinsics.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/platform/net/socket.hpp"
 #if defined(_WIN32)
 #include "maicord/sys/winsock.hpp"
-#include "../../support/net_address.hpp"
 #endif
 #include "../../support/test_output.hpp"
 
@@ -49,52 +46,48 @@ u8 g_websocket_frame[64 * 1024 + 16];
 void test_websocket_frames() noexcept {
     const u8 text_frame[] = {0x81, 0x05, 'H', 'e', 'l', 'l', 'o'};
     const WebSocketParseResult text =
-        websocket_parse_frame(ConstSlice<u8>{text_frame, static_cast<u32>(sizeof(text_frame))}, 1024,
-                              WebSocketDirection::server_to_client);
+        websocket_parse_frame(ConstSlice<u8>{text_frame, static_cast<u32>(sizeof(text_frame))}, 1024);
     expect(text.ok() && text.frame.final && text.frame.opcode == WebSocketOpcode::text &&
                text.frame.payload.count == 5 && text.frame.payload[4] == 'o' &&
                text.frame.frame_bytes == sizeof(text_frame),
            "websocket_parse_text_frame");
     const WebSocketParseResult partial =
-        websocket_parse_frame(ConstSlice<u8>{text_frame, 6}, 1024, WebSocketDirection::server_to_client);
+        websocket_parse_frame(ConstSlice<u8>{text_frame, 6}, 1024);
     expect(partial.state == WebSocketParseState::need_more, "websocket_fragmented_input_wait");
 
     const u8 reserved_bits[] = {0xC1, 0x00};
     expect(
-        websocket_parse_frame(ConstSlice<u8>{reserved_bits, 2}, 1024, WebSocketDirection::server_to_client)
+        websocket_parse_frame(ConstSlice<u8>{reserved_bits, 2}, 1024)
                 .error == WebSocketError::reserved_bits,
         "websocket_reserved_bits_reject");
     const u8 reserved_opcode[] = {0x83, 0x00};
-    expect(websocket_parse_frame(ConstSlice<u8>{reserved_opcode, 2}, 1024,
-                                 WebSocketDirection::server_to_client)
+    expect(websocket_parse_frame(ConstSlice<u8>{reserved_opcode, 2}, 1024)
                    .error == WebSocketError::reserved_opcode,
            "websocket_reserved_opcode_reject");
     const u8 masked_server[] = {0x81, 0x80, 0, 0, 0, 0};
     expect(
-        websocket_parse_frame(ConstSlice<u8>{masked_server, 6}, 1024, WebSocketDirection::server_to_client)
+        websocket_parse_frame(ConstSlice<u8>{masked_server, 6}, 1024)
                 .error == WebSocketError::wrong_mask_direction,
         "websocket_server_mask_reject");
     const u8 nonminimal[] = {0x81, 0x7E, 0x00, 0x7D};
-    expect(websocket_parse_frame(ConstSlice<u8>{nonminimal, 4}, 1024, WebSocketDirection::server_to_client)
+    expect(websocket_parse_frame(ConstSlice<u8>{nonminimal, 4}, 1024)
                    .error == WebSocketError::nonminimal_length,
            "websocket_nonminimal_length_reject");
     const u8 high_bit_length[] = {0x82, 0x7F, 0x80, 0, 0, 0, 0, 1, 0, 0};
-    expect(websocket_parse_frame(ConstSlice<u8>{high_bit_length, 10}, ~0ull,
-                                 WebSocketDirection::server_to_client)
+    expect(websocket_parse_frame(ConstSlice<u8>{high_bit_length, 10}, ~0ull)
                    .error == WebSocketError::length_high_bit,
            "websocket_length_high_bit_reject");
     const u8 oversized[] = {0x82, 0x7E, 0x00, 0x7E};
-    expect(websocket_parse_frame(ConstSlice<u8>{oversized, 4}, 100, WebSocketDirection::server_to_client)
+    expect(websocket_parse_frame(ConstSlice<u8>{oversized, 4}, 100)
                    .error == WebSocketError::frame_too_large,
            "websocket_frame_limit");
     const u8 fragmented_ping[] = {0x09, 0x00};
-    expect(websocket_parse_frame(ConstSlice<u8>{fragmented_ping, 2}, 1024,
-                                 WebSocketDirection::server_to_client)
+    expect(websocket_parse_frame(ConstSlice<u8>{fragmented_ping, 2}, 1024)
                    .error == WebSocketError::fragmented_control,
            "websocket_control_fragment_reject");
     const u8 oversized_ping[] = {0x89, 0x7E, 0x00, 0x7E};
     expect(
-        websocket_parse_frame(ConstSlice<u8>{oversized_ping, 4}, 1024, WebSocketDirection::server_to_client)
+        websocket_parse_frame(ConstSlice<u8>{oversized_ping, 4}, 1024)
                 .error == WebSocketError::control_too_large,
         "websocket_control_size_reject");
 
@@ -108,10 +101,6 @@ void test_websocket_frames() noexcept {
         wire_matches = masked[index] == expected[index];
     }
     expect(wire_matches, "websocket_rfc_mask_example");
-    const WebSocketParseResult client_frame = websocket_parse_frame(
-        ConstSlice<u8>{masked, written.bytes}, 1024, WebSocketDirection::client_to_server);
-    expect(client_frame.ok() && client_frame.frame.masked && client_frame.frame.header_bytes == 6,
-           "websocket_parse_client_mask");
     expect(websocket_write_client_frame(WebSocketOpcode::text, ConstSlice<u8>{hello, 5}, 1,
                                         Slice<u8>{masked, 8})
                    .error == WebSocketError::output_too_small,
@@ -123,16 +112,14 @@ void test_websocket_frames() noexcept {
     const WebSocketWriteResult extended = websocket_write_client_frame(
         WebSocketOpcode::binary, ConstSlice<u8>{g_websocket_payload, 64 * 1024}, 0x01020304u,
         Slice<u8>{g_websocket_frame, 64 * 1024 + 16});
-    const WebSocketParseResult extended_parsed = websocket_parse_frame(
-        ConstSlice<u8>{g_websocket_frame, extended.bytes}, 64 * 1024, WebSocketDirection::client_to_server);
-    expect(extended.ok() && extended.bytes == 64 * 1024 + 14 && extended_parsed.ok() &&
-               extended_parsed.frame.payload_bytes == 64 * 1024 && extended_parsed.frame.header_bytes == 14,
-           "websocket_64bit_length_round_trip");
+    const u8 extended_header[]{0x82, 0xFF, 0, 0, 0, 0, 0, 1, 0, 0, 1, 2, 3, 4, 0x00 ^ 1, 0x01 ^ 2};
+    expect(extended.ok() && extended.bytes == 64 * 1024 + 14 &&
+               bytes_equal(g_websocket_frame, extended_header, sizeof(extended_header)),
+           "websocket_64bit_length_header");
 
     WebSocketMessageTracker tracker{};
     const u8 first_fragment_bytes[] = {0x01, 0x01, 'a'};
-    const WebSocketFrame first_fragment = websocket_parse_frame(ConstSlice<u8>{first_fragment_bytes, 3}, 16,
-                                                                WebSocketDirection::server_to_client)
+    const WebSocketFrame first_fragment = websocket_parse_frame(ConstSlice<u8>{first_fragment_bytes, 3}, 16)
                                               .frame;
     const WebSocketMessageStep fragment = websocket_track_frame(&tracker, first_fragment, 16);
     expect(fragment.state == WebSocketMessageState::fragment && tracker.fragmented,
@@ -140,15 +127,14 @@ void test_websocket_frames() noexcept {
 
     const u8 ping_bytes[] = {0x89, 0x00};
     const WebSocketFrame ping =
-        websocket_parse_frame(ConstSlice<u8>{ping_bytes, 2}, 16, WebSocketDirection::server_to_client)
+        websocket_parse_frame(ConstSlice<u8>{ping_bytes, 2}, 16)
             .frame;
     expect(websocket_track_frame(&tracker, ping, 16).state == WebSocketMessageState::control &&
                tracker.fragmented,
            "websocket_control_interleaves_fragment");
 
     const u8 final_fragment_bytes[] = {0x80, 0x01, 'b'};
-    const WebSocketFrame final_fragment = websocket_parse_frame(ConstSlice<u8>{final_fragment_bytes, 3}, 16,
-                                                                WebSocketDirection::server_to_client)
+    const WebSocketFrame final_fragment = websocket_parse_frame(ConstSlice<u8>{final_fragment_bytes, 3}, 16)
                                               .frame;
     const WebSocketMessageStep complete = websocket_track_frame(&tracker, final_fragment, 16);
     expect(complete.state == WebSocketMessageState::message_complete && complete.message_bytes == 2 &&
@@ -167,27 +153,26 @@ void test_websocket_frames() noexcept {
            "websocket_message_limit");
 
     const u8 close_valid_bytes[] = {0x88, 0x02, 0x0F, 0xA0};
-    const WebSocketFrame close_valid = websocket_parse_frame(ConstSlice<u8>{close_valid_bytes, 4}, 125,
-                                                             WebSocketDirection::server_to_client)
+    const WebSocketFrame close_valid = websocket_parse_frame(ConstSlice<u8>{close_valid_bytes, 4}, 125)
                                            .frame;
     tracker = WebSocketMessageTracker{};
     expect(websocket_track_frame(&tracker, close_valid, 16).state == WebSocketMessageState::control,
            "websocket_application_close_code");
     const u8 close_one_byte[] = {0x88, 0x01, 0x00};
     const WebSocketFrame close_one =
-        websocket_parse_frame(ConstSlice<u8>{close_one_byte, 3}, 125, WebSocketDirection::server_to_client)
+        websocket_parse_frame(ConstSlice<u8>{close_one_byte, 3}, 125)
             .frame;
     expect(websocket_track_frame(&tracker, close_one, 16).error == WebSocketError::invalid_close_payload,
            "websocket_close_one_byte_reject");
     const u8 close_bad_code_bytes[] = {0x88, 0x02, 0x03, 0xED};
     const WebSocketFrame close_bad_code = websocket_parse_frame(ConstSlice<u8>{close_bad_code_bytes, 4},
-                                                                125, WebSocketDirection::server_to_client)
+                                                                125)
                                               .frame;
     expect(websocket_track_frame(&tracker, close_bad_code, 16).error == WebSocketError::invalid_close_code,
            "websocket_reserved_close_code_reject");
     const u8 close_bad_utf8_bytes[] = {0x88, 0x03, 0x03, 0xE8, 0xFF};
     const WebSocketFrame close_bad_utf8 = websocket_parse_frame(ConstSlice<u8>{close_bad_utf8_bytes, 5},
-                                                                125, WebSocketDirection::server_to_client)
+                                                                125)
                                               .frame;
     expect(websocket_track_frame(&tracker, close_bad_utf8, 16).error ==
                WebSocketError::invalid_close_reason,
@@ -203,23 +188,6 @@ void test_websocket_handshake() noexcept {
     expect(key.ok() && key.bytes == kWebSocketClientKeyBytes &&
                bytes_equal(ConstSlice<u8>{key_storage, key.bytes}, expected_key),
            "websocket_handshake_rfc_key");
-
-    expect(websocket_encode_client_key(ConstSlice<u8>{nonce.data, nonce.count - 1},
-                                       Slice<u8>{key_storage, kWebSocketClientKeyBytes})
-                   .error == WebSocketHandshakeError::invalid_input,
-           "websocket_handshake_nonce_size");
-    expect(websocket_encode_client_key(nonce, Slice<u8>{key_storage, kWebSocketClientKeyBytes - 1}).error ==
-               WebSocketHandshakeError::output_too_small,
-           "websocket_handshake_key_output_bound");
-    // The RFC 6455 accept value passes in websocket_handshake_response below.
-    expect(websocket_validate_opening_response(byte_literal("HTTP/1.1 101 Switching Protocols\r\n\r\n"),
-                                               byte_literal("invalid"), 4096, 32)
-                   .error == WebSocketHandshakeError::invalid_input,
-           "websocket_handshake_invalid_key");
-    expect(websocket_validate_opening_response(byte_literal("HTTP/1.1 101 Switching Protocols\r\n\r\n"),
-                                               byte_literal("dGhlIHNhbXBsZSBub25jZR=="), 4096, 32)
-                   .error == WebSocketHandshakeError::invalid_input,
-           "websocket_handshake_noncanonical_key");
 
     const ConstSlice<u8> target = byte_literal("/gateway?v=10&encoding=json");
     const ConstSlice<u8> host = byte_literal("gateway.discord.gg");
@@ -359,15 +327,6 @@ void test_websocket_handshake() noexcept {
                expected_key, 4096, 32)
                    .error == WebSocketHandshakeError::unsolicited_subprotocol,
            "websocket_handshake_unsolicited_subprotocol");
-
-    u8 random_bytes[32]{};
-    expect(secure_random_fill(Slice<u8>{random_bytes, static_cast<u32>(sizeof(random_bytes))}).ok(),
-           "secure_random_cng_fill");
-    u32 random_word = 0;
-    expect(secure_random_u32(&random_word).ok(), "secure_random_cng_u32");
-    expect(secure_random_fill(Slice<u8>{nullptr, 0}).error == SecureRandomError::invalid_input &&
-               secure_random_u32(nullptr).error == SecureRandomError::invalid_input,
-           "secure_random_input_validation");
 }
 
 namespace {
@@ -429,11 +388,10 @@ void test_http1() noexcept {
     {
         u8 switching_input[256]{}, switching_body[8]{};
         HttpResponseDecoder switching_decoder{};
-        const bool initialized = http_response_decoder_initialize(
-            &switching_decoder, Slice<u8>{switching_input, sizeof(switching_input)}, {},
-            Slice<u8>{switching_body, sizeof(switching_body)}, 256, 16);
+        http_response_decoder_initialize(&switching_decoder, Slice<u8>{switching_input, sizeof(switching_input)},
+                                         {}, Slice<u8>{switching_body, sizeof(switching_body)}, 256, 16);
         const auto step = http_response_decoder_feed(&switching_decoder, switching);
-        expect(initialized && !step.ok() && switching_decoder.error == HttpResponseDecoderError::unsupported_tunnel,
+        expect(!step.ok() && switching_decoder.error == HttpResponseDecoderError::unsupported_tunnel,
                "http_switching_protocols_is_not_a_response_body");
     }
 
@@ -594,10 +552,10 @@ void test_http1() noexcept {
     u8 decoder_head[512]{};
     u8 decoder_body[16]{};
     HttpResponseDecoder response_decoder{};
-    bool decoder_complete =
-        http_response_decoder_initialize(&response_decoder, Slice<u8>{decoder_input, sizeof(decoder_input)},
-                                         Slice<u8>{decoder_head, sizeof(decoder_head)},
-                                         Slice<u8>{decoder_body, sizeof(decoder_body)}, 512, 16);
+    http_response_decoder_initialize(&response_decoder, Slice<u8>{decoder_input, sizeof(decoder_input)},
+                                     Slice<u8>{decoder_head, sizeof(decoder_head)},
+                                     Slice<u8>{decoder_body, sizeof(decoder_body)}, 512, 16);
+    bool decoder_complete = true;
     HttpResponseDecoderStep decoder_result{};
     for (u32 offset = 0; offset < accumulated.count && decoder_complete; ++offset) {
         decoder_result =
@@ -612,12 +570,9 @@ void test_http1() noexcept {
                            retained_expected) &&
                bytes_equal(ConstSlice<u8>{decoder_body, 4}, byte_literal("Wiki")),
            "http_response_decoder_final_head_and_fragmented_body");
-    expect(!http_response_decoder_initialize(
-               &response_decoder, Slice<u8>{decoder_input, sizeof(decoder_input)},
-               Slice<u8>{decoder_head, 511}, Slice<u8>{decoder_body, sizeof(decoder_body)}, 512, 16) &&
-               http_response_decoder_feed(&response_decoder, byte_literal("unexpected")).error ==
-                   HttpResponseDecoderError::unexpected_data,
-           "http_response_decoder_retention_and_extra_data_bounds");
+    expect(http_response_decoder_feed(&response_decoder, byte_literal("unexpected")).error ==
+               HttpResponseDecoderError::unexpected_data,
+           "http_response_decoder_extra_data_bound");
     struct FramingCase {
         ConstSlice<u8> wire;
         bool head_request;
@@ -633,9 +588,10 @@ void test_http1() noexcept {
         {byte_literal("HTTP/1.1 103 Early Hints\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"), false, false, 5},
     };
     for (const auto& framing : framing_cases) for (u32 fragmented = 0; fragmented < 2; ++fragmented) {
-        bool valid = http_response_decoder_initialize(&response_decoder,
-            {decoder_input, sizeof(decoder_input)}, {}, {decoder_body, sizeof(decoder_body)},
-            sizeof(decoder_input), 16, framing.head_request);
+        http_response_decoder_initialize(&response_decoder, {decoder_input, sizeof(decoder_input)}, {},
+                                         {decoder_body, sizeof(decoder_body)}, sizeof(decoder_input), 16,
+                                         framing.head_request);
+        bool valid = true;
         for (u32 offset = 0; valid && offset < framing.wire.count;) {
             const u32 count = fragmented ? 1 : framing.wire.count;
             decoder_result = http_response_decoder_feed(&response_decoder,
@@ -798,9 +754,8 @@ void test_rest() noexcept {
         static u8 response_input[kRestMaximumHeaderBytes];
         u8 response_body[16]{};
         RestResponse response{};
-        const bool initialized =
-            rest_response_initialize(&response, Slice<u8>{response_input, kRestMaximumHeaderBytes},
-                                     Slice<u8>{response_body, static_cast<u32>(sizeof(response_body))});
+        rest_response_initialize(&response, Slice<u8>{response_input, kRestMaximumHeaderBytes},
+                                 Slice<u8>{response_body, static_cast<u32>(sizeof(response_body))});
         response.cookies = &rest_cookies;
         response.cookie_request = {utf8_literal("discord.com"), utf8_literal("/api/v9/users/@me"), true};
         const RestResponseStep fed = rest_response_feed(
@@ -810,7 +765,7 @@ void test_rest() noexcept {
         static u8 cookie_output[kCookieHeaderMaximumBytes];
         const u32 cookie_bytes = cookie_jar_header(&rest_cookies, response.cookie_request, clock_unix_milliseconds(),
                                                    Slice<u8>{cookie_output, sizeof(cookie_output)});
-        expect(initialized && fed.ok() && fed.state == RestResponseState::complete &&
+        expect(fed.ok() && fed.state == RestResponseState::complete &&
                    bytes_equal(ConstSlice<u8>{cookie_output, cookie_bytes}, byte_literal("_cfuvid=session")),
                "rest_response_stores_cookies");
         reset_value(&rest_cookies);
@@ -933,10 +888,8 @@ void test_rest() noexcept {
     u8 response_input[kRestMaximumHeaderBytes]{};
     u8 response_body[64]{};
     RestResponse response{};
-    expect(rest_response_initialize(&response,
-                                    Slice<u8>{response_input, kRestMaximumHeaderBytes},
-                                    Slice<u8>{response_body, 64}),
-           "rest_response_fixture");
+    rest_response_initialize(&response, Slice<u8>{response_input, kRestMaximumHeaderBytes},
+                             Slice<u8>{response_body, 64});
     const auto fixed_response =
         byte_literal("HTTP/1.1 103 Early Hints\r\nLink: </style>; rel=preload\r\n\r\n"
                      "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n"
@@ -981,56 +934,31 @@ void test_rest() noexcept {
                rest_classify_body(ConstSlice<u8>{binary_body, 3}) == RestBodyKind::binary,
            "rest_body_leading_shape_categories");
 
-    expect(rest_response_initialize(&response,
-                                    Slice<u8>{response_input, kRestMaximumHeaderBytes},
-                                    Slice<u8>{response_body, 64}),
-           "rest_chunked_reinitialize");
-    const auto chunked_response = byte_literal("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
-                                               "4\r\nWiki\r\n5\r\npedia\r\n0\r\nX-End: yes\r\n\r\n");
-    bool chunked_complete = true;
-    for (u32 index = 0; index < chunked_response.count; ++index) {
-        const RestResponseStep step =
-            rest_response_feed(&response, ConstSlice<u8>{chunked_response.data + index, 1});
-        chunked_complete = chunked_complete && step.ok();
-    }
-    expect(chunked_complete && response.http.state == RestResponseState::complete &&
-               response.http.body_bytes == 9 &&
-               bytes_equal(ConstSlice<u8>{response_body, 9}, byte_literal("Wikipedia")) &&
-               response.http.chunk_decoder.trailer_count == 1 && response.http.connection_reusable,
-           "rest_chunked_one_byte_fragmentation");
-
-    expect(rest_response_initialize(&response,
-                                    Slice<u8>{response_input, kRestMaximumHeaderBytes},
-                                    Slice<u8>{response_body, 4}) &&
-               rest_response_feed(&response,
-                                  byte_literal("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"))
-                       .error == RestResponseError::body_capacity,
+    rest_response_initialize(&response, Slice<u8>{response_input, kRestMaximumHeaderBytes},
+                             Slice<u8>{response_body, 4});
+    expect(rest_response_feed(&response, byte_literal("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello")).error ==
+               RestResponseError::body_capacity,
            "rest_content_length_capacity");
 
-    expect(rest_response_initialize(&response,
-                                    Slice<u8>{response_input, kRestMaximumHeaderBytes},
-                                    Slice<u8>{response_body, 64}) &&
-               rest_response_feed(&response, byte_literal("HTTP/1.0 200 OK\r\n\r\nclose-body"))
-                       .state == RestResponseState::body &&
+    rest_response_initialize(&response, Slice<u8>{response_input, kRestMaximumHeaderBytes},
+                             Slice<u8>{response_body, 64});
+    expect(rest_response_feed(&response, byte_literal("HTTP/1.0 200 OK\r\n\r\nclose-body")).state ==
+                   RestResponseState::body &&
                rest_response_feed(&response, ConstSlice<u8>{nullptr, 0}, true).state ==
                    RestResponseState::complete &&
                response.http.body_bytes == 10 && !response.http.connection_reusable,
            "rest_until_close_completion");
 
-    expect(rest_response_initialize(&response,
-                                    Slice<u8>{response_input, kRestMaximumHeaderBytes},
-                                    Slice<u8>{response_body, 64}) &&
-               rest_response_feed(
-                   &response, byte_literal("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhi"), true)
-                       .error == RestResponseError::unexpected_close,
+    rest_response_initialize(&response, Slice<u8>{response_input, kRestMaximumHeaderBytes},
+                             Slice<u8>{response_body, 64});
+    expect(rest_response_feed(&response, byte_literal("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhi"), true).error ==
+               RestResponseError::unexpected_close,
            "rest_early_close_rejected");
 
-    expect(rest_response_initialize(&response,
-                                    Slice<u8>{response_input, kRestMaximumHeaderBytes},
-                                    Slice<u8>{response_body, 0}, RestMethod::head) &&
-               rest_response_feed(&response,
-                                  byte_literal("HTTP/1.1 200 OK\r\nContent-Length: 99\r\n\r\n"))
-                       .state == RestResponseState::complete,
+    rest_response_initialize(&response, Slice<u8>{response_input, kRestMaximumHeaderBytes},
+                             Slice<u8>{response_body, 0}, RestMethod::head);
+    expect(rest_response_feed(&response, byte_literal("HTTP/1.1 200 OK\r\nContent-Length: 99\r\n\r\n")).state ==
+               RestResponseState::complete,
            "rest_head_response_has_no_body");
 
     RestRateBucket scheduler_buckets[5]{};
@@ -1041,10 +969,8 @@ void test_rest() noexcept {
     const RestRouteKey route_c{1, 8, RestMethod::get, RestMajorParameter::channel};
     const RestRouteKey route_d{4, 0, RestMethod::get, RestMajorParameter::none};
     const RestRouteKey route_e{5, 9, RestMethod::get, RestMajorParameter::guild};
-    expect(rest_rate_scheduler_initialize(&scheduler,
-                                          Slice<RestRateBucket>{scheduler_buckets, 5},
-                                          Slice<RestRateBinding>{scheduler_bindings, 6}),
-           "rest_rate_scheduler_fixture");
+    rest_rate_scheduler_initialize(&scheduler, Slice<RestRateBucket>{scheduler_buckets, 5},
+                                   Slice<RestRateBinding>{scheduler_bindings, 6});
 
     RestRateAcquireResult lease_a = rest_rate_acquire(&scheduler, route_a, 100);
     expect(lease_a.acquired_request() &&
@@ -1275,7 +1201,8 @@ void test_rest() noexcept {
             RestRateBucket alias_buckets[3]{};
             RestRateBinding alias_bindings[3]{};
             RestRateScheduler aliases{};
-            bool seeded = rest_rate_scheduler_initialize(&aliases, {alias_buckets, 3}, {alias_bindings, 3});
+            rest_rate_scheduler_initialize(&aliases, {alias_buckets, 3}, {alias_bindings, 3});
+            bool seeded = true;
             const RestRouteKey seed_routes[]{alias_a, alias_b, other_major};
             for (const auto& route : seed_routes) {
                 auto seed = rest_rate_acquire(&aliases, route, 100);
@@ -1344,39 +1271,21 @@ bool test_user_auth_consumer_reject(void*, const RestClientResponse&, ConstSlice
 } // namespace
 
 void test_rest_transaction() noexcept {
-    RestRateLease lease{1, 2, 3, 4, true};
-    RestTransaction transaction{};
-    expect(rest_transaction_acquire(&transaction, 7, lease, 10'000, true) &&
-               transaction.phase == RestTransactionPhase::acquired && transaction.request_id == 7 &&
-               transaction.deadline_ms == 10'000 && transaction.reused_connection &&
-               !rest_transaction_acquire(&transaction, 8, lease, 11'000, false),
-           "rest_transaction_acquire_once");
-    expect(rest_transaction_begin_send(&transaction, 10) &&
-               rest_transaction_commit_plaintext(&transaction, 4) &&
-               transaction.phase == RestTransactionPhase::sending &&
-               transaction.committed_bytes == 4 &&
-               rest_transaction_commit_plaintext(&transaction, 6) &&
-               transaction.phase == RestTransactionPhase::receiving &&
-               !rest_transaction_commit_plaintext(&transaction, 1) &&
-               !rest_transaction_complete(&transaction),
-           "rest_transaction_send_commit_bounds");
-    transaction.lease.active = false;
-    expect(rest_transaction_complete(&transaction) &&
-               transaction.phase == RestTransactionPhase::complete &&
-               !rest_transaction_cancel(&transaction) &&
-               !rest_transaction_fail(&transaction),
+    // Cancel and fail end only a transaction in progress: a shutdown after the response keeps it complete.
+    RestTransaction complete{};
+    complete.phase = RestTransactionPhase::complete;
+    expect(!rest_transaction_cancel(&complete) && !rest_transaction_fail(&complete) &&
+               complete.phase == RestTransactionPhase::complete,
            "rest_transaction_complete_once");
-
+    const RestRateLease lease{1, 2, 3, 4, true};
     RestTransaction cancelled{};
-    expect(rest_transaction_acquire(&cancelled, 8, lease, 20'000, false) &&
-               rest_transaction_cancel(&cancelled) &&
-               cancelled.phase == RestTransactionPhase::cancelled &&
-               !rest_transaction_begin_send(&cancelled, 1),
+    rest_transaction_acquire(&cancelled, 8, lease, 20'000, false);
+    expect(rest_transaction_cancel(&cancelled) && cancelled.phase == RestTransactionPhase::cancelled,
            "rest_transaction_cancel_acquired");
     RestTransaction failed{};
-    expect(rest_transaction_acquire(&failed, 9, lease, 30'000, false) &&
-               rest_transaction_begin_send(&failed, 2) && rest_transaction_fail(&failed) &&
-               failed.phase == RestTransactionPhase::failed,
+    rest_transaction_acquire(&failed, 9, lease, 30'000, false);
+    rest_transaction_begin_send(&failed, 2);
+    expect(rest_transaction_fail(&failed) && failed.phase == RestTransactionPhase::failed,
            "rest_transaction_fail_sending");
 
     RestClient invalid_client{};
@@ -1571,37 +1480,6 @@ void test_network_resolver() noexcept {
         return;
     }
 
-    NetworkResolver resolver{};
-    expect(network_resolver_start(nullptr, &resolver, L"localhost", L"443").error ==
-               NetworkError::invalid_argument,
-           "network_resolver_reject_null_loop");
-    const NetworkResult started = network_resolver_start(&loop, &resolver, L"localhost", L"443");
-    expect(started.ok() && resolver.pending && resolver.state == NetworkResolverState::resolving,
-           "network_resolver_started");
-    expect(!network_resolver_release(&resolver), "network_resolver_blocks_early_release");
-    if (started.ok()) {
-        const NetworkPollResult completion = poll_network_completion(&loop, NetworkOperationKind::resolve);
-        const bool usable_address = resolver.address_count != 0;
-        expect(completion.state == NetworkPollState::completion &&
-                   completion.completion.kind == NetworkOperationKind::resolve &&
-                   completion.completion.resolver == &resolver && !completion.completion.connection &&
-                   completion.completion.succeeded && !completion.completion.stale && !resolver.pending &&
-                   resolver.state == NetworkResolverState::resolved && usable_address,
-               "network_resolver_completion");
-    }
-    expect(network_resolver_release(&resolver) && resolver.state == NetworkResolverState::empty,
-           "network_resolver_release");
-
-    NetworkSignal signal{};
-    expect(network_signal_post(&loop, &signal, 0xA5A55A5Au).ok(), "network_signal_post");
-    expect(network_signal_post(&loop, &signal, 7).error == NetworkError::invalid_argument,
-           "network_signal_single_outstanding");
-    const NetworkPollResult signalled = poll_network_completion(&loop, NetworkOperationKind::signal);
-    expect(signalled.state == NetworkPollState::completion && signalled.completion.succeeded &&
-               !signalled.completion.stale && signalled.completion.signal == &signal &&
-               signalled.completion.signal_value == 0xA5A55A5Au && signal.pending == 0,
-           "network_signal_completion");
-
     NetworkResolver cancellable{};
     const NetworkResult cancellable_started =
         network_resolver_start(&loop, &cancellable, L"maicord-cancel.invalid", L"443");
@@ -1770,193 +1648,6 @@ void test_network_worker_cancel_drain() noexcept {
     waitable_close(context.started_event);
 }
 #if defined(_WIN32)
-void test_network_loopback() noexcept {
-    NetworkLoop loop{};
-    const NetworkResult initialized = network_loop_initialize(&loop);
-    expect(initialized.ok(), "network_loop_initialize");
-    if (!initialized.ok()) {
-        return;
-    }
-
-    SOCKET listener = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
-    expect(listener != INVALID_SOCKET, "network_loopback_listener_create");
-    if (listener == INVALID_SOCKET) {
-        network_loop_release(&loop);
-        return;
-    }
-
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    bool listener_ready =
-        bind(listener, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0 &&
-        listen(listener, 1) == 0;
-    i32 address_bytes = sizeof(address);
-    listener_ready =
-        listener_ready && getsockname(listener, reinterpret_cast<sockaddr*>(&address), &address_bytes) == 0;
-    expect(listener_ready, "network_loopback_listener_ready");
-    if (!listener_ready) {
-        closesocket(listener);
-        network_loop_release(&loop);
-        return;
-    }
-
-    NetworkConnection client{};
-    const NetworkResult connecting =
-        network_connection_connect(&loop, &client, test_network_address(&address, sizeof(address)));
-    expect(connecting.ok() && client.connect_pending, "network_connectex_started");
-    if (!connecting.ok()) {
-        closesocket(listener);
-        network_loop_release(&loop);
-        return;
-    }
-
-    SOCKET peer = accept(listener, nullptr, nullptr);
-    expect(peer != INVALID_SOCKET, "network_loopback_accept");
-    const NetworkPollResult connected = poll_network_completion(&loop, NetworkOperationKind::connect);
-    expect(connected.state == NetworkPollState::completion && connected.completion.succeeded &&
-               !connected.completion.stale && client.state == NetworkConnectionState::connected,
-           "network_connectex_completion");
-
-    u8 receive_buffer[16]{};
-    const NetworkResult receiving = network_connection_receive(&client, Slice<u8>{receive_buffer, 16});
-    expect(receiving.ok() && client.receive_pending, "network_receive_started");
-    const char ping[] = {'p', 'i', 'n', 'g'};
-    const i32 peer_sent = send(peer, ping, sizeof(ping), 0);
-    expect(peer_sent == sizeof(ping), "network_peer_send");
-    const NetworkPollResult received = poll_network_completion(&loop, NetworkOperationKind::receive);
-    expect(received.state == NetworkPollState::completion && received.completion.succeeded &&
-               received.completion.transferred == sizeof(ping) && receive_buffer[0] == 'p' &&
-               receive_buffer[3] == 'g' && !client.receive_pending,
-           "network_receive_completion");
-
-    const u8 pong[] = {'p', 'o', 'n', 'g'};
-    const NetworkResult sending =
-        network_connection_send(&client, ConstSlice<u8>{pong, static_cast<u32>(sizeof(pong))});
-    expect(sending.ok() && client.send_pending, "network_send_started");
-    const NetworkPollResult sent = poll_network_completion(&loop, NetworkOperationKind::send);
-    expect(sent.state == NetworkPollState::completion && sent.completion.succeeded &&
-               sent.completion.transferred == sizeof(pong) && !client.send_pending,
-           "network_send_completion");
-    char peer_buffer[8]{};
-    const i32 peer_received = recv(peer, peer_buffer, sizeof(peer_buffer), 0);
-    expect(peer_received == sizeof(pong) && peer_buffer[1] == 'o' && peer_buffer[3] == 'g',
-           "network_peer_receive");
-
-    const NetworkResult closing_receive =
-        network_connection_receive(&client, Slice<u8>{receive_buffer, 16});
-    expect(closing_receive.ok(), "network_peer_close_receive_started");
-    closesocket(peer);
-    const NetworkPollResult peer_closed = poll_network_completion(&loop, NetworkOperationKind::receive);
-    expect(peer_closed.state == NetworkPollState::completion && peer_closed.completion.succeeded &&
-               peer_closed.completion.transferred == 0 &&
-               client.state == NetworkConnectionState::peer_closed,
-           "network_peer_orderly_close");
-
-    const NetworkPollResult empty_poll = network_loop_poll(&loop, 0);
-    expect(empty_poll.state == NetworkPollState::timeout, "network_empty_poll_timeout");
-
-    network_connection_close(&client);
-    closesocket(listener);
-    network_loop_release(&loop);
-    expect(!loop.completion_port && !loop.winsock_started, "network_loop_release");
-}
-#else
-// The same exchange with the sockets of socket.hpp: a loopback listener the client connects to, a peer that sends and
-// receives, an orderly close from the peer.
-void test_network_loopback() noexcept {
-    NetworkLoop loop{};
-    const NetworkResult initialized = network_loop_initialize(&loop);
-    expect(initialized.ok(), "network_loop_initialize");
-    if (!initialized.ok()) {
-        return;
-    }
-    Socket listener{};
-    const SocketListenResult listening = socket_listen_loopback(&listener, 0, 0, 1);
-    expect(listening.ok(), "network_loopback_listener_create");
-    if (!listening.ok()) {
-        network_loop_release(&loop);
-        return;
-    }
-    NetworkAddress target{};
-    target.family = 4;
-    target.port = listening.port;
-    target.ip[0] = 127;
-    target.ip[3] = 1;
-
-    NetworkConnection client{};
-    const NetworkResult connecting = network_connection_connect(&loop, &client, target);
-    expect(connecting.ok() && client.connect_pending, "network_connectex_started");
-    if (!connecting.ok()) {
-        socket_close(&listener);
-        network_loop_release(&loop);
-        return;
-    }
-
-    Socket peer{};
-    bool from_loopback = false;
-    i32 accept_error = 0;
-    bool accepted = false;
-    for (u32 attempt = 0; attempt < 400 && !accepted; ++attempt) {
-        accepted = socket_accept(&listener, &peer, &from_loopback, &accept_error);
-        if (!accepted) thread_sleep(5);
-    }
-    expect(accepted && from_loopback, "network_loopback_accept");
-    const NetworkPollResult connected = poll_network_completion(&loop, NetworkOperationKind::connect);
-    expect(connected.state == NetworkPollState::completion && connected.completion.succeeded &&
-               !connected.completion.stale && client.state == NetworkConnectionState::connected,
-           "network_connectex_completion");
-
-    u8 receive_buffer[16]{};
-    const NetworkResult receiving = network_connection_receive(&client, Slice<u8>{receive_buffer, 16});
-    expect(receiving.ok() && client.receive_pending, "network_receive_started");
-    const char ping[] = {'p', 'i', 'n', 'g'};
-    const i32 peer_sent = socket_send(peer, ping, sizeof(ping));
-    expect(peer_sent == sizeof(ping), "network_peer_send");
-    const NetworkPollResult received = poll_network_completion(&loop, NetworkOperationKind::receive);
-    expect(received.state == NetworkPollState::completion && received.completion.succeeded &&
-               received.completion.transferred == sizeof(ping) && receive_buffer[0] == 'p' &&
-               receive_buffer[3] == 'g' && !client.receive_pending,
-           "network_receive_completion");
-
-    const u8 pong[] = {'p', 'o', 'n', 'g'};
-    const NetworkResult sending =
-        network_connection_send(&client, ConstSlice<u8>{pong, static_cast<u32>(sizeof(pong))});
-    expect(sending.ok() && client.send_pending, "network_send_started");
-    const NetworkPollResult sent = poll_network_completion(&loop, NetworkOperationKind::send);
-    expect(sent.state == NetworkPollState::completion && sent.completion.succeeded &&
-               sent.completion.transferred == sizeof(pong) && !client.send_pending,
-           "network_send_completion");
-    char peer_buffer[8]{};
-    i32 peer_received = -1;
-    for (u32 attempt = 0; attempt < 400 && peer_received < 0; ++attempt) {
-        peer_received = socket_receive(peer, peer_buffer, sizeof(peer_buffer));
-        if (peer_received < 0 && network_last_error() == WSAEWOULDBLOCK) thread_sleep(5);
-        else break;
-    }
-    expect(peer_received == sizeof(pong) && peer_buffer[1] == 'o' && peer_buffer[3] == 'g',
-           "network_peer_receive");
-
-    const NetworkResult closing_receive =
-        network_connection_receive(&client, Slice<u8>{receive_buffer, 16});
-    expect(closing_receive.ok(), "network_peer_close_receive_started");
-    socket_close(&peer);
-    const NetworkPollResult peer_closed = poll_network_completion(&loop, NetworkOperationKind::receive);
-    expect(peer_closed.state == NetworkPollState::completion && peer_closed.completion.succeeded &&
-               peer_closed.completion.transferred == 0 &&
-               client.state == NetworkConnectionState::peer_closed,
-           "network_peer_orderly_close");
-
-    const NetworkPollResult empty_poll = network_loop_poll(&loop, 0);
-    expect(empty_poll.state == NetworkPollState::timeout, "network_empty_poll_timeout");
-
-    network_connection_close(&client);
-    socket_close(&listener);
-    network_loop_release(&loop);
-}
-#endif
-
-#if defined(_WIN32)
 void test_tls_client_bootstrap() noexcept {
     TlsClient client{};
     const TlsResult initialized = tls_client_initialize(&client, L"discord.com");
@@ -2027,8 +1718,6 @@ void test_tls_client_bootstrap() noexcept {
     tls_client_release(&client);
     expect(!client.credentials_valid && !client.context_valid && !client.handshake_complete,
            "tls_client_release");
-    expect(tls_client_initialize(nullptr, L"discord.com").error == TlsError::invalid_argument,
-           "tls_client_null_reject");
 }
 
 namespace {

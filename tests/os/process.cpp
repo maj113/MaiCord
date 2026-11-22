@@ -26,8 +26,6 @@ void test_launch() noexcept {
     check(process_launch_detached(kProgram, &error), "an existing program starts");
     error = 0;
     check(!process_launch_detached(kMissing, &error) && error != 0, "a missing program is refused with an error");
-    check(!process_launch_detached(kMissing, nullptr), "the error pointer is optional");
-    check(!process_launch_detached(nullptr, &error), "no path is refused");
     wchar_t long_path[kProcessLaunchMaximumPathCharacters + 8];
     for (wchar_t& unit : long_path)
         unit = L'a';

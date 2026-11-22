@@ -339,7 +339,7 @@ bool utf8_word_boundary(const Utf8View& text, u32 position, bool forward, u32* b
 #pragma clang attribute pop
 
 u8 utf8_encode(u32 codepoint, char output[4]) noexcept {
-    if (!output || codepoint > 0x10FFFFu || (codepoint >= 0xD800u && codepoint <= 0xDFFFu)) {
+    if (codepoint > 0x10FFFFu || (codepoint >= 0xD800u && codepoint <= 0xDFFFu)) {
         return 0;
     }
     if (codepoint <= 0x7Fu) {

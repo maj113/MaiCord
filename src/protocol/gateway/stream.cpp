@@ -9,10 +9,11 @@ namespace maicord {
 namespace {
 constexpr u32 kCommandBytes = 192;
 
+// The callers write into the Gateway payload array (or a test array).
 GatewayCommandWriteResult finish(const u8* built, u32 bytes, bool valid, Slice<u8> output) noexcept {
     if (!valid)
         return {0, GatewayCommandError::invalid_input};
-    if (!output.data || output.count < bytes)
+    if (output.count < bytes)
         return {bytes, GatewayCommandError::output_too_small};
     copy_bytes(output.data, built, bytes);
     return {bytes};
@@ -310,7 +311,7 @@ u32 gateway_stream_preview_target(const GatewayStreamKey& key, u64 version, Slic
     // Colons are path-safe (RFC 3986 pchar) and sent raw.
     const bool valid = key_bytes && version &&
                        protocol_write(&writer, "/api/v9/streams/", Utf8View{text, key_bytes}, "/preview?version=", version);
-    if (!valid || !output.data || output.count < writer.used)
+    if (!valid || output.count < writer.used)
         return 0;
     copy_bytes(output.data, built, writer.used);
     return writer.used;
@@ -332,9 +333,8 @@ bool visit_preview(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 } // namespace
 
+// The one caller gives a nonempty REST body and its own scratch and URL arrays.
 u32 gateway_stream_preview_url(Utf8View body, Slice<u32> scratch, Slice<char> output) noexcept {
-    if (!body.data || !body.bytes || !scratch.data || !scratch.count || !output.data)
-        return 0;
     const auto scan = json_scan_structurals_avx1(body, scratch);
     if (!scan.ok())
         return 0;

@@ -481,11 +481,6 @@ void test_gateway_message_poll(void (*check)(bool, const char*) noexcept) noexce
     check(!decode(complete_poll, true, {{f.answers, 10}, {f.counts, 10}}, before_used).ok() &&
               f.used == before_used && f.output.question.data == before.question.data,
           "poll decoded text capacity failure preserves existing owned prefix and output");
-    const GatewayMessagePollScratch alias{{reinterpret_cast<GatewayMessagePollAnswer*>(f.text), 10},
-                                          {f.counts, 10}};
-    check(!decode(complete_poll, true, alias).ok() && f.used == before_used &&
-              f.output.question.data == before.question.data,
-          "poll output banks overlapping decoded text are rejected before any write");
     f.used = 0;
     check(decode(utf8_literal(R"({"results":{"is_finalized":true,"answer_counts":[]}})")).ok() &&
               f.output.fields == gateway_message_poll_field_results && f.output.results_known &&

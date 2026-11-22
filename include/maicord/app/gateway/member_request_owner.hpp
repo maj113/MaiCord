@@ -62,11 +62,10 @@ inline bool gateway_member_request_equal(const GatewayGuildMemberRequest& a,
             return false;
     return true;
 }
+// request is valid (gateway_client_request_guild_members tests gateway_guild_member_request_valid first).
 inline bool gateway_member_request_admit(GatewayMemberRequestOwner* owner,
                                          const GatewayGuildMemberRequest& request,
                                          u64 now_ms = 0) noexcept {
-    if (!gateway_guild_member_request_valid(request))
-        return false;
     bool known = false;
     for (const auto& floor : owner->floors)
         known |= floor.guild_id == request.guild_id;

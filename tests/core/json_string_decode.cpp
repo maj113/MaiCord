@@ -7,7 +7,7 @@
 namespace maicord {
 namespace json_string_probe {
 bool reference_number(const JsonValue& value, u64* output) noexcept {
-    if (!output || value.kind != JsonValueKind::number || value.source.bytes == 0) return false;
+    if (value.kind != JsonValueKind::number || value.source.bytes == 0) return false;
     u64 result = 0;
     for (u32 offset = 0; offset < value.source.bytes; ++offset) {
         const char current = value.source.data[offset];
@@ -25,13 +25,12 @@ bool compare_number(Utf8View source) noexcept {
     for (u32 kind = 0; kind <= static_cast<u32>(JsonValueKind::null_value); ++kind) {
         const JsonValue value{source, 0, static_cast<JsonValueKind>(kind)};
         u64 before = 0xa537ed4f10382acbull, after = before;
-        if (reference_number(value, &before) != json_value_to_u64(value, &after) || before != after ||
-            reference_number(value, nullptr) != json_value_to_u64(value, nullptr)) return false;
+        if (reference_number(value, &before) != json_value_to_u64(value, &after) || before != after) return false;
     }
     return true;
 }
 bool reference_integer(const JsonString& value, u64* output) noexcept {
-    if (!output || (!value.encoded.data && value.encoded.bytes != 0)) return false;
+    if (!value.encoded.data && value.encoded.bytes != 0) return false;
     u32 source_offset = 0, digits = 0;
     u64 result = 0;
     while (source_offset < value.encoded.bytes) {
@@ -51,8 +50,7 @@ bool compare_integer(Utf8View source) noexcept {
     for (u32 flag = 0; flag < 2; ++flag) {
         u64 before = 0xa537ed4f10382acbull, after = before;
         const JsonString value{source, 0, flag != 0};
-        if (reference_integer(value, &before) != json_string_to_u64(value, &after) || before != after ||
-            reference_integer(value, nullptr) != json_string_to_u64(value, nullptr)) return false;
+        if (reference_integer(value, &before) != json_string_to_u64(value, &after) || before != after) return false;
     }
     return true;
 }

@@ -5,13 +5,13 @@
 
 namespace maicord {
 
+// The one caller (application_updates_relaunch) gives its path array and the address of its error.
 __forceinline bool process_launch_detached(const wchar_t* executable, u32* native_error) noexcept {
     u32 count = 0;
-    while (executable && executable[count] && count <= kProcessLaunchMaximumPathCharacters)
+    while (executable[count] && count <= kProcessLaunchMaximumPathCharacters)
         ++count;
     if (count == 0 || count > kProcessLaunchMaximumPathCharacters) {
-        if (native_error)
-            *native_error = ERROR_INVALID_PARAMETER;
+        *native_error = ERROR_INVALID_PARAMETER;
         return false;
     }
     wchar_t command[kProcessLaunchMaximumPathCharacters + 3];
@@ -26,8 +26,7 @@ __forceinline bool process_launch_detached(const wchar_t* executable, u32* nativ
     const bool started =
         CreateProcessW(executable, command, nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process) != FALSE;
     if (!started) {
-        if (native_error)
-            *native_error = thread_last_error();
+        *native_error = thread_last_error();
         return false;
     }
     CloseHandle(process.hThread);

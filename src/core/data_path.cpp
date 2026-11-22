@@ -37,9 +37,8 @@ DataPathResult failure(DataPathError error, u32 native_error) noexcept {
 
 } // namespace
 
+// Every caller (data_path, account_paths_build_slot) gives a root it read into its own array and an output array.
 u32 data_path_build(const wchar_t* root, wchar_t* output, u32 capacity, const wchar_t* relative) noexcept {
-    if (!root || !output)
-        return 0;
     u32 length = wide_length(root, capacity);
     while (length && separator(root[length - 1]))
         --length;

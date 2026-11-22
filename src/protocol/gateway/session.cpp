@@ -1,6 +1,5 @@
 #include "maicord/protocol/gateway/session.hpp"
 #include "maicord/protocol/http/websocket_message.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
@@ -31,21 +30,8 @@ void session_error(GatewaySessionEvent* result, GatewaySessionError error) noexc
     result->kind = GatewaySessionEventKind::error;
 }
 
-bool spill_disjoint(const GatewaySession& session, Slice<u8> spill) noexcept {
-    const ConstSlice<u8> candidate{spill.data, spill.count};
-    const ConstSlice<u8> others[]{
-        {session.input.data, session.input.capacity},
-        {session.inline_compressed_storage.data, session.inline_compressed_storage.count},
-        {session.message_storage.data, session.message_storage.count},
-        {session.wire_message_storage.data, session.wire_message_storage.count},
-        {reinterpret_cast<const u8*>(&session), sizeof(session)}};
-    if (!candidate.data || !byte_range_valid(candidate)) return false;
-    for (const auto other : others)
-        if (byte_ranges_overlap(candidate, other)) return false;
-    return true;
-}
-
-// Room for `bytes` more compressed bytes, spilling once past the initial storage.
+// Room for `bytes` more compressed bytes, spilling once past the initial storage. The one grower
+// (grow_compressed_message) hands out the client's own spill reservation, apart from every other buffer.
 bool reserve_compressed(GatewaySession* session, u32 bytes) noexcept {
     if (session->compressed_bytes > session->compressed_storage.count) return false;
     if (bytes <= session->compressed_storage.count - session->compressed_bytes) return true;
@@ -55,7 +41,7 @@ bool reserve_compressed(GatewaySession* session, u32 bytes) noexcept {
     const bool spilled = session->compressed_storage.data != session->inline_compressed_storage.data;
     Slice<u8> backed{};
     if (!session->grow_compressed(session->grow_compressed_context, required, &backed) || backed.count < required ||
-        (spilled && backed.data != session->compressed_storage.data) || !spill_disjoint(*session, backed))
+        (spilled && backed.data != session->compressed_storage.data))
         return false;
     if (!spilled) copy_bytes(backed.data, session->compressed_storage.data, session->compressed_bytes);
     session->compressed_storage = backed;
@@ -217,33 +203,11 @@ void process_gateway_message(GatewaySession* session, Utf8View message, u32 hear
     }
 }
 
-bool output_disjoint(const GatewaySession& session, const Slice<u8>& candidate) noexcept {
-    if (session.structural_scratch.count > ~0u / sizeof(u32)) return false;
-    const ConstSlice<u8> output{candidate.data, candidate.count};
-    const ConstSlice<u8> decoder{reinterpret_cast<const u8*>(session.zstd_stream), sizeof(*session.zstd_stream)};
-    const ConstSlice<u8> zstd_storage{session.zstd_stream->storage.data, session.zstd_stream->maximum_storage};
-    const ConstSlice<u8> others[]{
-        {session.input.data, session.input.capacity},
-        {session.compressed_storage.data, session.compressed_storage.count},
-        {session.wire_message_storage.data, session.wire_message_storage.count},
-        {reinterpret_cast<const u8*>(session.structural_scratch.data),
-            static_cast<u32>(session.structural_scratch.count * sizeof(u32))},
-        {reinterpret_cast<const u8*>(&session), sizeof(session)},
-        decoder, zstd_storage};
-    if (!output.data || !output.count || !byte_range_valid(output)) return false;
-    for (const auto other : others)
-        if (!byte_range_valid(other) || byte_ranges_overlap(output, other)) return false;
-    return true;
-}
+// The one grower (grow_decoded_message) hands out the client's own decoded-message storage, apart from every other
+// buffer of the session.
 bool grow_session_output(void* opaque, u32 required, Slice<u8>* backed) noexcept {
     auto* session = static_cast<GatewaySession*>(opaque);
-    Slice<u8> candidate{};
-    if (!session->grow_output ||
-        !session->grow_output(session->grow_output_context, required, &candidate) ||
-        !output_disjoint(*session, candidate))
-        return false;
-    *backed = candidate;
-    return true;
+    return session->grow_output(session->grow_output_context, required, backed);
 }
 // One complete zstd-stream message: decompress, then transcode the term.
 void process_zstd_message(GatewaySession* session, u32 heartbeat_jitter, u64 now_ms,
@@ -293,9 +257,7 @@ bool gateway_session_initialize(GatewaySession* session, Slice<u8> input_storage
         return false;
     }
     reset_value<GatewaySession>(session);
-    if (!byte_queue_initialize(&session->input, input_storage)) {
-        return false;
-    }
+    byte_queue_initialize(&session->input, input_storage);
     session->message_storage = message_storage;
     session->wire_message_storage = message_storage;
     session->structural_scratch = structural_scratch;
@@ -360,7 +322,6 @@ bool gateway_session_enable_output_growth(GatewaySession* session, Slice<u8> dec
         session->grow_output || !grow || maximum_decoded_bytes < decoded_output.count ||
         maximum_decoded_bytes > kGatewaySessionMaximumDecodedMessageBytes)
         return false;
-    if (!output_disjoint(*session, decoded_output)) return false;
     session->message_storage = decoded_output;
     session->maximum_decoded_message_bytes = maximum_decoded_bytes;
     session->grow_output = grow;
@@ -413,8 +374,8 @@ void gateway_session_next(GatewaySessionEvent* out, GatewaySession* session, u32
                 return process_zstd_message(session, heartbeat_jitter, now_ms, out);
             // Binary data frames stream their payload; control and text frames
             // take the complete-frame path below.
-            const auto header = websocket_parse_frame_header(byte_queue_readable(session->input),
-                session->maximum_compressed_bytes, WebSocketDirection::server_to_client);
+            const auto header =
+                websocket_parse_frame_header(byte_queue_readable(session->input), session->maximum_compressed_bytes);
             if (header.state == WebSocketParseState::need_more) return event(out, GatewaySessionEventKind::need_input);
             if (!header.ok()) {
                 session_error(out, GatewaySessionError::websocket);

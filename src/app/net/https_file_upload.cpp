@@ -158,15 +158,15 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
             return finish(upload, r);
         }
         if (r->content.context) r->com_initialized = thread_com_enter();
+        http_response_decoder_initialize(&r->response, {r->response_input, sizeof(r->response_input)}, {},
+                                         {r->response_body, sizeof(r->response_body)}, 16 * 1024, 64);
         const auto opened = r->content.context ? NetworkResult{} : network_file_open(loop, &r->file, r->path);
         if (!opened.ok()) drain(upload, r, HttpsFileUploadError::file_open, static_cast<u32>(opened.native_error));
         else if (r->content.context && !r->com_initialized) drain(upload, r, HttpsFileUploadError::worker);
         else if (!r->content.context && r->file.bytes != r->expected_bytes) drain(upload, r, HttpsFileUploadError::file_size);
         else if (!r->content.context && r->has_expected_identity && !file_identity_equal(r->expected_identity, r->file.identity))
             drain(upload, r, HttpsFileUploadError::source_changed);
-        else if (!http_response_decoder_initialize(&r->response,
-            {r->response_input, sizeof(r->response_input)}, {}, {r->response_body, sizeof(r->response_body)}, 16 * 1024, 64) ||
-            !tls_stream_initialize(&r->tls, r->host,
+        else if (!tls_stream_initialize(&r->tls, r->host,
                 {{r->encrypted, sizeof(r->encrypted)}, {r->handshake, sizeof(r->handshake)}, {r->record, sizeof(r->record)}, true}))
             drain(upload, r, HttpsFileUploadError::tls);
         else {
@@ -232,7 +232,7 @@ HttpsFileUploadError https_file_upload_start(HttpsFileUpload* upload, Utf8View u
     ConstSlice<wchar_t> path, u64 expected_bytes, u32 timeout_ms, const FileIdentity* expected_identity, UploadSource content,
     HttpsUploadContentType content_type) noexcept {
     const auto parsed = https_upload_parse_url(url);
-    if (!upload || upload->runtime || upload->worker.thread || !parsed.valid || !expected_bytes ||
+    if (upload->runtime || upload->worker.thread || !parsed.valid || !expected_bytes ||
         expected_bytes > 0x7fffffffffffffffull || (content.context ? !upload_source_valid(content) || content.bytes != expected_bytes || path.count : !path.data || !path.count) ||
         path.count > kHttpsFileUploadMaximumPathUnits || !timeout_ms || timeout_ms > 60 * 60 * 1000)
         return HttpsFileUploadError::invalid_input;
@@ -257,7 +257,7 @@ HttpsFileUploadError https_file_upload_start(HttpsFileUpload* upload, Utf8View u
     return HttpsFileUploadError::none;
 }
 HttpsFileUploadResult https_file_upload_status(const HttpsFileUpload* upload) noexcept {
-    if (!upload || !upload->runtime) return {};
+    if (!upload->runtime) return {};
     const auto current = static_cast<HttpsFileUploadPhase>(read_acquire(&upload->phase));
     const auto* r = static_cast<const Runtime*>(upload->runtime);
     if (current == HttpsFileUploadPhase::complete) return r->result;
@@ -268,12 +268,11 @@ HttpsFileUploadResult https_file_upload_status(const HttpsFileUpload* upload) no
     return result;
 }
 bool https_file_upload_cancel(HttpsFileUpload* upload) noexcept {
-    if (!upload || !upload->runtime || upload->stop_requested) return false;
+    if (!upload->runtime || upload->stop_requested) return false;
     if (https_file_upload_status(upload).phase == HttpsFileUploadPhase::complete) return true;
     return https_transfer_cancel(&upload->worker, &upload->cancelled, &static_cast<Runtime*>(upload->runtime)->cancel_signal);
 }
 bool https_file_upload_release(HttpsFileUpload* upload, u32 timeout_ms) noexcept {
-    if (!upload) return false;
     if (!upload->runtime) return true;
     if (!https_transfer_stop_and_join(&upload->worker, &upload->cancelled, &upload->stop_requested, timeout_ms)) return false;
     destroy(upload);

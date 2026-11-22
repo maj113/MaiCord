@@ -21,9 +21,8 @@ bool bounded_string(const JsonString& source, u32 maximum_bytes, const RichText&
     }
     reset_value<Utf8View>(value);
     const u32 remaining = output.count - *used;
-    const JsonStringDecodeResult decoded = json_string_decode_utf8(
-        source, Slice<char>{output.data ? output.data + *used : nullptr,
-                            output.data ? minimum(maximum_bytes, remaining) : 0});
+    const JsonStringDecodeResult decoded =
+        json_string_decode_utf8(source, Slice<char>{output.data + *used, minimum(maximum_bytes, remaining)});
     if (decoded.error == JsonStringDecodeError::output_too_small) {
         if (decoded.bytes > maximum_bytes || decoded.bytes > remaining) {
             *text.truncations |= gateway_message_rich_truncated_text;
@@ -215,7 +214,7 @@ GatewayEventDecodeResult decode_snapshot(JsonValue value, const JsonIndexedDocum
     GatewayMessageEvent body{};
     result = gateway_decode_message_snapshot_core(
         document, body_value, maximum_depth,
-        {text.data ? text.data + *used : nullptr, text.count - *used}, scratch.mention_users, &body);
+        {text.data + *used, text.count - *used}, scratch.mention_users, &body);
     if (!result.ok())
         return result;
     *used += body.transient_bytes;
@@ -256,37 +255,12 @@ GatewayEventDecodeResult decode_snapshot(JsonValue value, const JsonIndexedDocum
 } // namespace message_rich_detail
 using namespace message_rich_detail;
 
-GatewayEventDecodeResult gateway_extract_message_snapshot(const JsonIndexedDocument& document, JsonValue array,
-                                                          u32 maximum_depth, JsonValue* body,
-                                                          bool* present) noexcept {
-    if (!body || !present || !array.source.data || !document.structurals.data || !maximum_depth ||
-        (array.kind != JsonValueKind::array && array.kind != JsonValueKind::null_value))
-        return decode_failure(GatewayEventDecodeError::invalid_input);
-    RootContext child{};
-    return extract_snapshot(array, document, maximum_depth, body, present, &child);
-}
-
+// decode_message (and the test helper) give the document of the object it visited, its transient text with the used
+// count inside it, and the caller's scratch arrays.
 GatewayEventDecodeResult message_rich_detail::decode_rich_fields(
-    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth, Slice<char> text_output, u32* text_used,
+    const JsonIndexedDocument& document, u32 maximum_depth, Slice<char> text_output, u32* text_used,
     const GatewayMessageRichScratch& scratch, GatewayMessageEvent* output, const RootContext& root,
     GatewayEventDecodeResult result) noexcept {
-    if (!output || !text_used || !data.source.data || data.source.bytes == 0 ||
-        data.kind != JsonValueKind::object || !document.structurals.data || document.structurals.count == 0 ||
-        maximum_depth == 0 || (!text_output.data && text_output.count != 0) ||
-        *text_used > text_output.count || (!scratch.reactions.data && scratch.reactions.count != 0) ||
-        (!scratch.attachments.data && scratch.attachments.count != 0) ||
-        (!scratch.embeds.data && scratch.embeds.count != 0) ||
-        (!scratch.embed_fields.data && scratch.embed_fields.count != 0) ||
-        (!scratch.stickers.data && scratch.stickers.count != 0) ||
-        (!scratch.components.data && scratch.components.count != 0) ||
-        (!scratch.snapshot.attachments.data && scratch.snapshot.attachments.count) ||
-        (!scratch.snapshot.embeds.data && scratch.snapshot.embeds.count) ||
-        (!scratch.snapshot.embed_fields.data && scratch.snapshot.embed_fields.count) ||
-        (!scratch.snapshot.stickers.data && scratch.snapshot.stickers.count) ||
-        (!scratch.snapshot.components.data && scratch.snapshot.components.count) ||
-        (!scratch.snapshot.mention_users.data && scratch.snapshot.mention_users.count)) {
-        return decode_failure(GatewayEventDecodeError::invalid_input);
-    }
     const RichText text{text_output, text_used, &output->rich_truncations};
     if (result.ok())
         result = decode_reference(root, document, maximum_depth, text, output);

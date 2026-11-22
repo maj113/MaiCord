@@ -18,7 +18,9 @@ SecureBufferResult invalid_input() noexcept;
 } // namespace
 
 SecureBufferResult secure_buffer_assign(SecureBuffer* buffer, ConstSlice<u8> value) noexcept {
-    if (!buffer || !buffer->data || !buffer->locked || (!value.data && value.count != 0)) {
+    // Every release buffer with storage is locked: both initializers and the login coordinators' views set data and
+    // locked together. An uninitialized output buffer stays refused (its callers come through continuations).
+    if (!buffer->locked) {
         return invalid_input();
     }
     if (value.count > buffer->capacity) {
@@ -31,7 +33,7 @@ SecureBufferResult secure_buffer_assign(SecureBuffer* buffer, ConstSlice<u8> val
 }
 
 bool secure_buffer_transfer(SecureBuffer* destination, SecureBuffer* source) noexcept {
-    if (!destination || !source || destination == source || destination->data || destination->locked ||
+    if (!destination || !source || destination->data || destination->locked ||
         !source->data || !source->locked || source->capacity == 0 || source->bytes == 0) {
         return false;
     }

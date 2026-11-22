@@ -113,10 +113,6 @@ GatewayDecodeResult read_envelope(Utf8View input, ConstSlice<u32> structurals, u
 
 GatewayDecodeResult gateway_decode_envelope(Utf8View input, Slice<u32> structural_scratch,
                                             u32 maximum_depth, GatewayEnvelope* output) noexcept {
-    if (!output) {
-        return GatewayDecodeResult{GatewayDecodeError::invalid_json, JsonScanError::none,
-                                   JsonReadError::invalid_input};
-    }
     reset_value<GatewayEnvelope>(output);
 
     const JsonScanResult scan = json_scan_structurals_avx1(input, structural_scratch);
@@ -128,10 +124,6 @@ GatewayDecodeResult gateway_decode_envelope(Utf8View input, Slice<u32> structura
 
 GatewayDecodeResult gateway_decode_envelope_indexed(Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth,
                                                     GatewayEnvelope* output, const u32* ends) noexcept {
-    if (!output) {
-        return GatewayDecodeResult{GatewayDecodeError::invalid_json, JsonScanError::none,
-                                   JsonReadError::invalid_input};
-    }
     reset_value<GatewayEnvelope>(output);
     return read_envelope(input, structurals, maximum_depth, true, output, ends);
 }

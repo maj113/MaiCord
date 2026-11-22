@@ -12,7 +12,6 @@ namespace maicord {
 
 enum class SpscMailboxError : u8 {
     none,
-    invalid_input,
     empty,
     event_capacity,
     payload_capacity,
@@ -118,19 +117,14 @@ SpscMailboxResult spsc_mailbox_push(
     SpscMailbox<T, EventCapacity, PayloadCapacity>* mailbox,
     const typename SpscMailboxTypeIdentity<T>::type& value,
     ConstSlice<u8> payload) noexcept {
-    if (!mailbox || (!payload.data && payload.count != 0)) {
-        return SpscMailboxResult{payload.count, SpscMailboxError::invalid_input};
-    }
     const u32 write = spsc_mailbox_load_u32(&mailbox->write_sequence);
     const u32 read = spsc_mailbox_load_u32(&mailbox->read_sequence);
     if (write - read >= EventCapacity) {
         return SpscMailboxResult{payload.count, SpscMailboxError::event_capacity};
     }
+    // The consumer releases at most what the producer wrote: 0 <= written - read <= PayloadCapacity.
     const u64 payload_write = spsc_mailbox_load_u64(&mailbox->payload_write_sequence);
     const u64 payload_read = spsc_mailbox_load_u64(&mailbox->payload_read_sequence);
-    if (payload_write < payload_read || payload_write - payload_read > PayloadCapacity) {
-        return SpscMailboxResult{payload.count, SpscMailboxError::corrupt};
-    }
     if (payload.count > PayloadCapacity - (payload_write - payload_read)) {
         return SpscMailboxResult{payload.count, SpscMailboxError::payload_capacity};
     }
@@ -147,16 +141,13 @@ SpscMailboxResult spsc_mailbox_push(
     return SpscMailboxResult{payload.count, SpscMailboxError::none};
 }
 
-// Queues a descriptor whose payload stays in a producer-owned buffer. The
+// Queues a descriptor whose payload stays in a producer-owned buffer of `payload_bytes` (nonzero). The
 // producer must not reuse that buffer until the consumer has popped this
 // record; no ring bytes are used.
 template <typename T, u32 EventCapacity, u32 PayloadCapacity>
 inline SpscMailboxResult spsc_mailbox_push_external(
     SpscMailbox<T, EventCapacity, PayloadCapacity>* mailbox,
     const typename SpscMailboxTypeIdentity<T>::type& value, u32 payload_bytes) noexcept {
-    if (!mailbox || !payload_bytes) {
-        return SpscMailboxResult{payload_bytes, SpscMailboxError::invalid_input, true};
-    }
     const u32 write = spsc_mailbox_load_u32(&mailbox->write_sequence);
     const u32 read = spsc_mailbox_load_u32(&mailbox->read_sequence);
     if (write - read >= EventCapacity) {
@@ -188,9 +179,6 @@ template <typename T, u32 EventCapacity, u32 PayloadCapacity>
 SpscMailboxResult spsc_mailbox_pop(
     SpscMailbox<T, EventCapacity, PayloadCapacity>* mailbox, T* value,
     Slice<u8> payload_output, ConstSlice<u8> external = {}) noexcept {
-    if (!mailbox || !value || (!payload_output.data && payload_output.count != 0)) {
-        return SpscMailboxResult{0, SpscMailboxError::invalid_input};
-    }
     const u32 read = spsc_mailbox_load_u32(&mailbox->read_sequence);
     const u32 write = spsc_mailbox_load_u32(&mailbox->write_sequence);
     if (read == write) {

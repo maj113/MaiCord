@@ -72,9 +72,6 @@ void test_libraries() noexcept {
     expect(!shared_library_open(&missing, "libmaicord-no-such-library.so.9") && missing.handle == nullptr &&
                shared_library_error() != nullptr,
            "dlopen_missing_library_reports_error");
-    expect(!shared_library_open(nullptr, "libc.so.6") && !shared_library_open(&missing, "") &&
-               !shared_library_open(&missing, nullptr),
-           "dlopen_rejects_empty_names");
 }
 
 // The program interpreter in the image's program headers (AT_PHDR, AT_PHENT, AT_PHNUM): the C library the image was

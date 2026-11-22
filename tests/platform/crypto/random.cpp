@@ -25,9 +25,6 @@ void test_secure_random(Check check) noexcept {
     check(secure_random_fill({first, 32}).ok() && secure_random_fill({second, 32}).ok() && !bytes_equal(first, second, 32),
           "two 32-byte random fills differ");
     check(distinct(first, 32) > 8, "a random fill is not a constant run");
-    check(secure_random_fill({nullptr, 16}).error == SecureRandomError::invalid_input &&
-              secure_random_fill({first, 0}).error == SecureRandomError::invalid_input,
-          "random fill rejects a null or empty destination");
     // Larger than any single getrandom guarantee: the fill loops until every byte is written.
     static u8 large[1 << 20];
     memset(large, 0, sizeof(large));
@@ -42,7 +39,6 @@ void test_secure_random(Check check) noexcept {
     u32 a = 0, b = 0;
     check(secure_random_u32(&a).ok() && secure_random_u32(&b).ok() && (a != b || a != 0),
           "random u32 values come from the generator");
-    check(secure_random_u32(nullptr).error == SecureRandomError::invalid_input, "random u32 rejects a null destination");
 }
 
 } // namespace maicord

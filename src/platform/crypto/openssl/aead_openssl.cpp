@@ -11,7 +11,7 @@ __attribute__((minsize)) bool aead_openssl_available() noexcept {
 
 // A new context for each packet: its init call fixes its direction, key and nonce. A failure after the init,
 // including a tag mismatch, erases the attempted output prefix (and, when encrypting, the tag), returns zero bytes
-// and is never valid plaintext. Sizes above INT_MAX are rejected as invalid input.
+// and is never valid plaintext. The voice and Go Live packets it seals fit in a datagram, far below INT_MAX.
 AeadResult aead_openssl_chacha_crypt(const u8* key, ConstSlice<u8> nonce, ConstSlice<u8> aad, ConstSlice<u8> input,
                                      Slice<u8> output, u8* tag, bool encrypt) noexcept {
     u32 failure = 0;
@@ -24,12 +24,9 @@ AeadResult aead_openssl_chacha_crypt(const u8* key, ConstSlice<u8> nonce, ConstS
     const void* cipher = library->EVP_chacha20_poly1305();
     const bool keyed = encrypt ? library->EVP_EncryptInit_ex(context, cipher, nullptr, key, nonce.data) == 1
                                : library->EVP_DecryptInit_ex(context, cipher, nullptr, key, nonce.data) == 1;
-    constexpr u32 kMaximum = 0x7fffffff;
     AeadResult result = aead_result(AeadError::none, input.count);
     if (!keyed) {
         result = aead_result(AeadError::platform_failure, 0, openssl::error_status(*library));
-    } else if (input.count > kMaximum || aad.count > kMaximum) {
-        result = aead_result(AeadError::invalid_input);
     } else {
         int length = 0;
         bool good = true;

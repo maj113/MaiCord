@@ -14,7 +14,6 @@ enum class WebSocketHandshakeError : u8 {
     output_too_small,
     invalid_target,
     invalid_host,
-    invalid_client_key,
     http_error,
     invalid_http_version,
     invalid_status,

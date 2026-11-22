@@ -51,8 +51,6 @@ bool text(JsonValue value, Text* bank, u32 byte_limit, u32 scalar_limit, Utf8Vie
     JsonString string{};
     if (!json_value_as_string(value, &string))
         return false;
-    if (bank->used > sizeof(bank->data))
-        return false;
     // One decode both sizes and writes the text: a text too long for the room is measured without a write.
     const u32 room = static_cast<u32>(sizeof(bank->data)) - bank->used;
     const auto decoded = json_string_decode_utf8(string, {bank->data + bank->used, minimum(byte_limit, room)});
@@ -418,33 +416,9 @@ GatewayEventDecodeResult gateway_decode_message_poll(JsonValue data, const JsonI
                                                      const GatewayMessagePollScratch& scratch,
                                                      GatewayMessagePoll* output,
                                                      bool require_complete) noexcept {
-    if (!output || !text_used || *text_used > text_output.count ||
-        (!text_output.data && text_output.count) || (!scratch.answers.data && scratch.answers.count) ||
-        (!scratch.answer_counts.data && scratch.answer_counts.count) || !maximum_depth ||
-        !data.source.data || !data.source.bytes || data.source.bytes > 256 * 1024 || !document.input.data ||
-        (!document.structurals.data && document.structurals.count))
-        return decode_failure(GatewayEventDecodeError::invalid_input);
-    const void* banks[] = {text_output.data, scratch.answers.data, scratch.answer_counts.data, output,
-                           text_used};
-    const u64 sizes[] = {
-        text_output.count, static_cast<u64>(scratch.answers.count) * sizeof(GatewayMessagePollAnswer),
-        static_cast<u64>(scratch.answer_counts.count) * sizeof(GatewayMessagePollAnswerCount),
-        sizeof(*output), sizeof(*text_used)};
-    for (u32 i = 0; i < 5; ++i) {
-        if (byte_ranges_conflict(banks[i], sizes[i], document.input.data, document.input.bytes) ||
-            byte_ranges_conflict(banks[i], sizes[i], document.structurals.data,
-                    static_cast<u64>(document.structurals.count) * sizeof(u32)) ||
-            byte_ranges_conflict(banks[i], sizes[i], &scratch, sizeof(scratch)) ||
-            byte_ranges_conflict(banks[i], sizes[i], &document, sizeof(document)))
-            return decode_failure(GatewayEventDecodeError::invalid_input);
-        for (u32 j = i + 1; j < 5; ++j)
-            if (byte_ranges_conflict(banks[i], sizes[i], banks[j], sizes[j]))
-                return decode_failure(GatewayEventDecodeError::invalid_input);
-    }
-    const auto input_start = reinterpret_cast<usize>(document.input.data);
-    const auto value_start = reinterpret_cast<usize>(data.source.data);
-    if (value_start < input_start || value_start - input_start > document.input.bytes ||
-        data.source.bytes > document.input.bytes - (value_start - input_start))
+    // Both callers (the rich message decode, the REST poll message) give their own text, answer and count arrays,
+    // apart from the document, and a value the document's visitor produced.
+    if (data.source.bytes > 256 * 1024)
         return decode_failure(GatewayEventDecodeError::invalid_input);
     if (data.kind == JsonValueKind::null_value) {
         if (data.source.bytes != 4 || !bytes_equal(data.source.data, "null", 4))
@@ -454,8 +428,6 @@ GatewayEventDecodeResult gateway_decode_message_poll(JsonValue data, const JsonI
     }
     if (data.kind != JsonValueKind::object)
         return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
-    if (!document.structurals.data || !document.structurals.count)
-        return decode_failure(GatewayEventDecodeError::invalid_input);
     Poll context;  // The text bank and answer tables are read only below their counts.
     context.document = &document;
     context.depth = maximum_depth;

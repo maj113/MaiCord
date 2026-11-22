@@ -1041,7 +1041,7 @@ __declspec(noinline) static bool decimal_to_u64(const char* data, u32 bytes, con
 }
 
 bool json_string_to_u64(const JsonString& value, u64* output) noexcept {
-    if (!output || !value.encoded.data || value.encoded.bytes == 0) {
+    if (!value.encoded.data || value.encoded.bytes == 0) {
         return false;
     }
     return decimal_to_u64(value.encoded.data, value.encoded.bytes, &value, output);
@@ -1141,7 +1141,7 @@ MAICORD_HASWELL JsonStringDecodeResult json_string_decode_utf8(const JsonString&
 }
 
 bool json_value_as_string(const JsonValue& value, JsonString* output) noexcept {
-    if (!output || value.kind != JsonValueKind::string || value.source.bytes < 2 ||
+    if (value.kind != JsonValueKind::string || value.source.bytes < 2 ||
         value.source.data[0] != '"' || value.source.data[value.source.bytes - 1] != '"') {
         return false;
     }
@@ -1152,14 +1152,14 @@ bool json_value_as_string(const JsonValue& value, JsonString* output) noexcept {
 }
 
 bool json_value_to_u64(const JsonValue& value, u64* output) noexcept {
-    if (!output || value.kind != JsonValueKind::number || value.source.bytes == 0) {
+    if (value.kind != JsonValueKind::number || value.source.bytes == 0) {
         return false;
     }
     return decimal_to_u64(value.source.data, value.source.bytes, nullptr, output);
 }
 
 bool json_value_to_bool(const JsonValue& value, bool* output) noexcept {
-    if (!output || value.kind != JsonValueKind::boolean || !value.source.data) {
+    if (value.kind != JsonValueKind::boolean || !value.source.data) {
         return false;
     }
     // "true" or "false", a word compare each.

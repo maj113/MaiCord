@@ -25,14 +25,14 @@ void aes_gcm_release(AesGcmKey* key) noexcept;
 // Fixed 96-bit nonce and a detached tag of exactly 16 or 8 bytes (DAVE). The
 // caller fixes the tag length, so a peer cannot negotiate a shorter tag. The
 // caller must guarantee nonce uniqueness for each encryption key, including
-// across reconnects/counter wrap. In-place payload operation is supported;
-// partial overlap is rejected. Arguments cannot overlap the key object; writes
-// cannot overlap nonce/AAD/tag. Only the input-length prefix of output is used,
-// so a trailing packet tag is allowed. Invalid arguments/short output leave
-// destinations unchanged. Decryption verifies the complete tag before it
-// produces any plaintext. A failed authentication erases the attempted output
-// prefix, returns zero bytes and must never be interpreted as authenticated
-// plaintext.
+// across reconnects/counter wrap. In-place payload operation is supported; the
+// caller passes no other overlap: no argument overlaps the key object or its
+// storage, and writes do not overlap the payload, nonce, AAD or tag. Only the
+// input-length prefix of output is used, so a trailing packet tag is allowed.
+// Invalid arguments/short output leave destinations unchanged. Decryption
+// verifies the complete tag before it produces any plaintext. A failed
+// authentication erases the attempted output prefix, returns zero bytes and
+// must never be interpreted as authenticated plaintext.
 AeadResult aes_gcm_encrypt(const AesGcmKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,
                            ConstSlice<u8> plaintext, Slice<u8> ciphertext, Slice<u8> tag) noexcept;
 AeadResult aes_gcm_decrypt(const AesGcmKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,

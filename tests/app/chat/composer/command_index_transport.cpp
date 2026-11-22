@@ -45,13 +45,13 @@ u32 run() noexcept {
                "a DM's command index is a GET of the channel's index");
     const auto lease = rest_rate_acquire(r->scheduler, r->command.route, 1);
     probe.client.request_state = request_state_active;
-    bool delivered = probe.signal() && lease.acquired_request() &&
-                     rest_transaction_acquire(&r->transaction, 4001, lease.lease, 10'000, true) &&
-                     rest_transaction_begin_send(&r->transaction, 17);
+    bool delivered = probe.signal() && lease.acquired_request();
+    rest_transaction_acquire(&r->transaction, 4001, lease.lease, 10'000, true);
+    rest_transaction_begin_send(&r->transaction, 17);
     memset(r->request_head, 'h', 17);
     request_plaintext_committed(r, {r->request_head, 17});
-    delivered = delivered && rest_response_initialize(&r->response, {r->response_input, kRestMaximumHeaderBytes},
-                                                      {r->response_body, r->response_capacity}, RestMethod::get);
+    rest_response_initialize(&r->response, {r->response_input, kRestMaximumHeaderBytes},
+                             {r->response_body, r->response_capacity}, RestMethod::get);
     const auto feed = [&](const void* bytes, u32 count) noexcept {
         return response_plaintext_received(r, {static_cast<const u8*>(bytes), count}, false);
     };
@@ -70,7 +70,7 @@ u32 run() noexcept {
     action = action == TlsStreamReadAction::continue_read ? feed("0\r\n\r\n", 5) : action;
     RestClientResponse response{};
     delivered = action == TlsStreamReadAction::complete &&
-                finalize_response(&probe.client, r, r->response_step, 1) &&
+                finalize_response(&probe.client, r, 1) &&
                 rest_client_take_response(&probe.client, &response, {output, sizeof(output)}).ok() &&
                 response.status_code == 200 && response.body_bytes == json_bytes &&
                 bytes_equal(output, json, json_bytes);

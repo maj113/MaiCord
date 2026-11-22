@@ -329,7 +329,7 @@ struct Binding {
 };
 
 bool bind(ConstSlice<u8> entropy, Binding* binding) noexcept {
-    if (entropy.count > kMaximumEntropyBytes || (!entropy.data && entropy.count != 0))
+    if (entropy.count > kMaximumEntropyBytes)
         return false;
     binding->bytes[0] = kBlobVersion;
     copy_bytes(binding->bytes + 1, entropy.data, entropy.count);
@@ -353,10 +353,8 @@ bool open_cipher(XChaChaKey* cipher, u32* native_error, bool create) noexcept {
 
 } // namespace
 
+// Every caller asks for a nonzero capacity. A zero one fails anyway: pages_map refuses it.
 SecureBufferResult secure_buffer_initialize(SecureBuffer* buffer, u32 capacity) noexcept {
-    if (!buffer || capacity == 0) {
-        return invalid_input();
-    }
     reset_value<SecureBuffer>(buffer);
     auto* allocation = static_cast<u8*>(commit_pages(capacity));
     if (!allocation) {
@@ -376,9 +374,6 @@ SecureBufferResult secure_buffer_initialize(SecureBuffer* buffer, u32 capacity) 
 }
 
 void secure_buffer_release(SecureBuffer* buffer) noexcept {
-    if (!buffer) {
-        return;
-    }
     if (buffer->data) {
         secure_clear_bytes(buffer->data, buffer->capacity);
         // The unmap also drops the lock (mlock(2): a lock lasts until munlock or munmap of the range).
@@ -387,14 +382,12 @@ void secure_buffer_release(SecureBuffer* buffer) noexcept {
     reset_value<SecureBuffer>(buffer);
 }
 
+// The callers (plugin secrets, the startup shell key and the _block callers) give a filled, locked plaintext and
+// arrays of their own.
 SecureBufferResult secure_buffer_protect_user_bound(const SecureBuffer& plaintext, ConstSlice<u8> entropy,
                                                     Slice<u8> protected_output) noexcept {
-    if (!plaintext.data || !plaintext.locked || plaintext.bytes == 0 ||
-        (!protected_output.data && protected_output.count != 0) || (!entropy.data && entropy.count != 0)) {
-        return invalid_input();
-    }
     Binding binding;
-    if (!bind(entropy, &binding) || plaintext.bytes > ~u32{0} - kBlobOverheadBytes) {
+    if (!bind(entropy, &binding)) {
         return invalid_input();
     }
     const u32 required = plaintext.bytes + kBlobOverheadBytes;
@@ -431,20 +424,14 @@ SecureBufferResult secure_buffer_protect_user_bound(const SecureBuffer& plaintex
     return result;
 }
 
+// The callers (account profile and session store) give their own outputs and a constant header below the maximum.
 SecureBufferResult secure_buffer_protect_user_bound_block(const SecureBuffer& plaintext, ConstSlice<u8> entropy,
                                                           u32 header_bytes, u32 maximum_bytes, u8** block,
                                                           u32* block_bytes) noexcept {
-    if (!block || !block_bytes || header_bytes == 0 || header_bytes >= maximum_bytes) {
-        return invalid_input();
-    }
     *block = nullptr;
     *block_bytes = 0;
-    if (!plaintext.data || !plaintext.locked || plaintext.bytes == 0) {
-        return invalid_input();
-    }
     // The blob's size is known exactly, unlike a DPAPI blob's: one allocation, one call.
-    if (plaintext.bytes > ~u32{0} - kBlobOverheadBytes ||
-        plaintext.bytes + kBlobOverheadBytes > maximum_bytes - header_bytes) {
+    if (plaintext.bytes + kBlobOverheadBytes > maximum_bytes - header_bytes) {
         return failure(SecureBufferError::output_too_small, 0, plaintext.bytes + kBlobOverheadBytes);
     }
     const u32 capacity = plaintext.bytes + kBlobOverheadBytes;
@@ -465,12 +452,9 @@ SecureBufferResult secure_buffer_protect_user_bound_block(const SecureBuffer& pl
     return result.ok() ? failure(SecureBufferError::protect_failed) : result;
 }
 
+// Every caller initializes the plaintext first and gives an entropy array. The size check below covers an empty input.
 SecureBufferResult secure_buffer_unprotect_user_bound(ConstSlice<u8> protected_input, ConstSlice<u8> entropy,
                                                       SecureBuffer* plaintext) noexcept {
-    if (!protected_input.data || protected_input.count == 0 || !plaintext || !plaintext->data ||
-        !plaintext->locked || (!entropy.data && entropy.count != 0)) {
-        return invalid_input();
-    }
     Binding binding;
     if (!bind(entropy, &binding)) {
         return invalid_input();

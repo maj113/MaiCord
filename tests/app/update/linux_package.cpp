@@ -830,7 +830,7 @@ void test_update_package(void (*check_fn)(bool, const char*) noexcept) noexcept 
     u32 native = 0;
     check(process_command(L"/home/u/.local/opt/MaiCord/MaiCord", &command, &native) &&
               bytes_equal(command.path, "/home/u/.local/opt/MaiCord/MaiCord", 35) && !process_command(L"MaiCord", &command, &native) &&
-              native == ERROR_INVALID_PARAMETER && !process_command(nullptr, &command, &native) && !process_command(L"", &command, &native),
+              native == ERROR_INVALID_PARAMETER && !process_command(L"", &command, &native),
           "linux update: the relaunch command is the install's absolute program path");
 }
 

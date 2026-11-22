@@ -46,16 +46,13 @@ __forceinline u32 wait_any(const Waitable* waitables, u32 count, u32 timeout_ms)
     return WaitForMultipleObjects(count, waitables, FALSE, timeout_ms);
 }
 
-// WaitForMultipleObjects returns the lowest signaled handle; the ones after it are tested without waiting.
+// WaitForMultipleObjects returns the lowest signaled handle; the ones after it are tested without waiting. It refuses
+// no waitables and more than kWaitMaximumCount with WAIT_FAILED, which fails below.
 // `tolerance_ms` is not used: a handle wait has no tolerance on Windows, the window loop applies it with a
 // waitable timer (SetWaitableTimerEx).
 inline WaitManyResult wait_many(const Waitable* waitables, u32 count, u32 timeout_ms, u32 tolerance_ms) noexcept {
     (void)tolerance_ms;
     WaitManyResult result{};
-    if (count == 0 || count > kWaitMaximumCount) {
-        result.failed = true;
-        return result;
-    }
     const u32 first = WaitForMultipleObjects(count, waitables, FALSE, timeout_ms);
     if (first == WAIT_TIMEOUT) {
         result.timed_out = true;

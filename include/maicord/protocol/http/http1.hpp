@@ -213,10 +213,10 @@ struct HttpResponseDecoderStep {
     }
 };
 
-// The optional retained-head span must be empty or at least
-// maximum_header_bytes. It receives only the final non-informational head;
-// interim 1xx heads never overwrite it.
-bool http_response_decoder_initialize(
+// The input storage holds at least maximum_header_bytes. The optional retained-head span must be empty or at
+// least maximum_header_bytes. It receives only the final non-informational head; interim 1xx heads never
+// overwrite it.
+void http_response_decoder_initialize(
     HttpResponseDecoder* decoder, Slice<u8> input_storage,
     Slice<u8> retained_head, Slice<u8> body_output,
     u32 maximum_header_bytes, u32 maximum_fields,

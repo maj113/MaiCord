@@ -44,18 +44,6 @@ void account_commit(const Arena* arena, i64 bytes) noexcept {
 // The page of x64 Windows and Linux.
 constexpr usize kPageBytes = 4096;
 
-bool align_up(usize value, usize alignment, usize* result) noexcept {
-    if (!is_power_of_two(alignment)) {
-        return false;
-    }
-    const usize mask = alignment - 1;
-    if (value > (~usize{0}) - mask) {
-        return false;
-    }
-    *result = (value + mask) & ~mask;
-    return true;
-}
-
 void erase_bytes(u8* memory, usize bytes) noexcept {
     // The arena can rewind to any byte, so word stores must accept unaligned
     // addresses. Volatile preserves the secure-erasure contract.
@@ -79,11 +67,10 @@ __forceinline void* place(Arena* arena, usize aligned_offset, usize end) noexcep
 // Commits whole steps through `end`, then places the allocation. arena_allocate
 // tail-calls it, so the uncommitted case costs its fast path no stack frame.
 void* commit_and_place(Arena* arena, usize end, usize aligned_offset) noexcept {
-    usize target = 0;
-    if (!align_up(end, arena->commit_step, &target)) {
-        return nullptr;
-    }
-    target = minimum(target, arena->reserved);
+    // Every caller's step is a power of two of at least a page, and `end` lies inside the reservation: the rounding
+    // cannot wrap.
+    const usize step_mask = arena->commit_step - 1;
+    const usize target = minimum((end + step_mask) & ~step_mask, arena->reserved);
     auto* address = arena->base + arena->committed;
     if (!pages_commit(address, target - arena->committed)) {
         return nullptr;
@@ -98,21 +85,17 @@ void* commit_and_place(Arena* arena, usize end, usize aligned_offset) noexcept {
 
 bool arena_initialize(Arena* arena, usize reserve_bytes, usize initial_commit_bytes, usize commit_step_bytes,
                       ArenaTag tag) noexcept {
-    if (!arena || arena->base || reserve_bytes == 0) {
+    // Every caller passes an Arena it owns, sizes far below the address space, an initial commit no larger than the
+    // reservation and a power-of-two step. An arena whose base is set stays: a caller retries after a failed first
+    // allocation.
+    if (arena->base || reserve_bytes == 0) {
         return false;
     }
 
     constexpr usize page_mask = kPageBytes - 1;
-    const usize largest_input = maximum(reserve_bytes, maximum(initial_commit_bytes, commit_step_bytes));
-    if (largest_input > ~usize{0} - page_mask) {
-        return false;
-    }
     const usize reserved = (reserve_bytes + page_mask) & ~page_mask;
     const usize initial_commit = (initial_commit_bytes + page_mask) & ~page_mask;
     const usize commit_step = (commit_step_bytes + page_mask) & ~page_mask;
-    if (initial_commit > reserved || commit_step == 0) {
-        return false;
-    }
 
     u8* base;
     if (initial_commit == reserved) {
@@ -139,9 +122,6 @@ bool arena_initialize(Arena* arena, usize reserve_bytes, usize initial_commit_by
 }
 
 void arena_release(Arena* arena) noexcept {
-    if (!arena) {
-        return;
-    }
     if (arena->base) {
         pages_release(arena->base, arena->reserved);
         AccountCounters& account = account_of(arena);
@@ -203,9 +183,7 @@ bool arena_rewind(Arena* arena, ArenaMark mark, ArenaRewindMode mode) noexcept {
 }
 
 void arena_reset(Arena* arena, ArenaRewindMode mode) noexcept {
-    if (arena) {
-        arena_rewind(arena, ArenaMark{0}, mode);
-    }
+    arena_rewind(arena, ArenaMark{0}, mode);
 }
 
 bool arena_trim(Arena* arena, usize offset) noexcept {

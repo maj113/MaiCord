@@ -69,15 +69,11 @@ bool drive_transport_event(RestClient* client, RestClientRuntime* runtime,
             continue;
         }
         if (current.kind == TlsStreamEventKind::write_complete) {
-            if (runtime->write_commit_failed ||
-                runtime->transaction.phase != RestTransactionPhase::receiving ||
-                !rest_response_initialize(
-                     &runtime->response, Slice<u8>{runtime->response_input, kRestMaximumHeaderBytes},
-                     Slice<u8>{runtime->response_body, runtime->response_capacity},
-                     runtime->command.route.method)) {
-                begin_drain(client, runtime, RestClientError::request, 0, false);
-                return false;
-            }
+            // The stream sends write_complete after it committed every request byte: the transaction receives.
+            rest_response_initialize(&runtime->response,
+                                     Slice<u8>{runtime->response_input, kRestMaximumHeaderBytes},
+                                     Slice<u8>{runtime->response_body, runtime->response_capacity},
+                                     runtime->command.route.method);
             runtime->response.cookies = request_cookies(runtime);
             runtime->response.cookie_request = cookie_request(runtime);
             publish_worker_phase(client, runtime, RestClientPhase::receiving);
@@ -87,7 +83,7 @@ bool drive_transport_event(RestClient* client, RestClientRuntime* runtime,
         }
         if (current.kind == TlsStreamEventKind::read_complete) {
             if (runtime->response_callback_failed ||
-                !finalize_response(client, runtime, runtime->response_step, now_ms)) {
+                !finalize_response(client, runtime, now_ms)) {
                 begin_drain(client, runtime, RestClientError::response, 0, false);
                 return false;
             }
@@ -169,18 +165,7 @@ bool acquire_request(RestClient* client, RestClientRuntime* runtime, NetworkLoop
     const u64 deadline = deadline_after(now_ms, runtime->command.timeout_ms);
     retire_idle_transport(runtime, now_ms);
     const bool reused = runtime->transport_ready && runtime->connection_request_count != 0;
-    if (!rest_transaction_acquire(&runtime->transaction, runtime->command.request_id,
-                                  acquired.lease, deadline, reused)) {
-        RestRateLease lease = acquired.lease;
-        {
-            RateLock guard(runtime);
-            rest_rate_cancel(runtime->scheduler, &lease);
-            endpoint_gate_release(runtime->endpoint_gate, &runtime->endpoint_lease, now_ms);
-            rate_changed(runtime);
-        }
-        publish_request_error(client, runtime, RestClientError::request, 0);
-        return true;
-    }
+    rest_transaction_acquire(&runtime->transaction, runtime->command.request_id, acquired.lease, deadline, reused);
     if (runtime->transport_ready) {
         drive_transport_event(client, runtime, begin_request_send(client, runtime), now_ms);
         return true;
@@ -342,16 +327,12 @@ inline NetworkWorkerResult start_rest_worker(RestClient* client, RestSharedState
 } // namespace
 namespace rest_client_detail {
 
-void destroy_client_storage(RestClient* client, SecureBuffer* restore) noexcept {
-    if (!client || !client->runtime) {
+void destroy_client_storage(RestClient* client) noexcept {
+    if (!client->runtime) {
         return;
     }
     auto* runtime = static_cast<RestClientRuntime*>(client->runtime);
-    if (restore && runtime->credential.data) {
-        secure_buffer_transfer(restore, &runtime->credential);
-    } else {
-        secure_buffer_release(&runtime->credential);
-    }
+    secure_buffer_release(&runtime->credential);
     secure_buffer_release(&runtime->secret_storage);
     const bool restored = tls_stream_restore_buffers(&runtime->transport);
     if (!restored && runtime->decompression == runtime->handshake_output)
@@ -377,7 +358,7 @@ void destroy_client_storage(RestClient* client, SecureBuffer* restore) noexcept 
 
 // Releases the storage of a start that failed after allocating it and records the error.
 static RestClientResult fail_start(RestClient* client, RestClientError error, u32 native_error) noexcept {
-    destroy_client_storage(client, nullptr);
+    destroy_client_storage(client);
     InterlockedExchange(&client->error, static_cast<LONG>(error));
     InterlockedExchange(&client->native_error, static_cast<LONG>(native_error));
     return client_result(client);
@@ -439,7 +420,7 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
     runtime->default_body = runtime->request_body;
     if ((user_configuration && !copy_user_configuration(runtime, *user_configuration)) ||
         (user_auth_mode && !initialize_auth_user_configuration(runtime))) {
-        destroy_client_storage(client, nullptr);
+        destroy_client_storage(client);
         return invalid_result();
     }
     if (!tls_stream_initialize(
@@ -451,7 +432,7 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
                              Slice<u8>{runtime->record_output, user_auth_mode ? kUserAuthRecordOutputBytes
                                                                               : kRecordOutputBytes},
                              !user_auth_mode})) {
-        destroy_client_storage(client, nullptr);
+        destroy_client_storage(client);
         return invalid_result();
     }
     client->response_event = event_create(FALSE, FALSE);
@@ -460,7 +441,7 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
     if (credential && !secure_buffer_transfer(&runtime->credential, credential)) {
         waitable_close(client->response_event);
         client->response_event = nullptr;
-        destroy_client_storage(client, nullptr);
+        destroy_client_storage(client);
         return invalid_result();
     }
     publish_phase(client, RestClientPhase::starting);

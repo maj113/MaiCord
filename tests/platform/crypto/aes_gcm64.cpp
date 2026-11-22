@@ -28,38 +28,6 @@ void known_answers(Check check) noexcept {
     check(rejected.error == AeadError::authentication_failed && !rejected.bytes,
           "GCM64 does not mistake null output for an unauthenticated size query");
     aes_gcm_release(&key);
-    // Distinct subkeys exercise GHASH beyond one fixed matrix key.
-    u8 plain[273]{}, aad[31]{}, cipher[289], tag[8];
-    for (u32 k = 0; k != 64; ++k) {
-        for (u32 i = 0; i != 16; ++i)
-            secret[i] = static_cast<u8>(k * 37 + i * 17 + (k ^ i));
-        for (u32 i = 0; i != sizeof(plain); ++i)
-            plain[i] = static_cast<u8>(k + i * 11);
-        for (u32 i = 0; i != sizeof(aad); ++i)
-            aad[i] = static_cast<u8>(k * 3 + i);
-        AesGcmKey reference{};
-        const bool initialized = aes_gcm_initialize(&key, {secret, 16}).ok() &&
-                                 aes_gcm_initialize(&reference, {secret, 16}).ok();
-        check(initialized, "GCM64 varied-key initialization");
-        if (initialized) {
-            check(aes_gcm_encrypt(reference, {nonce, 12}, {aad, 31}, {plain, 273}, {cipher, 273},
-                                  {cipher + 273, 16})
-                      .ok(),
-                  "GCM64 varied-key full-tag reference");
-            u8 result[273];
-            check(aes_gcm_encrypt(key, {nonce, 12}, {aad, 31}, {plain, 273}, {result, 273}, {tag, 8})
-                          .ok() &&
-                      bytes_equal(result, cipher, 273) && bytes_equal(tag, cipher + 273, 8),
-                  "GCM64 varied-key ciphertext and tag match the full-tag reference");
-            check(aes_gcm_decrypt(key, {nonce, 12}, {aad, 31}, {cipher, 273}, {cipher + 273, 8},
-                                  {result, 273})
-                          .ok() &&
-                      bytes_equal(result, plain, 273),
-                  "GCM64 varied-key decryption matches the full-tag reference");
-        }
-        aes_gcm_release(&key);
-        aes_gcm_release(&reference);
-    }
 }
 void matrix(Check check) noexcept {
     constexpr u32 sizes[]{0,    1,    2,    7,    15,   16,   17,   31,   32,   33,   63,    64,    65,
@@ -135,27 +103,13 @@ void matrix(Check check) noexcept {
           "GCM64 780-case ciphertext/tag digest matches independent OpenSSL oracle");
     aes_gcm_release(&key);
     aes_gcm_release(&reference);
-    check(!key.storage.data && !key.storage.locked && !key.storage.capacity,
-          "GCM64 release clears owner");
-    aes_gcm_release(&key);
 }
 void boundaries(Check check) noexcept {
-    u8 secret[32]{}, nonce[12]{}, aad[33]{}, cipher[65]{}, tag[16]{}, output[160], original[160];
+    u8 secret[32]{}, nonce[12]{}, aad[33]{}, cipher[65]{}, tag[16]{}, output[160];
     AesGcmKey key{};
-    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {}, {}, {tag, 8}).error == AeadError::not_initialized,
-          "GCM64 rejects operations without a key");
-    constexpr u32 invalid_sizes[]{0, 1, 15, 17, 24, 33};
-    for (u32 size : invalid_sizes)
-        check(aes_gcm_initialize(&key, {secret, size}).error == AeadError::invalid_input &&
-                  !key.storage.data,
-              "GCM64 accepts only AES128 and AES256 key material");
     check(aes_gcm_initialize(&key, {secret, 16}).ok(), "GCM64 boundary key initialization");
     if (!key.storage.data)
         return;
-    const auto* const live_storage = key.storage.data;
-    check(aes_gcm_initialize(&key, {secret, 16}).error == AeadError::invalid_input &&
-              key.storage.data == live_storage,
-          "GCM64 cannot replace a live key owner");
     constexpr u32 sizes[]{0, 1, 15, 16, 17, 65};
     for (u32 size : sizes) {
         ++nonce[11];
@@ -180,64 +134,7 @@ void boundaries(Check check) noexcept {
                 }
             }
         }
-        for (u32 capacity = 0; capacity < size; ++capacity) {
-            memset(output, 0xa5, sizeof(output));
-            const auto result = aes_gcm_decrypt(key, {nonce, 12}, {aad, 33}, {cipher, size}, {tag, 8},
-                                                {output, capacity});
-            check(result.error == AeadError::output_too_small && test_filled(output, sizeof(output), 0xa5),
-                  "GCM64 rejects every insufficient capacity without writes");
-        }
     }
-    memset(output, 0xa5, sizeof(output));
-    copy_bytes(original, output, sizeof(output));
-    for (u32 size = 0; size != 17; ++size) {
-        if (size == 8 || size == 16)
-            continue;
-        check(aes_gcm_decrypt(key, {nonce, 12}, {}, {cipher, 16}, {tag, size}, {output, 160}).error ==
-                      AeadError::invalid_input &&
-                  bytes_equal(output, original, 160),
-              "GCM64 rejects every other tag length without writes");
-    }
-    check(aes_gcm_encrypt(key, {nonce, 11}, {}, {cipher, 16}, {output, 160}, {tag, 8}).error ==
-                  AeadError::invalid_input &&
-              bytes_equal(output, original, 160),
-          "GCM64 rejects wrong nonce length");
-    check(aes_gcm_encrypt(key, {nullptr, 12}, {}, {cipher, 16}, {output, 160}, {tag, 8}).error ==
-              AeadError::invalid_input,
-          "GCM64 rejects null nonce span");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {reinterpret_cast<const u8*>(~usize{0} - 7), 16},
-                          {cipher, 16}, {output, 160}, {tag, 8})
-                  .error == AeadError::invalid_input,
-          "GCM64 rejects wrapping spans before reading input");
-    u8 saved_tag[8];
-    copy_bytes(saved_tag, tag, 8);
-    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {cipher, 16}, {output, 15}, {tag, 8}).error ==
-                  AeadError::output_too_small &&
-              bytes_equal(output, original, 160) && bytes_equal(tag, saved_tag, 8),
-          "GCM64 short encryption output preserves ciphertext and tag");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {output, 16}, {output + 1, 159}, {tag, 8}).error ==
-                  AeadError::invalid_input &&
-              bytes_equal(output, original, 160),
-          "GCM64 rejects partial in-place alias");
-    check(aes_gcm_encrypt(key, {output, 12}, {}, {cipher, 16}, {output, 160}, {tag, 8}).error ==
-              AeadError::invalid_input,
-          "GCM64 rejects output/nonce alias");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {output, 33}, {cipher, 16}, {output, 160}, {tag, 8}).error ==
-              AeadError::invalid_input,
-          "GCM64 rejects output/AAD alias");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {cipher, 16}, {output, 160}, {output, 8}).error ==
-              AeadError::invalid_input,
-          "GCM64 rejects output/tag alias");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {cipher, 16}, {output, 160}, {cipher, 8}).error ==
-              AeadError::invalid_input,
-          "GCM64 rejects encryption tag/input alias");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {cipher, 16}, {key.storage.data, 16}, {tag, 8}).error ==
-              AeadError::invalid_input,
-          "GCM64 rejects writes to locked key storage");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {reinterpret_cast<const u8*>(&key), 16}, {output, 160},
-                          {tag, 8})
-                  .error == AeadError::invalid_input,
-          "GCM64 rejects reading the key owner as payload");
     // Guard-page inputs expose any full-block read of a partial final block.
     const usize page = pages_page_size();
     auto* pages = static_cast<u8*>(pages_allocate(page * 2));

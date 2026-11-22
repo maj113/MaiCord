@@ -47,8 +47,9 @@ void translate_file(NetworkOperation* operation, NetworkPollResult* result) noex
 
 } // namespace net_detail
 
+// The upload and the staged file give their loop, their file member and a nonempty path.
 NetworkResult network_file_open(NetworkLoop* loop, NetworkFile* file, const wchar_t* path) noexcept {
-    if (!loop || !loop->ready || !file || file->handle || file->pending || !path || !path[0]) {
+    if (!loop->ready || file->handle || file->pending) {
         return fail(ERROR_INVALID_PARAMETER, NetworkError::invalid_argument);
     }
     const FileHandle handle =
@@ -73,9 +74,9 @@ NetworkResult network_file_open(NetworkLoop* loop, NetworkFile* file, const wcha
     return success();
 }
 
+// The upload reads inside the size it checked; the download writes below 2^63 bytes. Both give nonempty buffers.
 NetworkResult network_file_read(NetworkFile* file, u64 offset, Slice<u8> buffer) noexcept {
-    if (!file || !file->handle || file->pending || !buffer.data || !buffer.count || offset >= file->bytes ||
-        buffer.count > file->bytes - offset) {
+    if (!file->handle || file->pending) {
         return fail(ERROR_INVALID_PARAMETER, NetworkError::invalid_argument);
     }
     start_operation(file, NetworkOperationKind::file_read, offset, buffer);
@@ -83,7 +84,7 @@ NetworkResult network_file_read(NetworkFile* file, u64 offset, Slice<u8> buffer)
 }
 
 void network_file_close(NetworkFile* file) noexcept {
-    if (!file || !file->handle) {
+    if (!file->handle) {
         return;
     }
     if (file->pending) {
@@ -96,7 +97,7 @@ void network_file_close(NetworkFile* file) noexcept {
 }
 
 NetworkResult network_file_create(NetworkLoop* loop, NetworkFile* file, const wchar_t* path) noexcept {
-    if (!loop || !loop->ready || !file || file->handle || file->pending || !path || !path[0]) {
+    if (!loop->ready || file->handle || file->pending) {
         return fail(ERROR_INVALID_PARAMETER, NetworkError::invalid_argument);
     }
     const FileHandle handle = file_open(path, {FileAccess::write, FileCreate::create_new, 0,
@@ -116,8 +117,7 @@ NetworkResult network_file_create(NetworkLoop* loop, NetworkFile* file, const wc
 }
 
 NetworkResult network_file_write(NetworkFile* file, u64 offset, ConstSlice<u8> buffer) noexcept {
-    if (!file || !file->handle || file->pending || !buffer.data || !buffer.count || offset > 0x7fffffffffffffffull ||
-        buffer.count > 0x7fffffffffffffffull - offset) {
+    if (!file->handle || file->pending) {
         return fail(ERROR_INVALID_PARAMETER, NetworkError::invalid_argument);
     }
     start_operation(file, NetworkOperationKind::file_write, offset, Slice<u8>{const_cast<u8*>(buffer.data), buffer.count});

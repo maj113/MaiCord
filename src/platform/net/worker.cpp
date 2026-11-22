@@ -82,11 +82,9 @@ void network_worker_detail::publish_startup_failure(NetworkWorker* worker, const
     }
 }
 
+// Every caller starts an empty worker: the owners check worker.thread or reset the worker's owner first.
 static NetworkWorkerResult launch_worker(NetworkWorker* worker, NetworkWorkerHandler handler,
                                          void* context, bool asynchronous) noexcept {
-    if (!worker || !handler || worker->thread || worker->ready_event) {
-        return failure(NetworkWorkerError::invalid_input, ERROR_INVALID_PARAMETER);
-    }
     reset_value<NetworkWorker>(worker);
     worker->handler = handler;
     worker->context = context;
@@ -113,7 +111,7 @@ NetworkWorkerResult network_worker_start_async(NetworkWorker* worker, NetworkWor
 }
 
 NetworkWorkerResult network_worker_startup_status(const NetworkWorker* worker) noexcept {
-    if (!worker || !worker->thread || !worker->ready_event)
+    if (!worker->thread || !worker->ready_event)
         return failure(NetworkWorkerError::invalid_input, ERROR_INVALID_PARAMETER);
     const u32 ready = wait_one(worker->ready_event, 0);
     if (ready == WAIT_TIMEOUT) return failure(NetworkWorkerError::startup_pending, 0);
@@ -164,7 +162,7 @@ NetworkWorkerResult network_worker_request_stop(NetworkWorker* worker) noexcept 
 }
 
 NetworkWorkerResult network_worker_join(NetworkWorker* worker, u32 timeout_milliseconds) noexcept {
-    if (!worker || !worker->thread) {
+    if (!worker->thread) {
         return failure(NetworkWorkerError::invalid_input, ERROR_INVALID_PARAMETER);
     }
     if (!thread_wait(thread_of(worker), timeout_milliseconds)) {

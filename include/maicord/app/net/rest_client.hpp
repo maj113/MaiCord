@@ -52,12 +52,10 @@ struct RestTransaction {
     bool reused_connection;
 };
 
-bool rest_transaction_acquire(RestTransaction* transaction, u64 request_id,
-                              const RestRateLease& lease, u64 deadline_ms,
-                              bool reused_connection) noexcept;
-bool rest_transaction_begin_send(RestTransaction* transaction, u32 request_bytes) noexcept;
-bool rest_transaction_commit_plaintext(RestTransaction* transaction, u32 bytes) noexcept;
-bool rest_transaction_complete(RestTransaction* transaction) noexcept;
+void rest_transaction_acquire(RestTransaction* transaction, u64 request_id, const RestRateLease& lease,
+                              u64 deadline_ms, bool reused_connection) noexcept;
+void rest_transaction_begin_send(RestTransaction* transaction, u32 request_bytes) noexcept;
+void rest_transaction_commit_plaintext(RestTransaction* transaction, u32 bytes) noexcept;
 bool rest_transaction_cancel(RestTransaction* transaction) noexcept;
 bool rest_transaction_fail(RestTransaction* transaction) noexcept;
 

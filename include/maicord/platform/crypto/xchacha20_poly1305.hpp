@@ -17,9 +17,10 @@ AeadResult xchacha_initialize(XChaChaKey* key, ConstSlice<u8> secret) noexcept;
 void xchacha_release(XChaChaKey* key) noexcept;
 
 // 192-bit nonce, detached 128-bit tag. Caller owns per-key nonce uniqueness.
-// Exact in-place payload operation and adjacent tags are supported. No argument
-// may overlap key storage/owner. Partial payload overlap or writes into AAD,
-// nonce or tag are rejected unchanged, as are malformed/short destinations.
+// Exact in-place payload operation and adjacent tags are supported. The caller
+// passes no other overlap: no argument overlaps the key storage/owner, and writes
+// do not overlap the payload, AAD, nonce or tag. Malformed/short destinations are
+// rejected unchanged.
 // Authentication failure erases the attempted output prefix and returns zero
 // bytes, never valid plaintext.
 AeadResult xchacha_encrypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,

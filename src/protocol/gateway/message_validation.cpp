@@ -2,8 +2,8 @@
 #include "maicord/protocol/encoding/base64.hpp"
 #include "maicord/core/time.hpp"
 
-// Message validators the client's mailbox readers and stores call on every
-// record, and the account module's decoders call before publishing one.
+// Message validators: the dispatch packer, the rich message store, the message decoders and the attachment
+// upload call them.
 namespace maicord {
 namespace {
 

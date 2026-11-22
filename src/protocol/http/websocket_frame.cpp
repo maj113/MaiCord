@@ -62,11 +62,8 @@ u32 frame_header_bytes(u32 payload_bytes) noexcept {
 }
 
 
-WebSocketParseResult parse_frame(ConstSlice<u8> input, u64 maximum_payload_bytes, WebSocketDirection direction,
-                                 bool require_payload) noexcept {
-    if ((!input.data && input.count != 0) || maximum_payload_bytes == 0) {
-        return parse_error(WebSocketError::invalid_input, 0);
-    }
+// The callers pass their byte queue and a nonzero limit.
+WebSocketParseResult parse_frame(ConstSlice<u8> input, u64 maximum_payload_bytes, bool require_payload) noexcept {
     if (input.count < 2) {
         return need_more();
     }
@@ -82,9 +79,8 @@ WebSocketParseResult parse_frame(ConstSlice<u8> input, u64 maximum_payload_bytes
     }
     const WebSocketOpcode opcode = static_cast<WebSocketOpcode>(opcode_value);
     const bool final = (first & 0x80u) != 0;
-    const bool masked = (second & 0x80u) != 0;
-    if ((direction == WebSocketDirection::server_to_client && masked) ||
-        (direction == WebSocketDirection::client_to_server && !masked)) {
+    // A server never masks its frames (RFC 6455 5.1).
+    if ((second & 0x80u) != 0) {
         return parse_error(WebSocketError::wrong_mask_direction, 1);
     }
 
@@ -127,12 +123,6 @@ WebSocketParseResult parse_frame(ConstSlice<u8> input, u64 maximum_payload_bytes
         }
     }
 
-    if (masked) {
-        if (input.count - offset < 4) {
-            return need_more();
-        }
-        offset += 4;
-    }
     if (require_payload && payload_bytes > input.count - offset) {
         return need_more();
     }
@@ -144,28 +134,22 @@ WebSocketParseResult parse_frame(ConstSlice<u8> input, u64 maximum_payload_bytes
                          offset + payload_count,
                          offset,
                          opcode,
-                         final,
-                         masked};
+                         final};
     return WebSocketParseResult{frame, 0, WebSocketError::none, WebSocketParseState::frame};
 }
 
 } // namespace
 
-WebSocketParseResult websocket_parse_frame(ConstSlice<u8> input, u64 maximum_payload_bytes,
-                                           WebSocketDirection direction) noexcept {
-    return parse_frame(input, maximum_payload_bytes, direction, true);
+WebSocketParseResult websocket_parse_frame(ConstSlice<u8> input, u64 maximum_payload_bytes) noexcept {
+    return parse_frame(input, maximum_payload_bytes, true);
 }
 
-WebSocketParseResult websocket_parse_frame_header(ConstSlice<u8> input, u64 maximum_payload_bytes,
-                                                  WebSocketDirection direction) noexcept {
-    return parse_frame(input, maximum_payload_bytes, direction, false);
+WebSocketParseResult websocket_parse_frame_header(ConstSlice<u8> input, u64 maximum_payload_bytes) noexcept {
+    return parse_frame(input, maximum_payload_bytes, false);
 }
 
 WebSocketMessageStep websocket_track_frame(WebSocketMessageTracker* tracker, const WebSocketFrame& frame,
                                            u64 maximum_message_bytes) noexcept {
-    if (maximum_message_bytes == 0 || frame.masked) {
-        return message_error(WebSocketError::invalid_input);
-    }
     if (opcode_control(frame.opcode)) {
         const WebSocketError error = validate_control_payload(frame);
         if (error != WebSocketError::none) {
@@ -214,17 +198,14 @@ WebSocketMessageStep websocket_track_frame(WebSocketMessageTracker* tracker, con
 
 WebSocketWriteResult websocket_write_client_frame(WebSocketOpcode opcode, ConstSlice<u8> payload, u32 masking_key,
                                                   Slice<u8> output) noexcept {
+    // The callers pass a constant opcode, their own payload and output.
     const u8 opcode_value = static_cast<u8>(opcode);
-    if ((!payload.data && payload.count != 0) || (!output.data && output.count != 0) ||
-        !opcode_valid(opcode_value)) {
-        return WebSocketWriteResult{0, WebSocketError::invalid_input};
-    }
     if (opcode_control(opcode)) {
         if (payload.count > 125) {
             return WebSocketWriteResult{0, WebSocketError::control_too_large};
         }
         if (opcode == WebSocketOpcode::close) {
-            const WebSocketFrame frame{payload, payload.count, 0, 0, opcode, true, false};
+            const WebSocketFrame frame{payload, payload.count, 0, 0, opcode, true};
             const WebSocketError error = validate_control_payload(frame);
             if (error != WebSocketError::none) {
                 return WebSocketWriteResult{0, error};

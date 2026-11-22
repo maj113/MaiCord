@@ -13,11 +13,6 @@ enum class WebSocketOpcode : u8 {
     pong = 0xA,
 };
 
-enum class WebSocketDirection : u8 {
-    server_to_client,
-    client_to_server,
-};
-
 enum class WebSocketError : u8 {
     none,
     invalid_input,
@@ -51,7 +46,6 @@ struct WebSocketFrame {
     u32 header_bytes;
     WebSocketOpcode opcode;
     bool final;
-    bool masked;
 };
 
 struct WebSocketParseResult {
@@ -91,12 +85,11 @@ struct WebSocketMessageStep {
 
 using WebSocketWriteResult = ByteResult<WebSocketError>;
 
-WebSocketParseResult websocket_parse_frame(ConstSlice<u8> input, u64 maximum_payload_bytes,
-                                           WebSocketDirection direction) noexcept;
-// Same validation once the header (and masking key) is complete; the payload
-// may still be arriving. frame.payload covers only the bytes already present.
-WebSocketParseResult websocket_parse_frame_header(ConstSlice<u8> input, u64 maximum_payload_bytes,
-                                                  WebSocketDirection direction) noexcept;
+// A server frame: a masked one is refused (wrong_mask_direction).
+WebSocketParseResult websocket_parse_frame(ConstSlice<u8> input, u64 maximum_payload_bytes) noexcept;
+// Same validation once the header is complete; the payload may still be arriving. frame.payload covers only the
+// bytes already present.
+WebSocketParseResult websocket_parse_frame_header(ConstSlice<u8> input, u64 maximum_payload_bytes) noexcept;
 WebSocketMessageStep websocket_track_frame(WebSocketMessageTracker* tracker, const WebSocketFrame& frame,
                                            u64 maximum_message_bytes) noexcept;
 

@@ -1,7 +1,6 @@
 // hkdf_sha256.hpp over the system OpenSSL: SHA-256 through EVP_MD and HMAC-SHA-256 through EVP_MAC, with the
-// argument rules of src/platform/crypto/kdf_internal.hpp and the extract/expand loop of the Windows file. The
-// workspace storage holds the three OpenSSL objects of the worker (fetched HMAC, its context, the digest context),
-// created once.
+// extract/expand loop of the Windows file. The workspace storage holds the three OpenSSL objects of the worker
+// (fetched HMAC, its context, the digest context), created once.
 #include "../kdf_internal.hpp"
 #include "openssl.hpp"
 #include "maicord/core/memory.hpp"
@@ -57,17 +56,10 @@ struct Hash {
 
 KdfResult calculate(KdfSha256Workspace& workspace, ConstSlice<u8> key, ConstSlice<ConstSlice<u8>> parts,
                     Slice<u8> output, bool expand, bool keyed = true, ConstSlice<u8> prefix = {}) noexcept {
+    // As on Windows: only a workspace whose initialization failed is refused.
+    if (!workspace.storage.data)
+        return result(KdfError::not_initialized);
     const u32 wanted = expand ? output.count : 32;
-    const auto checked = validate(workspace, key, parts, output, wanted);
-    if (!checked.ok())
-        return checked;
-    if (prefix.count) {
-        const auto prefix_checked = validate(workspace, key, {&prefix, 1}, output, wanted);
-        if (!prefix_checked.ok())
-            return prefix_checked;
-    }
-    if (!wanted)
-        return result(KdfError::none);
     u32 failure = 0;
     const openssl::Crypto* library = openssl::crypto(&failure);
     if (!library)
@@ -108,8 +100,6 @@ KdfResult calculate(KdfSha256Workspace& workspace, ConstSlice<u8> key, ConstSlic
 } // namespace
 
 KdfResult kdf_sha256_initialize(KdfSha256Workspace* workspace) noexcept {
-    if (!workspace || workspace->storage.data || workspace->storage.locked)
-        return result(KdfError::invalid_input);
     u32 failure = 0;
     const openssl::Crypto* library = openssl::crypto(&failure);
     if (!library)
@@ -141,8 +131,6 @@ KdfResult kdf_sha256_initialize(KdfSha256Workspace* workspace) noexcept {
 }
 
 void kdf_sha256_release(KdfSha256Workspace* workspace) noexcept {
-    if (!workspace)
-        return;
     if (workspace->storage.data) {
         const openssl::Crypto* library = openssl::crypto();
         const State& state = *reinterpret_cast<const State*>(workspace->storage.data);
@@ -166,8 +154,6 @@ KdfResult hmac_sha256_prefixed(KdfSha256Workspace& workspace, ConstSlice<u8> key
 
 KdfResult hkdf_sha256_expand(KdfSha256Workspace& workspace, ConstSlice<u8> prk, ConstSlice<ConstSlice<u8>> info,
                              Slice<u8> output) noexcept {
-    if (!prk.count || output.count > 255 * 32)
-        return result(KdfError::invalid_input);
     return calculate(workspace, prk, info, output, true);
 }
 

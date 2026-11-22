@@ -309,8 +309,8 @@ void test_trace_record() noexcept {
 
 void test_byte_queue() noexcept {
     u8 storage[8]{};
-    ByteQueue queue{};
-    expect(byte_queue_initialize(&queue, Slice<u8>{storage, 8}), "byte_queue_initialize");
+    ByteQueue queue;
+    byte_queue_initialize(&queue, Slice<u8>{storage, 8});
     const u8 first[] = {1, 2, 3, 4, 5, 6};
     expect(byte_queue_append(&queue, ConstSlice<u8>{first, 6}), "byte_queue_append_first");
     expect(byte_queue_size(queue) == 6 && byte_queue_available(queue) == 2, "byte_queue_size_available");
@@ -338,7 +338,6 @@ void test_byte_queue() noexcept {
     expect(byte_queue_produce(&queue, 2) && byte_queue_readable(queue)[1] == 22,
            "byte_queue_external_produce");
     expect(!byte_queue_produce(&queue, 7), "byte_queue_produce_bound");
-    expect(!byte_queue_initialize(nullptr, Slice<u8>{storage, 8}), "byte_queue_null_reject");
 
     // Exercise unaligned appends and overlapping compaction across copy boundaries. The runtime memmove
     // uses only unaligned loads, so its paths depend on length alone; three offsets keep misalignment.
@@ -558,21 +557,7 @@ void test_arena() noexcept {
     expect((reinterpret_cast<usize>(growth) & 4095u) == 0, "arena_page_alignment");
 
     expect(arena_allocate(&arena, arena.reserved + 1, 1) == nullptr, "arena_capacity_bound");
-    expect(arena_allocate(&arena, 8, 3) == nullptr, "arena_alignment_reject");
     expect(!arena_rewind(&arena, ArenaMark{arena.offset + 1}), "arena_forward_rewind_reject");
-    expect(!arena_allocate(&arena, 1, usize{1} << 63), "arena_huge_alignment_reject");
-    bool aligned_bounds = true;
-    for (u32 exponent = 0; exponent <= 24; ++exponent) {
-        arena_reset(&arena);
-        const usize alignment = usize{1} << exponent;
-        const usize address = reinterpret_cast<usize>(arena.base);
-        const usize expected = (address + alignment - 1) & ~(alignment - 1);
-        const bool fits = expected - address <= arena.reserved - 8;
-        const auto* value = arena_allocate(&arena, 8, alignment);
-        aligned_bounds = aligned_bounds && (fits ? reinterpret_cast<usize>(value) == expected
-                                                 : !value && arena.offset == 0);
-    }
-    expect(aligned_bounds, "arena_absolute_alignment_and_capacity_across_page_boundaries");
     arena_release(&arena);
 
     const usize page_mask = pages_page_size() - 1;
@@ -594,9 +579,6 @@ void test_arena() noexcept {
         arena_release(&arena);
     }
     expect(initial_regions, "arena_initial_commit_regions_round_and_zero_without_committing_the_tail");
-    expect(!arena_initialize(&arena, 4096, ~usize{0}, 4096) && !arena.base &&
-               !arena_initialize(&arena, 4096, 0, ~usize{0}) && !arena.base,
-           "arena_initial_commit_and_step_overflow_leave_owner_empty");
     expect(arena.base == nullptr && arena.reserved == 0, "arena_release");
 
     // Dirty retained storage, unaligned marks and lengths straddling word/page
@@ -671,10 +653,6 @@ void test_stable_storage() noexcept {
     stable_storage_release(&storage);
     expect(!storage.arena.base && storage.capacity == 0 && storage.reserved_capacity == 0,
            "stable_storage_release");
-
-    StableStorage invalid{};
-    expect(!stable_storage_initialize(&invalid, 4, 1, 3, 4),
-           "stable_storage_rejects_noncontiguous_element_alignment");
 
     StableStorage lazy{};
     expect(stable_storage_initialize(&lazy, 16, 0, sizeof(u32), alignof(u32), true) && lazy.capacity == 0,

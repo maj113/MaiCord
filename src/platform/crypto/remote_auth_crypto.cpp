@@ -41,11 +41,8 @@ u32 write_der_header(u8* output, u8 tag, u32 length) noexcept {
 
 } // namespace
 
+// The one caller (remote_auth_handshake_initialize) refuses a handshake whose crypto is already set.
 RemoteAuthCryptoResult remote_auth_crypto_initialize(RemoteAuthCrypto* crypto) noexcept {
-    if (!crypto || crypto->rsa_algorithm || crypto->rsa_key || crypto->sha256_algorithm) {
-        return result(RemoteAuthCryptoError::invalid_input);
-    }
-
     BCRYPT_KEY_HANDLE key = nullptr;
     NTSTATUS status = BCryptGenerateKeyPair(BCRYPT_RSA_ALG_HANDLE, &key, 2048, 0);
     if (status >= 0) {
@@ -65,20 +62,15 @@ RemoteAuthCryptoResult remote_auth_crypto_initialize(RemoteAuthCrypto* crypto) n
 }
 
 void remote_auth_crypto_release(RemoteAuthCrypto* crypto) noexcept {
-    if (!crypto) {
-        return;
-    }
     if (crypto->rsa_key) {
         BCryptDestroyKey(static_cast<BCRYPT_KEY_HANDLE>(crypto->rsa_key));
     }
     SecureZeroMemory(crypto, sizeof(*crypto));
 }
 
+// The callers give a local array (or, in a test, an empty size query).
 RemoteAuthCryptoResult remote_auth_crypto_export_spki(const RemoteAuthCrypto& crypto,
                                                       Slice<u8> output) noexcept {
-    if ((!output.data && output.count != 0)) {
-        return result(RemoteAuthCryptoError::invalid_input);
-    }
     if (!initialized(crypto)) {
         return result(RemoteAuthCryptoError::not_initialized);
     }
@@ -124,7 +116,7 @@ RemoteAuthCryptoResult remote_auth_crypto_export_spki(const RemoteAuthCrypto& cr
         SecureZeroMemory(blob, sizeof(blob));
         return result(RemoteAuthCryptoError::invalid_key_blob);
     }
-    if (required > output.count || (required != 0 && !output.data)) {
+    if (required > output.count) {
         SecureZeroMemory(blob, sizeof(blob));
         return result(RemoteAuthCryptoError::output_too_small, required);
     }
@@ -161,9 +153,7 @@ RemoteAuthCryptoResult remote_auth_crypto_fingerprint(const RemoteAuthCrypto& cr
         return exported;
     }
     RemoteAuthCryptoResult hashed;
-    if (!digest.data && digest.count != 0) {
-        hashed = result(RemoteAuthCryptoError::invalid_input);
-    } else if (digest.count < kRemoteAuthSha256Bytes || !digest.data) {
+    if (digest.count < kRemoteAuthSha256Bytes) {
         hashed = result(RemoteAuthCryptoError::output_too_small, kRemoteAuthSha256Bytes);
     } else {
         const NTSTATUS status =
@@ -176,9 +166,10 @@ RemoteAuthCryptoResult remote_auth_crypto_fingerprint(const RemoteAuthCrypto& cr
     return hashed;
 }
 
+// The handshake gives its own arrays. The ciphertext size comes from a Remote Auth packet.
 RemoteAuthCryptoResult remote_auth_crypto_decrypt(const RemoteAuthCrypto& crypto, ConstSlice<u8> ciphertext,
                                                   Slice<u8> plaintext) noexcept {
-    if (!ciphertext.data || ciphertext.count != 256 || (!plaintext.data && plaintext.count != 0)) {
+    if (ciphertext.count != 256) {
         return result(RemoteAuthCryptoError::invalid_input);
     }
     if (!initialized(crypto)) {
@@ -192,7 +183,7 @@ RemoteAuthCryptoResult remote_auth_crypto_decrypt(const RemoteAuthCrypto& crypto
     if (status < 0) {
         return result(RemoteAuthCryptoError::platform_failure, 0, status);
     }
-    if (required > plaintext.count || (required != 0 && !plaintext.data)) {
+    if (required > plaintext.count) {
         return result(RemoteAuthCryptoError::output_too_small, required);
     }
     ULONG written = 0;
@@ -200,9 +191,7 @@ RemoteAuthCryptoResult remote_auth_crypto_decrypt(const RemoteAuthCrypto& crypto
                            const_cast<PUCHAR>(ciphertext.data), ciphertext.count, &padding, nullptr, 0,
                            plaintext.data, plaintext.count, &written, BCRYPT_PAD_OAEP);
     if (status < 0) {
-        if (plaintext.data && plaintext.count != 0) {
-            SecureZeroMemory(plaintext.data, plaintext.count);
-        }
+        SecureZeroMemory(plaintext.data, plaintext.count);
         return result(RemoteAuthCryptoError::platform_failure, 0, status);
     }
     return result(RemoteAuthCryptoError::none, written, status);

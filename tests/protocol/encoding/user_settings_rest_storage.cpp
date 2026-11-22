@@ -26,18 +26,18 @@ struct Probe : RestClientProbe {
         if (!signal()) return false;
         client.request_state = request_state_active;
         const auto acquired = rest_rate_acquire(runtime->scheduler, runtime->command.route, 1);
-        if (!acquired.acquired_request() || !rest_transaction_acquire(&runtime->transaction,
-            runtime->command.request_id, acquired.lease, 1000, true) ||
-            !rest_transaction_begin_send(&runtime->transaction, runtime->command.body_bytes + 17)) return false;
+        if (!acquired.acquired_request()) return false;
+        rest_transaction_acquire(&runtime->transaction, runtime->command.request_id, acquired.lease, 1000, true);
+        rest_transaction_begin_send(&runtime->transaction, runtime->command.body_bytes + 17);
         memset(runtime->request_head, 'h', 17);
         request_plaintext_committed(runtime, {runtime->request_head, 17});
         for (u32 offset = 0; offset < runtime->command.body_bytes; offset += 16384)
             request_plaintext_committed(runtime, {runtime->request_body + offset,
                 minimum(16384u, runtime->command.body_bytes - offset)});
-        return !runtime->write_commit_failed && runtime->transaction.phase == RestTransactionPhase::receiving &&
-            zeros({runtime->request_body, runtime->command.body_bytes}) &&
-            rest_response_initialize(&runtime->response, {runtime->response_input, kRestMaximumHeaderBytes},
-                {runtime->response_body, runtime->response_capacity}, runtime->command.route.method);
+        rest_response_initialize(&runtime->response, {runtime->response_input, kRestMaximumHeaderBytes},
+            {runtime->response_body, runtime->response_capacity}, runtime->command.route.method);
+        return runtime->transaction.phase == RestTransactionPhase::receiving &&
+            zeros({runtime->request_body, runtime->command.body_bytes});
     }
     bool plain_response(ConstSlice<u8> payload) noexcept {
         constexpr char head[] = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n";
@@ -61,7 +61,7 @@ struct Probe : RestClientProbe {
         }
         constexpr char end[] = "0\r\n\r\n";
         return response_plaintext_received(runtime, {reinterpret_cast<const u8*>(end), sizeof(end) - 1}, false) ==
-            TlsStreamReadAction::complete && finalize_response(&client, runtime, runtime->response_step, 1);
+            TlsStreamReadAction::complete && finalize_response(&client, runtime, 1);
     }
     bool compressed_response(ConstSlice<u8> encoded, bool gzip) noexcept {
         u8 head[192]{};
@@ -74,7 +74,7 @@ struct Probe : RestClientProbe {
         protocol_writer_append_literal(&writer, "\r\n\r\n");
         return response_plaintext_received(runtime, {head, writer.used}, false) == TlsStreamReadAction::continue_read &&
             response_plaintext_received(runtime, encoded, false) == TlsStreamReadAction::complete &&
-            finalize_response(&client, runtime, runtime->response_step, 1);
+            finalize_response(&client, runtime, 1);
     }
     bool gzip_response(const RestGzipFixture& gzip) noexcept {
         return compressed_response({gzip.encoded, gzip.bytes}, true);
@@ -307,7 +307,7 @@ u32 user_settings_rest_storage_fixture() noexcept {
     const auto destroy_bank = memory_mark(r->default_body);
     close_transport(r);
     check(tls_stream_drained(&r->transport), "teardown connection has drained every borrow");
-    destroy_client_storage(&probe.client, nullptr);
+    destroy_client_storage(&probe.client);
     probe.runtime = nullptr;
     check(!probe.client.runtime && memory_released(destroy_bank),
         "joined storage teardown releases the body reservation of a pending extended response");

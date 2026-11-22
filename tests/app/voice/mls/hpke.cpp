@@ -95,16 +95,6 @@ void boundaries(Check check, KdfSha256Workspace& workspace, const P256Key& key, 
     check(mls_encrypt_with_label(workspace, {point, 65}, {}, {}, {pt, 33}, {enc, 80}, {out, sizeof(out)})
               .ok(),
           "MLS setup retry after provider failure");
-    const ConstSlice<u8> parts[]{{label, 1}, {context, 1}};
-    memset(out, 0xa5, sizeof(out));
-    check(hmac_sha256_prefixed(workspace, {}, {out, 1}, {parts, 2}, {out, 32}).error ==
-                  KdfError::invalid_input &&
-              filled(out, sizeof(out)),
-          "Prefixed HMAC output cannot alias prefix");
-    check(hmac_sha256_prefixed(workspace, {}, {nullptr, 1}, {parts, 2}, {out, 32}).error ==
-                  KdfError::invalid_input &&
-              filled(out, sizeof(out)),
-          "Prefixed HMAC invalid prefix is atomic");
 }
 void guards(Check check, KdfSha256Workspace& workspace, const P256Key& key) noexcept {
     Win32SystemInfo system{};

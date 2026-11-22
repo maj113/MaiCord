@@ -128,10 +128,6 @@ void publish_phase(CdnClient* client, CdnClientPhase phase) noexcept {
 
 CdnClientResult client_result(const CdnClient* client) noexcept {
     CdnClientResult value{};
-    if (!client) {
-        value.error = CdnClientError::invalid_input;
-        return value;
-    }
     value.phase = load_phase(client);
     value.error = load_error(client);
     value.native_error = static_cast<u32>(read_acquire(&client->native_error));
@@ -331,14 +327,11 @@ NetworkWorkerStep finish_drain(CdnClient* client, CdnClientRuntime* runtime) noe
     return NetworkWorkerStep{INFINITE, false};
 }
 
+// The TLS stream commits the request head once, record by record: the counts sum to request_bytes.
 void request_committed(void* opaque, ConstSlice<u8> committed) noexcept {
     auto* runtime = static_cast<CdnClientRuntime*>(opaque);
-    if (committed.count <= runtime->request_bytes - runtime->committed_bytes) {
-        runtime->committed_bytes += committed.count;
-    }
-    if (committed.data && committed.count != 0) {
-        secure_clear_bytes(const_cast<u8*>(committed.data), committed.count);
-    }
+    runtime->committed_bytes += committed.count;
+    secure_clear_bytes(const_cast<u8*>(committed.data), committed.count);
 }
 
 TlsStreamReadAction response_plaintext(void* opaque, ConstSlice<u8> plaintext, bool peer_closed) noexcept {
@@ -475,13 +468,12 @@ TlsStreamEvent begin_http_send(CdnClient* client, CdnClientRuntime* runtime) noe
         : (embed_stream_host(runtime->command.host))
         ? minimum(runtime->response_capacity, static_cast<u32>(runtime->command.range.bytes))
         : minimum(runtime->response_capacity, cdn_encoded_body_limit(runtime->command.image_type));
-    if (!written.ok() || !http_response_decoder_initialize(
-                             &runtime->response, Slice<u8>{runtime->response_input, kResponseInputBytes},
-                             Slice<u8>{runtime->response_head, kCdnMaximumResponseHeaderBytes},
-                             Slice<u8>{runtime->response_body, body_capacity},
-                             kCdnMaximumResponseHeaderBytes, kCdnMaximumResponseFields)) {
+    if (!written.ok())
         return TlsStreamEvent{0, TlsStreamEventKind::failed, TlsStreamError::invalid_input};
-    }
+    http_response_decoder_initialize(&runtime->response, Slice<u8>{runtime->response_input, kResponseInputBytes},
+                                     Slice<u8>{runtime->response_head, kCdnMaximumResponseHeaderBytes},
+                                     Slice<u8>{runtime->response_body, body_capacity},
+                                     kCdnMaximumResponseHeaderBytes, kCdnMaximumResponseFields);
     runtime->request_bytes = written.bytes;
     runtime->committed_bytes = 0;
     runtime->response_callback_failed = false;
@@ -601,17 +593,12 @@ bool drive_transport_event(CdnClient* client, CdnClientRuntime* runtime, Network
             continue;
         }
         if (current.kind == TlsStreamEventKind::write_complete) {
-            if (runtime->committed_bytes != runtime->request_bytes) {
-                begin_drain(client, runtime, CdnClientError::request, CdnHttpError::none, 0);
-                return false;
-            }
             publish_phase(client, CdnClientPhase::receiving);
             current = tls_stream_start_read(&runtime->transport, response_plaintext, runtime);
             continue;
         }
         if (current.kind == TlsStreamEventKind::read_complete) {
-            if (runtime->response_callback_failed ||
-                runtime->response_step.state != HttpResponseDecoderState::complete) {
+            if (runtime->response_callback_failed) {
                 begin_drain(client, runtime, CdnClientError::response,
                             CdnHttpError::malformed_head, 0);
                 return false;
@@ -722,9 +709,6 @@ NetworkWorkerStep worker_handler(void* opaque, NetworkLoop* loop,
 }
 
 void destroy_client_storage(CdnClient* client) noexcept {
-    if (!client || !client->runtime) {
-        return;
-    }
     auto* runtime = static_cast<CdnClientRuntime*>(client->runtime);
     const u32 bytes = runtime->storage_committed_bytes;
     if (tls_stream_restore_buffers(&runtime->transport)) {
@@ -769,7 +753,7 @@ CdnResponseResult cdn_client_response_policy(
 
 CdnClientResult cdn_client_start(CdnClient* client, u32 response_capacity) noexcept {
     const u32 bytes = cdn_client_runtime_bytes(response_capacity);
-    if (!client || bytes == 0) {
+    if (bytes == 0) {
         CdnClientResult invalid{};
         invalid.error = CdnClientError::invalid_input;
         return invalid;
@@ -820,7 +804,7 @@ CdnClientResult cdn_client_start(CdnClient* client, u32 response_capacity) noexc
 CdnClientSubmitResult cdn_client_submit(CdnClient* client,
                                         const CdnClientRequest& request) noexcept {
     const bool provider = embed_stream_host(request.host);
-    if (!client || !client->runtime || !client->worker.thread || request.request_id == 0 ||
+    if (!client->runtime || !client->worker.thread || request.request_id == 0 ||
         (!host_wide(request.host) && !provider) ||
         (provider && (request.etag.count ||
             (embed_playlist_host(request.host)
@@ -915,7 +899,7 @@ CdnClientSubmitResult cdn_client_submit(CdnClient* client,
 }
 
 bool cdn_client_cancel(CdnClient* client, u64 request_id) noexcept {
-    if (!client || !client->runtime || request_id == 0) {
+    if (!client->runtime || request_id == 0) {
         return false;
     }
     auto* runtime = static_cast<CdnClientRuntime*>(client->runtime);
@@ -923,7 +907,7 @@ bool cdn_client_cancel(CdnClient* client, u64 request_id) noexcept {
 }
 
 CdnClientResult cdn_client_wait_response(CdnClient* client, u32 timeout_ms) noexcept {
-    if (!client || !client->response_event) {
+    if (!client->response_event) {
         CdnClientResult invalid{};
         invalid.error = CdnClientError::invalid_input;
         return invalid;
@@ -941,7 +925,7 @@ CdnClientResult cdn_client_wait_response(CdnClient* client, u32 timeout_ms) noex
 CdnClientTakeResult cdn_client_consume_response(CdnClient* client,
                                                 CdnClientResponseConsumer consumer,
                                                 void* context) noexcept {
-    if (!client || !client->runtime || !consumer) {
+    if (!client->runtime) {
         return CdnClientTakeResult{0, CdnClientTakeError::invalid_input};
     }
     if (read_acquire(&client->request_state) != request_state_ready) {
@@ -958,7 +942,7 @@ CdnClientTakeResult cdn_client_consume_response(CdnClient* client,
 }
 
 HANDLE cdn_client_notification_handle(const CdnClient* client) noexcept {
-    return client ? client->response_event : nullptr;
+    return client->response_event;
 }
 
 CdnClientResult cdn_client_status(const CdnClient* client) noexcept {
@@ -966,7 +950,7 @@ CdnClientResult cdn_client_status(const CdnClient* client) noexcept {
 }
 
 CdnClientResult cdn_client_stop(CdnClient* client, u32 timeout_ms) noexcept {
-    if (!client || !client->worker.thread) {
+    if (!client->worker.thread) {
         CdnClientResult invalid{};
         invalid.error = CdnClientError::invalid_input;
         return invalid;

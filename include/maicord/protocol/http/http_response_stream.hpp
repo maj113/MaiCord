@@ -6,7 +6,7 @@ namespace maicord {
 
 enum class HttpResponseStreamState : u8 { head, body, complete, failed };
 enum class HttpResponseStreamError : u8 {
-    none, invalid_input, input_capacity, head, unsupported_body,
+    none, input_capacity, head, unsupported_body,
     body_framing, size_mismatch, size_limit, unexpected_close, unexpected_data,
 };
 

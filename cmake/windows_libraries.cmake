@@ -97,7 +97,7 @@ endif()
 
 maicord_library(maicord_platform
     src/platform/desktop/staged_file.cpp src/platform/desktop/browser_sign_in_launcher.cpp src/platform/decode/aac_decoder.cpp
-    src/platform/audio/media_audio.cpp src/platform/audio/media_audio_ring.cpp src/platform/crypto/aead.cpp
+    src/platform/audio/media_audio.cpp src/platform/audio/media_audio_ring.cpp
     src/platform/crypto/aes_gcm.cpp
     src/platform/crypto/hkdf_sha256.cpp src/platform/crypto/p256.cpp src/platform/crypto/xchacha20_poly1305.cpp
     src/platform/net/network.cpp src/platform/net/datagram.cpp src/platform/net/file.cpp src/platform/net/socket.cpp

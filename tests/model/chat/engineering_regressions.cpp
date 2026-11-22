@@ -238,8 +238,7 @@ void test_mailbox_regressions(Check check) noexcept {
     u8 large_output[64]{};
     const bool queued = spsc_mailbox_push(&mailbox, 1u, ConstSlice<u8>{payload, 7}).ok() &&
                         spsc_mailbox_push_external(&mailbox, 2u, 64).external &&
-                        spsc_mailbox_push(&mailbox, 3u, ConstSlice<u8>{payload, 9}).ok() &&
-                        !spsc_mailbox_push_external(&mailbox, 9u, 0).ok();
+                        spsc_mailbox_push(&mailbox, 3u, ConstSlice<u8>{payload, 9}).ok();
     u32 first = 0, second = 0, third = 0;
     const SpscMailboxResult ordinary = spsc_mailbox_pop(&mailbox, &first, Slice<u8>{output, 7});
     const bool head = spsc_mailbox_head_external(mailbox);

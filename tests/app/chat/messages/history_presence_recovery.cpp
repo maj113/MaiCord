@@ -512,14 +512,13 @@ void test_history_presence_recovery(void (*check)(bool, const char*) noexcept) n
     history_retry_floors(check, timeline, pump);
 
     u8 http_head[kRestMaximumHeaderBytes]{}; u8 http_body[128]{}; RestResponse http{};
-    check(rest_response_initialize(&http, {http_head, kRestMaximumHeaderBytes}, {http_body, 128}), "history_eof_fixture");
+    rest_response_initialize(&http, {http_head, kRestMaximumHeaderBytes}, {http_body, 128});
     const auto eof = rest_response_feed(&http, {}, true);
     check(eof.error == RestResponseError::unexpected_close &&
         rest_client_response_error(eof.error) == RestClientError::receive &&
         rest_client_response_error(RestResponseError::body_capacity) == RestClientError::response,
         "history_idle_tls_eof_is_retryable_but_capacity_failure_is_not");
-    check(rest_response_initialize(&http, {http_head, kRestMaximumHeaderBytes}, {http_body, 128}),
-        "history_truncated_http_fixture");
+    rest_response_initialize(&http, {http_head, kRestMaximumHeaderBytes}, {http_body, 128});
     constexpr auto truncated = utf8_literal("HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n[");
     const auto partial = rest_response_feed(&http,
         {reinterpret_cast<const u8*>(truncated.data), truncated.bytes}, true);

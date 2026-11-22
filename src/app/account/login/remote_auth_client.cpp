@@ -718,11 +718,7 @@ bool release_runtime(RemoteAuthClientRuntime* runtime) noexcept {
 }
 
 bool initialize_runtime(RemoteAuthClientRuntime* runtime, u32* native_error) noexcept {
-    if (!byte_queue_initialize(&runtime->websocket_input,
-                               Slice<u8>{runtime->websocket_storage, kWebSocketInputBytes})) {
-        *native_error = ERROR_INVALID_PARAMETER;
-        return false;
-    }
+    byte_queue_initialize(&runtime->websocket_input, Slice<u8>{runtime->websocket_storage, kWebSocketInputBytes});
     const RemoteAuthTicketExchangeResult exchange =
         remote_auth_ticket_exchange_initialize(&runtime->ticket_exchange);
     if (!exchange.ok()) {

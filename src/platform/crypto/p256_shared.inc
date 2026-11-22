@@ -5,7 +5,7 @@
 // A system-RNG scalar in [1,n) imported as a private key: the library derives the public point once. On Windows,
 // BCryptFinalizeKeyPair also self-tests the pair.
 P256Result p256_generate(P256Key* key, P256Kind kind) noexcept {
-    if (!key || key->handle)
+    if (key->handle)
         return {0, 0, P256Error::invalid_input};
     u8 scalar[32];
     P256Result result{0, 0, P256Error::platform_failure};

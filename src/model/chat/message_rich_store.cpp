@@ -245,6 +245,15 @@ void side_release(MessageRichSide* side) noexcept {
     reset_value(side);
 }
 
+// Slab blocks are 8-aligned and back to back, so every block size is a multiple of 8 (stable_storage_initialize does
+// not test it). The embed field is 4-aligned, and its classes hold 4 and 64 items.
+static_assert([] {
+    for (u32 kind = 0; kind < kMessageRichSideKinds; ++kind)
+        if (kSmallItems[kind] * kItemBytes[kind] % 8 || kLargeItems[kind] * kItemBytes[kind] % 8)
+            return false;
+    return true;
+}());
+
 // One block per live record per kind, plus one while a record changes class.
 inline bool side_initialize(MessageRichSide* side, u32 records) noexcept {
     reset_value(side);

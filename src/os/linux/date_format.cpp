@@ -192,9 +192,10 @@ bool locale_uses_24_hours(const char* locale) noexcept {
     return true;
 }
 
+// Every caller passes a date or time and an output with its capacity; only the fields can be out of range.
 int format_date(const wchar_t*, u32 flags, const CalendarTime* date, const wchar_t* picture, wchar_t* output,
                 int capacity) noexcept {
-    if (!date || !valid_date(*date) || capacity < 0 || (!output && capacity != 0))
+    if (!valid_date(*date))
         return 0;
     Output out{output, capacity, 0};
     date_picture(picture ? picture : (flags & DATE_LONGDATE ? L"dddd, MMMM d, yyyy" : L"M/d/yyyy"), *date, &out);
@@ -203,7 +204,7 @@ int format_date(const wchar_t*, u32 flags, const CalendarTime* date, const wchar
 
 int format_time(const wchar_t*, u32 flags, const CalendarTime* time, const wchar_t* picture, wchar_t* output,
                 int capacity) noexcept {
-    if (!time || !valid_time(*time) || capacity < 0 || (!output && capacity != 0))
+    if (!valid_time(*time))
         return 0;
     Output out{output, capacity, 0};
     if (!picture) {

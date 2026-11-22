@@ -383,9 +383,6 @@ GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& env
                                                       bool* handled, bool* overflowed,
                                                       JsonValue ready_members = {},
                                                       const JsonIndexedDocument* frame = nullptr) noexcept {
-    if (!event || !payload || !handled) {
-        return route_error(GatewayClientDispatchRouteError::invalid_input);
-    }
     const u32 event_index =
         skim_member_index<"READY_GUILD", "THREAD_LIST_SYNC", "THREAD_MEMBER_UPDATE", "GUILD_CREATE", "GUILD_UPDATE",
                           "GUILD_DELETE", "THREAD_CREATE", "CHANNEL_CREATE", "CHANNEL_UPDATE", "THREAD_UPDATE",

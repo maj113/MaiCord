@@ -11,8 +11,9 @@ void start_operation(NetworkFile* file, NetworkOperationKind kind, u64 offset) n
     file->pending = true;
 }
 } // namespace
+// The upload and the staged file give their loop, their file member and a nonempty path.
 NetworkResult network_file_open(NetworkLoop* loop, NetworkFile* file, const wchar_t* path) noexcept {
-    if (!loop || !loop->completion_port || !file || file->handle || file->pending || !path || !path[0])
+    if (!loop->completion_port || file->handle || file->pending)
         return {ERROR_INVALID_PARAMETER, NetworkError::invalid_argument};
     const HANDLE handle = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
         FILE_FLAG_OVERLAPPED | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
@@ -34,9 +35,9 @@ NetworkResult network_file_open(NetworkLoop* loop, NetworkFile* file, const wcha
     if (++file->generation == 0) ++file->generation;
     return {};
 }
+// The upload reads inside the size it checked; the download writes below 2^63 bytes. Both give nonempty buffers.
 NetworkResult network_file_read(NetworkFile* file, u64 offset, Slice<u8> buffer) noexcept {
-    if (!file || !file->handle || file->pending || !buffer.data || !buffer.count ||
-        offset >= file->bytes || buffer.count > file->bytes - offset)
+    if (!file->handle || file->pending)
         return {ERROR_INVALID_PARAMETER, NetworkError::invalid_argument};
     start_operation(file, NetworkOperationKind::file_read, offset);
     if (!ReadFile(file->handle, buffer.data, buffer.count, nullptr, native(&file->operation.overlapped))) {
@@ -51,13 +52,13 @@ NetworkResult network_file_read(NetworkFile* file, u64 offset, Slice<u8> buffer)
     return {};
 }
 void network_file_close(NetworkFile* file) noexcept {
-    if (!file || !file->handle) return;
+    if (!file->handle) return;
     if (file->pending) CancelIoEx(file->handle, native(&file->operation.overlapped));
     CloseHandle(file->handle);
     file->handle = nullptr;
 }
 NetworkResult network_file_create(NetworkLoop* loop, NetworkFile* file, const wchar_t* path) noexcept {
-    if (!loop || !loop->completion_port || !file || file->handle || file->pending || !path || !path[0])
+    if (!loop->completion_port || file->handle || file->pending)
         return {ERROR_INVALID_PARAMETER, NetworkError::invalid_argument};
     const HANDLE handle = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
         FILE_FLAG_OVERLAPPED | FILE_FLAG_SEQUENTIAL_SCAN | FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -70,8 +71,7 @@ NetworkResult network_file_create(NetworkLoop* loop, NetworkFile* file, const wc
     return {};
 }
 NetworkResult network_file_write(NetworkFile* file, u64 offset, ConstSlice<u8> buffer) noexcept {
-    if (!file || !file->handle || file->pending || !buffer.data || !buffer.count ||
-        offset > 0x7fffffffffffffffull || buffer.count > 0x7fffffffffffffffull - offset)
+    if (!file->handle || file->pending)
         return {ERROR_INVALID_PARAMETER, NetworkError::invalid_argument};
     start_operation(file, NetworkOperationKind::file_write, offset);
     if (!WriteFile(file->handle, buffer.data, buffer.count, nullptr, native(&file->operation.overlapped))) {

@@ -236,7 +236,6 @@ struct RestRepresentation {
 
 enum class RestHeadError : u8 {
     none,
-    invalid_input,
     http,
     duplicate_rate_field,
     invalid_rate_value,
@@ -374,7 +373,6 @@ enum class RestRateAcquireKind : u8 {
 
 enum class RestRateError : u8 {
     none,
-    invalid_input,
     capacity,
     stale_lease,
     invalid_observation,
@@ -406,7 +404,7 @@ struct RestRateObservation {
     }
 };
 
-bool rest_rate_scheduler_initialize(RestRateScheduler* scheduler,
+void rest_rate_scheduler_initialize(RestRateScheduler* scheduler,
                                     Slice<RestRateBucket> buckets,
                                     Slice<RestRateBinding> bindings) noexcept;
 RestRateAcquireResult rest_rate_acquire(RestRateScheduler* scheduler,
@@ -433,7 +431,7 @@ struct RestResponse {
 
 using RestResponseStep = HttpResponseDecoderStep;
 
-bool rest_response_initialize(RestResponse* response, Slice<u8> input_storage,
+void rest_response_initialize(RestResponse* response, Slice<u8> input_storage,
                               Slice<u8> body_output,
                               RestMethod request_method = RestMethod::get) noexcept;
 

@@ -134,9 +134,6 @@ void schedule(Check check, KdfSha256Workspace& workspace, u8* data) noexcept {
               "HPKE schedule stages aliased input/output");
     }
     memset(&actual, 0xa5, sizeof(actual));
-    check(!schedule_secrets(workspace, {shared, 32}, {workspace.storage.data, 1}, {}, &actual).ok() &&
-              filled(&actual, sizeof(actual)),
-          "HPKE schedule input cannot alias KDF storage");
     const u32 capacity = workspace.storage.capacity;
     workspace.storage.capacity = 1;
     check(schedule_secrets(workspace, {shared, 32}, {info, n}, {}, &actual).error ==
@@ -149,8 +146,6 @@ void schedule(Check check, KdfSha256Workspace& workspace, u8* data) noexcept {
               !failed.handle,
           "HPKE key derivation failure keeps empty owner");
     workspace.storage.capacity = capacity;
-    check(!hpke_derive_key_pair(workspace, {workspace.storage.data, 1}, &failed).ok() && !failed.handle,
-          "HPKE derived IKM cannot alias KDF storage");
     check(schedule_secrets(workspace, {shared, 32}, {info, n}, {}, &actual).ok(),
           "HPKE schedule retry after failure");
     hpke_base_secrets_clear(&actual);

@@ -386,7 +386,7 @@ TlsError create_connection(const openssl::Ssl& library, void* context, TlsClient
 } // namespace
 
 TlsResult tls_client_initialize(TlsClient* client, const wchar_t* server_name) noexcept {
-    if (!client || !server_name || server_name[0] == 0) {
+    if (!server_name[0]) {
         return result(TlsError::invalid_argument, kStatusInvalidArgument);
     }
     reset_value<TlsClient>(client);
@@ -405,9 +405,6 @@ TlsResult tls_client_initialize(TlsClient* client, const wchar_t* server_name) n
 
 // Frees the connection (and with it both BIOs); the context is shared and stays.
 void tls_client_release(TlsClient* client) noexcept {
-    if (!client) {
-        return;
-    }
     if (client->native.ssl) {
         const openssl::Ssl* library = openssl::ssl();
         if (library) {
@@ -510,21 +507,17 @@ TlsHandshakeStep tls_client_handshake(TlsClient* client, ConstSlice<u8> incoming
 
 TlsResult tls_client_encrypt_spans(TlsClient* client, ConstSlice<ConstSlice<u8>> plaintext, Slice<u8> output,
                                    u32* produced) noexcept {
-    if (produced) {
-        *produced = 0;
-    }
-    if (!client || !client->handshake_complete || !produced || !plaintext.data || plaintext.count == 0 || !output.data) {
+    // The TLS stream and the Gateway give their client member, a record buffer and at least one byte of plaintext
+    // in spans with data.
+    *produced = 0;
+    if (!client->handshake_complete) {
         return result(TlsError::invalid_argument, kStatusInvalidArgument);
     }
     // At most 2^32-1 spans of at most 2^32-1 bytes each: the u64 sum cannot wrap.
     u64 plaintext_bytes = 0;
-    for (u32 span = 0; span < plaintext.count; ++span) {
-        if (!plaintext[span].data && plaintext[span].count != 0) {
-            return result(TlsError::invalid_argument, kStatusInvalidArgument);
-        }
+    for (u32 span = 0; span < plaintext.count; ++span)
         plaintext_bytes += plaintext[span].count;
-    }
-    if (plaintext_bytes == 0 || plaintext_bytes > client->stream_sizes.cbMaximumMessage) {
+    if (plaintext_bytes > client->stream_sizes.cbMaximumMessage) {
         return result(TlsError::invalid_argument, kStatusInvalidArgument);
     }
     const u64 required = static_cast<u64>(client->stream_sizes.cbHeader) + plaintext_bytes + client->stream_sizes.cbTrailer;
@@ -578,7 +571,8 @@ TlsResult tls_client_encrypt_spans(TlsClient* client, ConstSlice<ConstSlice<u8>>
 }
 
 TlsDecryptResult tls_client_decrypt(TlsClient* client, Slice<u8> encrypted) noexcept {
-    if (!client || !client->handshake_complete || !encrypted.data || encrypted.count == 0) {
+    // Every reader gives its client member and the nonempty readable part of its encrypted queue.
+    if (!client->handshake_complete) {
         return decrypt_failure(TlsError::invalid_argument, 0, kStatusInvalidArgument);
     }
     // Less than a whole record is not given to OpenSSL at all, so a partial record costs nothing and the state of

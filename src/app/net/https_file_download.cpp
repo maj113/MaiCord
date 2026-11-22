@@ -321,7 +321,7 @@ bool https_file_download_body_settled(const HttpResponseStream& response, u64 ex
            response.body_bytes == expected_bytes;
 }
 HttpsFileDownloadError https_file_download_start(HttpsFileDownload* owner, const HttpsFileDownloadRequest& request) noexcept {
-    if (!owner || owner->runtime || owner->worker.thread || !valid_path(request.path) ||
+    if (owner->runtime || owner->worker.thread || !valid_path(request.path) ||
         (request.expected_bytes > 0x7fffffffffffffffull &&
          request.expected_bytes != kHttpsFileDownloadSizeFromResponse) ||
         (!request.attachment_id && request.expected_bytes != kHttpsFileDownloadSizeFromResponse) ||
@@ -355,7 +355,7 @@ HttpsFileDownloadError https_file_download_start(HttpsFileDownload* owner, const
     return HttpsFileDownloadError::none;
 }
 HttpsFileDownloadResult https_file_download_status(const HttpsFileDownload* owner) noexcept {
-    if (!owner || !owner->runtime) return {};
+    if (!owner->runtime) return {};
     const auto current = static_cast<HttpsFileDownloadPhase>(ReadAcquire(&owner->phase));
     auto* r = static_cast<Runtime*>(owner->runtime);
     if (current == HttpsFileDownloadPhase::complete) {
@@ -368,12 +368,11 @@ HttpsFileDownloadResult https_file_download_status(const HttpsFileDownload* owne
     return result;
 }
 bool https_file_download_cancel(HttpsFileDownload* owner) noexcept {
-    if (!owner || !owner->runtime || owner->stop_requested) return false;
+    if (!owner->runtime || owner->stop_requested) return false;
     if (https_file_download_status(owner).phase == HttpsFileDownloadPhase::complete) return true;
     return https_transfer_cancel(&owner->worker, &owner->cancelled, &static_cast<Runtime*>(owner->runtime)->cancel_signal);
 }
 bool https_file_download_release(HttpsFileDownload* owner, u32 timeout_ms) noexcept {
-    if (!owner) return false;
     if (!owner->runtime) return true;
     if (!https_transfer_stop_and_join(&owner->worker, &owner->cancelled, &owner->stop_requested, timeout_ms)) return false;
     destroy(owner); return true;

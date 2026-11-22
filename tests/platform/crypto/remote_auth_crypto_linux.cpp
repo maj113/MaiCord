@@ -76,8 +76,6 @@ void test_remote_auth_crypto(Check check) noexcept {
     check(initialized.ok() && crypto.rsa_key, "remote auth RSA-2048 key generation");
     if (!crypto.rsa_key)
         return;
-    check(remote_auth_crypto_initialize(&crypto).error == RemoteAuthCryptoError::invalid_input,
-          "a live remote auth key is not replaced");
 
     // SubjectPublicKeyInfo: SEQUENCE { rsaEncryption with NULL, BIT STRING { RSAPublicKey 2048 bits, e = 65537 } }.
     static constexpr u8 kHeader[]{0x30, 0x82, 0x01, 0x22, 0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7,
@@ -96,9 +94,8 @@ void test_remote_auth_crypto(Check check) noexcept {
     check(short_export.error == RemoteAuthCryptoError::output_too_small && short_export.bytes == 294 &&
               test_filled(short_spki, sizeof(short_spki), 0xa5),
           "a short SPKI output reports the size and stays untouched");
-    check(remote_auth_crypto_export_spki(crypto, {}).error == RemoteAuthCryptoError::output_too_small &&
-              remote_auth_crypto_export_spki(crypto, {nullptr, 4}).error == RemoteAuthCryptoError::invalid_input,
-          "SPKI export sizes into nothing and rejects a null output with a length");
+    check(remote_auth_crypto_export_spki(crypto, {}).error == RemoteAuthCryptoError::output_too_small,
+          "SPKI export sizes into nothing");
 
     // The fingerprint is the SHA-256 of that encoding.
     TestSha256 hash;
@@ -145,8 +142,7 @@ void test_remote_auth_crypto(Check check) noexcept {
                   "a damaged ciphertext is rejected and the destination cleared");
             ciphertext[index] ^= 1;
         }
-        check(remote_auth_crypto_decrypt(crypto, {ciphertext, 255}, {plaintext, 64}).error == RemoteAuthCryptoError::invalid_input &&
-                  remote_auth_crypto_decrypt(crypto, {nullptr, 256}, {plaintext, 64}).error == RemoteAuthCryptoError::invalid_input,
+        check(remote_auth_crypto_decrypt(crypto, {ciphertext, 255}, {plaintext, 64}).error == RemoteAuthCryptoError::invalid_input,
               "a ciphertext that is not one RSA-2048 block is rejected");
         // A message of the largest OAEP size (256 - 2 * 32 - 2 = 190 bytes) round-trips.
         u8 largest[190], opened[190];
@@ -159,7 +155,6 @@ void test_remote_auth_crypto(Check check) noexcept {
     remote_auth_crypto_release(&crypto);
     check(!crypto.rsa_key && !crypto.rsa_algorithm && !crypto.sha256_algorithm, "release retires the key");
     remote_auth_crypto_release(&crypto);
-    remote_auth_crypto_release(nullptr);
 }
 
 } // namespace maicord

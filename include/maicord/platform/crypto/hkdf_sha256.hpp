@@ -6,7 +6,6 @@ enum class KdfError : u8 {
     none,
     invalid_input,
     not_initialized,
-    output_capacity,
     storage,
     platform_failure
 };
@@ -20,7 +19,7 @@ struct KdfResult {
 };
 // Shared by a single worker, not per sender/key. No copying or concurrent use.
 // One locked hash-object buffer is reused, then erased after every operation;
-// no secret or live hash handle survives an operation. Initialize/release once.
+// no secret or live hash handle survives an operation. Initialize once (on a zeroed workspace), release once.
 struct KdfSha256Workspace {
     SecureBuffer storage;
 };
@@ -31,13 +30,11 @@ void kdf_sha256_release(KdfSha256Workspace* workspace) noexcept;
 KdfResult sha256(KdfSha256Workspace& workspace, ConstSlice<ConstSlice<u8>> parts,
                  Slice<u8> output) noexcept;
 
-// Segments avoid concatenation allocations. Inputs/segment descriptors/output
-// cannot alias the workspace. Written output cannot alias any input or segment
-// descriptor. Invalid inputs/capacity leave output unchanged; provider failures
-// erase the attempted output prefix and report zero bytes. Empty HMAC keys are
+// Segments avoid concatenation allocations. The caller keeps the inputs, segment descriptors and output
+// disjoint from each other and from the workspace, and gives a hash or HMAC output of at least 32 bytes.
+// Provider failures erase the attempted output prefix and report zero bytes. Empty HMAC keys are
 // valid. HMAC/extract write 32 bytes and preserve excess destination capacity.
-// Prepend a protocol prefix without copying a caller's segment descriptors or
-// payload. Same validation/erasure contract; prefix cannot alias output/storage.
+// Prepend a protocol prefix without copying a caller's segment descriptors or payload.
 KdfResult hmac_sha256_prefixed(KdfSha256Workspace& workspace, ConstSlice<u8> key, ConstSlice<u8> prefix,
                                ConstSlice<ConstSlice<u8>> parts, Slice<u8> output) noexcept;
 inline KdfResult hmac_sha256(KdfSha256Workspace& workspace, ConstSlice<u8> key, ConstSlice<ConstSlice<u8>> parts,
@@ -49,9 +46,9 @@ inline KdfResult hkdf_sha256_extract(KdfSha256Workspace& workspace, ConstSlice<u
                                      ConstSlice<u8> input_key_material, Slice<u8> output) noexcept {
     return hmac_sha256_prefixed(workspace, salt, {}, {&input_key_material, 1}, output);
 }
-// Output.count is the requested length, from 0 through 255*32 bytes. Require a
-// nonempty PRK. MLS's initial DAVE ratchet seed is 16 bytes, so this implements
-// the Expand operation for that key length too; the caller decides where key material comes from.
+// Output.count is the requested length, from 1 through 255*32 bytes, with a nonempty PRK. MLS's initial DAVE
+// ratchet seed is 16 bytes, so this implements the Expand operation for that key length too; the caller decides
+// where key material comes from.
 KdfResult hkdf_sha256_expand(KdfSha256Workspace& workspace, ConstSlice<u8> prk,
                              ConstSlice<ConstSlice<u8>> info, Slice<u8> output) noexcept;
 } // namespace maicord

@@ -755,7 +755,7 @@ GatewayEventDecodeResult decode_message(const JsonIndexedDocument& document, Jso
     }
     if (capture_rich) {
         const GatewayEventDecodeResult rich = message_rich_detail::decode_rich_fields(
-            document, data, maximum_depth, content_scratch, &transient_used, rich_scratch, &context.event,
+            document, maximum_depth, content_scratch, &transient_used, rich_scratch, &context.event,
             context.rich,
             protocol_detail::finish_read(
                 {context.rich_rejected, context.rich_open ? JsonReadError::none : JsonReadError::visitor_rejected},

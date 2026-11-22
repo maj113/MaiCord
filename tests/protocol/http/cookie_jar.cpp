@@ -140,9 +140,6 @@ void test_capacity() noexcept {
         second |= bytes_equal(header + i, "cB=", 3);
     check(stored && jar.count == kCookieJarCapacity && !second && bytes == kCookieJarCapacity * 6 - 2,
           "cookies: a full jar evicts its least recently used cookie");
-    u8 small[16];
-    check(cookie_jar_header(&jar, kApi, kNow, {small, sizeof(small)}) == 0,
-          "cookies: the header needs room for a full jar");
 }
 
 void test_persistence() noexcept {

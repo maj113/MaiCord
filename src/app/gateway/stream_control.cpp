@@ -155,11 +155,8 @@ GatewayCommandWriteResult gateway_stream_write(const GatewayStreamCommand& comma
         return gateway_write_stream_ping(command.key, output);
     case GatewayStreamCommandKind::create:
         return gateway_write_stream_create(command.key, output);
-    case GatewayStreamCommandKind::pause:
-    case GatewayStreamCommandKind::resume:
+    default: // pause or resume: the queue holds no other kind
         return gateway_write_stream_set_paused(command.key, command.kind == GatewayStreamCommandKind::pause, output);
-    default:
-        return {0, GatewayCommandError::invalid_input};
     }
 }
 

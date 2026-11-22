@@ -44,28 +44,26 @@ int process_spawn_detached(const char* file, char* const argv[], bool search) no
     return spawn(&pid, file, nullptr, nullptr, argv, process_startup().environment);
 }
 
+// The one caller (application_updates_relaunch) gives its path array and the address of its error.
 bool process_launch_detached(const wchar_t* executable, u32* native_error) noexcept {
     char path[kProcessLaunchMaximumPathCharacters * 3 + 1];
-    if (!executable || path_to_utf8(executable, path, sizeof(path)) == 0) {
-        if (native_error)
-            *native_error = ERROR_INVALID_PARAMETER;
+    if (path_to_utf8(executable, path, sizeof(path)) == 0) {
+        *native_error = ERROR_INVALID_PARAMETER;
         return false;
     }
     char* argv[2] = {path, nullptr};
     const int error = process_spawn_detached(path, argv, false);
     if (error != 0) {
-        if (native_error)
-            *native_error = win32_error_from_errno(error);
+        *native_error = win32_error_from_errno(error);
         return false;
     }
     return true;
 }
 
 bool process_command(const wchar_t* executable, ProcessCommand* command, u32* native_error) noexcept {
-    const u32 bytes = executable ? path_to_utf8(executable, command->path, sizeof(command->path)) : 0;
+    const u32 bytes = path_to_utf8(executable, command->path, sizeof(command->path));
     if (bytes == 0 || command->path[0] != '/') {
-        if (native_error)
-            *native_error = ERROR_INVALID_PARAMETER;
+        *native_error = ERROR_INVALID_PARAMETER;
         return false;
     }
     return true;
@@ -87,8 +85,7 @@ bool process_replace(const ProcessCommand& command, u32* native_error) noexcept 
     copy_bytes(path, command.path, sizeof(path));
     char* const argv[2] = {path, nullptr};
     const long result = sys_execve(path, argv, process_startup().environment);
-    if (native_error)
-        *native_error = win32_error_from_result(result);
+    *native_error = win32_error_from_result(result);
     return false;
 }
 

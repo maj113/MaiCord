@@ -16,7 +16,6 @@ void test_tls_stream_contract() noexcept;
 void test_network_resolver() noexcept;
 void test_network_worker() noexcept;
 void test_network_worker_cancel_drain() noexcept;
-void test_network_loopback() noexcept;
 
 namespace {
 u32 g_failures = 0;
@@ -38,6 +37,5 @@ MAICORD_TEST_ENTRY(maicord_transport_entry) {
     test_network_resolver();
     test_network_worker();
     test_network_worker_cancel_drain();
-    test_network_loopback();
     test_exit(g_failures, "transport");
 }

@@ -72,7 +72,7 @@ void test_cdn_response_storage(void (*check)(bool, const char*) noexcept) noexce
     u64 retained = 0;
     for (u32 round = 0; valid && round < 2; ++round) {
         u32 body_bytes = body_sizes[round];
-        valid = http_response_decoder_initialize(
+        http_response_decoder_initialize(
             &runtime->response, {runtime->response_input, kResponseInputBytes},
             {runtime->response_head, kCdnMaximumResponseHeaderBytes},
             {runtime->response_body,
@@ -80,11 +80,11 @@ void test_cdn_response_storage(void (*check)(bool, const char*) noexcept) noexce
                      cdn_encoded_body_limit(round ? CdnImageType::mp4
                                                           : CdnImageType::png))},
             kCdnMaximumResponseHeaderBytes, kCdnMaximumResponseFields);
-        valid = valid && response_plaintext(runtime,
-                                            round ? actual_video_head
-                                                  : ConstSlice<u8>{reinterpret_cast<const u8*>(small_head),
-                                                                   sizeof(small_head) - 1},
-                                            false) == TlsStreamReadAction::continue_read;
+        valid = response_plaintext(runtime,
+                                   round ? actual_video_head
+                                         : ConstSlice<u8>{reinterpret_cast<const u8*>(small_head),
+                                                          sizeof(small_head) - 1},
+                                   false) == TlsStreamReadAction::continue_read;
         for (u32 offset = 0; valid && offset < body_bytes; offset += sizeof(chunk)) {
             const u32 part = minimum(static_cast<u32>(sizeof(chunk)), body_bytes - offset);
             const auto action = response_plaintext(runtime, {chunk, part}, false);

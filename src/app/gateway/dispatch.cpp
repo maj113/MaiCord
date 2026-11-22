@@ -1,5 +1,4 @@
 #include "dispatch_internal.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/model/user/activity.hpp"
 #include "maicord/app/chat/messages/event_scratch.hpp"
 #include "dispatch_common.hpp"
@@ -624,14 +623,8 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> content_scratch, Slice<u64> bulk_ids, u64 self_user_id, GatewayClientEvent* event,
     ConstSlice<u8>* payload, GatewayMessageDecodeScratch* message_scratch) noexcept {
-    if (!event || !payload || envelope.opcode != 0 || !envelope.has_event_name ||
-        !envelope.data.source.data || envelope.data.source.bytes == 0 || !structural_scratch.data ||
-        structural_scratch.count == 0 || maximum_depth == 0 ||
-        (!content_scratch.data && content_scratch.count != 0) || (!bulk_ids.data && bulk_ids.count != 0) ||
-        byte_ranges_overlap(envelope.data.source.data, envelope.data.source.bytes, content_scratch.data,
-                            content_scratch.count)) {
-        return route_error(GatewayClientDispatchRouteError::invalid_input);
-    }
+    // The callers (client_session.cpp through gateway_client_route_dispatch_large, client_outputs.cpp) route an
+    // opcode 0 dispatch with its name and data, with their own index, content and id storage apart from the data.
     reset_value<GatewayClientEvent>(event);
     *payload = ConstSlice<u8>{nullptr, 0};
     event->kind = GatewayClientEventKind::dispatch;

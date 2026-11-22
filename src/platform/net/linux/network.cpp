@@ -404,9 +404,6 @@ void post(NetworkLoop* loop, NetworkOperation* operation, bool succeeded, u32 tr
 } // namespace net_detail
 
 NetworkResult network_loop_initialize(NetworkLoop* loop) noexcept {
-    if (!loop) {
-        return failure(NetworkError::invalid_argument, WSAEINVAL);
-    }
     reset_value<NetworkLoop>(loop);
     const long opened = open_ring(loop);
     if (opened) {
@@ -426,9 +423,6 @@ NetworkResult network_loop_initialize(NetworkLoop* loop) noexcept {
 }
 
 void network_loop_release(NetworkLoop* loop) noexcept {
-    if (!loop) {
-        return;
-    }
     if (loop->ready) {
         resolver_forget_loop(loop);
         close_ring(loop);
@@ -466,7 +460,7 @@ NetworkResult network_connection_connect(NetworkLoop* loop, NetworkConnection* c
                                          const NetworkAddress& address) noexcept {
     SockAddrStorage target;
     const u32 address_bytes = to_socket_address(address, &target);
-    if (!loop || !loop->ready || !connection || address_bytes == 0) {
+    if (!loop->ready || address_bytes == 0) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
     reset_value<NetworkConnection>(connection);
@@ -509,9 +503,10 @@ NetworkResult network_connection_connect(NetworkLoop* loop, NetworkConnection* c
     return success();
 }
 
+// Every caller gives the address of its connection and a buffer with bytes (the TLS stream and the Gateway check the
+// queue space and the send span first).
 NetworkResult network_connection_receive(NetworkConnection* connection, Slice<u8> buffer) noexcept {
-    if (!connection || connection->state != NetworkConnectionState::connected || connection->receive_pending ||
-        !buffer.data || buffer.count == 0) {
+    if (connection->state != NetworkConnectionState::connected || connection->receive_pending) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
     network_operation_initialize(&connection->receive_operation, connection, NetworkOperationKind::receive,
@@ -524,8 +519,7 @@ NetworkResult network_connection_receive(NetworkConnection* connection, Slice<u8
 }
 
 NetworkResult network_connection_send(NetworkConnection* connection, ConstSlice<u8> buffer) noexcept {
-    if (!connection || connection->state != NetworkConnectionState::connected || connection->send_pending ||
-        !buffer.data || buffer.count == 0) {
+    if (connection->state != NetworkConnectionState::connected || connection->send_pending) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
     network_operation_initialize(&connection->send_operation, connection, NetworkOperationKind::send,
@@ -538,9 +532,6 @@ NetworkResult network_connection_send(NetworkConnection* connection, ConstSlice<
 }
 
 void network_connection_close(NetworkConnection* connection) noexcept {
-    if (!connection) {
-        return;
-    }
     if (connection->socket != 0) {
         const int fd = descriptor(connection->socket);
         // The requests under way are cancelled before the descriptor goes: each finishes once, as a stale completion.
@@ -563,7 +554,7 @@ bool network_connection_has_socket(const NetworkConnection& connection) noexcept
 }
 
 NetworkResult network_signal_post(NetworkLoop* loop, NetworkSignal* signal, u32 value) noexcept {
-    if (!loop || !loop->ready || !signal || InterlockedCompareExchange(&signal->pending, 1, 0) != 0) {
+    if (!loop->ready || InterlockedCompareExchange(&signal->pending, 1, 0) != 0) {
         return failure(NetworkError::invalid_argument, ERROR_INVALID_PARAMETER);
     }
     network_operation_initialize(&signal->operation, signal, NetworkOperationKind::signal, 0);
@@ -575,7 +566,7 @@ NetworkResult network_signal_post(NetworkLoop* loop, NetworkSignal* signal, u32 
 NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds) noexcept {
     NetworkPollResult result{};
     result.state = NetworkPollState::error;
-    if (!loop || !loop->ready) {
+    if (!loop->ready) {
         result.completion.native_error = ERROR_INVALID_PARAMETER;
         return result;
     }

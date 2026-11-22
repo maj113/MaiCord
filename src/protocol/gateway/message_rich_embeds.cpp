@@ -258,7 +258,7 @@ bool embed_component_description(const EmbedComponentWalk& walk, const RichText&
     for (u32 i = 0; i < walk.text_count; ++i) {
         if (i) {
             const u32 breaks = walk.paragraph_before[i] ? 2u : 1u;
-            if (!output.data || *used + breaks > output.count ||
+            if (*used + breaks > output.count ||
                 *used - begin + breaks > kRichEmbedDescriptionMaximumBytes) {
                 *text.truncations |= gateway_message_rich_truncated_text;
                 break;

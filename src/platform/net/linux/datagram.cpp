@@ -101,8 +101,9 @@ NetworkResult network_datagram_open(NetworkLoop* loop, NetworkDatagram* datagram
     return success();
 }
 
+// Callers give their socket member, a slot below kNetworkDatagramReceiveSlots and a nonempty buffer slice.
 NetworkResult network_datagram_receive_slot(NetworkDatagram* datagram, u32 slot, Slice<u8> buffer) noexcept {
-    if (!datagram || !datagram->open || slot >= kNetworkDatagramReceiveSlots || !buffer.data || !buffer.count) {
+    if (!datagram->open) {
         return fail(NetworkError::invalid_argument);
     }
     // Slot 0's flag is receive_pending (a bool: 0 or 1), slot n's is bit n - 1 of extra_receive_pending.
@@ -130,7 +131,7 @@ bool network_datagram_set_receive_buffer(NetworkDatagram* datagram, u32 bytes) n
 }
 
 NetworkResult network_datagram_send(NetworkDatagram* datagram, ConstSlice<u8> buffer) noexcept {
-    if (!datagram || !datagram->open || datagram->send_pending || (!buffer.data && buffer.count)) {
+    if (!datagram->open || datagram->send_pending) {
         return fail(NetworkError::invalid_argument);
     }
     NetworkOperation& send = datagram->send_operation;
@@ -142,7 +143,7 @@ NetworkResult network_datagram_send(NetworkDatagram* datagram, ConstSlice<u8> bu
 }
 
 void network_datagram_close(NetworkDatagram* datagram) noexcept {
-    if (!datagram || !datagram->open) {
+    if (!datagram->open) {
         return;
     }
     // The read under way and the send are cancelled with the descriptor; reads that never started finish at once.

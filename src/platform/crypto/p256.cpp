@@ -1,6 +1,5 @@
 #include "p256_internal.hpp"
 #include "maicord/platform/crypto/random.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/crypto.hpp"
 
@@ -21,8 +20,7 @@ ULONG magic(P256Kind kind, bool private_key) noexcept {
 }
 P256Result import(P256Key* key, P256Kind kind, ConstSlice<u8> point, ConstSlice<u8> scalar,
                   bool private_key) noexcept {
-    if (!key || key->handle || !byte_range_valid(point) || !byte_range_valid(scalar) ||
-        byte_ranges_overlap(point, bytes(*key)) || byte_ranges_overlap(scalar, bytes(*key)))
+    if (key->handle)
         return {0, 0, P256Error::invalid_input};
     if ((!private_key || point.count) && !public_valid(point))
         return {0, 0, P256Error::invalid_key};
@@ -78,8 +76,6 @@ P256Result export_key(const P256Key& key, Slice<u8> output, bool private_key) no
 }
 } // namespace
 void p256_release(P256Key* key) noexcept {
-    if (!key)
-        return;
     if (key->handle)
         BCryptDestroyKey(key->handle);
     reset_value(key);
@@ -128,9 +124,7 @@ P256Result p256_verify_digest(const P256Key& key, ConstSlice<u8> digest,
         return {0, 0, P256Error::not_initialized};
     if (key.kind != P256Kind::ecdsa)
         return {0, 0, P256Error::wrong_kind};
-    if (digest.count != 32 || signature.count != 64 || !byte_range_valid(digest) ||
-        !byte_range_valid(signature) || byte_ranges_overlap(digest, bytes(key)) ||
-        byte_ranges_overlap(signature, bytes(key)))
+    if (digest.count != 32 || signature.count != 64)
         return {0, 0, P256Error::invalid_input};
     const auto status = BCryptVerifySignature(key.handle, nullptr, const_cast<u8*>(digest.data), 32,
                                               const_cast<u8*>(signature.data), 64, 0);

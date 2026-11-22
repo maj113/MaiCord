@@ -150,10 +150,6 @@ void failures(Check check, KdfSha256Workspace& workspace) noexcept {
     check(mls_epoch_initial(workspace, {input, 32}, {}, &output).ok(),
           "MLS schedule retries after provider failure");
     check(mls_equal(tag, tag, kMlsHashBytes), "MLS confirmation accepts the full tag");
-    for (u32 size = 0; size != 32; ++size)
-        check(mls_transcript_interim(workspace, {}, {tag, 32}, {input, size}).error ==
-                  KdfError::output_capacity,
-              "MLS transcript never truncates output");
     mls_epoch_clear(&output);
 }
 void guards(Check check, KdfSha256Workspace& workspace) noexcept {

@@ -46,8 +46,7 @@ HttpResponseStreamStep pump(HttpResponseStream* d, u32 accepted) noexcept {
             }
             if (parsed.head.has_content_length && parsed.head.content_length != d->expected_body_bytes)
                 return fail(d, HttpResponseStreamError::size_mismatch, accepted);
-            if (!byte_queue_consume(&d->input, parsed.head.header_bytes))
-                return fail(d, HttpResponseStreamError::invalid_input, accepted);
+            byte_queue_consume(&d->input, parsed.head.header_bytes);
             d->state = HttpResponseStreamState::body;
             continue;
         }
@@ -70,15 +69,12 @@ HttpResponseStreamStep pump(HttpResponseStream* d, u32 accepted) noexcept {
                 return fail(d, HttpResponseStreamError::size_mismatch, accepted);
             if (chunk.state == HttpChunkStepState::data) {
                 // Release only framing; body bytes remain borrowed until consume.
-                if (chunk.consumed < chunk.data.count ||
-                    !byte_queue_consume(&d->input, chunk.consumed - chunk.data.count))
-                    return fail(d, HttpResponseStreamError::invalid_input, accepted);
+                byte_queue_consume(&d->input, chunk.consumed - chunk.data.count);
                 d->pending = byte_queue_readable(d->input);
                 d->pending.count = chunk.data.count;
                 return step(*d, accepted);
             }
-            if (!byte_queue_consume(&d->input, chunk.consumed))
-                return fail(d, HttpResponseStreamError::invalid_input, accepted);
+            byte_queue_consume(&d->input, chunk.consumed);
             if (chunk.state == HttpChunkStepState::complete) {
                 if (open) d->expected_body_bytes = d->body_bytes;
                 if (d->body_bytes != d->expected_body_bytes)
@@ -129,8 +125,8 @@ bool http_response_stream_initialize(HttpResponseStream* d, Slice<u8> storage,
     d->state = HttpResponseStreamState::head;
     // The strict shared chunk parser excludes zero maximum. A zero-sized entity
     // uses a one-byte parser limit and rejects every nonzero chunk before output.
-    return byte_queue_initialize(&d->input, storage) &&
-           http_chunk_decoder_initialize(&d->chunk_decoder,
+    byte_queue_initialize(&d->input, storage);
+    return http_chunk_decoder_initialize(&d->chunk_decoder,
                                          from_head  ? maximum
                                          : expected ? expected
                                                     : 1,
@@ -140,8 +136,6 @@ bool http_response_stream_initialize(HttpResponseStream* d, Slice<u8> storage,
 HttpResponseStreamStep http_response_stream_feed(HttpResponseStream* d, ConstSlice<u8> input,
                                                 bool peer_closed) noexcept {
     if (d->state == HttpResponseStreamState::failed) return step(*d);
-    if ((!input.data && input.count) || !d->input.data)
-        return fail(d, HttpResponseStreamError::invalid_input);
     if (d->pending.count) {
         if (!input.count && peer_closed) d->peer_closed = true;
         return step(*d);
@@ -150,8 +144,7 @@ HttpResponseStreamStep http_response_stream_feed(HttpResponseStream* d, ConstSli
         return fail(d, HttpResponseStreamError::unexpected_data);
     const u32 available = byte_queue_available(d->input);
     const u32 accepted = input.count < available ? input.count : available;
-    if (accepted && !byte_queue_append(&d->input, {input.data, accepted}))
-        return fail(d, HttpResponseStreamError::invalid_input);
+    byte_queue_append(&d->input, {input.data, accepted});
     if (peer_closed && accepted == input.count) d->peer_closed = true;
     auto result = pump(d, accepted);
     if (result.state == HttpResponseStreamState::complete && accepted != input.count)
@@ -159,12 +152,11 @@ HttpResponseStreamStep http_response_stream_feed(HttpResponseStream* d, ConstSli
     return result;
 }
 
+// The caller acknowledges at most the pending bytes it wrote, and they sit in the input queue.
 HttpResponseStreamStep http_response_stream_consume(HttpResponseStream* d, u32 bytes) noexcept {
     if (d->state == HttpResponseStreamState::failed) return step(*d);
-    if (bytes > d->pending.count || !d->input.data)
-        return fail(d, HttpResponseStreamError::invalid_input);
     if (bytes) {
-        if (!byte_queue_consume(&d->input, bytes)) return fail(d, HttpResponseStreamError::invalid_input);
+        byte_queue_consume(&d->input, bytes);
         d->body_bytes += bytes;
         d->pending.data += bytes;
         d->pending.count -= bytes;

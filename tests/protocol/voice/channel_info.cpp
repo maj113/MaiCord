@@ -45,9 +45,8 @@ void request_cases(Check check) noexcept {
 void pacing_cases(Check check) noexcept {
     static GatewayChannelInfoRequests owner;
     owner = {};
-    check(gateway_channel_info_admit(&owner, 5) && !gateway_channel_info_admit(&owner, 5) &&
-              !gateway_channel_info_admit(&owner, 0),
-          "pacing: a guild queues once; zero is refused");
+    check(gateway_channel_info_admit(&owner, 5) && !gateway_channel_info_admit(&owner, 5),
+          "pacing: a guild queues once");
     check(gateway_channel_info_next(owner, 0) == 5, "pacing: the queued guild is sent");
     gateway_channel_info_sent(&owner, 5);
     check(!gateway_channel_info_next(owner, 0) && !gateway_channel_info_admit(&owner, 5),

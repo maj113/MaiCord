@@ -111,10 +111,8 @@ u32 lock_pages(void* address, u32 bytes) noexcept {
 
 } // namespace
 
+// Every caller asks for a nonzero capacity. A zero one fails anyway: VirtualAlloc refuses it.
 SecureBufferResult secure_buffer_initialize(SecureBuffer* buffer, u32 capacity) noexcept {
-    if (!buffer || capacity == 0) {
-        return invalid_input();
-    }
     reset_value<SecureBuffer>(buffer);
     auto* allocation =
         static_cast<u8*>(commit_pages(capacity));
@@ -134,9 +132,6 @@ SecureBufferResult secure_buffer_initialize(SecureBuffer* buffer, u32 capacity) 
 }
 
 void secure_buffer_release(SecureBuffer* buffer) noexcept {
-    if (!buffer) {
-        return;
-    }
     if (buffer->data) {
         SecureZeroMemory(buffer->data, buffer->capacity);
         if (buffer->locked) {
@@ -147,12 +142,10 @@ void secure_buffer_release(SecureBuffer* buffer) noexcept {
     reset_value<SecureBuffer>(buffer);
 }
 
+// The callers (plugin secrets, the startup shell key and the two _block callers) give a filled, locked plaintext and
+// arrays of their own.
 SecureBufferResult secure_buffer_protect_user_bound(const SecureBuffer& plaintext, ConstSlice<u8> entropy,
                                                     Slice<u8> protected_output) noexcept {
-    if (!plaintext.data || !plaintext.locked || plaintext.bytes == 0 ||
-        (!protected_output.data && protected_output.count != 0) || (!entropy.data && entropy.count != 0)) {
-        return invalid_input();
-    }
     DATA_BLOB input{plaintext.bytes, plaintext.data};
     DATA_BLOB entropy_blob{entropy.count, const_cast<u8*>(entropy.data)};
     DATA_BLOB* entropy_pointer = entropy.count == 0 ? nullptr : &entropy_blob;
@@ -173,12 +166,10 @@ SecureBufferResult secure_buffer_protect_user_bound(const SecureBuffer& plaintex
     return result;
 }
 
+// The callers (account profile and session store) give their own outputs and a constant header below the maximum.
 SecureBufferResult secure_buffer_protect_user_bound_block(const SecureBuffer& plaintext, ConstSlice<u8> entropy,
                                                           u32 header_bytes, u32 maximum_bytes, u8** block,
                                                           u32* block_bytes) noexcept {
-    if (!block || !block_bytes || header_bytes == 0 || header_bytes >= maximum_bytes) {
-        return invalid_input();
-    }
     *block = nullptr;
     *block_bytes = 0;
     const u32 maximum_protected = maximum_bytes - header_bytes;
@@ -215,11 +206,11 @@ SecureBufferResult secure_buffer_protect_user_bound_block(const SecureBuffer& pl
     return failure(SecureBufferError::protect_failed);
 }
 
+// Every caller initializes the plaintext first and gives an entropy array. The input size comes from a file.
 SecureBufferResult secure_buffer_unprotect_user_bound(ConstSlice<u8> protected_input,
                                                       ConstSlice<u8> entropy,
                                                       SecureBuffer* plaintext) noexcept {
-    if (!protected_input.data || protected_input.count == 0 || !plaintext || !plaintext->data ||
-        !plaintext->locked || (!entropy.data && entropy.count != 0)) {
+    if (protected_input.count == 0) {
         return invalid_input();
     }
     DATA_BLOB input{protected_input.count, const_cast<u8*>(protected_input.data)};

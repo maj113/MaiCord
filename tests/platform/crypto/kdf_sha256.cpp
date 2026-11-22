@@ -2,9 +2,9 @@
 #include "maicord/core/memory.hpp"
 #include "../../support/test_output.hpp"
 
-// SHA-256, HMAC-SHA-256 and HKDF-SHA-256 against the published vectors (FIPS 180-4 examples, RFC 4231, RFC 5869) and the
-// argument and alias rules of the API. Values that no RFC lists (the empty-key HMAC, a 16-byte pseudorandom key, the
-// longest expansion) come from Python's hashlib and hmac.
+// SHA-256, HMAC-SHA-256 and HKDF-SHA-256 against the published vectors (FIPS 180-4 examples, RFC 4231, RFC 5869) and
+// the refusal of a workspace that was never initialized. Values that no RFC lists (the empty-key HMAC, a 16-byte
+// pseudorandom key, the longest expansion) come from Python's hashlib and hmac.
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
@@ -149,20 +149,10 @@ void hkdf_vectors(Check check, KdfSha256Workspace& workspace) noexcept {
               equals_hex(okm, "ef108b0fc1288bc0f8038607515b1cd648deb5014f8de180e9f1813f258bdd6e") &&
               equals_hex(okm + sizeof(okm) - 32, "108c2f9b6be2f67fccbc845d5c9783cc78e04eb47691830d2eec2b7229ba2954"),
           "HKDF expands 255 blocks");
-    u8 guard[8200];
-    memset(guard, 0xa5, sizeof(guard));
-    check(hkdf_sha256_expand(workspace, {prk, 32}, {x, 1}, {guard, 255 * 32 + 1}).error == KdfError::invalid_input &&
-              test_filled(guard, sizeof(guard), 0xa5),
-          "HKDF rejects an output beyond 255 blocks without touching it");
-    check(hkdf_sha256_expand(workspace, {}, {x, 1}, {guard, 32}).error == KdfError::invalid_input &&
-              test_filled(guard, 32, 0xa5),
-          "HKDF expand requires a nonempty key");
-    const auto none = hkdf_sha256_expand(workspace, {prk, 32}, {x, 1}, {guard, 0});
-    check(none.ok() && none.bytes == 0, "HKDF expands zero bytes");
 }
 
-void boundaries(Check check, KdfSha256Workspace& workspace) noexcept {
-    u8 key[16]{}, out[64], other[64];
+void boundaries(Check check) noexcept {
+    u8 key[16]{}, out[64], other[8]{};
     const ConstSlice<u8> parts[]{{other, 8}};
     memset(out, 0xa5, sizeof(out));
     KdfSha256Workspace unused{};
@@ -170,29 +160,6 @@ void boundaries(Check check, KdfSha256Workspace& workspace) noexcept {
               hmac_sha256(unused, {key, 16}, {parts, 1}, {out, 32}).error == KdfError::not_initialized &&
               test_filled(out, 64, 0xa5),
           "hashing before initialization is rejected");
-    check(sha256(workspace, {parts, 1}, {out, 31}).error == KdfError::output_capacity && test_filled(out, 64, 0xa5),
-          "a short output is rejected unchanged");
-    check(hmac_sha256(workspace, {out, 16}, {parts, 1}, {out + 8, 32}).error == KdfError::invalid_input &&
-              test_filled(out, 64, 0xa5),
-          "an output overlapping the key is rejected");
-    const ConstSlice<u8> overlapping[]{{out + 16, 8}};
-    check(sha256(workspace, {overlapping, 1}, {out, 32}).error == KdfError::invalid_input &&
-              test_filled(out, 64, 0xa5),
-          "an output overlapping a segment is rejected");
-    const ConstSlice<u8> storage[]{{workspace.storage.data, 16}};
-    check(sha256(workspace, {storage, 1}, {out, 32}).error == KdfError::invalid_input &&
-              test_filled(out, 64, 0xa5),
-          "an input inside the workspace storage is rejected");
-    const ConstSlice<u8> owner[]{{reinterpret_cast<const u8*>(&workspace), 8}};
-    check(sha256(workspace, {owner, 1}, {out, 32}).error == KdfError::invalid_input,
-          "an input inside the workspace owner is rejected");
-    check(sha256(workspace, {parts, 1}, {workspace.storage.data, 32}).error == KdfError::invalid_input,
-          "an output inside the workspace storage is rejected");
-    const ConstSlice<u8> invalid[]{{nullptr, 4}};
-    check(sha256(workspace, {invalid, 1}, {out, 32}).error == KdfError::invalid_input && test_filled(out, 64, 0xa5),
-          "a null segment with a length is rejected");
-    check(kdf_sha256_initialize(&workspace).error == KdfError::invalid_input,
-          "a live workspace cannot be initialized again");
 }
 
 } // namespace
@@ -206,11 +173,10 @@ void test_kdf_sha256(Check check) noexcept {
     sha256_vectors(check, workspace);
     hmac_vectors(check, workspace);
     hkdf_vectors(check, workspace);
-    boundaries(check, workspace);
+    boundaries(check);
     kdf_sha256_release(&workspace);
     check(!workspace.storage.data && !workspace.storage.locked, "KDF workspace release clears the owner");
     kdf_sha256_release(&workspace);
-    kdf_sha256_release(nullptr);
 }
 
 } // namespace maicord

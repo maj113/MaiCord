@@ -41,8 +41,9 @@ NetworkResult network_datagram_open(NetworkLoop* loop, NetworkDatagram* datagram
         datagram->loop = loop;
     return {};
 }
+// Callers give their socket member, a slot below kNetworkDatagramReceiveSlots and a nonempty buffer slice.
 NetworkResult network_datagram_receive_slot(NetworkDatagram* datagram, u32 slot, Slice<u8> buffer) noexcept {
-    if (!datagram || !datagram->open || slot >= kNetworkDatagramReceiveSlots || !buffer.data || !buffer.count)
+    if (!datagram->open)
         return fail(NetworkError::invalid_argument);
     // Slot 0's flag is receive_pending (a bool: 0 or 1), slot n's is bit n - 1 of extra_receive_pending.
     const u8 bit = static_cast<u8>(slot ? 1u << (slot - 1) : 1u);
@@ -64,7 +65,7 @@ bool network_datagram_set_receive_buffer(NetworkDatagram* datagram, u32 bytes) n
                       sizeof(value)) == 0;
 }
 NetworkResult network_datagram_send(NetworkDatagram* datagram, ConstSlice<u8> buffer) noexcept {
-    if (!datagram || !datagram->open || datagram->send_pending || (!buffer.data && buffer.count))
+    if (!datagram->open || datagram->send_pending)
         return fail(NetworkError::invalid_argument);
     auto& send = datagram->send_operation;
     network_operation_initialize(&send, datagram, NetworkOperationKind::datagram_send, datagram->generation);
@@ -73,7 +74,7 @@ NetworkResult network_datagram_send(NetworkDatagram* datagram, ConstSlice<u8> bu
                                 1, false);
 }
 void network_datagram_close(NetworkDatagram* datagram) noexcept {
-    if (!datagram || !datagram->open)
+    if (!datagram->open)
         return;
     closesocket(datagram->socket);
     datagram->socket = INVALID_SOCKET;

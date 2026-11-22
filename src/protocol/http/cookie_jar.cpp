@@ -444,7 +444,7 @@ bool visit_set_cookie(void* opaque, HttpField field) noexcept {
 
 u32 cookie_jar_store_response(CookieJar* jar, const CookieRequest& request, const ConstSlice<u8>& head,
                               u64 now_ms) noexcept {
-    if (!jar || !head.data || !head.count)
+    if (!head.data || !head.count)
         return 0;
     JarLock guard(jar);
     StoreContext context{jar, &request, now_ms, 0};
@@ -452,9 +452,8 @@ u32 cookie_jar_store_response(CookieJar* jar, const CookieRequest& request, cons
     return context.stored;
 }
 
+// Every caller gives a jar, a host and kCookieHeaderMaximumBytes of output: room for a full jar.
 u32 cookie_jar_header(CookieJar* jar, const CookieRequest& request, u64 now_ms, Slice<u8> output) noexcept {
-    if (!jar || !output.data || output.count < kCookieHeaderMaximumBytes || !request.host.bytes)
-        return 0;
     JarLock guard(jar);
     drop_expired(jar, now_ms);
     const Utf8View path = request_path(request.target);
@@ -532,8 +531,6 @@ u32 cookie_jar_encode_persistent(CookieJar* jar, u64 now_ms, Slice<u8> output) n
 }
 
 bool cookie_jar_decode_persistent(CookieJar* jar, ConstSlice<u8> input, u64 now_ms) noexcept {
-    if (!jar)
-        return false;
     JarLock guard(jar);
     const u32 revision = jar->persistent_revision;
     reset_jar(jar);

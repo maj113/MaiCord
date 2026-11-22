@@ -55,8 +55,6 @@ bool launch_id_valid(Utf8View value) noexcept {
 
 GatewayCommandWriteResult gateway_write_voice_state(const GatewayVoiceStateUpdate& state, u32 flags,
                                                     Slice<u8> output) noexcept {
-    if (!output.data)
-        return {0, GatewayCommandError::invalid_input};
     return write_command(output, [&](Writer& writer) noexcept {
         const auto id = [&](u64 value) noexcept {
             if (value)
@@ -246,9 +244,6 @@ GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserPropert
 
 GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify& identify,
                                                       const Slice<u8>& output) noexcept {
-    if (!output.data) {
-        return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
-    }
     const GatewayCommandWriteResult properties =
         write_properties(identify.properties, &identify, {});
     if (!properties.ok()) {
@@ -303,9 +298,6 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
 }
 
 GatewayCommandWriteResult gateway_write_resume(const GatewayResume& resume, Slice<u8> output) noexcept {
-    if (!output.data) {
-        return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
-    }
     EncodedString token{};
     EncodedString session{};
     if (!encoded_string(resume.token, true, &token)) {
@@ -337,7 +329,7 @@ GatewayCommandWriteResult gateway_write_resume(const GatewayResume& resume, Slic
 GatewayCommandWriteResult gateway_write_time_spent_session(u64 initialization_ms, Utf8View session_id,
                                                            Utf8View client_launch_id,
                                                            Slice<u8> output) noexcept {
-    if (!output.data || !launch_id_valid(session_id) || !launch_id_valid(client_launch_id))
+    if (!launch_id_valid(session_id) || !launch_id_valid(client_launch_id))
         return {0, GatewayCommandError::invalid_input};
     constexpr u32 fixed_bytes = sizeof("{\"op\":41,\"d\":{\"initialization_timestamp\":,\"session_id\":"
                                        "\"\",\"client_launch_id\":\"\"}}") -

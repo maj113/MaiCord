@@ -37,12 +37,9 @@ GatewayClientResult gateway_client_start_user(GatewayClient* client, AccountProf
 
 GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* client, u32 timeout_milliseconds,
                                                             AccountProfile* returned_profile) noexcept {
-    const auto* initial_runtime =
-        client && client->runtime ? static_cast<const GatewayClientRuntime*>(client->runtime) : nullptr;
-    if (!client || !client->worker.thread || !initial_runtime || !returned_profile ||
-        returned_profile->credential.data || returned_profile->credential.locked ||
-        returned_profile->credential.bytes != 0 || returned_profile->credential.capacity != 0 ||
-        returned_profile->metadata.profile_id != 0 || !initial_runtime->user) {
+    // Both release callers (user_account_coordinator.cpp) pass their coordinator's client and an empty local profile.
+    const auto* initial_runtime = static_cast<const GatewayClientRuntime*>(client->runtime);
+    if (!client->worker.thread || !initial_runtime || !initial_runtime->user) {
         return invalid_input_result();
     }
     if (!thread_wait(static_cast<Thread*>(client->worker.thread), 0)) {
@@ -85,14 +82,15 @@ GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* clien
     return value;
 }
 
+// The callers (account_module.cpp, user_account_coordinator.cpp) pass their coordinator's client.
 AccountRequirement gateway_client_required_action(const GatewayClient* client) noexcept {
-    return client ? static_cast<AccountRequirement>(ReadAcquire(&client->required_action))
-                  : AccountRequirement::none;
+    return static_cast<AccountRequirement>(ReadAcquire(&client->required_action));
 }
 
+// The account pumps pop from a nonzero account_module_gateway_source into a local event.
 GatewayClientPopResult gateway_client_pop_event_payload(GatewayClient* client, GatewayClientEvent* event,
                                                         Slice<u8> payload_output) noexcept {
-    if (!client || !client->runtime || !event || (!payload_output.data && payload_output.count != 0)) {
+    if (!client->runtime || (!payload_output.data && payload_output.count != 0)) {
         return GatewayClientPopResult{0, GatewayClientPopError::invalid_input};
     }
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
@@ -129,12 +127,13 @@ GatewayClientPopResult gateway_client_pop_event_payload(GatewayClient* client, G
 }
 
 HANDLE gateway_client_notification_handle(const GatewayClient* client) noexcept {
-    return client ? client->notification_event : nullptr;
+    return client->notification_event;
 }
 
+// The callers pass their coordinator's client and a local snapshot (user_account_coordinator_stop only a nonzero one).
 bool gateway_client_snapshot_user_session(const GatewayClient* client,
                                           GatewayUserSessionSnapshot* session) noexcept {
-    if (!client || !client->runtime || !session) {
+    if (!client->runtime) {
         return false;
     }
     const auto* runtime = static_cast<const GatewayClientRuntime*>(client->runtime);

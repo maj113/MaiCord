@@ -29,9 +29,6 @@ template <typename T, u32 Capacity> struct SpscQueue {
 
 template <typename T, u32 Capacity>
 bool spsc_queue_push(SpscQueue<T, Capacity>* queue, const T& value) noexcept {
-    if (!queue) {
-        return false;
-    }
     const u32 write = static_cast<u32>(read_acquire(&queue->write_sequence));
     const u32 read = static_cast<u32>(read_acquire(&queue->read_sequence));
     if (write - read >= Capacity) {
@@ -44,9 +41,6 @@ bool spsc_queue_push(SpscQueue<T, Capacity>* queue, const T& value) noexcept {
 
 template <typename T, u32 Capacity>
 bool spsc_queue_pop(SpscQueue<T, Capacity>* queue, T* output) noexcept {
-    if (!queue || !output) {
-        return false;
-    }
     const u32 read = static_cast<u32>(read_acquire(&queue->read_sequence));
     const u32 write = static_cast<u32>(read_acquire(&queue->write_sequence));
     if (read == write) {

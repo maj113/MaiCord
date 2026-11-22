@@ -11,7 +11,7 @@ struct ByteQueue {
     u32 end;
 };
 
-bool byte_queue_initialize(ByteQueue* queue, const Slice<u8>& storage) noexcept;
+void byte_queue_initialize(ByteQueue* queue, const Slice<u8>& storage) noexcept;
 u32 byte_queue_size(const ByteQueue& queue) noexcept;
 u32 byte_queue_available(const ByteQueue& queue) noexcept;
 ConstSlice<u8> byte_queue_readable(const ByteQueue& queue) noexcept;

@@ -156,12 +156,8 @@ AeadResult crypt(const AesGcmKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,
                  Slice<u8> output, ConstSlice<u8> tag, bool encrypt) noexcept {
     if (!key.storage.data || !key.storage.locked)
         return aead_result(AeadError::not_initialized);
-    // Every tag length other than 8 must be 16.
-    const auto valid = aead_validate({reinterpret_cast<const u8*>(&key), sizeof(key)},
-                                     {key.storage.data, key.storage.capacity}, 12, nonce, aad, input,
-                                     output, tag, encrypt, tag.count == 8 ? 8u : 16u);
-    if (!valid.ok())
-        return valid;
+    // Every caller passes a 12-byte nonce, an 8- or 16-byte tag and an output of the input's size, in its own
+    // arrays (packet_crypto.cpp, dave/frame_crypto.cpp, mls/hpke.cpp, the Welcomes, startup_shell.cpp).
     // Storage: the GHASH powers, then the round keys up to the last one.
     const u8* powers = key.storage.data;
     const u8* keys = powers + kPowerBytes;
@@ -208,7 +204,7 @@ AeadResult crypt(const AesGcmKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,
 // The key schedule and power table are built once per key: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 AeadResult aes_gcm_initialize(AesGcmKey* key, ConstSlice<u8> secret) noexcept {
-    if (!key || key->storage.data || key->storage.locked || (secret.count != 16 && secret.count != 32) ||
+    if (key->storage.data || key->storage.locked || (secret.count != 16 && secret.count != 32) ||
         !byte_range_valid(secret) || byte_ranges_overlap(secret, {reinterpret_cast<const u8*>(key), sizeof(*key)}))
         return aead_result(AeadError::invalid_input);
     // Round keys: 11 for 16 secret bytes (AES-128), 15 for 32 (AES-256).
@@ -256,8 +252,7 @@ AeadResult aes_gcm_initialize(AesGcmKey* key, ConstSlice<u8> secret) noexcept {
     return aead_result(AeadError::none);
 }
 void aes_gcm_release(AesGcmKey* key) noexcept {
-    if (key)
-        secure_buffer_release(&key->storage);
+    secure_buffer_release(&key->storage);
 }
 #pragma clang attribute pop
 AeadResult aes_gcm_encrypt(const AesGcmKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,

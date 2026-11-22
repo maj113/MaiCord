@@ -11,9 +11,10 @@ u32 wide_length(const wchar_t* text, u32 limit) noexcept {
     return length;
 }
 
+// Every caller passes its buffer and the address of its length.
 bool wide_append(wchar_t* output, u32 capacity, u32* length, const wchar_t* text) noexcept {
     const u32 count = wide_length(text, capacity);
-    if (!output || !length || *length + count >= capacity)
+    if (*length + count >= capacity)
         return false;
     copy_bytes(output + *length, text, count * static_cast<u32>(sizeof(wchar_t)));
     *length += count;
@@ -22,7 +23,7 @@ bool wide_append(wchar_t* output, u32 capacity, u32* length, const wchar_t* text
 }
 
 bool wide_append_hex(wchar_t* output, u32 capacity, u32* length, u64 value) noexcept {
-    if (!output || !length || *length + 16 >= capacity)
+    if (*length + 16 >= capacity)
         return false;
     for (u32 shift = 64; shift;) {
         shift -= 4;

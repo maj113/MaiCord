@@ -5,7 +5,7 @@
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
-// The exporter secret is 32 bytes and the output at most 8160 (the KDF checks it); every caller exports 16.
+// The exporter secret is 32 bytes; every caller exports 16.
 KdfResult mls_export_secret(KdfSha256Workspace& workspace, ConstSlice<u8> exporter_secret,
                             ConstSlice<u8> label, ConstSlice<u8> context, Slice<u8> output) noexcept {
     u8 secret[32], context_hash[32];

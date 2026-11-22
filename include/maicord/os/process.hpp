@@ -12,7 +12,7 @@ inline constexpr u32 kProcessLaunchMaximumPathCharacters = 1024;
 
 // Starts the program at `executable` (an absolute path) with no arguments and the environment of this process. The
 // child runs on its own: it is neither waited for nor kept as a child of this process. False when the path is too
-// long or the system refuses; the system's error is then in *native_error when given.
+// long or the system refuses; the system's error is then in *native_error.
 bool process_launch_detached(const wchar_t* executable, u32* native_error) noexcept;
 
 } // namespace maicord
@@ -28,14 +28,14 @@ struct ProcessCommand {
 };
 
 // The command that starts `executable` (an absolute path, at most kProcessLaunchMaximumPathCharacters characters).
-// False, with ERROR_INVALID_PARAMETER in *native_error when given, for a relative, empty or over-long path.
+// False, with ERROR_INVALID_PARAMETER in *native_error, for a relative, empty or over-long path.
 bool process_command(const wchar_t* executable, ProcessCommand* command, u32* native_error) noexcept;
 
 // Replaces this process with the command (execve) and the environment of this process, after marking every
 // descriptor above standard error close-on-exec (a connection that stayed open would keep a service name or a lock
 // of the old image) and clearing the signal mask and the ignored child signal that the first detached start
 // (process_launch_detached, or xdg-open through process_spawn_detached) sets.
-// Returns only when the system refused: false, and its error in *native_error when given.
+// Returns only when the system refused: false, and its error in *native_error.
 bool process_replace(const ProcessCommand& command, u32* native_error) noexcept;
 
 } // namespace maicord

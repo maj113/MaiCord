@@ -268,8 +268,7 @@ void resolver_forget_loop(NetworkLoop* loop) noexcept {
 
 NetworkResult network_resolver_start(NetworkLoop* loop, NetworkResolver* resolver, const wchar_t* hostname,
                                      const wchar_t* service) noexcept {
-    if (!loop || !loop->ready || !resolver || resolver->pending || resolver->address_count || !hostname ||
-        hostname[0] == 0) {
+    if (!loop->ready || resolver->pending || resolver->address_count || hostname[0] == 0) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
     char host[kHostCapacity];
@@ -322,7 +321,7 @@ NetworkResult network_resolver_start(NetworkLoop* loop, NetworkResolver* resolve
 }
 
 NetworkResult network_resolver_cancel(NetworkResolver* resolver) noexcept {
-    if (!resolver || !resolver->pending || resolver->state != NetworkResolverState::resolving) {
+    if (!resolver->pending || resolver->state != NetworkResolverState::resolving) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
     {
@@ -339,7 +338,7 @@ NetworkResult network_resolver_cancel(NetworkResolver* resolver) noexcept {
 }
 
 bool network_resolver_release(NetworkResolver* resolver) noexcept {
-    if (!resolver || resolver->pending) {
+    if (resolver->pending) {
         return false;
     }
     reset_value<NetworkResolver>(resolver);

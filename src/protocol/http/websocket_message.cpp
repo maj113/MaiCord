@@ -9,8 +9,7 @@ WebSocketMessageRead websocket_read_message(ByteQueue* input, WebSocketMessageTr
         maximum_message_bytes > fragments.count)
         return {{}, {}, WebSocketReadState::error, WebSocketError::invalid_input};
     for (;;) {
-        const auto parsed = websocket_parse_frame(byte_queue_readable(*input), maximum_frame_bytes,
-                                                  WebSocketDirection::server_to_client);
+        const auto parsed = websocket_parse_frame(byte_queue_readable(*input), maximum_frame_bytes);
         if (parsed.state == WebSocketParseState::need_more)
             return {};
         if (!parsed.ok())

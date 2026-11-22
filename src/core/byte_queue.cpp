@@ -16,12 +16,9 @@ void compact(ByteQueue* queue) noexcept {
 
 } // namespace
 
-bool byte_queue_initialize(ByteQueue* queue, const Slice<u8>& storage) noexcept {
-    if (!queue || (!storage.data && storage.count != 0)) {
-        return false;
-    }
+// Every caller gives storage it owns: data with its size.
+void byte_queue_initialize(ByteQueue* queue, const Slice<u8>& storage) noexcept {
     *queue = ByteQueue{storage.data, storage.count, 0, 0};
-    return true;
 }
 
 u32 byte_queue_size(const ByteQueue& queue) noexcept {
@@ -37,11 +34,9 @@ ConstSlice<u8> byte_queue_readable(const ByteQueue& queue) noexcept {
     return ConstSlice<u8>{queue.data + queue.begin, byte_queue_size(queue)};
 }
 
-// Every caller passes the address of a queue it owns: the functions below take a queue that exists.
+// Every caller passes the address of a queue it owns: the functions below take a queue that exists. A queue without
+// storage (zero, before its owner initializes it) has capacity 0, so it returns an empty view.
 Slice<u8> byte_queue_writable(ByteQueue* queue) noexcept {
-    if (!queue->data) {
-        return Slice<u8>{nullptr, 0};
-    }
     if (queue->end == queue->capacity && queue->begin != 0) {
         compact(queue);
     }
@@ -80,8 +75,9 @@ bool byte_queue_consume(ByteQueue* queue, u32 bytes) noexcept {
     return true;
 }
 
+// A queue without storage has end 0: the erase writes nothing.
 void byte_queue_clear(ByteQueue* queue, bool erase) noexcept {
-    if (erase && queue->data) {
+    if (erase) {
         secure_clear_bytes(queue->data, queue->end);
     }
     queue->begin = 0;

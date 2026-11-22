@@ -305,8 +305,9 @@ u16 acquire_binding_slot(RestRateScheduler* scheduler, const RestRouteKey& route
     return candidate;
 }
 
+// invalid_rate_index is past every table: the owners' tables hold fewer entries.
 RestRateBucket* resolve_bucket(RestRateScheduler* scheduler, u16 index, u16 generation) noexcept {
-    if (index == invalid_rate_index || index >= scheduler->buckets.count)
+    if (index >= scheduler->buckets.count)
         return nullptr;
     RestRateBucket& bucket = scheduler->buckets[index];
     return bucket.used && bucket.generation == generation ? &bucket : nullptr;
@@ -714,8 +715,6 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
 
 RestHeadResult parse_rest_response_head(ConstSlice<u8> input, u32 maximum_header_bytes,
                                         u32 maximum_fields) noexcept {
-    if ((!input.data && input.count != 0) || maximum_header_bytes == 0 || maximum_fields == 0)
-        return RestHeadResult{{}, {}, 0, HttpError::invalid_input, RestHeadError::invalid_input, HttpParseState::error};
     RateHeadContext context{};
     const HttpHeadResult parsed =
         http_parse_response_head(input, maximum_header_bytes, maximum_fields, visit_rate_header, &context);
@@ -796,11 +795,9 @@ RateLimitBodyResult decode_search_indexing_body(const Utf8View& body, const Slic
     return decode_retry_body(body, structural_scratch, maximum_depth, true);
 }
 
-bool rest_rate_scheduler_initialize(RestRateScheduler* scheduler, Slice<RestRateBucket> buckets,
+// Every owner gives its fixed tables: fewer entries than invalid_rate_index.
+void rest_rate_scheduler_initialize(RestRateScheduler* scheduler, Slice<RestRateBucket> buckets,
                                     Slice<RestRateBinding> bindings) noexcept {
-    if (!buckets.data || buckets.count == 0 || buckets.count >= invalid_rate_index || !bindings.data ||
-        bindings.count == 0 || bindings.count >= invalid_rate_index)
-        return false;
     for (u32 index = 0; index < buckets.count; ++index)
         reset_value<RestRateBucket>(&buckets[index]);
     for (u32 index = 0; index < bindings.count; ++index) {
@@ -810,12 +807,10 @@ bool rest_rate_scheduler_initialize(RestRateScheduler* scheduler, Slice<RestRate
     reset_value<RestRateScheduler>(scheduler);
     scheduler->buckets = buckets;
     scheduler->bindings = bindings;
-    return true;
 }
 
+// The owner initialized the scheduler, and submit refused a route rest_route_valid does not take.
 RestRateAcquireResult rest_rate_acquire(RestRateScheduler* scheduler, const RestRouteKey& route, u64 now_ms) noexcept {
-    if (!scheduler->buckets.data || !scheduler->bindings.data || !rest_route_valid(route))
-        return RestRateAcquireResult{{}, 0, RestRateAcquireKind::error, RestRateError::invalid_input};
     if (scheduler->global_reset_at_ms != 0) {
         if (now_ms < scheduler->global_reset_at_ms) {
             return RestRateAcquireResult{{}, scheduler->global_reset_at_ms, RestRateAcquireKind::waiting,
@@ -870,9 +865,7 @@ RestRateAcquireResult rest_rate_acquire(RestRateScheduler* scheduler, const Rest
 RestRateObservation rest_rate_observe(RestRateScheduler* scheduler, RestRateLease* lease,
                                       const RestHeadResult& response_head, const RateLimitBodyResult* rate_limit_body,
                                       u64 now_ms, u64 unix_time_ms) noexcept {
-    if (!lease->active || !response_head.ok() || (rate_limit_body && !rate_limit_body->ok()) ||
-        lease->binding_index >= scheduler->bindings.count)
-        return observation_error(RestRateError::invalid_input);
+    // finalize_response observes the transaction's active lease with a complete head and, if any, a decoded body.
     RestRateBinding& binding = scheduler->bindings[lease->binding_index];
     if (!binding.used || binding.generation != lease->binding_generation || !binding.in_flight)
         return observation_error(RestRateError::stale_lease);
@@ -962,7 +955,7 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler, RestRateLeas
 }
 
 bool rest_rate_cancel(RestRateScheduler* scheduler, RestRateLease* lease) noexcept {
-    if (!lease->active || lease->binding_index >= scheduler->bindings.count)
+    if (!lease->active)
         return false;
     RestRateBinding& binding = scheduler->bindings[lease->binding_index];
     if (!binding.used || binding.generation != lease->binding_generation || !binding.in_flight)
@@ -989,15 +982,13 @@ HttpHeadResult rest_response_head_parser(void* context, ConstSlice<u8> input, u3
 
 } // namespace
 
-bool rest_response_initialize(RestResponse* response, Slice<u8> input_storage, Slice<u8> body_output,
+// The worker gives its header storage of kRestMaximumHeaderBytes and the method that submit checked.
+void rest_response_initialize(RestResponse* response, Slice<u8> input_storage, Slice<u8> body_output,
                               RestMethod request_method) noexcept {
-    if (!input_storage.data || input_storage.count < kRestMaximumHeaderBytes ||
-        (!body_output.data && body_output.count != 0) || !method_literal(request_method))
-        return false;
     reset_value<RestResponse>(response);
-    return http_response_decoder_initialize(&response->http, input_storage, {}, body_output, kRestMaximumHeaderBytes,
-                                            kRestMaximumHeaderFields, request_method == RestMethod::head,
-                                            rest_response_head_parser, response);
+    http_response_decoder_initialize(&response->http, input_storage, {}, body_output, kRestMaximumHeaderBytes,
+                                     kRestMaximumHeaderFields, request_method == RestMethod::head,
+                                     rest_response_head_parser, response);
 }
 
 RestResponseStep rest_response_feed(RestResponse* response, ConstSlice<u8> input,

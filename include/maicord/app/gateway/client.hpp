@@ -121,7 +121,7 @@ bool gateway_client_take_refreshed_credential(GatewayClient* client, SecureBuffe
 // takes a copy through gateway_client_take_refreshed_credential. False for a malformed token.
 bool gateway_client_replace_credential(GatewayClient* client, ConstSlice<u8> token) noexcept;
 // After the worker finishes, the profile metadata and locked credential are
-// returned together. A client that is not a user one is rejected without
+// returned together into the caller's empty profile. A client that is not a user one is rejected without
 // stopping and the empty output remains unchanged.
 GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* client, u32 timeout_milliseconds,
                                                             AccountProfile* profile) noexcept;

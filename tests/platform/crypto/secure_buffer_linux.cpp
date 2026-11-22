@@ -115,9 +115,6 @@ bool contains(ConstSlice<u8> haystack, ConstSlice<u8> needle) noexcept {
 
 void storage_cases() noexcept {
     SecureBuffer buffer{};
-    check(secure_buffer_initialize(nullptr, 16).error == SecureBufferError::invalid_input &&
-              secure_buffer_initialize(&buffer, 0).error == SecureBufferError::invalid_input && !buffer.data,
-          "secure buffer rejects a null owner and an empty capacity");
     check(secure_buffer_initialize(&buffer, 100).ok() && buffer.data && buffer.capacity == 100 && buffer.bytes == 0 &&
               buffer.locked && reinterpret_cast<usize>(buffer.data) % 4096 == 0,
           "secure buffer is page-aligned storage that reports itself ready");
@@ -136,11 +133,9 @@ void storage_cases() noexcept {
     check(too_big.error == SecureBufferError::output_too_small && too_big.bytes == 101 &&
               buffer.bytes == secret.count && bytes_equal(buffer.data, secret.data, secret.count),
           "secure buffer reports the size it needs and keeps its value");
-    check(secure_buffer_assign(&buffer, {nullptr, 3}).error == SecureBufferError::invalid_input,
-          "secure buffer rejects a null value with a length");
     SecureBuffer moved{};
     check(secure_buffer_transfer(&moved, &buffer) && !buffer.data && !buffer.locked && moved.data && moved.locked &&
-              moved.bytes == secret.count && !secure_buffer_transfer(&moved, &moved),
+              moved.bytes == secret.count,
           "secure buffer ownership moves once");
     SecureBuffer empty{};
     check(secure_buffer_initialize(&empty, 16).ok() && !secure_buffer_transfer(&buffer, &empty),
@@ -153,7 +148,6 @@ void storage_cases() noexcept {
     secure_buffer_release(&moved);
     check(!moved.data && !moved.locked && !moved.capacity && !moved.bytes, "release retires the owner");
     secure_buffer_release(&moved);
-    secure_buffer_release(nullptr);
 }
 
 // A refused mlock must not fail the buffer (D19). Running as root or with CAP_IPC_LOCK the limit is not enforced, and
@@ -259,11 +253,6 @@ void user_bound_cases() noexcept {
               SecureBufferError::invalid_input,
           "entropy beyond 512 bytes is rejected");
     check(secure_buffer_protect_user_bound(plaintext, {long_entropy, 512}, {other, 200}).ok(), "entropy of 512 bytes is accepted");
-    SecureBuffer unready{};
-    check(secure_buffer_protect_user_bound(unready, entropy, {other, 200}).error == SecureBufferError::invalid_input &&
-              secure_buffer_unprotect_user_bound({blob, blob_bytes}, entropy, &unready).error == SecureBufferError::invalid_input &&
-              secure_buffer_unprotect_user_bound({nullptr, 0}, entropy, &opened).error == SecureBufferError::invalid_input,
-          "user-bound calls reject unready buffers and empty input");
 
     // The block form: caller-owned header bytes in front, one allocation.
     u8* block = nullptr;
@@ -282,11 +271,6 @@ void user_bound_cases() noexcept {
     const auto too_large = secure_buffer_protect_user_bound_block(plaintext, entropy, 16, 16 + blob_bytes - 1, &block, &block_bytes);
     check(too_large.error == SecureBufferError::output_too_small && !block && block_bytes == 0,
           "the block form stops at its maximum without allocating");
-    check(secure_buffer_protect_user_bound_block(plaintext, entropy, 0, 4096, &block, &block_bytes).error ==
-                  SecureBufferError::invalid_input &&
-              secure_buffer_protect_user_bound_block(plaintext, entropy, 4096, 4096, &block, &block_bytes).error ==
-                  SecureBufferError::invalid_input,
-          "the block form needs a header and room after it");
 
     // With the key file gone nothing seals or opens as before: a blob made under the old key does not open under a
     // new one, and opening alone never creates a key.

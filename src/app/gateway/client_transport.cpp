@@ -40,9 +40,8 @@ bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, Netw
     runtime->route_error_offset = 0;
     runtime->route_detail = 0;
     byte_queue_clear(&runtime->encrypted_input, true);
-    if (!byte_queue_initialize(&runtime->encrypted_input,
-                               Slice<u8>{runtime->encrypted_storage, kEncryptedInputBytes}) ||
-        !secure_random_u32(&runtime->heartbeat_jitter).ok()) {
+    byte_queue_initialize(&runtime->encrypted_input, Slice<u8>{runtime->encrypted_storage, kEncryptedInputBytes});
+    if (!secure_random_u32(&runtime->heartbeat_jitter).ok()) {
         return false;
     }
     if (runtime->session.input.data) {
@@ -274,10 +273,8 @@ bool ensure_receive(GatewayClientRuntime* runtime) noexcept {
 } // namespace client_detail
 namespace {
 
+// The callers send a TLS record that encrypt made or the handshake bytes a step produced: never empty.
 bool start_send(GatewayClientRuntime* runtime, const ConstSlice<u8>& bytes, SendPurpose purpose) noexcept {
-    if (!bytes.data || bytes.count == 0) {
-        return false;
-    }
     runtime->send_data = bytes.data;
     runtime->send_bytes = bytes.count;
     runtime->send_offset = 0;
@@ -454,10 +451,10 @@ bool send_pending_pong(GatewayClientRuntime* runtime) noexcept {
 }
 
 // Frames and sends the command written to gateway_payload (as ETF on the user
-// Gateway); the plaintext copies are erased.
+// Gateway); the plaintext copies are erased. A writer that succeeds wrote a nonempty command that fits.
 OutboundDrive send_control_command(GatewayClientRuntime* runtime, GatewayCommandWriteResult command,
                                    SendPurpose purpose) noexcept {
-    if (!command.ok() || command.bytes == 0 || command.bytes > sizeof(runtime->gateway_payload)) {
+    if (!command.ok()) {
         // A failed write can leave a partial command, token included, in the buffer.
         SecureZeroMemory(runtime->gateway_payload, sizeof(runtime->gateway_payload));
         return OutboundDrive::failed;

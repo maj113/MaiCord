@@ -6,8 +6,8 @@
 
 namespace maicord {
 namespace {
-// The framed content is hashed straight from the callers' fixed 32-byte (or larger) output buffers; the hash
-// primitive checks the workspace and its spans itself.
+// The framed content is hashed straight from the callers' fixed 32-byte (or larger) output buffers, which are
+// disjoint from the hashed spans and from the workspace.
 KdfResult framed_hash(KdfSha256Workspace& workspace, const ConstSlice<u8>& label, const ConstSlice<u8>& a,
                       const ConstSlice<u8>& b, const Slice<u8>& output, bool sign) noexcept {
     static constexpr u8 prefix[]{'M', 'L', 'S', ' ', '1', '.', '0', ' '};

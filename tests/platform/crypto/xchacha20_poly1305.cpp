@@ -137,9 +137,7 @@ void boundaries(Check check) noexcept {
         check(xchacha_initialize(&key, {secret, size}).error == AeadError::invalid_input &&
                   !key.storage.data,
               "XChaCha requires exactly 32 key bytes");
-    check(xchacha_initialize(nullptr, {secret, 32}).error == AeadError::invalid_input &&
-              xchacha_initialize(&key, {nullptr, 32}).error == AeadError::invalid_input,
-          "XChaCha rejects null owner/secret");
+    check(xchacha_initialize(&key, {nullptr, 32}).error == AeadError::invalid_input, "XChaCha rejects a null secret");
     check(xchacha_initialize(&key, {secret, 32}).ok(), "XChaCha boundary initialization");
     if (!key.storage.data)
         return;
@@ -147,59 +145,6 @@ void boundaries(Check check) noexcept {
     check(xchacha_initialize(&key, {secret, 32}).error == AeadError::invalid_input &&
               key.storage.data == retained_storage,
           "XChaCha rejects overwriting live key storage");
-    memset(output, 0xa5, sizeof(output));
-    memset(tag, 0xa5, sizeof(tag));
-    const auto short_result = xchacha_encrypt(key, {nonce, 24}, {}, {plain, 33}, {output, 32}, {tag, 16});
-    check(short_result.error == AeadError::output_too_small && short_result.bytes == 0 &&
-              test_filled(output, 64, 0xa5) && test_filled(tag, 16, 0xa5) && workspace_erased(key),
-          "XChaCha short output preserves payload and tag without deriving a key");
-    constexpr u32 invalid_nonce_sizes[]{0, 12, 23, 25};
-    for (u32 size : invalid_nonce_sizes)
-        check(xchacha_encrypt(key, {nonce, size}, {}, {plain, 33}, {output, 64}, {tag, 16}).error ==
-                      AeadError::invalid_input &&
-                  test_filled(output, 64, 0xa5) && workspace_erased(key),
-              "XChaCha rejects wrong nonce sizes before key derivation");
-    constexpr u32 invalid_tag_sizes[]{0, 15, 17};
-    for (u32 size : invalid_tag_sizes)
-        check(xchacha_decrypt(key, {nonce, 24}, {}, {plain, 33}, {tag, size}, {output, 64}).error ==
-                      AeadError::invalid_input &&
-                  test_filled(output, 64, 0xa5),
-              "XChaCha rejects wrong tag sizes");
-    check(xchacha_encrypt(key, {nonce, 24}, {nullptr, 1}, {plain, 33}, {output, 64}, {tag, 16}).error ==
-                  AeadError::invalid_input &&
-              test_filled(output, 64, 0xa5),
-          "XChaCha rejects null input spans");
-    check(xchacha_encrypt(key, {nonce, 24}, {}, {output, 33}, {output + 1, 33}, {tag, 16}).error ==
-                  AeadError::invalid_input &&
-              test_filled(output, 64, 0xa5),
-          "XChaCha rejects partial payload alias");
-    check(xchacha_encrypt(key, {output, 24}, {}, {plain, 33}, {output, 64}, {tag, 16}).error ==
-                  AeadError::invalid_input &&
-              test_filled(output, 64, 0xa5),
-          "XChaCha rejects nonce/output alias");
-    check(xchacha_decrypt(key, {nonce, 24}, {output, 12}, {plain, 33}, {tag, 16}, {output, 64}).error ==
-                  AeadError::invalid_input &&
-              test_filled(output, 64, 0xa5),
-          "XChaCha rejects AAD/output alias");
-    check(xchacha_encrypt(key, {nonce, 24}, {}, {plain, 33}, {output, 64}, {output + 32, 16}).error ==
-                  AeadError::invalid_input &&
-              test_filled(output, 64, 0xa5),
-          "XChaCha rejects payload/tag alias");
-    const auto storage = key.storage.data;
-    check(
-        xchacha_encrypt(key, {storage, 24}, {}, {plain, 33}, {output, 64}, {tag, 16}).error ==
-                AeadError::invalid_input &&
-            xchacha_encrypt(key, {nonce, 24}, {storage, 12}, {plain, 33}, {output, 64}, {tag, 16}).error ==
-                AeadError::invalid_input &&
-            xchacha_encrypt(key, {nonce, 24}, {}, {storage, 32}, {output, 64}, {tag, 16}).error ==
-                AeadError::invalid_input &&
-            xchacha_encrypt(key, {nonce, 24}, {}, {plain, 33}, {storage, 33}, {tag, 16}).error ==
-                AeadError::invalid_input &&
-            xchacha_encrypt(key, {nonce, 24}, {}, {}, {}, {storage, 16}).error ==
-                AeadError::invalid_input &&
-            workspace_erased(key) && bytes_equal(storage, secret, 32) &&
-            test_filled(output, 64, 0xa5),
-        "XChaCha rejects all key-workspace aliases before it derives or erases state");
     check(xchacha_encrypt(key, {nonce, 24}, {}, {}, {}, {tag, 16}).ok(),
           "XChaCha authenticates empty data with null payload pointers");
     tag[0] ^= 1;
@@ -219,7 +164,6 @@ void boundaries(Check check) noexcept {
           "XChaCha rejects use after release");
     check(xchacha_initialize(&key, {secret, 32}).ok(), "XChaCha reinitializes released owner");
     xchacha_release(&key);
-    xchacha_release(nullptr);
 }
 } // namespace
 

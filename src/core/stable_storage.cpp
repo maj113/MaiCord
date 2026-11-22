@@ -5,9 +5,7 @@ namespace maicord {
 bool stable_storage_initialize(StableStorage* storage, u32 reserved_capacity,
                                u32 initial_capacity, u32 element_bytes,
                                u32 alignment, bool zero_new) noexcept {
-    if (!storage || storage->arena.base || reserved_capacity == 0 ||
-        initial_capacity > reserved_capacity || !is_power_of_two(alignment) || element_bytes == 0 ||
-        (element_bytes & (alignment - 1u)) != 0) {
+    if (!storage || storage->arena.base || reserved_capacity == 0 || initial_capacity > reserved_capacity) {
         return false;
     }
     // Both factors are u32; their full product always fits the x64 usize.
@@ -39,7 +37,8 @@ bool stable_storage_reserve(StableStorage* storage,
     }
     const usize bytes = static_cast<usize>(required_capacity - storage->capacity) * storage->element_bytes;
     const ArenaMark mark = arena_mark(&storage->arena);
-    // stable_storage_initialize accepts only a power-of-two alignment: the bump needs no test.
+    // Every caller passes a power-of-two alignment that divides element_bytes (alignof and sizeof of the element, or
+    // message_rich_store's 8-byte slab blocks): the bump needs no test, and the elements stay contiguous.
     void* allocation = storage->zero_new
                            ? arena_bump_zero(&storage->arena, bytes,
                                              storage->alignment)
@@ -84,9 +83,6 @@ bool stable_storage_shrink(StableStorage* storage, u32 capacity) noexcept {
 }
 
 void stable_storage_release(StableStorage* storage) noexcept {
-    if (!storage) {
-        return;
-    }
     arena_release(&storage->arena);
     reset_value<StableStorage>(storage);
 }

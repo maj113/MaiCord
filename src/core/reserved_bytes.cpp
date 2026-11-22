@@ -35,7 +35,7 @@ bool reserved_bytes_commit(ReservedBytes* bytes, u32 required) noexcept {
 }
 
 void reserved_bytes_decommit(ReservedBytes* bytes) noexcept {
-    if (!bytes || !bytes->base || !bytes->committed)
+    if (!bytes->base || !bytes->committed)
         return;
     // Decommitted pages are discarded; a later commit returns zero pages.
     if (pages_decommit(bytes->base, bytes->committed))
@@ -43,8 +43,6 @@ void reserved_bytes_decommit(ReservedBytes* bytes) noexcept {
 }
 
 void reserved_bytes_release(ReservedBytes* bytes) noexcept {
-    if (!bytes)
-        return;
     if (bytes->base)
         pages_release(bytes->base, bytes->reserved);
     reset_value<ReservedBytes>(bytes);

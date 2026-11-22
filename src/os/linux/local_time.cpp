@@ -286,8 +286,9 @@ bool local_time_from_unix(i64 unix_seconds, CalendarTime* output, i32* utc_offse
     return true;
 }
 
+// Every caller passes the address of its output.
 bool local_time_to_unix(const CalendarTime& local, i64* unix_seconds) noexcept {
-    if (!unix_seconds || local.wYear < 1 || local.wYear > 9999 || local.wMonth < 1 || local.wMonth > 12 ||
+    if (local.wYear < 1 || local.wYear > 9999 || local.wMonth < 1 || local.wMonth > 12 ||
         local.wDay < 1 || local.wDay > civil_month_days(local.wYear, local.wMonth) || local.wHour > 23 ||
         local.wMinute > 59 || local.wSecond > 59)
         return false;

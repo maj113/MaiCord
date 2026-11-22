@@ -103,9 +103,6 @@ NetworkResult network_socket_start(SOCKET socket, NetworkLoop* loop, NetworkOper
 }
 
 NetworkResult network_loop_initialize(NetworkLoop* loop) noexcept {
-    if (!loop) {
-        return failure(NetworkError::invalid_argument, WSAEINVAL);
-    }
     reset_value<NetworkLoop>(loop);
 
     WSADATA data{};
@@ -131,9 +128,6 @@ NetworkResult network_loop_initialize(NetworkLoop* loop) noexcept {
 }
 
 void network_loop_release(NetworkLoop* loop) noexcept {
-    if (!loop) {
-        return;
-    }
     if (loop->completion_port) {
         CloseHandle(loop->completion_port);
     }
@@ -147,7 +141,7 @@ NetworkResult network_connection_connect(NetworkLoop* loop, NetworkConnection* c
                                          const NetworkAddress& address) noexcept {
     sockaddr_storage target;
     const i32 address_bytes = socket_address(address, &target);
-    if (!loop || !loop->completion_port || !connection || address_bytes <= 0) {
+    if (!loop->completion_port || address_bytes <= 0) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
     const i32 family = target.ss_family;
@@ -215,9 +209,10 @@ NetworkResult network_connection_connect(NetworkLoop* loop, NetworkConnection* c
     return success();
 }
 
+// Every caller gives the address of its connection and a buffer with bytes (the TLS stream and the Gateway check the
+// queue space and the send span first).
 NetworkResult network_connection_receive(NetworkConnection* connection, Slice<u8> buffer) noexcept {
-    if (!connection || connection->state != NetworkConnectionState::connected ||
-        connection->receive_pending || !buffer.data || buffer.count == 0) {
+    if (connection->state != NetworkConnectionState::connected || connection->receive_pending) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
     network_operation_initialize(&connection->receive_operation, connection, NetworkOperationKind::receive,
@@ -229,8 +224,7 @@ NetworkResult network_connection_receive(NetworkConnection* connection, Slice<u8
 }
 
 NetworkResult network_connection_send(NetworkConnection* connection, ConstSlice<u8> buffer) noexcept {
-    if (!connection || connection->state != NetworkConnectionState::connected || connection->send_pending ||
-        !buffer.data || buffer.count == 0) {
+    if (connection->state != NetworkConnectionState::connected || connection->send_pending) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
     network_operation_initialize(&connection->send_operation, connection, NetworkOperationKind::send,
@@ -242,9 +236,6 @@ NetworkResult network_connection_send(NetworkConnection* connection, ConstSlice<
 }
 
 void network_connection_close(NetworkConnection* connection) noexcept {
-    if (!connection) {
-        return;
-    }
     if (connection->socket != INVALID_SOCKET && connection->socket != 0) {
         closesocket(connection->socket);
     }
@@ -255,8 +246,7 @@ void network_connection_close(NetworkConnection* connection) noexcept {
 
 NetworkResult network_resolver_start(NetworkLoop* loop, NetworkResolver* resolver,
                                      const wchar_t* hostname, const wchar_t* service) noexcept {
-    if (!loop || !loop->completion_port || !resolver || resolver->pending || resolver->results ||
-        !hostname || hostname[0] == 0) {
+    if (!loop->completion_port || resolver->pending || resolver->results || hostname[0] == 0) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
 
@@ -303,7 +293,7 @@ NetworkResult network_resolver_start(NetworkLoop* loop, NetworkResolver* resolve
 }
 
 NetworkResult network_resolver_cancel(NetworkResolver* resolver) noexcept {
-    if (!resolver || !resolver->pending || resolver->state != NetworkResolverState::resolving ||
+    if (!resolver->pending || resolver->state != NetworkResolverState::resolving ||
         !resolver->cancel_handle) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
@@ -315,7 +305,7 @@ NetworkResult network_resolver_cancel(NetworkResolver* resolver) noexcept {
 }
 
 bool network_resolver_release(NetworkResolver* resolver) noexcept {
-    if (!resolver || resolver->pending) {
+    if (resolver->pending) {
         return false;
     }
     if (resolver->results) {
@@ -326,8 +316,7 @@ bool network_resolver_release(NetworkResolver* resolver) noexcept {
 }
 
 NetworkResult network_signal_post(NetworkLoop* loop, NetworkSignal* signal, u32 value) noexcept {
-    if (!loop || !loop->completion_port || !signal ||
-        InterlockedCompareExchange(&signal->pending, 1, 0) != 0) {
+    if (!loop->completion_port || InterlockedCompareExchange(&signal->pending, 1, 0) != 0) {
         return failure(NetworkError::invalid_argument, ERROR_INVALID_PARAMETER);
     }
     network_operation_initialize(&signal->operation, signal, NetworkOperationKind::signal, 0);
@@ -344,7 +333,7 @@ NetworkResult network_signal_post(NetworkLoop* loop, NetworkSignal* signal, u32 
 NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds) noexcept {
     NetworkPollResult result{};
     result.state = NetworkPollState::error;
-    if (!loop || !loop->completion_port) {
+    if (!loop->completion_port) {
         result.completion.native_error = ERROR_INVALID_PARAMETER;
         return result;
     }

@@ -243,10 +243,8 @@ bool contains(const u8* data, u32 count, const char* text) noexcept {
 // The cases.
 
 void bootstrap_cases() noexcept {
-    check(tls_client_initialize(nullptr, L"discord.com").error == TlsError::invalid_argument &&
-              tls_client_initialize(&g_connection.tls, nullptr).error == TlsError::invalid_argument &&
-              tls_client_initialize(&g_connection.tls, L"").error == TlsError::invalid_argument,
-          "tls_client_initialize rejects a null client, a null name and an empty name");
+    check(tls_client_initialize(&g_connection.tls, L"").error == TlsError::invalid_argument,
+          "tls_client_initialize rejects an empty name");
 
     TlsClient client{};
     const TlsResult initialized = tls_client_initialize(&client, L"discord.com");
@@ -290,7 +288,6 @@ void bootstrap_cases() noexcept {
               !client.native.bio,
           "tls_client_release retires the connection");
     tls_client_release(&client);
-    tls_client_release(nullptr);
 
     // Every ClientHello names the server and offers ALPN "http/1.1", and is shaped like Chrome's as far as OpenSSL
     // allows (configure_hello): Chrome's suites in its order (OpenSSL before 3.5 adds its renegotiation SCSV), its
@@ -417,10 +414,8 @@ void connect_case(u16 port, const wchar_t* name, const char* protocol) noexcept 
           "encrypting into a short output is refused");
     static u8 oversized[16385];
     check(tls_client_encrypt(&connection.tls, {oversized, 16385}, {g_record, kRecordCapacity}, &produced).error ==
-                  TlsError::invalid_argument &&
-              tls_client_encrypt(&connection.tls, {byte, 0}, {g_record, kRecordCapacity}, &produced).error ==
-                  TlsError::invalid_argument,
-          "a plaintext of none or of more than a record is refused");
+              TlsError::invalid_argument,
+          "a plaintext of more than a record is refused");
 
     // The request goes out in two spans and one record.
     const char first[] = "GET / HTTP/1.0\r\nHost: localhost\r\n";

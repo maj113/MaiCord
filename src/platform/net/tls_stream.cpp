@@ -64,8 +64,7 @@ inline bool ranges_overlap(Slice<u8> left, Slice<u8> right) noexcept {
 }
 
 void wipe(Slice<u8> bytes) noexcept {
-    if (bytes.data)
-        SecureZeroMemory(bytes.data, bytes.count);
+    SecureZeroMemory(bytes.data, bytes.count);
 }
 
 struct PageRange {
@@ -409,7 +408,7 @@ TlsStreamEvent finish_close(TlsStream* stream) noexcept {
 
 bool tls_stream_initialize_endpoint(TlsStream* stream, const wchar_t* server_name, u16 port,
                                     TlsStreamBuffers buffers) noexcept {
-    if (!stream || (stream->state != TlsStreamState::empty && stream->state != TlsStreamState::closed) ||
+    if ((stream->state != TlsStreamState::empty && stream->state != TlsStreamState::closed) ||
         stream->outstanding_operations || stream->resolver.pending || stream->tls_initialized ||
         stream->resolver_started || !port || !valid_server_name(server_name) ||
         !valid_slice(buffers.encrypted_input) || !valid_slice(buffers.handshake_output) ||
@@ -427,11 +426,12 @@ bool tls_stream_initialize_endpoint(TlsStream* stream, const wchar_t* server_nam
     stream->server_name = server_name;
     decimal_write(stream->service, port);
     stream->buffers = buffers;
-    return byte_queue_initialize(&stream->encrypted_input, buffers.encrypted_input);
+    byte_queue_initialize(&stream->encrypted_input, buffers.encrypted_input);
+    return true;
 }
 
 TlsStreamEvent tls_stream_begin_connect(TlsStream* stream, NetworkLoop* loop) noexcept {
-    if (!stream || !loop || !network_loop_ready(*loop) ||
+    if (!network_loop_ready(*loop) ||
         (stream->state != TlsStreamState::empty && stream->state != TlsStreamState::closed) ||
         stream->outstanding_operations != 0 || stream->resolver.pending) {
         return invalid_event();
@@ -466,19 +466,14 @@ TlsStreamEvent tls_stream_begin_connect(TlsStream* stream, NetworkLoop* loop) no
 TlsStreamEvent tls_stream_start_write(TlsStream* stream, ConstSlice<ConstSlice<u8>> spans,
                                       TlsStreamCommitHandler commit_handler,
                                       void* callback_context) noexcept {
-    if (!stream || (stream->state != TlsStreamState::ready && stream->state != TlsStreamState::duplex) ||
-        !spans.data || spans.count == 0 || spans.count > kTlsStreamMaximumWriteSpans ||
+    if ((stream->state != TlsStreamState::ready && stream->state != TlsStreamState::duplex) ||
         stream->connection.send_pending || (!stream->duplex && stream->connection.receive_pending) ||
         stream->send_data) {
         return invalid_event();
     }
     u32 nonempty = 0;
-    for (u32 index = 0; index < spans.count; ++index) {
-        if (!spans[index].data && spans[index].count != 0) {
-            return invalid_event();
-        }
+    for (u32 index = 0; index < spans.count; ++index)
         nonempty += spans[index].count != 0 ? 1u : 0u;
-    }
     if (nonempty == 0) {
         return invalid_event();
     }
@@ -497,7 +492,7 @@ TlsStreamEvent tls_stream_start_write(TlsStream* stream, ConstSlice<ConstSlice<u
 // A ready stream is never duplex (every path to ready clears it), so the flag is set for both kinds of reader.
 static TlsStreamEvent start_reader(TlsStream* stream, TlsStreamReadHandler read_handler, void* callback_context,
                                    bool duplex) noexcept {
-    if (!stream || stream->state != TlsStreamState::ready || !read_handler ||
+    if (stream->state != TlsStreamState::ready ||
         stream->connection.send_pending || stream->connection.receive_pending) {
         return invalid_event();
     }
@@ -520,8 +515,7 @@ TlsStreamEvent tls_stream_start_duplex(TlsStream* stream, TlsStreamReadHandler r
 }
 
 TlsStreamEvent tls_stream_resume_read(TlsStream* stream) noexcept {
-    if (!stream || stream->state != TlsStreamState::read_paused || stream->duplex ||
-        !stream->read_handler || stream->connection.receive_pending)
+    if (stream->state != TlsStreamState::read_paused || stream->duplex || stream->connection.receive_pending)
         return invalid_event();
     stream->state = TlsStreamState::reading;
     // Give the owner a chance to finish after acknowledging downstream output,
@@ -541,9 +535,6 @@ TlsStreamEvent tls_stream_resume_read(TlsStream* stream) noexcept {
 
 TlsStreamEvent tls_stream_handle_completion(TlsStream* stream, NetworkLoop* loop,
                                             const NetworkCompletion& completion) noexcept {
-    if (!stream || !loop) {
-        return invalid_event();
-    }
     // Shared loops may deliver another stream's event. Never close this stream
     // or consume its operation count for an unrelated completion.
     const bool owned_socket = (completion.kind == NetworkOperationKind::connect ||
@@ -645,7 +636,7 @@ TlsStreamEvent tls_stream_handle_completion(TlsStream* stream, NetworkLoop* loop
 }
 
 void tls_stream_close(TlsStream* stream) noexcept {
-    if (!stream || stream->state == TlsStreamState::closed) {
+    if (stream->state == TlsStreamState::closed) {
         return;
     }
     if (stream->state == TlsStreamState::empty) {
@@ -663,7 +654,7 @@ void tls_stream_close(TlsStream* stream) noexcept {
 }
 
 bool tls_stream_drained(TlsStream* stream) noexcept {
-    if (!stream || (stream->state != TlsStreamState::closing && stream->state != TlsStreamState::closed) ||
+    if ((stream->state != TlsStreamState::closing && stream->state != TlsStreamState::closed) ||
         stream->outstanding_operations != 0 || stream->resolver.pending) {
         return false;
     }
@@ -672,7 +663,7 @@ bool tls_stream_drained(TlsStream* stream) noexcept {
 }
 
 bool tls_stream_restore_buffers(TlsStream* stream) noexcept {
-    if (!stream || !stream->buffers_released)
+    if (!stream->buffers_released)
         return true;
     if (!commit_buffer(stream->buffers.encrypted_input) || !commit_buffer(stream->buffers.handshake_output) ||
         !commit_buffer(stream->buffers.record_output))
