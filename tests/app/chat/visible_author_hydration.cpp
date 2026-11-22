@@ -8,6 +8,7 @@
 #include "../../support/gateway_message_scratch.hpp"
 #include "../../support/chat_state_lists.hpp"
 #include "maicord/core/json_scan.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -16,9 +17,7 @@ struct Fixture {
     GuildMemberRecord member_records[8];
     u32 member_order[8];
     UserStore users;
-    UserRecord user_records[8];
-    u32 user_order[8];
-    u8 names[2048];
+    TestUserBank<8, 2048> user_bank;
     ChatStateStore state;
     GuildRecord guild;
     ChannelRecord channel;
@@ -50,8 +49,7 @@ bool initialize() noexcept {
     auto& f = fixture;
     f = {};
     if (!guild_member_store_initialize(&f.members, {f.member_records, 8}, {f.member_order, 8}) ||
-        !user_store_initialize(&f.users, {f.user_records, 8}, {f.user_order, 8},
-                                       {f.names, sizeof(f.names)}) ||
+        !f.user_bank.init(&f.users) ||
         !chat_state_store_initialize(&f.state, {&f.guild, 1}, {f.guild_order, 1}, {&f.channel, 1},
                                         {f.channel_order, 1}, {f.state_names, sizeof(f.state_names)}) ||
         !chat_state_store_bind_permissions(&f.state, {f.roles, 4}, {f.overwrites, 1}) ||

@@ -27,6 +27,7 @@
 #include "maicord/ui/voice/video_scene.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace layout_consistency_test {
@@ -378,9 +379,7 @@ struct Shell {
     ShellNavigationRowWidget navigation_rows[6];
     UiWidget navigation_widgets[26];
     UiLayoutNode navigation_nodes[26];
-    UserRecord users[6];
-    u32 user_order[6];
-    u8 user_names[512];
+    TestUserBank<6, 512> users_bank;
     UserStore user_store;
     MemberListRow member_rows[7];
     MemberListView members;
@@ -428,7 +427,7 @@ void shell() noexcept {
             f.guild_rows[index].mention_count = mentions[index];
         }
     }
-    ok = ok && user_store_initialize(&f.user_store, {f.users, 6}, {f.user_order, 6}, {f.user_names, sizeof(f.user_names)});
+    ok = ok && f.users_bank.init(&f.user_store);
     constexpr GuildMemberStatus statuses[]{GuildMemberStatus::online, GuildMemberStatus::idle, GuildMemberStatus::dnd,
                                            GuildMemberStatus::offline, GuildMemberStatus::online,
                                            GuildMemberStatus::online};
@@ -446,6 +445,7 @@ void shell() noexcept {
     ok = ok && member_list_scene_initialize(&f.member_scene, {f.member_widgets, 8},
                                             {f.member_ui, 1 + 8 * kMemberListWidgetsPerRow},
                                             {f.member_nodes, 1 + 8 * kMemberListWidgetsPerRow});
+    f.member_scene.media_cache = test_member_media_cache();
     const auto* rail = ui_scene_node(f.scene, UiSemantic::guild_navigation);
     const auto* channels = ui_scene_node(f.scene, UiSemantic::channel_navigation);
     const auto* members = ui_scene_node(f.scene, UiSemantic::member_sidebar);

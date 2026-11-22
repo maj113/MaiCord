@@ -8,6 +8,7 @@
 #include "maicord/ui/chat/messages/text_coordinator.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
 #include "../support/counted_text_measure.hpp"
+#include "../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace rich_search_probe_detail {
@@ -44,7 +45,7 @@ struct Fixture {
     MessageRecord records[kRows]{}; u32 order[kRows]{},heights[kRows]{}; MessageHandle result_order[kRows]{};
     u64 fenwick[kRows]{}; u8 message_bytes[16384]{},rich_bytes[32768]{}; u16 rich_order[kRows]{};
     MessageRichStore rich{}; StableStorage rich_storage{}; UiVariableList list{}; MessageTimeline timeline{};
-    UserStore users{}; UserRecord user_records[2]{}; u32 user_order[2]{}; u8 user_names[1024]{};
+    UserStore users{}; TestUserBank<2, 1024> user_bank;
     MessageSearchGroup groups[kRows]{}; MessageSearchMessage summaries[kRows]{};
     MessageSearchPage page{}; DecodeScratch decode{};
     MessageTextPresentation presentation{}; MessageTextCommand commands[192]{};
@@ -93,7 +94,7 @@ inline bool accept(void* context,u32 index,const MessageSearchMessage& result) n
 inline bool initialize(Fixture& f) noexcept {
     if (!message_store_initialize(&f.store,{f.records,kRows},{f.order,kRows},{f.message_bytes,sizeof(f.message_bytes)}) ||
         !message_rich_store_initialize_owned_sparse(&f.rich,&f.rich_storage,kRows,{f.rich_order,kRows},{f.rich_bytes,sizeof(f.rich_bytes)}) ||
-        !user_store_initialize(&f.users,{f.user_records,2},{f.user_order,2},{f.user_names,sizeof(f.user_names)}) ||
+        !f.user_bank.init(&f.users) ||
         !message_text_presentation_initialize(&f.presentation,{f.commands,192},{f.text_bytes,sizeof(f.text_bytes)},
             {f.styles,256},{f.semantics,128},{f.measurements,16},{f.reveals,16},{f.markdown_scratch,16384})) return false;
     constexpr auto body = utf8_literal(R"({"total_results":29,"messages":[

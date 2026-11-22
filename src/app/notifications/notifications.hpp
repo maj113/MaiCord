@@ -2,10 +2,6 @@
 namespace maicord { struct GatewayClientEvent; }
 #include "maicord/model/notifications/message_notifications.hpp"
 namespace maicord { enum class VoiceConnectionSound : u8; }
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-#include "maicord/platform/desktop/notifications.hpp"
-#include "maicord/platform/audio/notification_audio.hpp"
-#endif
 namespace maicord::app_detail {
 struct Application;
 bool application_notifications_initialize(Application*) noexcept;
@@ -48,29 +44,4 @@ const MessageNotificationStore* application_notifications_store(const Applicatio
 // of the guild are kept. Pending previews are dropped like any settings change.
 bool application_notifications_project(Application*, u64 guild_id, u64 channel_id,
                                        const MessageNotificationSetting&) noexcept;
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-struct ApplicationNotificationFixtureMetrics {
-    u32 guilds,overrides,threads; bool ready,live;
-    u64 audio_epoch, audio_backend_epoch, sound_deadline;
-    u32 audio_output_percent;
-    bool audio_failed, audio_worker_started, audio_enabled;
-    u32 display_outstanding;
-    u64 retention_tickets;
-    u32 retention_channels, retention_capacity_channels;
-};
-bool application_notifications_fixture_sink(Application*,void(*)(void*,const ::maicord::DesktopNotificationPayload&) noexcept,void*) noexcept;
-// Explicit fake sink only: fixture builds never submit to a real audio worker.
-bool application_notifications_fixture_audio(Application*,
-    NotificationAudioResult(*)(void*,const NotificationAudioRequest&) noexcept,
-    NotificationAudioStatus(*)(void*) noexcept,u64(*)(void*) noexcept,void*) noexcept;
-void application_notifications_fixture_focus(Application*,bool) noexcept;
-void application_notifications_fixture_show_state(Application*,DesktopNotificationShowState) noexcept;
-bool application_notifications_fixture_retention_remove(Application*,
-    DesktopNotificationResult(*)(void*,DesktopNotificationActivation) noexcept,void*) noexcept;
-// 0 normal; 1 fail row allocation; 2 fail index allocation after rows exist.
-// Existing capacity works in every mode; production contains no failure hook.
-void application_notifications_fixture_retention_oom(Application*,u32 bank) noexcept;
-u64 application_notifications_fixture_retained(Application*,u64 channel,u32 ordinal) noexcept;
-ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(Application*) noexcept;
-#endif
 }

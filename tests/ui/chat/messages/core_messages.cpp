@@ -26,6 +26,7 @@
 #include "maicord/app/net/rest_client.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
+#include "../../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -633,12 +634,9 @@ void test_message_text_presentation() noexcept {
     u8 state_names[256]{};
     NavigationView navigation{};
     UserStore users{};
-    UserRecord user_records[1]{};
-    u32 user_order[1]{};
-    u8 user_names[32]{};
+    TestUserBank<1, 32> user_bank;
     const bool user_ready =
-        user_store_initialize(&users, Slice<UserRecord>{user_records, 1},
-                                      Slice<u32>{user_order, 1}, Slice<u8>{user_names, 32}) &&
+        user_bank.init(&users) &&
         user_store_upsert(&users, 9, utf8_literal("Layout Author")).ok();
     const bool state_ready =
         chat_state_store_initialize(&state, Slice<GuildRecord>{state_guilds, 1},
@@ -1814,12 +1812,9 @@ void test_chat_text_size() noexcept {
     u8 state_names[256]{};
     NavigationView navigation{};
     UserStore users{};
-    UserRecord user_records[1]{};
-    u32 user_order[1]{};
-    u8 user_names[32]{};
+    TestUserBank<1, 32> user_bank;
     const bool state_ready =
-        user_store_initialize(&users, Slice<UserRecord>{user_records, 1}, Slice<u32>{user_order, 1},
-                              Slice<u8>{user_names, 32}) &&
+        user_bank.init(&users) &&
         user_store_upsert(&users, 9, utf8_literal("Layout Author")).ok() &&
         chat_state_store_initialize(&state, Slice<GuildRecord>{state_guilds, 1}, Slice<u16>{state_guild_order, 1},
                                     Slice<ChannelRecord>{state_channels, 1}, Slice<u16>{state_channel_order, 1},

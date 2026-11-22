@@ -117,7 +117,6 @@ CaptchaChallengeResult captcha_challenge_decode(CaptchaChallenge* challenge, u16
         storage(challenge, kRqtokenOffset, kCaptchaChallengeRqtokenBytes),
         storage(challenge, kSessionOffset, kCaptchaChallengeSessionBytes),
         storage(challenge, kUserFlowOffset, kCaptchaChallengeUserFlowBytes),
-        {},
     };
     const UserAuthDecodeResult parsed = user_auth_decode_response(
         status_code, body, structural_scratch, maximum_depth, response_storage, &decoded);

@@ -5519,6 +5519,7 @@ bool probe_profile_card() noexcept {
             member_list_scene_initialize(&members_scene, {member_rows, 2}, {member_widgets, 10},
                                          {member_nodes, 10});
     members_scene.measure = &g_probe.text_measure_cache;
+    members_scene.media_cache = test_member_media_cache();
     valid = valid &&
             member_list_scene_update(&members_scene, &projection, &member_store, &g_probe.users,
                                      &g_probe.chat_state, member_pane ? member_pane->rectangle : UiRect{}, 0)
@@ -5812,6 +5813,7 @@ bool probe_profile_activity_card() noexcept {
     valid = valid && member_list_scene_initialize(&members_scene, {member_rows, 3}, {member_widgets, 16},
                                                   {member_nodes, 16});
     members_scene.measure = &g_probe.text_measure_cache;
+    members_scene.media_cache = test_member_media_cache();
     valid = valid && member_list_scene_update(&members_scene, &projection, &member_store, &g_probe.users,
                                               &g_probe.chat_state, member_pane ? member_pane->rectangle : UiRect{}, 0)
                          .ok();

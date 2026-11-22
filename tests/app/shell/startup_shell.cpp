@@ -11,6 +11,7 @@
 #include "maicord/protocol/guild/folders.hpp"
 #include "maicord/model/user/private_channel_store.hpp"
 #include "maicord/model/user/store.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -30,9 +31,7 @@ struct Stores {
     PermissionOverwriteRecord overwrites[8];
     PrivateChannelStore conversations;
     UserStore users;
-    UserRecord user_records[32];
-    u32 user_order[32];
-    u8 user_names[4096];
+    TestUserBank<32, 4096> user_bank;
     GuildMemberStore members;
     GuildMemberRecord member_records[16];
     u32 member_order[16];
@@ -46,7 +45,7 @@ bool initialize(Stores& s) noexcept {
                                     {s.channel_order, 32}, {s.names, sizeof(s.names)}) &&
         chat_state_store_bind_permissions(&s.state, {s.roles, 8}, {s.overwrites, 8}) &&
         private_channel_store_initialize_owned(&s.conversations, 8, 32) &&
-        user_store_initialize(&s.users, {s.user_records, 32}, {s.user_order, 32}, {s.user_names, sizeof(s.user_names)}) &&
+        s.user_bank.init(&s.users) &&
         guild_member_store_initialize(&s.members, {s.member_records, 16}, {s.member_order, 16});
     s.state.private_channels = &s.conversations;
     return ok;

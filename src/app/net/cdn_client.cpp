@@ -49,8 +49,6 @@ struct CdnClientRuntime {
     CdnResponseResult policy;
     CdnClientCommand command;
     CdnClientResponse completed;
-    Clock clock;
-    i64 request_started_counter;
     u8* request_target;
     u8* conditional_etag;
     u8* encrypted_storage;
@@ -67,7 +65,6 @@ struct CdnClientRuntime {
     u32 response_capacity;
     u32 request_bytes;
     u32 committed_bytes;
-    u32 connection_request_count;
     u32 pending_native_error;
     CdnClientError pending_error;
     CdnHttpError pending_http_error;
@@ -76,7 +73,6 @@ struct CdnClientRuntime {
     bool transport_initialized;
     bool transport_ready;
     bool response_callback_failed;
-    bool logical_reused_connection;
     bool draining;
     bool stopping;
 };
@@ -131,10 +127,6 @@ CdnClientResult client_result(const CdnClient* client) noexcept {
     value.phase = load_phase(client);
     value.error = load_error(client);
     value.native_error = static_cast<u32>(read_acquire(&client->native_error));
-    value.connections = static_cast<u64>(read_acquire(&client->connections));
-    value.requests = static_cast<u64>(read_acquire(&client->requests));
-    value.reused_requests = static_cast<u64>(read_acquire(&client->reused_requests));
-    value.responses = static_cast<u64>(read_acquire(&client->responses));
     return value;
 }
 
@@ -200,7 +192,6 @@ void erase_response(CdnClientRuntime* runtime) noexcept {
 void recycle_request(CdnClient* client, CdnClientRuntime* runtime) noexcept {
     erase_response(runtime);
     reset_value<CdnClientResponse>(&runtime->completed);
-    runtime->request_started_counter = 0;
     runtime->redirects = 0;
     event_reset(client->response_event);
     InterlockedExchange64(&client->current_request_id, 0);
@@ -213,7 +204,6 @@ void close_transport(CdnClientRuntime* runtime) noexcept {
         tls_stream_close(&runtime->transport);
     }
     runtime->transport_ready = false;
-    runtime->connection_request_count = 0;
 }
 
 // Connects afresh once an idle connection is old enough for the edge to have
@@ -271,17 +261,10 @@ void publish_completed(CdnClient* client, CdnClientRuntime* runtime, CdnClientEr
     response.error = error;
     response.http_error = http_error;
     response.native_error = native_error;
-    response.reused_connection = runtime->logical_reused_connection;
-    response.redirects = runtime->redirects;
-    if (runtime->request_started_counter != 0) {
-        response.elapsed_us =
-            clock_microseconds(runtime->clock, runtime->request_started_counter, clock_now());
-    }
     response.request_id = runtime->command.request_id;
     copy_value(&response.requested_range, runtime->command.range);
     runtime->deadline_ms = 0;
     erase_command(runtime);
-    increment_single_writer(&client->responses); // worker thread only
     InterlockedExchange(&client->request_state, request_state_ready);
     publish_phase(client, CdnClientPhase::response_ready);
     event_set(client->response_event);
@@ -526,7 +509,6 @@ bool finish_http_response(CdnClient* client, CdnClientRuntime* runtime, NetworkL
         return false;
     }
     runtime->transport_idle_since_ms = now_ms;
-    ++runtime->connection_request_count;
     const bool reusable =
         runtime->response.connection_reusable && runtime->transport.state == TlsStreamState::ready;
     if (runtime->policy.disposition == CdnResponseDisposition::redirect) {
@@ -587,8 +569,6 @@ bool drive_transport_event(CdnClient* client, CdnClientRuntime* runtime, Network
         }
         if (current.kind == TlsStreamEventKind::ready) {
             runtime->transport_ready = true;
-            runtime->connection_request_count = 0;
-            increment_single_writer(&client->connections);
             current = begin_http_send(client, runtime);
             continue;
         }
@@ -615,7 +595,6 @@ void activate_request(CdnClient* client, CdnClientRuntime* runtime, NetworkLoop*
     const LONG prior =
         InterlockedCompareExchange(&client->request_state, request_state_active, request_state_pending);
     if (prior == request_state_cancel_pending) {
-        runtime->request_started_counter = 0;
         publish_request_error(client, runtime, CdnClientError::cancelled, CdnHttpError::none,
                               ERROR_OPERATION_ABORTED);
         return;
@@ -623,17 +602,9 @@ void activate_request(CdnClient* client, CdnClientRuntime* runtime, NetworkLoop*
     if (prior != request_state_pending) {
         return;
     }
-    runtime->request_started_counter = clock_now();
     runtime->deadline_ms = deadline_after(now_ms, runtime->command.timeout_ms);
     runtime->redirects = 0;
     retire_idle_transport(runtime, now_ms);
-    runtime->logical_reused_connection = runtime->transport_ready &&
-                                         runtime->transport_host == runtime->command.host &&
-                                         runtime->connection_request_count != 0;
-    increment_single_writer(&client->requests);
-    if (runtime->logical_reused_connection) {
-        increment_single_writer(&client->reused_requests);
-    }
     drive_transport_event(client, runtime, loop, begin_exchange(client, runtime, loop), now_ms);
 }
 
@@ -670,7 +641,6 @@ NetworkWorkerStep worker_handler(void* opaque, NetworkLoop* loop,
     auto* client = static_cast<CdnClient*>(opaque);
     auto* runtime = static_cast<CdnClientRuntime*>(client->runtime);
     if (event.kind == NetworkWorkerEventKind::started) {
-        runtime->clock = clock_initialize();
         publish_phase(client, CdnClientPhase::idle);
         return NetworkWorkerStep{INFINITE, false};
     }

@@ -3,6 +3,7 @@
 #include "maicord/app/gateway/client_dispatch.hpp"
 #include "maicord/model/guild/member_list.hpp"
 #include "maicord/core/memory.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace thread_probe {
@@ -12,7 +13,7 @@ struct Fixture {
     GuildMemberStore members;
     GuildMemberRecord member_records[8]; u32 member_order[8];
     UserStore users;
-    UserRecord user_records[16]; u32 user_order[16]; u8 user_names[8192];
+    TestUserBank<16, 8192> user_bank;
     ChatStateStore state;
     GuildRecord guilds[2]; u16 guild_order[2];
     ChannelRecord channels[2]; u16 channel_order[2]; u8 state_names[4096];
@@ -32,7 +33,7 @@ bool initialize() noexcept {
     return thread_member_store_initialize(&f.threads, {f.banks[0], 8}, {f.banks[1], 8}) &&
         thread_member_store_select(&f.threads, 7, 70) &&
         guild_member_store_initialize(&f.members, {f.member_records, 8}, {f.member_order, 8}) &&
-        user_store_initialize(&f.users, {f.user_records, 16}, {f.user_order, 16}, {f.user_names, sizeof(f.user_names)}) &&
+        f.user_bank.init(&f.users) &&
         chat_state_store_initialize(&f.state, {f.guilds, 2}, {f.guild_order, 2}, {f.channels, 2}, {f.channel_order, 2}, {f.state_names, sizeof(f.state_names)}) &&
         member_list_view_initialize(&f.projection, {f.rows, 16}, {f.scratch, 8});
 }

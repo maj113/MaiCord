@@ -26,6 +26,7 @@
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
 #include "maicord/ui/widgets/presence.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord::profile_runtime_test {
 using namespace app_detail;
@@ -584,10 +585,8 @@ void run() noexcept {
           "profile runtime: the full profile closes, and its message field's emoji popout with it");
     // A profile GET that fails (404 Unknown User): the card stays open on what the client cached, the name, and the
     // notice, and its full profile lays out the same way.
-    static UserRecord user_records[4];
-    static u32 user_order[4];
-    static u8 user_names[256];
-    const bool cached = user_store_initialize(&users, {user_records, 4}, {user_order, 4}, {user_names, 256}) &&
+    static TestUserBank<4, 256> user_bank;
+    const bool cached = user_bank.init(&users) &&
                         user_store_upsert(&users, 44, utf8_literal("Cached Name")).ok();
     const bool requested = cached && application_profile_open(44, anchor) && application_profile_submit(400) &&
                            read_operation == 0 && read_user == 44 && read_guild == 7;

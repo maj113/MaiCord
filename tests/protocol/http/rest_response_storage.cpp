@@ -57,7 +57,7 @@ struct RestStorageProbe {
         const auto acquired = rest_rate_acquire(runtime->scheduler, route, 1);
         runtime->transaction = {};
         if (!acquired.acquired_request()) return false;
-        rest_transaction_acquire(&runtime->transaction, 1, acquired.lease, 1000, reusable);
+        rest_transaction_acquire(&runtime->transaction, acquired.lease, 1000, reusable);
         rest_transaction_begin_send(&runtime->transaction, runtime->request_head_capacity + request_bytes);
         // A completed encrypted write releases and erases the outgoing header
         // before the same bytes become incoming HTTP-header storage.
@@ -901,7 +901,7 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
         const RestRouteKey route{2, 0, RestMethod::post, RestMajorParameter::none};
         const auto acquired = rest_rate_acquire(r->scheduler, route, 1);
         valid = acquired.acquired_request();
-        rest_transaction_acquire(&r->transaction, 2, acquired.lease, 1000, true);
+        rest_transaction_acquire(&r->transaction, acquired.lease, 1000, true);
         rest_transaction_begin_send(&r->transaction, kRestClientMaximumRequestBodyBytes);
         r->command.body_bytes = kRestClientMaximumRequestBodyBytes;
         for (u32 i = 0; i < r->command.body_bytes; ++i) r->request_body[i] = 0xA5;
@@ -944,7 +944,7 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
         const RestRouteKey route{3, 0, RestMethod::get, RestMajorParameter::none};
         const auto acquired = rest_rate_acquire(r->scheduler, route, 1);
         valid = acquired.acquired_request();
-        rest_transaction_acquire(&r->transaction, 3, acquired.lease, 1000, true);
+        rest_transaction_acquire(&r->transaction, acquired.lease, 1000, true);
         rest_transaction_begin_send(&r->transaction, r->request_head_capacity);
         memset(r->request_head, 0xA5, r->request_head_capacity);
         request_plaintext_committed(r, {r->request_head, r->request_head_capacity / 2});

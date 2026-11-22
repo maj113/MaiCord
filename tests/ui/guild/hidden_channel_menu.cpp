@@ -1,6 +1,7 @@
 #include "maicord/ui/guild/hidden_channel_menu.hpp"
 #include "../../support/model_store_fixtures.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 // "Show hidden channels": the explanation rows come from the cached roles and overwrites alone.
@@ -12,9 +13,7 @@ void test_hidden_channel_menu(void (*check)(bool, const char*) noexcept) noexcep
     u16 guild_order[1]{}, channel_order[3]{};
     u8 names[1024]{};
     ChatStateStore state{};
-    UserRecord user_records[2]{};
-    u32 user_order[2]{};
-    u8 user_names[64]{};
+    TestUserBank<2, 64> user_bank;
     UserStore users{};
     constexpr u64 view = kPermissionViewChannel;
     bool built = chat_state_store_initialize(&state, {&guild, 1}, {guild_order, 1}, {channels, 3}, {channel_order, 3},
@@ -39,7 +38,7 @@ void test_hidden_channel_menu(void (*check)(bool, const char*) noexcept) noexcep
             chat_state_store_append_channel_overwrite(&state, 20, {55, view, 0, 1});
     for (u64 id = 30; id < 36; ++id)
         built = built && chat_state_store_append_channel_overwrite(&state, 20, {id, view, 0, 0});
-    built = built && user_store_initialize(&users, {user_records, 2}, {user_order, 2}, {user_names, 64}) &&
+    built = built && user_bank.init(&users) &&
             user_store_upsert(&users, 55, utf8_literal("Dana")).ok();
     chat_state_store_recompute_guild_permissions(&state, 1);
     check(built, "hidden channel menu: fixture");

@@ -12,6 +12,7 @@
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "../../../support/window_fixture.hpp"
+#include "../../../support/test_user_bank.hpp"
 
 namespace maicord::search_runtime_test {
 
@@ -56,9 +57,7 @@ u64 choice_private_recipients[2];
 MessageRecord records[2];
 u32 message_order[2];
 u8 message_text[128];
-UserRecord user_records[4];
-u32 user_order[4];
-u8 user_names[4096];
+TestUserBank<4, 4096> user_bank;
 u32 row_heights[2];
 u64 row_prefixes[2];
 RoleRecord permission_roles[2];
@@ -213,8 +212,7 @@ bool initialize() noexcept {
                                         {ui.channel_order_storage, 4}, {ui.chat_state_name_storage, 4096}) ||
         !chat_state_store_bind_permissions(&ui.chat_state, {permission_roles, 2},
                                               {permission_overwrites, 4}) ||
-        !user_store_initialize(&ui.user_store, {user_records, 4},
-                                       {user_order, 4}, {user_names, 4096}) ||
+        !user_bank.init(&ui.user_store) ||
         !chat_state_store_upsert_guild(&ui.chat_state, {7, utf8_literal("Original fixture guild"),
                                                               GuildMutationKind::create, 5})
              .ok() ||
@@ -247,9 +245,9 @@ bool initialize() noexcept {
     if (!chat_state_store_select_channel(&ui.chat_state, 70).ok())
         return false;
     ui.active_channel_id = 70;
-    user_records[0].id = 5;
-    user_records[0].occupied = true;
-    user_order[0] = 0;
+    user_bank.records[0].id = 5;
+    user_bank.records[0].occupied = true;
+    user_bank.order[0] = 0;
     ui.user_store.count = ui.user_store.free_hint = ui.user_store.slot_extent = 1;
     auto& view = g_app.message_view;
     if (!message_store_initialize(&view.store, {records, 2}, {message_order, 2}, {message_text, 128}) ||

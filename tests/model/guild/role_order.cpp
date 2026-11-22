@@ -6,6 +6,7 @@
 #include "maicord/model/guild/role_policy.hpp"
 #include "maicord/model/guild/thread_member_store.hpp"
 #include "maicord/model/guild/member_store.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace role_order_probe {
@@ -25,9 +26,7 @@ struct Fixture {
     GuildMemberRecord member_records[8];
     u32 member_order[8];
     UserStore users;
-    UserRecord user_records[8];
-    u32 user_order[8];
-    u8 user_names[512];
+    TestUserBank<8, 512> user_bank;
     MemberListView projection;
     MemberListRow rows[16];
     MemberListSortKey scratch[8];
@@ -95,7 +94,7 @@ bool initialize() noexcept {
                                        {f.channel_order, 1}, {f.names, 64}) &&
            chat_state_store_bind_permissions(&f.state, {f.roles, 16}, {f.overwrites, 1}) &&
            guild_member_store_initialize(&f.members, {f.member_records, 8}, {f.member_order, 8}) &&
-           user_store_initialize(&f.users, {f.user_records, 8}, {f.user_order, 8}, {f.user_names, 512}) &&
+           f.user_bank.init(&f.users) &&
            member_list_view_initialize(&f.projection, {f.rows, 16}, {f.scratch, 8}) &&
            thread_member_store_initialize(&f.threads, {f.banks[0], 8}, {f.banks[1], 8}) &&
            thread_member_store_select(&f.threads, kGuild, kThread);

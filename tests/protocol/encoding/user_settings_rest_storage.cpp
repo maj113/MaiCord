@@ -27,7 +27,7 @@ struct Probe : RestClientProbe {
         client.request_state = request_state_active;
         const auto acquired = rest_rate_acquire(runtime->scheduler, runtime->command.route, 1);
         if (!acquired.acquired_request()) return false;
-        rest_transaction_acquire(&runtime->transaction, runtime->command.request_id, acquired.lease, 1000, true);
+        rest_transaction_acquire(&runtime->transaction, acquired.lease, 1000, true);
         rest_transaction_begin_send(&runtime->transaction, runtime->command.body_bytes + 17);
         memset(runtime->request_head, 'h', 17);
         request_plaintext_committed(runtime, {runtime->request_head, 17});

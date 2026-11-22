@@ -5,6 +5,7 @@
 #include "../../support/hub_page_fixture.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/virtual_memory.hpp"
+#include "../../support/test_user_bank.hpp"
 namespace maicord {
 // The banner's glow reads the icon's colour from the renderer, which this test does not link.
 bool renderer_media_dominant_color(D3D11Renderer*, MediaAssetKey, u32*) noexcept {
@@ -38,9 +39,7 @@ constexpr const char* kGameNames[]{"Lumen Drift", "Neon Circuit", "Ringfall"};
 constexpr u32 kGamePlayers[]{7, 5, 3};
 constexpr float kRowPitch = 40, kListHeight = 320;
 
-UserRecord g_user_records[kLeaders + 1];
-u32 g_user_order[kLeaders + 1];
-u8 g_user_names[2048];
+TestUserBank<kLeaders + 1, 2048> g_user_bank;
 GuildMemberRecord g_member_records[kLeaders + 1];
 u32 g_member_order[kLeaders + 1];
 UiStoreScene g_scene;
@@ -50,8 +49,7 @@ bool account() noexcept {
     auto* ui = static_cast<AccountUiRuntime*>(pages_allocate(sizeof(AccountUiRuntime)));
     if (!ui || !guild_detail_store_bind(&ui->guild_details, {ui->guild_detail_records, kChatStateGuildCapacity},
                                         {ui->guild_detail_text, kGuildDetailTextBytes}) ||
-        !user_store_initialize(&ui->user_store, {g_user_records, kLeaders + 1}, {g_user_order, kLeaders + 1},
-                               {g_user_names, sizeof(g_user_names)}) ||
+        !g_user_bank.init(&ui->user_store) ||
         !guild_member_store_initialize(&ui->guild_member_store, {g_member_records, kLeaders + 1},
                                        {g_member_order, kLeaders + 1}))
         return false;

@@ -285,8 +285,7 @@ void test_typed_bodies(Connection* c) noexcept {
         builder_double(&b, 1.5);
         builder_string(&b, "h\xC3\xA9llo");
         builder_object_path(&b, "/a/b");
-        builder_signature(&b, "a{sv}");
-        described_as(c, b, "ybniuxdsog y:200 b:1 n:-5 i:-7 u:9 x:-9 d:1.5 s:h\xC3\xA9llo o:/a/b g:a{sv}",
+        described_as(c, b, "ybniuxdso y:200 b:1 n:-5 i:-7 u:9 x:-9 d:1.5 s:h\xC3\xA9llo o:/a/b",
                      "every basic type the client writes is decoded by libdbus");
         builder_release(&b);
     }

@@ -19,6 +19,7 @@
 #include "../../../support/test_output.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
 #include "../../../support/gateway_message_scratch.hpp"
+#include "../../../support/test_user_bank.hpp"
 
 // Message content wave: system rows, received spoilers and explicit media,
 // components and interactions, modals, ephemeral rows and invite cards.
@@ -932,16 +933,13 @@ bool has_target(const MessageTextCommand* command, u64 target) noexcept {
     return false;
 }
 struct RenderUsers {
-    UserRecord records[4];
-    u32 order[4];
-    u8 names[256];
+    TestUserBank<4, 256> bank;
     UserStore store;
 };
 RenderUsers render_users;
 bool initialize_users() noexcept {
     render_users = {};
-    return user_store_initialize(&render_users.store, {render_users.records, 4}, {render_users.order, 4},
-                                 {render_users.names, sizeof(render_users.names)}) &&
+    return render_users.bank.init(&render_users.store) &&
            user_store_upsert(&render_users.store, 11, utf8_literal("Ann")).ok() &&
            user_store_upsert(&render_users.store, 9, utf8_literal("Bob")).ok();
 }

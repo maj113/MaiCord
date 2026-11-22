@@ -6,6 +6,7 @@
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/shell/text_presentation.hpp"
+#include "maicord/ui/account/member_media_cache.hpp"
 
 namespace maicord {
 inline bool popup_scene_initialize(PopupScene* scene, Slice<PopupItem> items, Slice<PopupRowWidget> rows,
@@ -19,6 +20,12 @@ inline bool popup_scene_initialize(PopupScene* scene, Slice<PopupItem> items, Sl
     scene->rows = rows;
     scene->selected_index = ~0u;
     return ui_widget_manager_initialize(&scene->widgets, widgets, layout_nodes);
+}
+
+// The member list scene's media cache: the client gives every scene with a source one.
+inline MemberMediaCache* test_member_media_cache() noexcept {
+    static MemberMediaCache cache{};
+    return &cache;
 }
 
 // The shell text as a command stream. The shipping client builds it into a text output.

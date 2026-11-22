@@ -11,7 +11,7 @@ namespace {
 
 static_assert(kPhoneTokenOffset + kUserAuthPhoneResetTokenBytes == kScratchCapacity);
 
-static_assert(kSuspendedOffset + kSuspendedCapacity == kUserAuthCoordinatorSecretBytes);
+static_assert(kCaptchaFlowOffset + kCaptchaFlowCapacity == kUserAuthCoordinatorSecretBytes);
 
 constexpr u32 kRuntimeBytes = (sizeof(UserAuthCoordinatorRuntime) + 4095) & ~4095u;
 
@@ -69,7 +69,6 @@ void clear_retained(UserAuthCoordinatorRuntime* runtime) noexcept {
     runtime->captcha_session_bytes = 0;
     runtime->captcha_flow_bytes = 0;
     runtime->captcha_invisible = false;
-    runtime->suspended_bytes = 0;
 }
 
 void clear_request(UserAuthCoordinatorRuntime* runtime) noexcept {
@@ -124,7 +123,7 @@ void clear_mfa(UserAuthCoordinatorRuntime* runtime) noexcept {
 void clear_captcha(UserAuthCoordinatorRuntime* runtime) noexcept {
     ++runtime->captcha_revision;
     // The six CAPTCHA strings are adjacent, from the service to the user flow.
-    clear_secret(runtime, kCaptchaServiceOffset, kSuspendedOffset - kCaptchaServiceOffset);
+    clear_secret(runtime, kCaptchaServiceOffset, kUserAuthCoordinatorSecretBytes - kCaptchaServiceOffset);
     runtime->captcha_service_bytes = 0;
     runtime->captcha_sitekey_bytes = 0;
     runtime->captcha_rqdata_bytes = 0;
@@ -132,11 +131,6 @@ void clear_captcha(UserAuthCoordinatorRuntime* runtime) noexcept {
     runtime->captcha_session_bytes = 0;
     runtime->captcha_flow_bytes = 0;
     runtime->captcha_invisible = false;
-}
-
-void clear_suspended(UserAuthCoordinatorRuntime* runtime) noexcept {
-    clear_secret(runtime, kSuspendedOffset, kSuspendedCapacity);
-    runtime->suspended_bytes = 0;
 }
 
 void clear_tail(UserAuthCoordinatorRuntime* runtime, u32 offset, u32 bytes, u32 capacity) noexcept {
@@ -165,8 +159,7 @@ UserAuthResponseStorage response_storage(UserAuthCoordinatorRuntime* runtime) no
                                    char_storage(runtime, kCaptchaRqdataOffset, kCaptchaRqdataCapacity),
                                    char_storage(runtime, kCaptchaRqtokenOffset, kCaptchaRqtokenCapacity),
                                    char_storage(runtime, kCaptchaSessionOffset, kCaptchaSessionCapacity),
-                                   char_storage(runtime, kCaptchaFlowOffset, kCaptchaFlowCapacity),
-                                   char_storage(runtime, kSuspendedOffset, kSuspendedCapacity)};
+                                   char_storage(runtime, kCaptchaFlowOffset, kCaptchaFlowCapacity)};
 }
 
 } // namespace user_auth_coordinator_detail

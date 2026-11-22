@@ -7,6 +7,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -17,9 +18,7 @@ constexpr u32 kMembers = 64;
 struct MemberFixture {
     static inline GuildMemberRecord member_records[kMembers];
     static inline u32 member_order[kMembers];
-    static inline UserRecord user_records[kMembers];
-    static inline u32 user_order[kMembers];
-    static inline u8 names[kMembers * 16];
+    static inline TestUserBank<kMembers, kMembers * 16> user_bank;
     static inline MemberListRow source_rows[kMembers + 1];
     static inline MemberListSortKey member_scratch[kMembers];
     static inline MemberListRowWidget rows[32];
@@ -36,8 +35,7 @@ struct MemberFixture {
     MemberListScene scene{};
     bool populate() noexcept {
         bool ready = guild_member_store_initialize(&members, {member_records, kMembers}, {member_order, kMembers}) &&
-                     user_store_initialize(&users, {user_records, kMembers}, {user_order, kMembers},
-                                           {names, sizeof(names)}) &&
+                     user_bank.init(&users) &&
                      chat_state_store_initialize(&state, {&guild, 1}, {guild_order, 1}, {&channel, 1},
                                                  {channel_order, 1}, {state_names, sizeof(state_names)}) &&
                      member_list_view_initialize(&projection, {source_rows, kMembers + 1}, {member_scratch, kMembers});
@@ -381,10 +379,8 @@ u32 test_member_media_cache_scroll() noexcept {
         for (u32 i = 0; i < scene.count; ++i) {
             MemberMediaPlacement placed{};
             AvatarMedia plain{};
-            scene.media_cache = nullptr;
             const bool plain_expected = member_plain_avatar_resolve(scene, i, &plain);
-            const UiBadgeWidget badge_expected = member_list_badge(scene, i);
-            scene.media_cache = &cache;
+            const UiBadgeWidget badge_expected = member_list_badge_resolve(scene, i);
             const bool plain_cached = member_plain_avatar_place(scene, i, &placed);
             check(plain_cached == plain_expected &&
                   (!plain_cached || (media_asset_key_equal(placed.key, plain.key) &&
@@ -392,9 +388,7 @@ u32 test_member_media_cache_scroll() noexcept {
                                      ui_rect_equal(placed.clip, plain.clip) && placed.circular)));
             for (u32 layer = 0; layer < kMemberMediaLayerCount; ++layer) {
                 ProfileMedia media{};
-                scene.media_cache = nullptr;
                 const bool expected = member_media_resolve(scene, i, static_cast<MemberMedia>(layer), &media);
-                scene.media_cache = &cache;
                 const bool cached = member_media_place(scene, i, static_cast<MemberMedia>(layer), &placed);
                 check(cached == expected &&
                       (!cached || (media_asset_key_equal(placed.key, media.key) &&

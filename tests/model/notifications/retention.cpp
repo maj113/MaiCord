@@ -15,8 +15,21 @@ struct Fixture {
 NotificationRetentionRow large_rows[8192]{};
 u32 large_index[16384]{};
 bool unchanged(const Fixture& f,const Fixture& before) noexcept {return bytes_equal(&f,&before,sizeof(f));}
+NotificationRetentionRow probe_rows[8192]{};
+u32 probe_index[16384]{};
+// The ordinal-th oldest ticket of `channel`, read as the release caller sees it: on a copy of the banks (same slots),
+// the appends that fill the channel to twenty retire nothing, then each further append retires the oldest ticket.
 bool ticket(const NotificationRetention& n,u64 channel,u32 ordinal,u64 expected) noexcept {
-    u64 value=~expected;return notification_retention_ticket(&n,channel,ordinal,&value)&&value==expected;
+    copy_bytes(probe_rows,n.rows.data,n.rows.count*static_cast<u32>(sizeof(NotificationRetentionRow)));
+    copy_bytes(probe_index,n.index.data,n.index.count*static_cast<u32>(sizeof(u32)));
+    NotificationRetention copy{{probe_rows,n.rows.count},{probe_index,n.index.count},n.count};
+    const auto room=notification_retention_room(&copy,channel);
+    if(!room.exists||ordinal>=room.tickets)return false;
+    for(u32 i=room.tickets;i<kNotificationRetentionTickets;++i)
+        if(notification_retention_append(&copy,channel,0).evicted)return false;
+    NotificationRetentionAppend retired{};
+    for(u32 i=0;i<=ordinal;++i)retired=notification_retention_append(&copy,channel,0);
+    return retired.evicted&&retired.evicted_ticket==expected;
 }
 void fifo(void(*check)(bool,const char*)noexcept) noexcept {
     Fixture f{};f.initialize();
@@ -44,13 +57,6 @@ void fifo(void(*check)(bool,const char*)noexcept) noexcept {
     check(absent_kept&&f.owner.count==0,"retention: discard and absent clear retire no unrelated records");
 }
 void validation(void(*check)(bool,const char*)noexcept) noexcept {
-    Fixture f{},before{};
-    f.initialize();
-    notification_retention_append(&f.owner,1,11);notification_retention_append(&f.owner,2,22);
-    copy_bytes(&before,&f,sizeof(f));
-    u64 output[20]{};output[0]=71;
-    check(!notification_retention_ticket(&f.owner,1,1,output)&&output[0]==71&&unchanged(f,before),
-        "retention: an out-of-range ordinal yields no ticket");
     NotificationRetention empty{};
     check(notification_retention_room(&empty,1).error==Error::full_channels&&
         notification_retention_append(&empty,1,2).error==Error::full_channels,

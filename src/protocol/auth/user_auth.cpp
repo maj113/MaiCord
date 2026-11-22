@@ -670,7 +670,6 @@ static UserAuthDecodeResult decode_response_impl(u16 status_code, Utf8View body,
     next(&context.captcha_rqtoken, storage.captcha_rqtoken, false);
     next(&context.captcha_session, storage.captcha_session_id, false);
     next(&context.captcha_user_flow, storage.captcha_user_flow, false);
-    next(&context.suspended_token, storage.suspended_user_token, true);
     if (storage_error != UserAuthDecodeError::none)
         return decode_failure(storage_error, body.bytes);
 
@@ -686,7 +685,6 @@ static UserAuthDecodeResult decode_response_impl(u16 status_code, Utf8View body,
     decode_field(context.captcha_rqtoken, storage.captcha_rqtoken);
     decode_field(context.captcha_session, storage.captcha_session_id);
     decode_field(context.captcha_user_flow, storage.captcha_user_flow);
-    decode_field(context.suspended_token, storage.suspended_user_token);
 
     // classify_response already set the ids, codes and flags.
     parsed.token_bytes = context.token.bytes;
@@ -700,7 +698,6 @@ static UserAuthDecodeResult decode_response_impl(u16 status_code, Utf8View body,
     parsed.captcha_rqtoken_bytes = context.captcha_rqtoken.bytes;
     parsed.captcha_session_id_bytes = context.captcha_session.bytes;
     parsed.captcha_user_flow_bytes = context.captcha_user_flow.bytes;
-    parsed.suspended_user_token_bytes = context.suspended_token.bytes;
     *output = parsed;
     return decode_failure(UserAuthDecodeError::none);
 }

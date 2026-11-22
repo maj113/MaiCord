@@ -27,6 +27,7 @@
 #include "maicord/render/text/form_surface.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "../../support/test_output.hpp"
+#include "../../support/test_user_bank.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
@@ -48,9 +49,7 @@ u16 guild_order[2];
 ChannelRecord channels[8];
 u16 channel_order[8];
 u8 names[2048];
-UserRecord users[4];
-u32 user_order[4];
-u8 user_names[512];
+TestUserBank<4, 512> users_bank;
 RelationshipRecord relationships[4];
 RelationshipStore relationship_store;
 PrivateChannelStore private_store;
@@ -203,8 +202,7 @@ void run() noexcept {
     const bool ready =
         chat_state_store_initialize(&state, {guilds, 2}, {guild_order, 2}, {channels, 8},
                                        {channel_order, 8}, {names, sizeof(names)}) &&
-        user_store_initialize(&people, {users, 4}, {user_order, 4},
-                                      {user_names, sizeof(user_names)}) &&
+        users_bank.init(&people) &&
         relationship_store_initialize(&relationship_store, {relationships, 4}) &&
         private_channel_store_initialize(&private_store, {private_records, 4}, {recipients, 16}) &&
         chat_state_store_upsert_guild(

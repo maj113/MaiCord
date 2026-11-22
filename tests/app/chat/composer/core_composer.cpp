@@ -13,6 +13,7 @@
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
 #include "maicord/ui/chat/messages/reaction_picker.hpp"
 #include "maicord/ui/shell/text_presentation.hpp"
+#include "../../../support/test_user_bank.hpp"
 
 namespace maicord {
 void test_message_composer() noexcept {
@@ -107,9 +108,7 @@ void test_message_composer() noexcept {
                utf8_equal(message_composer_scene_typing_label(scene), typing_label),
            "message_composer_typing_row_is_fixed_and_retained");
 
-    UserRecord projection_user_records[2]{};
-    u32 projection_user_order[2]{};
-    u8 projection_user_names[128]{};
+    TestUserBank<2, 128> projection_user_bank;
     UserStore projection_users{};
     GuildRecord projection_guilds[1]{};
     ChannelRecord projection_channels[2]{};
@@ -120,9 +119,7 @@ void test_message_composer() noexcept {
     u8 projection_names[512]{};
     ChatStateStore projection_state{};
     const bool projection_state_ready =
-        user_store_initialize(
-            &projection_users, Slice<UserRecord>{projection_user_records, 2},
-            Slice<u32>{projection_user_order, 2}, Slice<u8>{projection_user_names, 128}) &&
+        projection_user_bank.init(&projection_users) &&
         user_store_upsert(&projection_users, 42, utf8_literal("Wren042")).ok() &&
         chat_state_store_initialize(
             &projection_state, Slice<GuildRecord>{projection_guilds, 1},
@@ -284,16 +281,12 @@ void test_message_composer() noexcept {
 
     TypingRecord typing_records[8]{};
     TypingStore typing_store{};
-    UserRecord typing_user_records[5]{};
-    u32 typing_user_order[5]{};
-    u8 typing_user_names[128]{};
+    TestUserBank<5, 128> typing_user_bank;
     UserStore typing_users{};
     char typing_text[kMessageTypingLabelMaximumBytes]{};
     const bool typing_ready =
         typing_store_initialize(&typing_store, Slice<TypingRecord>{typing_records, 8}) &&
-        user_store_initialize(&typing_users, Slice<UserRecord>{typing_user_records, 5},
-                                      Slice<u32>{typing_user_order, 5},
-                                      Slice<u8>{typing_user_names, 128}) &&
+        typing_user_bank.init(&typing_users) &&
         user_store_upsert(&typing_users, 1, utf8_literal("Self")).ok() &&
         user_store_upsert(&typing_users, 2, utf8_literal("Alice")).ok() &&
         user_store_upsert(&typing_users, 3, utf8_literal("Bob")).ok() &&
@@ -548,9 +541,7 @@ ReactionPreferenceRemoteUsage message_use(Utf8View key, u32 uses, u64 now_ms) no
 void test_composer_autocomplete() noexcept {
     char text[128]{};
     MessageComposer composer{};
-    UserRecord user_records[2]{};
-    u32 user_order[2]{};
-    u8 user_names[256]{};
+    TestUserBank<2, 256> user_bank;
     UserStore users{};
     MemberListRow member_rows[1]{};
     MemberListView members{};
@@ -559,8 +550,7 @@ void test_composer_autocomplete() noexcept {
     ComposerAutocomplete autocomplete{};
     const bool initialized =
         message_composer_initialize(&composer, Slice<char>{text, 128}) &&
-        user_store_initialize(&users, Slice<UserRecord>{user_records, 2},
-                                      Slice<u32>{user_order, 2}, Slice<u8>{user_names, 256}) &&
+        user_bank.init(&users) &&
         user_store_upsert(&users, 42, utf8_literal("Wren042")).ok();
     member_rows[0].kind = MemberListRowKind::member;
     member_rows[0].user_id = 42;

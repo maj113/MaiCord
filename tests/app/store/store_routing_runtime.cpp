@@ -47,7 +47,6 @@ struct Fixture {
     UiWidget widgets[70];
     UiLayoutNode nodes[70];
     Window window, previous_window;
-    wchar_t preferences_path[MAX_PATH];
     bool account_owned, preferences_owned;
     u32 unrouted_pointer;
 } fixture{};
@@ -76,12 +75,8 @@ float whole(float v) noexcept {
 }
 
 bool initialize() noexcept {
-    if (g_app.account_ui || g_app.settings || g_app.preferences_writer)
-        return false;
-    wchar_t temporary[MAX_PATH]{};
-    const DWORD chars = GetTempPathW(MAX_PATH, temporary);
-    if (!chars || chars >= MAX_PATH || !GetTempFileNameW(temporary, L"MSR", 0, fixture.preferences_path) ||
-        !client_preferences_writer_create(&g_app.preferences_writer, fixture.preferences_path))
+    if (g_app.account_ui || g_app.settings || g_app.preferences_writer ||
+        !client_preferences_writer_create(&g_app.preferences_writer))
         return false;
     fixture.preferences_owned = true;
     g_app.account_ui = static_cast<AccountUiRuntime*>(
@@ -123,7 +118,6 @@ void cleanup() noexcept {
         if (g_app.preferences_writer)
             return; // Retain every borrowed owner on a failed join.
         fixture.preferences_owned = false;
-        DeleteFileW(fixture.preferences_path);
     }
     window_test::close();
     fixture.window = nullptr;

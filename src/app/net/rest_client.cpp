@@ -6,13 +6,12 @@
 
 namespace maicord {
 
-// The worker acquires only an idle transaction (a new request, or one a retry or a rate wait reset), with the
-// nonzero request ID submit checked, an active lease from rest_rate_acquire and a nonzero deadline.
-void rest_transaction_acquire(RestTransaction* transaction, u64 request_id, const RestRateLease& lease,
-                              u64 deadline_ms, bool reused_connection) noexcept {
+// The worker acquires only an idle transaction (a new request, or one a retry or a rate wait reset), with an active
+// lease from rest_rate_acquire and a nonzero deadline.
+void rest_transaction_acquire(RestTransaction* transaction, const RestRateLease& lease, u64 deadline_ms,
+                              bool reused_connection) noexcept {
     // begin_send sets the byte counts, and nothing reads them before it.
     transaction->lease = lease;
-    transaction->request_id = request_id;
     transaction->deadline_ms = deadline_ms;
     transaction->phase = RestTransactionPhase::acquired;
     transaction->reused_connection = reused_connection;

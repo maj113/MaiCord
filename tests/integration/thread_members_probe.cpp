@@ -5,6 +5,7 @@
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "../support/ui_scene_fixtures.hpp"
+#include "../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -21,9 +22,7 @@ struct ThreadMembersFixture {
     ThreadMemberStore threads{};
     u64 first_ids[8]{}, second_ids[8]{};
     UserStore users{};
-    UserRecord user_records[8]{};
-    u32 user_order[8]{};
-    u8 user_names[2048]{};
+    TestUserBank<8, 2048> user_bank;
     GuildMemberStore members{};
     GuildMemberRecord member_records[8]{};
     u32 member_order[8]{};
@@ -52,7 +51,7 @@ bool snapshot(ThreadMembersFixture& f, bool partial) noexcept {
 bool initialize(ThreadMembersFixture& f) noexcept {
     if (!thread_member_store_initialize(&f.threads, {f.first_ids, 8}, {f.second_ids, 8}) ||
         !thread_member_store_select(&f.threads, kGuild, kThread) ||
-        !user_store_initialize(&f.users, {f.user_records, 8}, {f.user_order, 8}, {f.user_names, 2048}) ||
+        !f.user_bank.init(&f.users) ||
         !guild_member_store_initialize(&f.members, {f.member_records, 8}, {f.member_order, 8}) ||
         !chat_state_store_initialize(&f.state, {f.guilds, 1}, {f.guild_order, 1},
             {f.channels, 1}, {f.channel_order, 1}, {f.state_names, 2048}) ||
@@ -62,6 +61,7 @@ bool initialize(ThreadMembersFixture& f) noexcept {
         !chat_state_store_upsert_role(&f.state, {kHelper, kGuild, 0, utf8_literal("Helpers"), 10, 0x69B4E8, true}) ||
         !member_list_view_initialize(&f.source, {f.projected_rows, 16}, {f.scratch, 8}) ||
         !member_list_scene_initialize(&f.scene, {f.rows, 16}, {f.widgets, 65}, {f.nodes, 65})) return false;
+    f.scene.media_cache = test_member_media_cache();
     const Utf8View names[] = {utf8_literal("Ada Moderator"), utf8_literal("Bela Helper"),
         utf8_literal("Cora Online"), utf8_literal("Deni Offline"), utf8_literal("Ema Named Only")};
     const Utf8View usernames[] = {utf8_literal("ada"), utf8_literal("bela"),

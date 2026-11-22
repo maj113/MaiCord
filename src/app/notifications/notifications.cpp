@@ -131,19 +131,6 @@ struct ApplicationNotifications {
     bool live, ready, snapshot, snapshot_failed, enrolled, focused, has_create_sequence, snapshot_partial, work_pending,
         backpressured, history_turn, audio_backpressured, audio_failed, audio_preference, voice_sounds, mention_on_all;
     Utf8View status;
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-    void(*fixture_sink)(void*,const DesktopNotificationPayload&) noexcept;
-    void* fixture_context;
-    NotificationAudioResult(*fixture_audio_sink)(void*,const NotificationAudioRequest&) noexcept;
-    NotificationAudioStatus(*fixture_audio_status)(void*) noexcept;
-    u64(*fixture_clock)(void*) noexcept;
-    void* fixture_audio_context;
-    DesktopNotificationShowState fixture_show_state;
-    DesktopNotificationResult(*fixture_retention_remove)(void*,DesktopNotificationActivation) noexcept;
-    void* fixture_retention_context;
-    u32 fixture_retention_failure_bank;
-    bool fixture_focus_known, fixture_focused;
-#endif
 };
 namespace {
 // A channel the user sees: listed, with View Channel.
@@ -157,43 +144,18 @@ bool local_dnd(const Application& a) noexcept {
     return snapshot.authoritative && snapshot.status==GatewayUserStatus::dnd;
 }
 bool popup_sink(const Application& a,const ApplicationNotifications& n) noexcept {
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-    return a.preferences.desktop_enabled && (n.enrolled || n.fixture_sink);
-#else
     return a.preferences.desktop_enabled && n.enrolled;
-#endif
 }
-bool focused(const ApplicationNotifications& n) noexcept {
-    (void)n;
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-    if(n.fixture_focus_known) return n.fixture_focused;
-#endif
+// The size option keeps this one copy for the three callers. Inlined into them, it costs 16 bytes more .text.
+bool focused() noexcept {
     return application_window_focused();
 }
-u64 sound_clock(const ApplicationNotifications& n) noexcept {
-    (void)n;
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-    if(n.fixture_clock) return n.fixture_clock(n.fixture_audio_context);
-#endif
-    return clock_monotonic_milliseconds();
-}
 bool audio_sink(const ApplicationNotifications& n) noexcept {
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-    return n.fixture_audio_sink && n.fixture_audio_status && !n.audio_failed;
-#else
     return n.audio.initialized && !n.audio_failed;
-#endif
 }
 bool audio_capacity(const ApplicationNotifications& n,u32 needed) noexcept {
     if(!audio_sink(n)) return false;
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-    const auto state=n.fixture_audio_status(n.fixture_audio_context);
-    return state.enabled && !state.stopping && !state.worker_exited &&
-        state.queued<=kNotificationAudioQueueCapacity && state.outstanding<=kNotificationAudioVoiceCapacity &&
-        needed<=kNotificationAudioQueueCapacity-state.queued && needed<=kNotificationAudioVoiceCapacity-state.outstanding;
-#else
     return notification_audio_can_accept(&n.audio,needed);
-#endif
 }
 void audio_error(ApplicationNotifications& n,NotificationAudioResult result) noexcept {
     if(result.ok()) return;
@@ -204,13 +166,9 @@ void audio_error(ApplicationNotifications& n,NotificationAudioResult result) noe
 }
 void audio_observe(ApplicationNotifications& n) noexcept {
     if(!audio_sink(n)) return;
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-    const auto state=n.fixture_audio_status(n.fixture_audio_context);
-#else
     // The status read takes the audio thread's lock: ask first, with no lock, if it has news.
     if(!notification_audio_status_pending(&n.audio)) return;
     const auto state=notification_audio_status(&n.audio);
-#endif
     // A request can fail on the worker after submit accepted it.
     if(state.failed>n.audio_failures_logged) {
         n.audio_failures_logged=state.failed;
@@ -234,11 +192,7 @@ void audio_preferences(Application& a,ApplicationNotifications& n) noexcept {
     }
 }
 NotificationAudioResult audio_submit(ApplicationNotifications& n,const NotificationAudioRequest& request) noexcept {
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-    return n.fixture_audio_sink(n.fixture_audio_context,request);
-#else
     return notification_audio_submit(&n.audio,request);
-#endif
 }
 void sound_submit(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
     // Streamer Mode's "Disable all sound effects".
@@ -251,7 +205,7 @@ void sound_submit(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
 }
 void sound_throttled(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
     if(!id || epoch!=n.audio_epoch || !n.audio_preference || !audio_sink(n)) return;
-    const auto invocation=notification_sound_throttle_request(&n.sound_throttle,sound_clock(n),
+    const auto invocation=notification_sound_throttle_request(&n.sound_throttle,clock_monotonic_milliseconds(),
         {epoch,id==2?NotificationSoundKind::message3:NotificationSoundKind::message1});
     if(invocation.invoke) sound_submit(n,invocation.request.kind==NotificationSoundKind::message3?2:1,invocation.request.generation);
 }
@@ -299,14 +253,8 @@ bool retention_room(ApplicationNotifications& n,u64 channel) noexcept {
     // VirtualAlloc commits whole pages, so the byte counts need no rounding here.
     const u64 row_bytes=u64{capacity}*sizeof(NotificationRetentionRow);
     const u64 index_bytes=u64{slots}*sizeof(u32);
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-    const bool allocate_rows=n.fixture_retention_failure_bank!=1;
-    const bool allocate_index=n.fixture_retention_failure_bank!=2;
-#else
-    constexpr bool allocate_rows=true, allocate_index=true;
-#endif
-    auto* rows=allocate_rows?commit_pages<NotificationRetentionRow>(static_cast<SIZE_T>(row_bytes)):nullptr;
-    auto* index=rows && allocate_index?commit_pages<u32>(static_cast<SIZE_T>(index_bytes)):nullptr;
+    auto* rows=commit_pages<NotificationRetentionRow>(static_cast<SIZE_T>(row_bytes));
+    auto* index=rows?commit_pages<u32>(static_cast<SIZE_T>(index_bytes)):nullptr;
     if(!rows || !index) {
         if(rows) pages_release(rows);
         return retention_unavailable(n);
@@ -414,11 +362,6 @@ void transport_error(ApplicationNotifications& n,DesktopNotificationResult resul
 void retention_close(ApplicationNotifications& n,DesktopNotificationActivation target) noexcept {
     // Windows closes a stable profile/message tag. Source permits duplicate
     // opaque request IDs; its private IPC does not prove a unique close nonce.
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-    if(n.fixture_retention_remove) {
-        transport_error(n,n.fixture_retention_remove(n.fixture_retention_context,target)); return;
-    }
-#endif
     if(n.enrolled) transport_error(n,desktop_notifications_remove_message(&n.native,target));
 }
 // The message's server names its roles, as in the official client.
@@ -773,7 +716,7 @@ void application_notifications_selection(Application* a) noexcept {
     if(!a->notifications || !a->account_ui) return;
     auto& n=*a->notifications;
     const u64 selected=a->account_ui->chat_state.selected_channel_id;
-    const bool window_focused=focused(n);
+    const bool window_focused=focused();
     if(selected!=n.selected || (window_focused && !n.focused)) {
         // Runs inside focus messages; the toast withdrawal waits for the drain.
         if(selected) acknowledge(a,selected,true);
@@ -791,7 +734,7 @@ void application_notifications_drain(Application* a) noexcept {
     const bool audio_can_resume=n.audio_backpressured &&
         (!n.audio_preference || !audio_sink(n) || audio_capacity(n,2));
     if(audio_can_resume) n.work_pending=true;
-    const u64 now=sound_clock(n);
+    const u64 now=clock_monotonic_milliseconds();
     u64 deadline{};
     if(n.ready && n.live && !n.snapshot && !n.snapshot_failed && n.audio_preference &&
         notification_sound_throttle_deadline(n.sound_throttle,&deadline) && now>=deadline && audio_capacity(n,1)) {
@@ -828,7 +771,7 @@ void application_notifications_drain(Application* a) noexcept {
             auto outcome=DesktopNotificationQueueOutcome::failed;
             const auto& id=dispatch.identity;
             const auto* channel=a->account_ui?chat_state_store_find_channel(a->account_ui->chat_state,id.channel_id):nullptr;
-            const bool window_focused=focused(n);
+            const bool window_focused=focused();
             const auto* policy_channel=a->account_ui?chat_state_store_find_channel(a->account_ui->chat_state,
                 id.policy_channel_id?id.policy_channel_id:id.channel_id):nullptr;
             const bool selected=policy_channel && policy_channel->id==a->account_ui->chat_state.selected_channel_id;
@@ -846,26 +789,14 @@ void application_notifications_drain(Application* a) noexcept {
                 if(a->preferences.taskbar_flash) application_taskbar_attention_notify();
                 const DesktopNotificationPayload projected{{id.profile_id,id.channel_id,id.message_id},
                     dispatch.title,dispatch.body,dispatch.avatar_file_uri,id.silent};
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-                if(n.fixture_sink) {
-                    n.fixture_sink(n.fixture_context,projected);
-                    if(n.fixture_show_state==DesktopNotificationShowState::submitted) outcome=DesktopNotificationQueueOutcome::submitted;
-                    else if(n.fixture_show_state==DesktopNotificationShowState::retry_required && dispatch.attempt<2)
-                        outcome=DesktopNotificationQueueOutcome::retry;
-                }
-                else
-#endif
-                {
-                    const auto shown=desktop_notifications_show_once(&n.native,projected);
-                    if(shown.state==DesktopNotificationShowState::submitted) outcome=DesktopNotificationQueueOutcome::submitted;
-                    else if(shown.state==DesktopNotificationShowState::retry_required && dispatch.attempt<2)
-                        outcome=DesktopNotificationQueueOutcome::retry;
-                    else transport_error(n,shown.result);
-                }
+                const auto shown=desktop_notifications_show_once(&n.native,projected);
+                if(shown.state==DesktopNotificationShowState::submitted) outcome=DesktopNotificationQueueOutcome::submitted;
+                else if(shown.state==DesktopNotificationShowState::retry_required && dispatch.attempt<2)
+                    outcome=DesktopNotificationQueueOutcome::retry;
+                else transport_error(n,shown.result);
             }
-            const auto completed=desktop_notification_queue_complete(&n.display->queue,id.token,dispatch.attempt,outcome);
-            if(completed.error==DesktopNotificationQueueError::none && outcome==DesktopNotificationQueueOutcome::submitted &&
-                !completed.canceled) {
+            const auto completed=desktop_notification_queue_complete(&n.display->queue,outcome);
+            if(outcome==DesktopNotificationQueueOutcome::submitted && !completed.canceled) {
                 // Source's async callback has no epoch guard. Keep native
                 // privacy/cancellation barriers if Show pumps READY/account
                 // events; the activation channel decides retention.
@@ -882,8 +813,7 @@ void application_notifications_drain(Application* a) noexcept {
                     }
                 } else retention_close(n,{id.profile_id,id.channel_id,id.message_id});
             }
-            if(completed.error==DesktopNotificationQueueError::none && valid &&
-                outcome==DesktopNotificationQueueOutcome::failed && !completed.canceled && id.sound_id)
+            if(valid && outcome==DesktopNotificationQueueOutcome::failed && !completed.canceled && id.sound_id)
                 sound_throttled(n,id.sound_id,id.sound_epoch);
             if(completed.removal_required) {
                 // Existing canceled-Show cleanup removes the whole Windows
@@ -956,57 +886,6 @@ void application_notifications_prepare_shutdown(Application* a) noexcept {
         a->notifications->profile=0;
     }
 }
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-bool application_notifications_fixture_sink(Application* a,void(*sink)(void*,const DesktopNotificationPayload&) noexcept,void* context) noexcept {
-    auto* n=ensure(a); if(!n) return false;
-    n->fixture_sink=sink; n->fixture_context=context; return true;
-}
-bool application_notifications_fixture_audio(Application* a,
-    NotificationAudioResult(*sink)(void*,const NotificationAudioRequest&) noexcept,
-    NotificationAudioStatus(*status)(void*) noexcept,u64(*clock)(void*) noexcept,void* context) noexcept {
-    if((sink&&!status)||(!sink&&status)) return false;
-    auto* n=ensure(a); if(!n || n->audio.runtime) return false;
-    n->fixture_audio_sink=sink; n->fixture_audio_status=status;
-    n->fixture_clock=clock; n->fixture_audio_context=context; return true;
-}
-void application_notifications_fixture_focus(Application* a,bool value) noexcept {
-    if(auto* n=ensure(a)) {n->fixture_focus_known=true;n->fixture_focused=value;}
-}
-void application_notifications_fixture_show_state(Application* a,DesktopNotificationShowState state) noexcept {
-    if(auto* n=ensure(a)) n->fixture_show_state=state;
-}
-bool application_notifications_fixture_retention_remove(Application* a,
-    DesktopNotificationResult(*remove)(void*,DesktopNotificationActivation) noexcept,void* context) noexcept {
-    auto* n=ensure(a); if(!n) return false;
-    n->fixture_retention_remove=remove; n->fixture_retention_context=context; return true;
-}
-void application_notifications_fixture_retention_oom(Application* a,u32 bank) noexcept {
-    if(auto* n=ensure(a)) n->fixture_retention_failure_bank=bank<=2?bank:1;
-}
-u64 application_notifications_fixture_retained(Application* a,u64 channel,u32 ordinal) noexcept {
-    u64 ticket{};
-    if(a->notifications) notification_retention_ticket(&a->notifications->retention,channel,ordinal,&ticket);
-    return ticket;
-}
-ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(Application* a) noexcept {
-    if(!a->notifications) return {};
-    const auto& n=*a->notifications;
-    ApplicationNotificationFixtureMetrics metrics{};
-    metrics.guilds=n.settings.guild_count; metrics.overrides=n.settings.override_count;
-    metrics.threads=n.settings.thread_count; metrics.ready=n.ready; metrics.live=n.live;
-    metrics.audio_epoch=n.audio_epoch; metrics.audio_backend_epoch=n.audio.epoch;
-    notification_sound_throttle_deadline(n.sound_throttle,&metrics.sound_deadline);
-    metrics.audio_failed=n.audio_failed;
-    metrics.audio_worker_started=n.audio.runtime!=nullptr;
-    metrics.audio_enabled=n.audio.enabled;
-    metrics.audio_output_percent=static_cast<u32>(ReadAcquire(&n.sound_assets.output_percent));
-    metrics.retention_channels=n.retention.count;
-    metrics.retention_capacity_channels=n.retention.rows.count;
-    for(u32 i=0;i<n.retention.count;++i) saturating_accumulate(metrics.retention_tickets,u64{n.retention.rows[i].count});
-    if(n.display) metrics.display_outstanding=desktop_notification_queue_metrics(&n.display->queue).outstanding;
-    return metrics;
-}
-#endif
 inline static bool invalidates_previews(GatewayClientDispatchKind kind) noexcept {
     switch(kind) {
     case GatewayClientDispatchKind::notification_snapshot_begin:
@@ -1307,7 +1186,7 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     input.guild_default_known=!channel->guild_id || (gs && (gs->flags&gateway_notification_guild_default_known));
     input.guild_default=gs && (gs->flags&gateway_notification_guild_default_mentions)?MessageNotificationLevel::mentions:MessageNotificationLevel::all;
     mention_flags(input,event);
-    input.focused=focused(n);
+    input.focused=focused();
     input.selected=policy_channel->id==state.selected_channel_id;
     // This process's own call; a voice state from another client never counts.
     input.current_voice_channel=ui.voice_session.channel_id==policy_channel->id &&
@@ -1397,7 +1276,7 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
         avatar=g_notification_avatar(message.author_id,hash,{avatar_uri,sizeof(avatar_uri)});
     }
     const auto admitted=desktop_notification_queue_enqueue(&display->queue,
-        {n.profile,n.generation,channel->id,message.id,event.sequence,author,text,avatar,true,policy_channel->id,
+        {n.profile,n.generation,channel->id,message.id,author,text,avatar,true,policy_channel->id,
             outputs.sound==NotificationMessageSoundRoute::popup?n.audio_epoch:0,
             outputs.sound==NotificationMessageSoundRoute::popup?1u:0u});
     if(!admitted.ok()) log_u64(LogLevel::warning,"notifications","display_admission_error",static_cast<u64>(admitted.error));

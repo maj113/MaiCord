@@ -1,10 +1,9 @@
 #include "maicord/platform/audio/notification_audio.hpp"
-#include "maicord/platform/audio/wasapi/notification_audio_fixture.hpp"
+#include "maicord/platform/window/window.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/sys/wasapi.hpp"
-#if !defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
-#error This test must use the isolated nonemitting audio fixture copy.
-#endif
+#include "../../../src/platform/audio/notification_audio_system.hpp"
+#include "../../../src/platform/audio/wasapi_endpoint_watch.hpp"
 
 namespace maicord {
 namespace audio_faults {
@@ -142,6 +141,11 @@ struct Fixture {
         for(u32 i=0;i<64;++i){s.pcm[i]=(i&1)?-1000:1000;s.pcm_alternate[i]=(i&1)?-2500:1500;}
     }
 };
+// The fixture the link-time fakes below act on (setup installs it); without one they fail as an absent COM runtime.
+Fixture* hooked{};
+HANDLE callback_event(IMMNotificationClient* callback) noexcept {
+    return callback?static_cast<PinnedEndpointNotify*>(callback)->event:nullptr;
+}
 HRESULT initialize(void* p) noexcept {auto& f=*static_cast<Fixture*>(p);f.s.worker_thread=GetCurrentThreadId();InterlockedIncrement(&f.s.initializes);return S_OK;}
 void uninitialize(void* p) noexcept {InterlockedIncrement(&static_cast<Fixture*>(p)->s.uninitializes);}
 HRESULT create(void* p,IMMDeviceEnumerator** out) noexcept {
@@ -161,7 +165,7 @@ bool gain(void* p,float nominal,float* out) noexcept {auto& s=static_cast<Fixtur
 bool setup(Fixture& f) noexcept {
     f.s.changed=CreateEventW(nullptr,FALSE,FALSE,nullptr);f.s.entered=CreateEventW(nullptr,TRUE,FALSE,nullptr);f.s.unblock=CreateEventW(nullptr,TRUE,FALSE,nullptr);
     if(!f.s.changed||!f.s.entered||!f.s.unblock){if(f.s.changed)CloseHandle(f.s.changed);if(f.s.entered)CloseHandle(f.s.entered);if(f.s.unblock)CloseHandle(f.s.unblock);return false;}
-    const NotificationAudioFixtureHooks hooks{&f,initialize,uninitialize,create,post,before_wait};notification_audio_fixture_hooks(&hooks);
+    hooked=&f;
     NotificationAudioConfig config{};config.resolve=resolve;config.context=&f;config.gain=gain;config.wake={reinterpret_cast<NativeWindow>(usize{1}),wake_notifications};
     return notification_audio_initialize(&f.owner,config).ok();
 }
@@ -221,14 +225,27 @@ bool finish(Fixture& f,Check check) noexcept {
         "audio fault: mock COM stays worker-owned, ABI contract valid and bounded gates acknowledged");
     check(read(f.enumerators[0].refs)==1&&read(f.enumerators[1].refs)==1&&read(f.clients[0].refs)==1&&read(f.clients[1].refs)==1&&read(f.renders[0].refs)==1&&read(f.renders[1].refs)==1&&read(f.devices[0].refs)==1&&read(f.devices[1].refs)==1&&!f.s.registered[0]&&!f.s.registered[1],
         "audio fault: enumerator/device/client/render references return to explicit fixture ownership");
-    for(u32 i=0;i<f.s.retained_count;++i){auto* c=f.s.retained[i];const HANDLE event=notification_audio_fixture_callback_event(c);DWORD flags{};
+    for(u32 i=0;i<f.s.retained_count;++i){auto* c=f.s.retained[i];const HANDLE event=callback_event(c);DWORD flags{};
         check(event&&GetHandleInformation(event,&flags)&&SetEvent(event),"audio fault: retained disarmed callback owns a valid duplicate after worker runtime release");
         ResetEvent(event);c->OnDefaultDeviceChanged(eRender,eConsole,endpoint_a);
         check(WaitForSingleObject(event,0)==WAIT_TIMEOUT,"audio fault: late callback after unregister is disarmed and cannot signal released owner");
         check(c->Release()==0,"audio fault: explicit final callback reference releases its independent ID and event");
         check(!GetHandleInformation(event,&flags)&&GetLastError()==ERROR_INVALID_HANDLE,"audio fault: callback duplicate closes exactly at final COM Release");
     }
-    CloseHandle(f.s.changed);CloseHandle(f.s.entered);CloseHandle(f.s.unblock);notification_audio_fixture_hooks(nullptr);return true;
+    CloseHandle(f.s.changed);CloseHandle(f.s.entered);CloseHandle(f.s.unblock);hooked=nullptr;return true;
+}
+}
+// The worker's system calls (notification_audio_system.cpp) and its wake post, replaced at link time.
+bool window_post(const Waker& waker,u64,u64) noexcept {return audio_faults::hooked&&audio_faults::post(audio_faults::hooked,waker);}
+namespace notification_audio_system {
+HRESULT enter_apartment() noexcept {return audio_faults::hooked?audio_faults::initialize(audio_faults::hooked):E_UNEXPECTED;}
+void leave_apartment() noexcept {if(audio_faults::hooked)audio_faults::uninitialize(audio_faults::hooked);}
+HRESULT create_enumerator(IMMDeviceEnumerator** enumerator) noexcept {
+    return audio_faults::hooked?audio_faults::create(audio_faults::hooked,enumerator):E_UNEXPECTED;
+}
+DWORD wait(u32 handle_count,const HANDLE* handles) noexcept {
+    if(audio_faults::hooked)audio_faults::before_wait(audio_faults::hooked,handle_count);
+    return WaitForMultipleObjects(handle_count,handles,FALSE,INFINITE);
 }
 }
 void test_native_notification_audio_faults(void(*check)(bool,const char*) noexcept) noexcept {
@@ -338,7 +355,7 @@ void test_native_notification_audio_faults(void(*check)(bool,const char*) noexce
     arm(*f,padding_stage);SetEvent(f->s.render_event);check(entered(*f),"audio fault: worker transport gate makes callback event inspection deterministic");
     constexpr PROPERTYKEY format{{0xf19f064d,0x082c,0x4e27,{0xbc,0x73,0x68,0x82,0xa1,0xbb,0x8e,0x4c}},0};
     cb->OnDeviceStateChanged(L"fixture.capture.C",DEVICE_STATE_DISABLED);cb->OnDeviceRemoved(L"fixture.capture.C");cb->OnPropertyValueChanged(L"fixture.capture.C",format);cb->OnDefaultDeviceChanged(eCapture,eConsole,L"fixture.capture.C");
-    check(WaitForSingleObject(notification_audio_fixture_callback_event(cb),0)==WAIT_TIMEOUT,"audio fault: unrelated capture state/removal/format/default events neither signal nor restart render stream");unblock(*f);
+    check(WaitForSingleObject(callback_event(cb),0)==WAIT_TIMEOUT,"audio fault: unrelated capture state/removal/format/default events neither signal nor restart render stream");unblock(*f);
     check(quiet(*f)&&read(f->s.opens)==1&&read(f->s.stops)==0,"audio fault: unrelated events preserve original active stream and PCM cursors");
     const LONG defaults=read(f->s.defaults);cb->OnDefaultDeviceChanged(eRender,eConsole,endpoint_a);
     check(await(*f,[&](const auto&) noexcept {return read(f->s.defaults)>defaults;})&&quiet(*f)&&read(f->s.opens)==1&&read(f->s.stops)==0,

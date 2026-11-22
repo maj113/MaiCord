@@ -75,19 +75,16 @@ struct CdnClientRequest {
 
 struct CdnClientResponse {
     u64 request_id;
-    u64 elapsed_us;
     u64 expires_at_seconds;
     u32 body_bytes;
     u32 native_error;
     u32 etag_bytes;
     u32 conditional_etag_bytes;
     u16 status_code;
-    u8 redirects;
     CdnClientError error;
     CdnHttpError http_error;
     bool store_allowed;
     bool must_revalidate;
-    bool reused_connection;
     u8 etag[kCdnMaximumEtagBytes];
     u8 conditional_etag[kCdnMaximumEtagBytes];
     // Range requests only; see CdnResponseResult.
@@ -104,10 +101,6 @@ CdnResponseResult cdn_client_response_policy(
     const CdnClientResponse& response) noexcept;
 
 struct CdnClientResult {
-    u64 connections;
-    u64 requests;
-    u64 reused_requests;
-    u64 responses;
     u32 native_error;
     CdnClientError error;
     CdnClientPhase phase;
@@ -147,10 +140,6 @@ struct CdnClient {
     volatile LONG native_error;
     volatile LONG request_state;
     volatile LONG64 current_request_id;
-    volatile LONG64 connections;
-    volatile LONG64 requests;
-    volatile LONG64 reused_requests;
-    volatile LONG64 responses;
 };
 
 CdnClientResult cdn_client_start(

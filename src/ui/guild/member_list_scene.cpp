@@ -599,7 +599,7 @@ const MemberMediaCacheEntry* member_media_entry(const MemberListScene& s, u32 in
                                                 const UiLayoutNode** row_node) noexcept {
     *row_node = nullptr;
     MemberMediaCache* cache = s.media_cache;
-    if (!cache || !s.active || !s.users || !s.source || index >= s.count)
+    if (!s.active || !s.users || !s.source || index >= s.count)
         return nullptr;
     const auto& row = s.rows[index];
     const u64 stamp = member_media_stamp(s);
@@ -634,13 +634,6 @@ void member_media_cache_reset(MemberMediaCache* cache) noexcept {
 
 bool member_media_place(const MemberListScene& s, u32 index, MemberMedia layer,
                         MemberMediaPlacement* out) noexcept {
-    if (!s.media_cache) {
-        ProfileMedia media;
-        if (!member_media_resolve(s, index, layer, &media))
-            return false;
-        *out = {media.key, media.rectangle, media.clip, media.circular};
-        return true;
-    }
     const UiLayoutNode* node = nullptr;
     const auto* entry = member_media_entry(s, index, &node);
     const u32 bit = 1u << static_cast<u32>(layer);
@@ -655,13 +648,6 @@ bool member_media_place(const MemberListScene& s, u32 index, MemberMedia layer,
 }
 
 bool member_plain_avatar_place(const MemberListScene& s, u32 index, MemberMediaPlacement* out) noexcept {
-    if (!s.media_cache) {
-        AvatarMedia media;
-        if (!member_plain_avatar_resolve(s, index, &media))
-            return false;
-        *out = {media.key, media.rectangle, media.clip, true};
-        return true;
-    }
     const UiLayoutNode* node = nullptr;
     const auto* entry = member_media_entry(s, index, &node);
     if (!entry || !entry->plain_avatar)
@@ -676,8 +662,6 @@ bool member_plain_avatar_place(const MemberListScene& s, u32 index, MemberMediaP
 }
 
 UiBadgeWidget member_list_badge(const MemberListScene& s, u32 index) noexcept {
-    if (!s.media_cache)
-        return member_list_badge_resolve(s, index);
     const UiLayoutNode* node = nullptr;
     const auto* entry = member_media_entry(s, index, &node);
     if (entry && !entry->badge && entry->badge_bytes == 0xFF)

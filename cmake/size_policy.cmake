@@ -115,6 +115,7 @@ maicord_compact_sources(
         src/ui/text/secure_text_store.cpp src/ui/text/secure_edit.cpp src/ui/text/secure_edit_history.cpp
         src/ui/text/secure_edit_target.cpp src/app/shell/shortcut_registry.cpp
         src/platform/audio/notification_audio.cpp src/platform/audio/notification_audio_mixer.cpp
+        src/platform/audio/notification_audio_system.cpp
         src/app/voice/stream_preview_cache.cpp src/app/voice/stream_watch_view.cpp
         src/app/voice/account_stage.cpp src/app/gateway/stage_dispatch.cpp src/app/gateway/stream_control.cpp
         src/app/gateway/stream_session.cpp src/app/gateway/voice_control.cpp

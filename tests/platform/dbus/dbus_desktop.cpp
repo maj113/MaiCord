@@ -375,12 +375,16 @@ void on_shortcut(void*, const char* id, bool active, u64 timestamp) noexcept {
     }
 }
 
-bool shortcuts_ready() noexcept {
-    return global_shortcuts_state() == GlobalShortcutsState::ready;
+// The client sends BindShortcuts after it subscribed to the session's signals: once the mock logs the call, an
+// Activated reaches the handler.
+bool bind_requested() noexcept {
+    take_log();
+    return find_line("BindShortcuts") != nullptr;
 }
 
-bool shortcuts_settled() noexcept {
-    return global_shortcuts_state() != GlobalShortcutsState::starting;
+bool session_requested() noexcept {
+    take_log();
+    return find_line("CreateSession") != nullptr;
 }
 
 bool shortcut_event_seen() noexcept {
@@ -420,8 +424,7 @@ void test_shortcuts() noexcept {
     const GlobalShortcut shortcut{"maicord-hold-to-talk", "Push to talk", "CTRL+ALT+p"};
     g_shortcut_event_count = 0;
     check(global_shortcuts_start(&shortcut, 1, on_shortcut, nullptr), "a session starts");
-    check(pump(shortcuts_ready, 4000), "the session is created and the shortcut bound");
-    take_log();
+    check(pump(bind_requested, 4000), "the session is created and the shortcut bound");
     const char* create = find_line("CreateSession");
     const char* bind = find_line("BindShortcuts");
     check(create && contains(create, "s:handle_token=v(s:maicord_") && contains(create, "s:session_handle_token=v(s:maicord_session_"),
@@ -436,35 +439,42 @@ void test_shortcuts() noexcept {
     check(pump([]() { return g_shortcut_event_count >= 2; }, 3000) && !g_shortcut_events[1].active, "and Deactivated");
     global_shortcuts_stop();
     take_log();
-    check(find_line("Session.Close /org/freedesktop/portal/desktop/session/") != nullptr && global_shortcuts_state() == GlobalShortcutsState::unavailable,
-          "stopping closes the portal session");
+    check(find_line("Session.Close /org/freedesktop/portal/desktop/session/") != nullptr, "stopping closes the portal session");
     send_shortcut_state("maicord-hold-to-talk", true);
     settle(150);
     check(g_shortcut_event_count == 2, "nothing arrives after the stop");
 
-    // The user declines the binding dialog.
+    // The user declines the binding dialog: the session the portal made is still closed on the stop.
     set_mode("bind-cancel", true);
-    check(global_shortcuts_start(&shortcut, 1, on_shortcut, nullptr) && pump(shortcuts_settled, 4000) &&
-              global_shortcuts_state() == GlobalShortcutsState::unavailable,
-          "a cancelled binding leaves the shortcut unavailable");
+    clear_log();
+    check(global_shortcuts_start(&shortcut, 1, on_shortcut, nullptr) && pump(bind_requested, 4000),
+          "a cancelled binding: the client asked for it");
+    settle(150);
     global_shortcuts_stop();
+    take_log();
+    check(find_line("Session.Close /org/freedesktop/portal/desktop/session/") != nullptr,
+          "and stopping closes the session the portal made");
     set_mode("bind-cancel", false);
 
-    // A portal without the interface.
+    // A portal without the interface: no session, so the client asks for no binding and closes nothing.
     set_mode("shortcuts-error", true);
-    check(global_shortcuts_start(&shortcut, 1, on_shortcut, nullptr) && pump(shortcuts_settled, 4000) &&
-              global_shortcuts_state() == GlobalShortcutsState::unavailable,
-          "a portal without GlobalShortcuts: unavailable");
+    clear_log();
+    check(global_shortcuts_start(&shortcut, 1, on_shortcut, nullptr) && pump(session_requested, 4000),
+          "a portal without GlobalShortcuts: the client asked for a session");
+    settle(150);
     global_shortcuts_stop();
+    take_log();
+    check(!find_line("BindShortcuts") && !find_line("Session.Close"), "it binds nothing and closes nothing");
     set_mode("shortcuts-error", false);
     check(!global_shortcuts_start(&shortcut, 9, on_shortcut, nullptr), "too many shortcuts are refused");
 }
 
 void test_shortcuts_bare() noexcept {
     const GlobalShortcut shortcut{"maicord-hold-to-talk", "Push to talk", ""};
+    g_shortcut_event_count = 0;
     check(global_shortcuts_start(&shortcut, 1, on_shortcut, nullptr), "the session starts on the bus");
-    check(pump(shortcuts_settled, 4000) && global_shortcuts_state() == GlobalShortcutsState::unavailable,
-          "no portal: unavailable, silently");
+    settle(300);
+    check(g_shortcut_event_count == 0, "no portal: nothing arrives, silently");
     global_shortcuts_stop();
 }
 

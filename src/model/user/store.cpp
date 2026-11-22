@@ -168,27 +168,6 @@ UserStoreResult store_error(UserStore* store, UserStoreError error) noexcept {
 } // namespace
 
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-bool user_store_initialize(UserStore* store, Slice<UserRecord> records, Slice<u32> order,
-                           Slice<u8> double_buffered_names) noexcept {
-    if (!store || !records.data || records.count == 0 || records.count > 1'000'000 || !order.data ||
-        order.count != records.count || !double_buffered_names.data || double_buffered_names.count < 2 ||
-        (double_buffered_names.count & 1u) != 0) {
-        return false;
-    }
-    reset_value<UserStore>(store);
-    store->pin_mark = 1;
-    store->records = records.data;
-    store->order = order.data;
-    store->names = double_buffered_names.data;
-    store->capacity = store->committed = records.count;
-    store->name_bank_bytes = store->name_committed[0] = store->name_committed[1] = double_buffered_names.count / 2;
-    for (u32 index = 0; index < records.count; ++index) {
-        reset_value<UserRecord>(&records[index]);
-        order[index] = ~0u;
-    }
-    return true;
-}
-
 bool user_store_initialize_owned(UserStore* store, u32 capacity, u32 name_bank_bytes) noexcept {
     if (capacity == 0 || capacity > 1'000'000 || name_bank_bytes == 0 || name_bank_bytes > (1u << 30))
         return false;

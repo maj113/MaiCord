@@ -6,6 +6,7 @@
 #include "../../support/account_module_fake.hpp"
 #include "maicord/protocol/auth/account_requirement.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
+#include "../../support/test_user_bank.hpp"
 
 // The account pages follow the connection: Offline only without a worker,
 // Connecting until READY's self user lands, a specific card for a pending
@@ -98,15 +99,13 @@ void test_application_account_settings_connection_runtime(void (*check)(bool, co
 
     // Loaded, the page runs well past the shared bank's avatar rows; its Account card still binds the self avatar.
     const auto saved_store = ui->user_store;
-    static UserRecord users[2];
-    static u32 order[2];
-    static u8 names[128];
+    static TestUserBank<2, 128> users_bank;
     const Utf8View avatar_hash = utf8_literal("0123456789abcdef0123456789abcdef");
     constexpr char self[] = "{\"id\":\"42\",\"username\":\"ada\",\"global_name\":\"Ada\",\"email\":\"ada@example.com\"}";
     RestClientResponse answer{};
     answer.request_id = 9001;
     answer.status_code = 200;
-    check(user_store_initialize(&ui->user_store, {users, 2}, {order, 2}, {names, sizeof(names)}) &&
+    check(users_bank.init(&ui->user_store) &&
               user_store_upsert(&ui->user_store, 42, utf8_literal("Ada"), utf8_literal("ada")).ok() &&
               user_store_set_avatar(&ui->user_store, 42, avatar_hash),
           "account settings avatar: the self user and its avatar hash enter the user store");

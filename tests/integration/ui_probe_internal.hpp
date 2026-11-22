@@ -11,6 +11,7 @@
 #include "rich_search_ui_probe.hpp"
 #include "forum_post_ui_probe.hpp"
 #include "post_resize_pacing_ui_probe.hpp"
+#include "../support/test_user_bank.hpp"
 
 namespace maicord {
 bool plugin_ui_probe(D3D11Renderer& renderer, PopupScene& popup,
@@ -82,9 +83,7 @@ struct ProbeState {
     u16 guild_order[kProbeGuildCapacity];
     u16 channel_order[kProbeChannelCapacity];
     u8 names[kProbeNameBytes];
-    UserRecord user_records[kProbeUserCapacity];
-    u32 user_order[kProbeUserCapacity];
-    u8 user_names[kProbeUserNameBytes];
+    TestUserBank<kProbeUserCapacity, kProbeUserNameBytes> user_bank;
     GuildViewRow guild_rows[kProbeGuildCapacity];
     ChannelViewRow channel_rows[kProbeChannelCapacity];
     u16 channel_scratch[kProbeChannelCapacity];

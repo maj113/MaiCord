@@ -220,10 +220,6 @@ void server_stop() noexcept {
     s.name_watch = s.status_subscription = 0;
 }
 
-bool server_connected() noexcept {
-    return g_server.bus && g_server.embedded;
-}
-
 bool server_queried() noexcept {
     return g_server.bus && g_server.endpoint.queried;
 }

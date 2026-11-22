@@ -8,12 +8,10 @@ namespace maicord {
 
 struct ClientPreferencesWriter;
 
-// Create lazily on the first explicit preference edit. No disk IO occurs here
-// or in submit/poll. A null path selects the current user's normal preference
-// file; a non-null path is copied and is the only persistence destination.
-// *writer is null on entry. Failure leaves it null and reports a Win32 last-error value.
-bool client_preferences_writer_create(ClientPreferencesWriter** writer,
-                                      const wchar_t* path = nullptr) noexcept;
+// Create lazily on the first explicit preference edit. No disk IO occurs here or in submit/poll. The writer saves
+// the current user's preference file (client_preferences_save). *writer is null on entry. Failure leaves it null and
+// reports a Win32 last-error value.
+bool client_preferences_writer_create(ClientPreferencesWriter** writer) noexcept;
 
 // One in-progress write and one replaceable newest snapshot, with no growing
 // queue. Accepted revisions start at 1 and increase monotonically. Invalid

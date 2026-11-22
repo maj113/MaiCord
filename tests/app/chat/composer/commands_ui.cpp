@@ -11,6 +11,7 @@
 #include "../../../../src/app/account/account_ui_runtime.hpp"
 #include "maicord/gpu/api.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
+#include "../../../support/test_user_bank.hpp"
 
 namespace maicord {
 // The app shake moves the composition visual; the fixture counts the moves.
@@ -355,7 +356,7 @@ void run() noexcept {
     MessageRecord records[4]{}; u32 order[4]{}, heights[4]{}; u64 fenwick[4]{};
     u8 text[512]{}, draft_text[512]{}, request_text[kMessageComposerMaximumBytes]{};
     MessageDraftRecord draft_records[4]{};
-    UserRecord bot_records[4]{}; u32 bot_order[4]{}; u8 bot_names[256]{};
+    TestUserBank<4, 256> bot_bank;
     MessageStore store{}; UiVariableList list{}; MessageTimeline timeline{}; MessageDraftStore drafts{};
     MessageRecord echo_records[16]{}; u32 echo_order[16]{}, echo_heights[16]{}; u64 echo_fenwick[16]{};
     u8 echo_text_bank[1024]{};
@@ -363,8 +364,7 @@ void run() noexcept {
     auto& composer = g_app.message_composer;
     auto& controller = g_app.account_ui->message_composer_controller;
     const bool ready = message_composer_initialize(&composer, {input, sizeof(input)}) &&
-        user_store_initialize(&g_app.account_ui->user_store, {bot_records, 4}, {bot_order, 4},
-                              {bot_names, sizeof(bot_names)}) &&
+        bot_bank.init(&g_app.account_ui->user_store) &&
         user_store_upsert(&g_app.account_ui->user_store, 11, utf8_literal("Test bot")).ok() &&
         user_store_upsert(&g_app.account_ui->user_store, 21, utf8_literal("Other bot")).ok() &&
         message_composer_scene_initialize_owned(&g_app.message_composer_scene) &&

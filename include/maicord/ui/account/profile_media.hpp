@@ -74,7 +74,7 @@ struct MemberMediaPlacement {
     UiRect rectangle, clip;
     bool circular;
 };
-// member_media_resolve without the URL, through the scene cache when it has one.
+// member_media_resolve without the URL, through the scene cache (a scene with a source always has one).
 bool member_media_place(const MemberListScene& scene, u32 index, MemberMedia layer,
                         MemberMediaPlacement* output) noexcept;
 // member_plain_avatar_resolve without the hash, through the scene cache.

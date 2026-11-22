@@ -64,8 +64,7 @@ bool storage_locked(const u8* data, u32 bytes) noexcept {
 }
 
 bool storage_offline(const RestClient& client, const RestClientRuntime& runtime) noexcept {
-    return InterlockedCompareExchange64(const_cast<volatile LONG64*>(&client.connections), 0, 0) == 0 &&
-        InterlockedCompareExchange64(const_cast<volatile LONG64*>(&client.requests), 0, 0) == 0 &&
+    return InterlockedCompareExchange64(const_cast<volatile LONG64*>(&client.requests), 0, 0) == 0 &&
         !runtime.transport.resolver_started && !runtime.transport.resolver.pending &&
         !runtime.transport.tls_initialized && runtime.transport.outstanding_operations == 0 &&
         runtime.transport.connection.socket == INVALID_SOCKET;

@@ -5,6 +5,7 @@
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/model/user/store.hpp"
 #include "../../support/chat_state_lists.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace thread_pump_probe {
@@ -15,9 +16,7 @@ struct Fixture {
     GuildMemberRecord member_records[8];
     u32 member_order[8];
     UserStore users;
-    UserRecord user_records[16];
-    u32 user_order[16];
-    u8 user_names[4096];
+    TestUserBank<16, 4096> user_bank;
     ChatStateStore state;
     GuildRecord guild;
     ChannelRecord channels[4];
@@ -34,8 +33,7 @@ bool initialize() noexcept {
     auto& f = fixture;
     if (!thread_member_store_initialize(&f.threads, {f.banks[0], 8}, {f.banks[1], 8}) ||
         !guild_member_store_initialize(&f.members, {f.member_records, 8}, {f.member_order, 8}) ||
-        !user_store_initialize(&f.users, {f.user_records, 16}, {f.user_order, 16},
-            {f.user_names, sizeof(f.user_names)}) ||
+        !f.user_bank.init(&f.users) ||
         !chat_state_store_initialize(&f.state, {&f.guild, 1}, {f.guild_order, 1},
             {f.channels, 4}, {f.channel_order, 4}, {f.state_names, sizeof(f.state_names)})) return false;
     f.guild.id = 7; f.guild.owner_id = 1; f.guild.occupied = true;

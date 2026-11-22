@@ -296,21 +296,6 @@ void builder_object_path(Builder* builder, const char* path) noexcept {
     put_string(builder, path, c_string_length(path), true);
 }
 
-void builder_signature(Builder* builder, const char* signature) noexcept {
-    note(builder, "g", 1);
-    const u32 length = c_string_length(signature);
-    if (!signature_valid(signature)) {
-        builder->failed = true;
-        return;
-    }
-    const u8 byte = static_cast<u8>(length);
-    put(builder, &byte, 1, 1);
-    if (!ensure(builder, length + 1))
-        return;
-    copy_bytes(builder->data + builder->size, signature, length + 1);
-    builder->size += length + 1;
-}
-
 void builder_open_array(Builder* builder, const char* element_signature) noexcept {
     const u32 length = c_string_length(element_signature);
     if (type_length(element_signature, 0) != length) {

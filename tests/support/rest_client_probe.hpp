@@ -83,7 +83,7 @@ struct RestClientProbe {
         const auto lease = rest_rate_acquire(runtime->scheduler, runtime->command.route, 1);
         if (!lease.acquired_request())
             return false;
-        rest_transaction_acquire(&runtime->transaction, runtime->command.request_id, lease.lease, 10'000, false);
+        rest_transaction_acquire(&runtime->transaction, lease.lease, 10'000, false);
         rest_transaction_begin_send(&runtime->transaction, runtime->command.body_bytes);
         request_plaintext_committed(runtime, {runtime->request_body, runtime->command.body_bytes});
         if (!zeros({runtime->request_body, runtime->command.body_bytes}))

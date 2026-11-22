@@ -217,27 +217,20 @@ void window_set_min_size(Window, u32 width_px, u32 height_px) noexcept {
 
 void window_request_attention(Window, Attention) noexcept {}
 
-void window_set_drop_target(Window, bool accept_files) noexcept {
-    g.probe.drop_target = accept_files;
-}
+void window_set_drop_target(Window, bool) noexcept {}
 
 bool window_set_capture_excluded(Window, bool excluded) noexcept {
     g.probe.capture_excluded = excluded;
     return true;
 }
 
-void window_invalidate(Window) noexcept {
-    ++g.probe.invalidations;
-}
+void window_invalidate(Window) noexcept {}
 
 void window_set_cursor(Window, UiCursor cursor) noexcept {
     g.probe.cursor = static_cast<u8>(cursor);
-    ++g.probe.cursor_changes;
 }
 
-void window_request_cursor_refresh(Window) noexcept {
-    ++g.probe.cursor_refreshes;
-}
+void window_request_cursor_refresh(Window) noexcept {}
 
 bool window_pointer_position(Window, float*, float*) noexcept {
     return false;
@@ -246,7 +239,6 @@ bool window_pointer_position(Window, float*, float*) noexcept {
 // As the system does: capturing again for the window that holds it reports the capture lost to that window, naming
 // itself as the new owner.
 void window_capture_pointer(Window window) noexcept {
-    ++g.probe.captures;
     if (g.probe.captured)
         report_capture_lost(window);
     g.probe.captured = true;
@@ -256,7 +248,6 @@ void window_release_capture(Window) noexcept {
     if (!g.probe.captured)
         return;
     g.probe.captured = false;
-    ++g.probe.releases;
     report_capture_lost(nullptr);
 }
 
@@ -265,7 +256,6 @@ bool window_pointer_captured(Window) noexcept {
 }
 
 bool window_focus(Window) noexcept {
-    ++g.probe.focus_requests;
     if (!g.focus_denied)
         g.probe.focused = true;
     return g.probe.focused;
@@ -339,9 +329,7 @@ bool window_frame_callback_request(Window) noexcept {
 
 void window_set_frame_listener(Window, FrameListener, void*) noexcept {}
 
-void window_wake(Window) noexcept {
-    ++g.probe.wakes;
-}
+void window_wake(Window) noexcept {}
 
 bool window_inject(Window, const WindowEvent& event, WindowEventResult* result) noexcept {
     if (result)
@@ -357,7 +345,6 @@ bool window_inject(Window, const WindowEvent& event, WindowEventResult* result) 
 
 // Runs inline: the headless backend has no second thread to cross.
 bool window_post(const Waker& waker, u64 a, u64 b) noexcept {
-    ++g.probe.posts;
     if (!g.sink)
         return false;
     WindowEvent event{};

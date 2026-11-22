@@ -15,6 +15,7 @@
 #include "maicord/platform/window/key.hpp"
 #include "maicord/app/gateway/client.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord::account_menu_runtime_test {
 using namespace app_detail;
@@ -57,9 +58,7 @@ void run() noexcept {
     check(g_app.account_ui != nullptr, "account menu runtime: isolated account owner allocates");
     if (!g_app.account_ui)
         return;
-    UserRecord users[2]{};
-    u32 order[2]{};
-    u8 names[512]{};
+    TestUserBank<2, 512> users_bank;
     PopupItem items[9]{};
     PopupRowWidget rows[9]{};
     UiWidget widgets[20]{};
@@ -67,8 +66,7 @@ void run() noexcept {
     g_app.plugin_account_scope_serial = 7;
     g_app.account.status.profile_id = 4;
     g_app.account_ui->chat_state.self_user_id = ~u64{0};
-    check(user_store_initialize(&g_app.account_ui->user_store, {users, 2}, {order, 2},
-                                        {names, 512}) &&
+    check(users_bank.init(&g_app.account_ui->user_store) &&
               user_store_upsert(&g_app.account_ui->user_store, ~u64{0},
                                         utf8_literal("Native Account"), utf8_literal("native.user"))
                   .ok() &&

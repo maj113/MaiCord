@@ -1932,6 +1932,7 @@ void test_member_list_scene() noexcept {
                                      ui_widget_storage_widgets(widget_storage),
                                      ui_widget_storage_layout_nodes(widget_storage));
     if (initialized) {
+        scene.media_cache = test_member_media_cache();
         scene.row_storage = &row_storage;
         initialized = ui_widget_manager_bind_growable_storage(&scene.widgets, ui_widget_storage_grow,
                                                               &widget_storage);

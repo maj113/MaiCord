@@ -3,16 +3,10 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/sys/wasapi.hpp"
+#include "notification_audio_system.hpp"
 #include "wasapi_endpoint_watch.hpp"
-#if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
-#include "maicord/platform/audio/wasapi/notification_audio_fixture.hpp"
-#endif
 
 namespace maicord {
-#if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
-namespace { NotificationAudioFixtureHooks fixture_hooks{}; }
-void notification_audio_fixture_hooks(const NotificationAudioFixtureHooks* hooks) noexcept {fixture_hooks=hooks?*hooks:NotificationAudioFixtureHooks{};}
-#endif
 namespace {
 using audio_detail::add;
 using audio_detail::fail;
@@ -38,11 +32,7 @@ struct Engine {
 void notify_locked(Runtime& r) noexcept {
     if(bytes_equal(&r.status,&r.last_notified,sizeof(r.status)))return;
     if(!r.wake_pending&&r.config.wake.window){
-#if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
-        r.wake_pending=fixture_hooks.post_wake&&fixture_hooks.post_wake(fixture_hooks.context,r.config.wake);
-#else
         r.wake_pending=window_post(r.config.wake,0,0);
-#endif
         if(!r.wake_pending)r.status.wake_error=thread_last_error();
     }
     r.last_notified=r.status;
@@ -74,11 +64,7 @@ HRESULT open_engine(Runtime& r,Engine& e,u32 rate) noexcept {
     HRESULT h=S_OK;
     if(!e.enumerator){
         AcquireSRWLockExclusive(&r.lock);add(r.status.device_open_attempts);ReleaseSRWLockExclusive(&r.lock);
-#if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
-        h=fixture_hooks.create?fixture_hooks.create(fixture_hooks.context,&e.enumerator):E_UNEXPECTED;
-#else
-        h=CoCreateInstance(__uuidof(MMDeviceEnumerator),nullptr,CLSCTX_INPROC_SERVER,__uuidof(IMMDeviceEnumerator),reinterpret_cast<void**>(&e.enumerator));
-#endif
+        h=notification_audio_system::create_enumerator(&e.enumerator);
         if(FAILED(h)){close_engine(r,e);return h;}
     }
     IMMDevice* device=nullptr;LPWSTR id=nullptr;
@@ -165,11 +151,7 @@ HRESULT render_audio(Runtime& r,Engine& e,u32 rate) noexcept {
 DWORD WINAPI worker_main(void* pointer) noexcept {
     auto& r=*static_cast<Runtime*>(pointer);Engine engines[2]{};
     static constexpr u32 rates[]{kNotificationAudioRate,kNotificationAudioAlternateRate};
-#if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
-    const HRESULT apartment=fixture_hooks.initialize?fixture_hooks.initialize(fixture_hooks.context):E_UNEXPECTED;
-#else
-    const HRESULT apartment=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
-#endif
+    const HRESULT apartment=notification_audio_system::enter_apartment();
     if(FAILED(apartment))failed_audio(r,engines,NotificationAudioError::device,apartment);
     else {
         for(;;){
@@ -207,19 +189,12 @@ DWORD WINAPI worker_main(void* pointer) noexcept {
             publish(r);
             HANDLE handles[]{r.stop,r.command,r.render};
             const u32 handle_count=(engines[0].client&&engines[0].started)||(engines[1].client&&engines[1].started)?3u:2u;
-#if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
-            if(fixture_hooks.before_wait)fixture_hooks.before_wait(fixture_hooks.context,handle_count);
-#endif
-            const DWORD waited=WaitForMultipleObjects(handle_count,handles,FALSE,INFINITE);
+            const DWORD waited=notification_audio_system::wait(handle_count,handles);
             if(waited==WAIT_OBJECT_0)break;
             if(waited==WAIT_FAILED){failed_audio(r,engines,NotificationAudioError::wait,HRESULT_FROM_WIN32(thread_last_error()));break;}
         }
         for(auto& e:engines)close_engine(r,e);
-#if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
-        if(fixture_hooks.uninitialize)fixture_hooks.uninitialize(fixture_hooks.context);
-#else
-        CoUninitialize();
-#endif
+        notification_audio_system::leave_apartment();
     }
     AcquireSRWLockExclusive(&r.lock);add(r.status.canceled,r.reserved);r.reserved=r.count=r.head=0;
     clear_bytes(r.requests,sizeof(r.requests));notification_audio_mixer_reset(&r.mixer,r.status.desired_epoch);
@@ -308,9 +283,4 @@ NotificationAudioResult notification_audio_release(NotificationAudio* owner,u32 
         wait==WAIT_TIMEOUT?WAIT_TIMEOUT:thread_last_error());
     free_runtime(r);reset_value(owner);return {};
 }
-#if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
-HANDLE notification_audio_fixture_callback_event(IMMNotificationClient* callback) noexcept {
-    return callback?static_cast<PinnedEndpointNotify*>(callback)->event:nullptr;
-}
-#endif
 } // namespace maicord

@@ -6,6 +6,7 @@
 #include "maicord/app/chat/messages/event_pump.hpp"
 #include "maicord/model/user/private_channel_store.hpp"
 #include "maicord/model/guild/member_store.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 void test_private_membership(void (*check)(bool, const char*) noexcept) noexcept {
@@ -16,15 +17,13 @@ void test_private_membership(void (*check)(bool, const char*) noexcept) noexcept
     u8 names[4096]{};
     PrivateChannelStore metadata{};
     UserStore users{};
-    UserRecord user_records[16]{};
-    u32 user_order[16]{};
-    u8 user_names[4096]{};
+    TestUserBank<16, 4096> user_bank;
     u32 scratch[4096]{};
     char packet[8192]{};
     u64 ids[256]{};
     check(chat_state_store_initialize(&state, {guilds, 2}, {guild_order, 2}, {channels, 8},
         {channel_order, 8}, {names, 4096}) && private_channel_store_initialize_owned(&metadata, 8, 256) &&
-        user_store_initialize(&users, {user_records, 16}, {user_order, 16}, {user_names, 4096}), "membership stores initialize");
+        user_bank.init(&users), "membership stores initialize");
     state.private_channels = &metadata;
     state.self_user_id = 1;
     const auto apply = [&](Utf8View json) noexcept {

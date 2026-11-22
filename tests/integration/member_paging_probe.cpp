@@ -6,6 +6,7 @@
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "../support/ui_scene_fixtures.hpp"
+#include "../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -73,9 +74,7 @@ bool member_paging_probe(D3D11Renderer& renderer, UiTextMeasureCache& measure,
     UiWidget widgets[257]{};
     UiLayoutNode nodes[257]{};
     MemberListScene scene{};
-    UserRecord user_records[2]{};
-    u32 user_order[2]{};
-    u8 user_names[1024]{};
+    TestUserBank<2, 1024> user_bank;
     UserStore users{};
     GuildMemberRecord member_records[2]{};
     u32 member_order[2]{};
@@ -102,11 +101,12 @@ bool member_paging_probe(D3D11Renderer& renderer, UiTextMeasureCache& measure,
     const auto* previous = renderer.member_list_scene;
     const UiRect previous_scrollbar_viewport = renderer.scrollbar_viewport;
     u32 stage = __LINE__;
-    bool valid = user_store_initialize(&users, {user_records, 2}, {user_order, 2}, {user_names, 1024}) &&
+    bool valid = user_bank.init(&users) &&
         user_store_upsert(&users, 90003, utf8_literal("Resident at wire 50001")).ok() &&
         user_store_upsert(&users, 90004, utf8_literal("Arrived at wire 50002")).ok() &&
         member_list_scene_initialize(&scene, {rows, 64}, {widgets, 257}, {nodes, 257});
     scene.measure = &measure;
+    scene.media_cache = test_member_media_cache();
     const float scroll = 50000.f * member_list_row_height();
     UiRect gap_rectangle{}, known_rectangle{};
     UiScrollbarGeometry scrollbar{};

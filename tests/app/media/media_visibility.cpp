@@ -498,8 +498,7 @@ bool seed_scene(VisibilityFixture& fixture, AccountUiRuntime& ui) noexcept {
                                   {fixture.text, 64}) ||
         !message_rich_store_initialize(&ui.message_rich_store, {fixture.rich_records, 3},
                                        {fixture.rich_order, 3}, {fixture.rich_text, 2048}) ||
-        !user_store_initialize(&ui.user_store, {fixture.users, 1}, {fixture.user_order, 1},
-                                       {fixture.user_names, 32}))
+        !fixture.user_bank.init(&ui.user_store))
         return false;
     for (u32 index = 0; index < 3; ++index) {
         const u64 message_id = 100 + index;

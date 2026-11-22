@@ -23,6 +23,7 @@
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/chat/chat_state.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord::presence_wave_test {
 u32 failures = 0;
@@ -598,16 +599,14 @@ struct Fixture {
     u8 names[4096]{};
     PrivateChannelStore metadata{};
     UserStore users{};
-    UserRecord user_records[32]{};
-    u32 user_order[32]{};
-    u8 user_names[4096]{};
+    TestUserBank<32, 4096> user_bank;
     char packet[8192]{};
     u64 ids[256]{};
     bool ready() noexcept {
         if (!chat_state_store_initialize(&state, {guilds, 2}, {guild_order, 2}, {channels, 16}, {channel_order, 16},
                                          {names, 4096}) ||
             !private_channel_store_initialize_owned(&metadata, 16, 256) ||
-            !user_store_initialize(&users, {user_records, 32}, {user_order, 32}, {user_names, 4096}))
+            !user_bank.init(&users))
             return false;
         state.private_channels = &metadata;
         state.self_user_id = 1;

@@ -13,6 +13,7 @@
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
 #include "maicord/app/net/rest_client.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "../../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -1534,9 +1535,7 @@ void test_message_history_sync() noexcept {
     u64 bulk_ids[kGatewayBulkDeleteMaximumIds]{};
     MessageEventPump pump{};
     UserStore catchup_users{};
-    UserRecord catchup_user_records[4]{};
-    u32 catchup_user_order[4]{};
-    u8 catchup_user_names[256]{};
+    TestUserBank<4, 256> catchup_user_bank;
     MessageRichStore catchup_rich{};
     MessageRichRecord catchup_rich_records[4]{};
     u16 catchup_rich_order[4]{};
@@ -1555,9 +1554,7 @@ void test_message_history_sync() noexcept {
                                           Slice<u8>{payload_scratch, kMessageEventPumpPayloadCapacity},
                                           Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds},
                                           MessageContentAvailability::available) &&
-            user_store_initialize(&catchup_users, Slice<UserRecord>{catchup_user_records, 4},
-                                          Slice<u32>{catchup_user_order, 4},
-                                          Slice<u8>{catchup_user_names, 256}) &&
+            catchup_user_bank.init(&catchup_users) &&
             message_event_pump_set_user_store(&pump, &catchup_users) &&
             message_rich_store_initialize(&catchup_rich, Slice<MessageRichRecord>{catchup_rich_records, 4},
                                           Slice<u16>{catchup_rich_order, 4},

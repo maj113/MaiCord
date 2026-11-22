@@ -108,11 +108,9 @@ void flush_axis() noexcept {
     const float scale = pixel_scale();
     const float dx_px = dx_units * scale;
     const float dy_px = dy_units * scale;
-    const u8 source = pointer.axis_source;
     pointer.axis_px_x = pointer.axis_px_y = 0;
     pointer.axis_value120_x = pointer.axis_value120_y = 0;
     pointer.axis_discrete_x = pointer.axis_discrete_y = 0;
-    pointer.axis_source = wl_pointer_axis_source_wheel;
     if (dx120 == 0 && dy120 == 0 && dx_px == 0 && dy_px == 0)
         return;
     WindowEvent& event = ring_add(EventType::wheel, pointer.axis_time);
@@ -123,7 +121,6 @@ void flush_axis() noexcept {
     event.wheel.dy120 = dy120;
     event.wheel.dx_px = dx_px;
     event.wheel.dy_px = dy_px;
-    event.wheel.source = source;
 }
 
 ClickPolicy click_policy() noexcept {
@@ -248,9 +245,7 @@ void on_frame(void*, wl_pointer*) noexcept {
     flush_axis();
 }
 
-void on_axis_source(void*, wl_pointer*, u32 source) noexcept {
-    g.pointer.axis_source = static_cast<u8>(source);
-}
+void on_axis_source(void*, wl_pointer*, u32) noexcept {}
 
 void on_axis_stop(void*, wl_pointer*, u32, u32) noexcept {}
 

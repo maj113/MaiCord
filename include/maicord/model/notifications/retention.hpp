@@ -43,6 +43,5 @@ NotificationRetentionRoom notification_retention_room(const NotificationRetentio
 // Call room/reserve BEFORE external Show; append only its successful outcome.
 // The 21st success returns the oldest ticket after retiring it from metadata.
 NotificationRetentionAppend notification_retention_append(NotificationRetention*, u64 channel, u64 ticket) noexcept;
-bool notification_retention_ticket(const NotificationRetention*, u64 channel, u32 ordinal, u64* ticket) noexcept;
 void notification_retention_discard_channel(NotificationRetention*, u64 channel) noexcept;
 } // namespace maicord

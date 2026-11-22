@@ -1,4 +1,5 @@
 #include "maicord/app/settings/client_preferences_writer.hpp"
+#include "maicord/core/data_path.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -39,17 +40,13 @@ void test_client_preferences_writer(void (*check)(bool, const char*) noexcept) n
     ClientPreferencesResult result{93, ClientPreferencesError::checksum};
     bool ready = true;
     const auto defaults = client_preferences_defaults();
-    check(!client_preferences_writer_create(&writer, L"") && !writer &&
-          !client_preferences_writer_completion_event(nullptr) &&
-          client_preferences_writer_stop(&writer, 0) && !writer,
-          "preferences writer: invalid arguments preserve outputs and null stop is idempotent");
+    check(!client_preferences_writer_completion_event(nullptr) && client_preferences_writer_stop(&writer, 0) && !writer,
+          "preferences writer: null stop is idempotent");
 
-    // Only an external temporary fixture is ever supplied to the writer.
-    wchar_t directory[MAX_PATH]{}, path[MAX_PATH]{}, copied_path[MAX_PATH]{};
-    const DWORD length = GetTempPathW(MAX_PATH, directory);
-    const bool fixture = length > 0 && length < MAX_PATH &&
-                          GetTempFileNameW(directory, L"MPW", 0, path) != 0;
-    check(fixture, "preferences writer: fixture is outside the workspace and actual preference directory");
+    // The writer saves the user's preference file: here the one of the private test profile (tools/build.ps1).
+    wchar_t path[MAX_PATH]{};
+    const bool fixture = data_path(path, MAX_PATH - 4, L"preferences.bin", true).ok();
+    check(fixture, "preferences writer: the preference file is in the test profile");
     if (!fixture) return;
     struct Cleanup {
         ClientPreferencesWriter** writer;
@@ -60,22 +57,17 @@ void test_client_preferences_writer(void (*check)(bool, const char*) noexcept) n
             DeleteFileW(path);
         }
     } cleanup{&writer, path};
-    for (u32 i = 0; i < MAX_PATH; ++i) {
-        copied_path[i] = path[i];
-        if (!path[i]) break;
-    }
-    check(client_preferences_writer_create(&writer, copied_path) && writer,
-          "preferences writer: lazy creation starts one bounded worker for the exact copied path");
+    check(client_preferences_writer_create(&writer) && writer,
+          "preferences writer: lazy creation starts one bounded worker");
     if (!writer) return;
-    copied_path[0] = 0;
     const HANDLE event = client_preferences_writer_completion_event(writer);
     auto* original = writer;
     check(event && WaitForSingleObject(event, 0) == WAIT_TIMEOUT,
           "preferences writer: creation has no completion");
     ClientPreferences untouched = defaults;
-    check(client_preferences_load_file(path, &untouched).error == ClientPreferencesError::size &&
+    check(client_preferences_load_file(path, &untouched).error == ClientPreferencesError::missing &&
           client_preferences_equal(untouched, defaults),
-          "preferences writer: creation alone leaves the empty fixture unmodified");
+          "preferences writer: creation alone writes no file");
     check(client_preferences_writer_poll(writer, &completed, &result, &ready) && !ready &&
           completed == 92 && result.native_error == 93 && result.error == ClientPreferencesError::checksum,
           "preferences writer: empty poll preserves revision/result and clears ready");
@@ -89,7 +81,7 @@ void test_client_preferences_writer(void (*check)(bool, const char*) noexcept) n
           "preferences writer: accepted request completes with its monotonic revision");
     ClientPreferences loaded{};
     check(client_preferences_load_file(path, &loaded).ok() && client_preferences_equal(first, loaded),
-          "preferences writer: private path copy survives caller buffer reuse");
+          "preferences writer: the accepted snapshot is on disk");
     check(WaitForSingleObject(event, 0) == WAIT_TIMEOUT &&
           client_preferences_writer_poll(writer, &completed, &result, &ready) && !ready &&
           completed == 1 && result.ok(),

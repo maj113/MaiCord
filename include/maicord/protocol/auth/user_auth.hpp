@@ -170,7 +170,6 @@ struct UserAuthResponseStorage {
     Slice<char> captcha_rqtoken;
     Slice<char> captcha_session_id;
     Slice<char> captcha_user_flow;
-    Slice<char> suspended_user_token;
 };
 
 struct UserAuthResponse {
@@ -186,7 +185,6 @@ struct UserAuthResponse {
     u32 captcha_rqtoken_bytes;
     u32 captcha_session_id_bytes;
     u32 captcha_user_flow_bytes;
-    u32 suspended_user_token_bytes;
     UserAuthResponseKind kind;
     u8 mfa_capabilities;
     bool has_user_id;

@@ -118,7 +118,7 @@ maicord_library(maicord_platform
         maicord_combase maicord_kernelbase)
 
 maicord_library(maicord_notification_audio src/platform/audio/notification_audio.cpp
-    src/platform/audio/notification_audio_mixer.cpp
+    src/platform/audio/notification_audio_mixer.cpp src/platform/audio/notification_audio_system.cpp
     LIBS maicord_core maicord_window_post kernel32 ole32 user32)
 maicord_library(maicord_notification_sound_assets src/app/notifications/sound_assets.cpp
     LIBS maicord_notification_pcm maicord_notification_audio kernel32)

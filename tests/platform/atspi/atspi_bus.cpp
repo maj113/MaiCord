@@ -288,20 +288,21 @@ bool skip_unless(const char* kind) noexcept {
     return bus && address && session && text_equal(bus, kind) && text_equal(address, session);
 }
 
+// The server's connection to the accessibility bus is its waitable; its registrations are the registry's Embed calls.
 bool connected() noexcept {
-    return atspi::server_connected();
+    return atspi::server_waitable() != nullptr;
 }
 bool embedded_once() noexcept {
     return g_embeds >= 1;
 }
 bool disconnected() noexcept {
-    return !atspi::server_connected();
+    return !connected();
 }
 bool embedded_twice() noexcept {
-    return g_embeds >= 2 && atspi::server_connected();
+    return g_embeds >= 2;
 }
 bool embedded_thrice() noexcept {
-    return g_embeds >= 3 && atspi::server_connected();
+    return g_embeds >= 3;
 }
 bool queried() noexcept {
     return atspi::server_queried();
@@ -339,14 +340,14 @@ void run() noexcept {
     check(atspi::server_start(kHost), "the server starts");
     pump([] { return g_status_reads >= 1; }, 3000);
     settle(300);
-    check(g_status_reads >= 1 && g_address_calls == 0 && !connected() && !atspi::server_waitable(),
+    check(g_status_reads >= 1 && g_address_calls == 0 && !connected(),
           "with accessibility off the server asks no address and holds no connection");
 
     // 2. The desktop's switch turns on: the accessibility bus, then the registry.
     g_enabled = true;
     announce_status();
     check(pump(embedded_once, 3000), "turning IsEnabled on registers the application with the registry");
-    check(g_address_calls == 1 && pump(connected, 1000) && atspi::server_waitable() != nullptr,
+    check(g_address_calls == 1 && connected(),
           "it asked org.a11y.Bus for the address once and connected");
     check(g_app_name[0] == ':' && text_equal(g_app_path, "/org/a11y/atspi/accessible/root"),
           "the plug it embeds is its connection's root");
@@ -406,7 +407,7 @@ void run() noexcept {
     // 5. Accessibility off again: the server leaves the bus.
     g_enabled = false;
     announce_status();
-    check(pump(disconnected, 3000) && atspi::server_waitable() == nullptr,
+    check(pump(disconnected, 3000),
           "turning accessibility off closes the connection");
     settle(200);
     check(g_embeds == 1, "nothing registers while it is off");
@@ -417,12 +418,12 @@ void run() noexcept {
     check(pump(embedded_twice, 3000), "ScreenReaderEnabled brings the application back");
     check(!atspi::server_queried(), "a new connection starts unasked");
     check(connection_release_name(g_services, "org.a11y.atspi.Registry", 3000), "the registry leaves the bus");
-    check(pump(disconnected, 3000), "the server notices the registry's departure (it is no longer registered)");
+    settle(300);
     check(connection_request_name(g_services, "org.a11y.atspi.Registry", 3000), "the registry comes back");
-    check(pump(embedded_thrice, 3000), "it embeds again with the new registry");
+    check(pump(embedded_thrice, 3000), "the server notices the new registry and embeds again with it");
 
     atspi::server_stop();
-    check(!connected() && atspi::server_waitable() == nullptr, "stopping disconnects");
+    check(!connected(), "stopping disconnects");
     connection_close(g_client);
     connection_close(g_services);
 }

@@ -63,7 +63,6 @@ void builder_double(Builder* builder, double value) noexcept;
 void builder_string(Builder* builder, const char* text, u32 length) noexcept;
 void builder_string(Builder* builder, const char* text) noexcept;  // NUL terminated
 void builder_object_path(Builder* builder, const char* path) noexcept;
-void builder_signature(Builder* builder, const char* signature) noexcept;
 
 // An array of `element_signature` ("s", "{sv}", "(ii)", "ay", ...); append the elements, then close.
 void builder_open_array(Builder* builder, const char* element_signature) noexcept;

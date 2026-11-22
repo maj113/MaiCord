@@ -98,14 +98,13 @@ maicord_test(MaiCordNotificationAudioTests ENTRY maicord_notification_audio_test
     LINUX SOURCES tests/platform/audio/window_post_stub.cpp
         LIBS maicord_audio_pulse maicord_core
     TEST maicord_notification_audio)
-# Compile an isolated copy with deterministic COM transport hooks. The
-# shipping library excludes the seam completely; fixtures never open an
-# actual endpoint even if no hook has been installed.
+# The shipping worker over fake COM objects: the test defines the calls of
+# src/platform/audio/notification_audio_system.cpp and window_post, so it
+# never opens an actual endpoint.
 maicord_test(MaiCordNotificationAudioFaultTests ONLY WINDOWS ENTRY maicord_notification_audio_faults_tests_entry
     SOURCES src/platform/audio/notification_audio.cpp src/platform/audio/notification_audio_mixer.cpp
         tests/platform/audio/native_notification_audio_faults.cpp
     LIBS maicord_core kernel32 ole32 user32
-    DEFINES MAICORD_NOTIFICATION_AUDIO_FIXTURE=1
     TEST maicord_notification_audio_faults)
 if(MAICORD_LINUX)
     # The tests of the Linux audio backend (src/platform/audio).
@@ -1718,8 +1717,11 @@ maicord_test(MaiCordNativeNotificationTests ONLY WINDOWS ENTRY maicord_native_no
         tests/integration/desktop_notifications_probe.cpp
     LIBS maicord_core maicord_platform kernel32 runtimeobject advapi32
     TEST maicord_native_notifications)
-# Compile the explicit enrollment branch without invoking it: this fixture
-# substitutes a copied notification sink and never creates desktop identity.
+# The notification owner over link-time fakes: the test defines the calls of
+# src/platform/desktop/notifications.cpp, notification_identity.cpp and the
+# notification audio worker, so it never registers with Windows, shows a toast
+# or opens an endpoint. The forced include gives the owner the test's clock and
+# page commits (the retention banks can fail).
 maicord_test(MaiCordApplicationNotificationTests ONLY WINDOWS ENTRY maicord_application_notifications_tests_entry
     SOURCES ${maicord_account_fake}
     SOURCES tests/app/notifications/notifications.cpp src/app/notifications/notifications.cpp src/app/shell/state.cpp
@@ -1727,7 +1729,7 @@ maicord_test(MaiCordApplicationNotificationTests ONLY WINDOWS ENTRY maicord_appl
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_model maicord_client_preferences
         maicord_notification_sound_assets maicord_ui maicord_text maicord_message_runtime kernel32 user32 shell32
     INCLUDES src/app
-    DEFINES MAICORD_NOTIFICATION_FIXTURE=1
+    OPTIONS "/FI${CMAKE_CURRENT_SOURCE_DIR}/tests/app/notifications/notifications_fixture.hpp"
     TEST maicord_application_notifications)
 # Go Live capture (src/platform/capture), never capturing the user's screen or sound:
 #

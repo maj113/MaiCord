@@ -156,7 +156,7 @@ void test_http_compression_workers(void (*check)(bool, const char*) noexcept) no
             auto taken = user_account_coordinator_take(&account, &response, {output, sizeof(output)});
             check(taken.ok() && response.request_id == n + 1 &&
                       response.error == RestClientError::cancelled &&
-                      rest_client_status(clients[n]).connections == 0,
+                      clients[n]->requests == 0,
                   "cancelled completions retain ownership and global limit prevents DNS/TLS");
         }
         // The global limit remains an offline safety backstop. The trace barrier
@@ -198,10 +198,7 @@ void test_http_compression_workers(void (*check)(bool, const char*) noexcept) no
                                shared.endpoint_gate.entries[0].retry_at_ms == floor &&
                                shared.endpoint_gate.entries[0].in_flight == 0;
         ReleaseSRWLockExclusive(shared.lock.native());
-        check(gated && no_leases && rest_client_status(clients[0]).connections == 0 &&
-                  rest_client_status(clients[1]).connections == 0 &&
-                  rest_client_status(clients[0]).requests == 0 &&
-                  rest_client_status(clients[1]).requests == 0,
+        check(gated && no_leases && clients[0]->requests == 0 && clients[1]->requests == 0,
               "shared endpoint floor blocks GET and POST query variants before any lease, DNS or send");
         for (u32 n = 0; n < 2; ++n) {
             RestClientResponse response{};

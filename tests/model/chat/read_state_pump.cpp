@@ -8,6 +8,7 @@
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/model/user/store.hpp"
 #include "../../support/gateway_message_scratch.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace read_pump_probe {
@@ -21,9 +22,7 @@ struct Fixture {
     u8 names[1024];
     ReadStateStore reads;
     UserStore users;
-    UserRecord user_records[2];
-    u32 user_order[2];
-    u8 user_names[128];
+    TestUserBank<2, 128> user_bank;
     ReadStateEntry pending[4];
     u32 reserve_calls, cancel_calls, reset_calls;
     u64 cancelled_channel;
@@ -396,8 +395,7 @@ void test_read_state_pump(void (*check)(bool, const char*) noexcept) noexcept {
     check(message_event_pump_consume(&f.pump, event, {f.payload, sizeof(user)}).ok() && f.reset_calls == 1 && f.cancel_calls == 2,
         "read pump: accepted self USER_UPDATE resets token without cancelling desired ACK queue");
 
-    check(user_store_initialize(&f.users, {f.user_records, 2}, {f.user_order, 2},
-                                 {f.user_names, sizeof(f.user_names)}),
+    check(f.user_bank.init(&f.users),
         "content policy pump: bounded account metadata user cache initializes");
     f.pump.users = &f.users;
     f.state.content_policy.flags = account_content_age_confirmation;

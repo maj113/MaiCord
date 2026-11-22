@@ -3,6 +3,7 @@
 #include "maicord/render/media/atlas.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/model/user/store.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -37,8 +38,8 @@ void test_friends_media(void (*check)(bool, const char*) noexcept) noexcept {
     Source logical{};
     UiFriendsSource source{&logical, logical.count, 1, resolve_row};
     UserStore users{};
-    UserRecord records[160]{};u32 order[160]{};u8 names[8192]{};
-    check(user_store_initialize(&users, {records, 160}, {order, 160}, {names, sizeof(names)}) &&
+    TestUserBank<160, 8192> user_bank;
+    check(user_bank.init(&users) &&
         ui_friends_scene_update(&scene, &source, UiFriendsTab::all, UiFriendsPhase::ready, {}, {0, 0, 800, 600}),
         "friends media: real retained viewport and existing user store initialize without an image bank");
     struct Cleanup {UiFriendsScene* scene;~Cleanup() noexcept {ui_friends_scene_release(scene);}} cleanup{&scene};
@@ -128,7 +129,7 @@ void test_friends_media(void (*check)(bool, const char*) noexcept) noexcept {
         !friends_avatar_media_visit(scene, users, callbacks(&probe)).requests && !probe.requests,
         "friends media: hidden Friends has no requests and cannot admit a late avatar upload");
     scene.active = true;
-    check(user_store_initialize(&users, {records, 160}, {order, 160}, {names, sizeof(names)}) &&
+    check(user_bank.init(&users) &&
         !friends_avatar_media_current(scene, users, second.key),
         "friends media: user-cache eviction cannot resurrect a stale avatar identity");
 }

@@ -73,11 +73,6 @@ NotificationRetentionAppend notification_retention_append(NotificationRetention*
     if(++row.head==kNotificationRetentionTickets)row.head=0;
     return {Error::none,evicted,true};
 }
-bool notification_retention_ticket(const NotificationRetention* n,u64 channel,u32 ordinal,u64* ticket) noexcept {
-    const auto located=find(*n,channel);
-    if(!located.exists || ordinal>=n->rows[located.row].count)return false;
-    *ticket=n->rows[located.row].tickets[ticket_index(n->rows[located.row],ordinal)];return true;
-}
 void notification_retention_discard_channel(NotificationRetention* n,u64 channel) noexcept {
     const auto located=find(*n,channel);
     if(located.exists)erase(*n,located);

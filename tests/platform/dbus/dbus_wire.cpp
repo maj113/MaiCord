@@ -42,9 +42,8 @@ void test_vectors() noexcept {
         Builder b;
         builder_init(&b);
         builder_string(&b, "hi");
-        builder_signature(&b, "a{sv}");
-        const u8 expected[] = {2, 0, 0, 0, 'h', 'i', 0, 5, 'a', '{', 's', 'v', '}', 0};
-        check(bytes_are(b, expected, sizeof(expected)) && text_equal(b.signature, "sg"), "string and signature layout");
+        const u8 expected[] = {2, 0, 0, 0, 'h', 'i', 0};
+        check(bytes_are(b, expected, sizeof(expected)) && text_equal(b.signature, "s"), "string layout");
         builder_release(&b);
     }
     {
@@ -154,7 +153,6 @@ void write_everything(Builder* b) noexcept {
     builder_double(b, -2.5);
     builder_string(b, "héllo");
     builder_object_path(b, "/org/test/Path");
-    builder_signature(b, "a{sv}");
     builder_open_array(b, "(sa{sv}ai)");
     for (u32 i = 0; i < 3; ++i) {
         builder_open_struct(b, "(sa{sv}ai)");
@@ -194,7 +192,7 @@ void write_everything(Builder* b) noexcept {
     builder_close_array(b);
 }
 
-constexpr const char* kEverything = "ybniuxdsoga(sa{sv}ai)ayayaay";
+constexpr const char* kEverything = "ybniuxdsoa(sa{sv}ai)ayayaay";
 
 bool read_everything(Reader* r) noexcept {
     u8 y;
@@ -211,7 +209,6 @@ bool read_everything(Reader* r) noexcept {
               x == -1234567890123ll && reader_double(r, &d) && d == -2.5;
     ok = ok && reader_string(r, &s, &length) && length == 6 && text_equal(s, "h\xC3\xA9llo");
     ok = ok && reader_string(r, &s, &length) && text_equal(s, "/org/test/Path");
-    ok = ok && reader_string(r, &s, &length) && text_equal(s, "a{sv}");
     ok = ok && reader_type(*r) == 'a' && reader_enter_array(r);
     for (u32 index = 0; ok && index < 3; ++index) {
         ok = reader_more(*r) && reader_enter_struct(r) && reader_string(r, &s, &length) &&
@@ -260,9 +257,9 @@ void test_round_trip() noexcept {
     u32 values = 0;
     while (reader_more(r) && reader_skip(&r))
         ++values;
-    check(!r.failed && values == 14 && r.position == b.size, "skip walks the whole body");
+    check(!r.failed && values == 13 && r.position == b.size, "skip walks the whole body");
     reader_init(&r, b.data, b.size, b.signature, nullptr, 0);
-    for (u32 i = 0; i < 10; ++i)
+    for (u32 i = 0; i < 9; ++i)
         reader_skip(&r);
     const u32 ignored = 0;
     const bool partial = reader_enter_array(&r) && reader_enter_struct(&r) && reader_leave(&r) && reader_more(r) &&
@@ -275,6 +272,15 @@ void test_round_trip() noexcept {
     u32 wrong;
     check(!reader_u32(&r, &wrong) && r.failed && !reader_more(r), "a read of the wrong type fails the reader for good");
     builder_release(&b);
+
+    // A signature value from a peer reads as a string (the client writes none).
+    const u8 signature_body[] = {5, 'a', '{', 's', 'v', '}', 0};
+    reader_init(&r, signature_body, sizeof(signature_body), "g", nullptr, 0);
+    const char* signature = nullptr;
+    u32 length = 0;
+    check(reader_string(&r, &signature, &length) && length == 5 && text_equal(signature, "a{sv}") && !reader_more(r) &&
+              !r.failed,
+          "a signature value reads back");
 }
 
 // Skipping a variant leaves the signature on the value after it (OpenSession's reply is "vo").

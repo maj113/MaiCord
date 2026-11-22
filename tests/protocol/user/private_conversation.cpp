@@ -7,6 +7,7 @@
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/protocol/user/private_conversation.hpp"
 #include "maicord/protocol/user/relationships.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 void test_private_conversation(void (*check)(bool, const char*) noexcept) noexcept {
@@ -33,12 +34,10 @@ void test_private_conversation(void (*check)(bool, const char*) noexcept) noexce
     u8 names[2048]{};
     PrivateChannelStore metadata{};
     UserStore users{};
-    UserRecord records[8]{};
-    u32 user_order[8]{};
-    u8 user_names[2048]{};
+    TestUserBank<8, 2048> bank;
     check(chat_state_store_initialize(&state, {guilds, 2}, {guild_order, 2}, {channels, 8}, {channel_order, 8}, {names, 2048}) &&
         private_channel_store_initialize_owned(&metadata, 8, 32) &&
-        user_store_initialize(&users, {records, 8}, {user_order, 8}, {user_names, 2048}), "private REST state initializes");
+        bank.init(&users), "private REST state initializes");
     state.private_channels = &metadata;
     state.self_user_id = 1;
     u32 scratch[2048]{};

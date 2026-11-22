@@ -6,6 +6,7 @@
 #include "maicord/ui/account/profile_appearance.hpp"
 #include "../../support/settings_schema_validation.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "maicord/core/data_path.hpp"
 #include "settings/settings.hpp"
 #include "settings/streamer_mode.hpp"
 #include "maicord/platform/window/null.hpp"
@@ -20,6 +21,7 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "../../support/released_memory.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 void test_application_plugin_navigation_runtime(void (*check)(bool, const char*) noexcept) noexcept;
@@ -531,11 +533,8 @@ void test_controller() noexcept {
               !g_app.popup_scene.owned_storage.base,
           "plugins menu: dormant projection and current-owner getters allocate no settings or plugin "
           "runtime");
-    wchar_t directory[MAX_PATH]{};
-    const DWORD chars = GetTempPathW(MAX_PATH, directory);
-    const bool temporary =
-        chars && chars < MAX_PATH && GetTempFileNameW(directory, L"MSR", 0, cleanup.path);
-    check(temporary, "settings: external temporary preferences fixture created");
+    const bool temporary = data_path(cleanup.path, MAX_PATH - 4, L"preferences.bin", true).ok();
+    check(temporary, "settings: the preference file is in the test profile");
     if (!temporary)
         return;
     u8 legacy_preferences[32]{'M', 'A', 'I', 'C', 'P', 'R', 'E', 'F', 2, 0, 0, 0, 32, 0, 0, 0, 0, 30};
@@ -549,8 +548,8 @@ void test_controller() noexcept {
     if (legacy_file != INVALID_HANDLE_VALUE)
         CloseHandle(legacy_file);
     check(legacy_saved, "settings: bounded v2 preference fixture exists before writer starts");
-    check(client_preferences_writer_create(&g_app.preferences_writer, cleanup.path),
-          "settings: explicit fixture writer exists before any preference activation");
+    check(client_preferences_writer_create(&g_app.preferences_writer),
+          "settings: the preference writer exists before any preference activation");
     if (!g_app.preferences_writer)
         return;
     g_app.account_ui = static_cast<AccountUiRuntime*>(
@@ -1854,11 +1853,8 @@ void test_controller() noexcept {
               !g_app.preferences_save_failed,
           "shell: actual member-toggle click still applies and saves visibility to fixture");
     g_app.account_ui->chat_state.self_user_id = 123;
-    UserRecord footer_users[1]{};
-    u32 footer_order[1]{};
-    u8 footer_names[64]{};
-    check(user_store_initialize(&g_app.account_ui->user_store, {footer_users, 1},
-                                        {footer_order, 1}, {footer_names, 64}) &&
+    TestUserBank<1, 64> footer_users_bank;
+    check(footer_users_bank.init(&g_app.account_ui->user_store) &&
               user_store_upsert(&g_app.account_ui->user_store, 123,
                                         utf8_literal("Native Account"), utf8_literal("native.user"))
                   .ok(),

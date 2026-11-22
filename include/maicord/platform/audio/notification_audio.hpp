@@ -112,5 +112,6 @@ bool notification_audio_mixer_render_rate(NotificationAudioMixer*,Slice<i16>,u32
 // Returns the number of finished voices; invalid/backwards padding leaves state unchanged.
 u32 notification_audio_mixer_played_rate(NotificationAudioMixer*,u32 padding,u32 sample_rate) noexcept;
 void notification_audio_mixer_rewind_rate(NotificationAudioMixer*,u32 sample_rate) noexcept;
-// The Windows WASAPI test seam is maicord/platform/audio/wasapi/notification_audio_fixture.hpp.
+// The Windows worker's COM and wait calls are in src/platform/audio/notification_audio_system.cpp, which the fault test
+// replaces at link time.
 } // namespace maicord

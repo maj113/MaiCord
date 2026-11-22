@@ -27,6 +27,7 @@
 #include "maicord/core/win32_exception.hpp"
 #include "maicord/core/time.hpp"
 #include "../../support/ui_scene_fixtures.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -160,9 +161,7 @@ void test_gateway_member_list_update() noexcept {
     GuildMemberRecord sync_members[100]{};
     u32 sync_member_order[100]{};
     GuildMemberStore sync_member_store{};
-    UserRecord sync_users[100]{};
-    u32 sync_user_order[100]{};
-    u8 sync_names[4096]{};
+    TestUserBank<100, 4096> sync_users_bank;
     UserStore sync_user_store{};
     MessageTimeline sync_timeline{};
     MessageEventPump sync_pump{};
@@ -172,7 +171,7 @@ void test_gateway_member_list_update() noexcept {
     sync_pump.state = &sync_state;
     const bool sync_applied = sync_routed &&
         guild_member_store_initialize(&sync_member_store, {sync_members, 100}, {sync_member_order, 100}) &&
-        user_store_initialize(&sync_user_store, {sync_users, 100}, {sync_user_order, 100}, {sync_names, 4096}) &&
+        sync_users_bank.init(&sync_user_store) &&
         message_event_pump_consume(&sync_pump, sync_event, sync_output).ok();
     MemberListRow sync_rows[101]{};
     MemberListSortKey sync_projection_scratch[100]{};

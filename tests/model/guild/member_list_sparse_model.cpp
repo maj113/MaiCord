@@ -4,6 +4,7 @@
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/model/guild/member_store.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace sparse_probe {
@@ -12,9 +13,7 @@ struct Fixture {
     GuildMemberRecord member_records[512];
     u32 member_order[512];
     UserStore users;
-    UserRecord user_records[512];
-    u32 user_order[512];
-    u8 user_names[65536];
+    TestUserBank<512, 65536> user_bank;
     ChatStateStore state;
     GuildRecord guilds[2];
     ChannelRecord channels[2];
@@ -30,7 +29,7 @@ u32 structurals[32768];
 bool initialize() noexcept {
     auto& f = fixture;
     return guild_member_store_initialize(&f.members, {f.member_records, 512}, {f.member_order, 512}) &&
-        user_store_initialize(&f.users, {f.user_records, 512}, {f.user_order, 512}, {f.user_names, sizeof(f.user_names)}) &&
+        f.user_bank.init(&f.users) &&
         chat_state_store_initialize(&f.state, {f.guilds, 2}, {f.guild_order, 2}, {f.channels, 2}, {f.channel_order, 2}, {f.state_names, sizeof(f.state_names)}) &&
         member_list_view_initialize(&f.projection, {f.rows, 768}, {f.scratch, 512});
 }
@@ -289,10 +288,8 @@ void test_member_list_visible_users(void (*check)(bool, const char*) noexcept) n
     const u8 starts[]{1, 250};
     for (const u8 start : starts) {
         UserStore cycle{};
-        UserRecord cycle_records[2]{};
-        u32 cycle_order[2]{};
-        u8 cycle_names[64]{};
-        bool released = user_store_initialize(&cycle, {cycle_records, 2}, {cycle_order, 2}, {cycle_names, 64}) &&
+        TestUserBank<2, 64> cycle_bank;
+        bool released = cycle_bank.init(&cycle) &&
             cycle.pin_mark == 1 && user_store_upsert(&cycle, 1, utf8_literal("One")).ok() &&
             user_store_upsert(&cycle, 2, utf8_literal("Two")).ok();
         cycle.pin_mark = start;
@@ -311,10 +308,8 @@ void test_member_list_visible_users(void (*check)(bool, const char*) noexcept) n
     }
 
     UserStore tiny{};
-    UserRecord records[3]{};
-    u32 order[3]{};
-    u8 backing[16]{};
-    check(user_store_initialize(&tiny, {records, 3}, {order, 3}, {backing, sizeof(backing)}) &&
+    TestUserBank<3, 16> bank;
+    check(bank.init(&tiny) &&
         user_store_upsert(&tiny, 1, utf8_literal("One"), utf8_literal("1")).ok() &&
         user_store_pin(&tiny, 1) && user_store_upsert(&tiny, 2, utf8_literal("Two"), utf8_literal("2")).ok(),
         "protected byte-bank exhaustion fixture initializes");
@@ -328,10 +323,8 @@ void test_member_list_visible_users(void (*check)(bool, const char*) noexcept) n
         user_store_find(tiny, 1)->name_bytes == 3 && user_store_find(tiny, 2)->name_bytes == 3,
         "growing a pinned name cannot partially overwrite either protected identity");
     UserStore full{};
-    UserRecord only[1]{};
-    u32 one_order[1]{};
-    u8 one_names[32]{};
-    check(user_store_initialize(&full, {only, 1}, {one_order, 1}, {one_names, sizeof(one_names)}) &&
+    TestUserBank<1, 32> only_bank;
+    check(only_bank.init(&full) &&
         user_store_upsert(&full, 7, utf8_literal("Kept")).ok() && user_store_pin(&full, 7) &&
         !user_store_upsert(&full, 8, utf8_literal("New")).ok() && full.count == 1 &&
         user_store_find(full, 7) && !user_store_find(full, 8),

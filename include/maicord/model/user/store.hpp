@@ -91,10 +91,6 @@ struct UserStoreResult {
     }
 };
 
-bool user_store_initialize(UserStore* store,
-                                   Slice<UserRecord> records,
-                                   Slice<u32> order,
-                                   Slice<u8> double_buffered_names) noexcept;
 // Reserves address space for `capacity` users and two name banks of `name_bank_bytes` (rounded up to whole pages), and
 // commits it as users arrive: records in steps of kUserStoreCommitUsers (the order in steps of 4,096 users), names in
 // steps of kUserStoreCommitNameBytes. A compaction returns the pages of the bank it leaves. The store evicts only when it

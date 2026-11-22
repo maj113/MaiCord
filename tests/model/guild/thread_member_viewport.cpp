@@ -4,6 +4,7 @@
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "../../support/chat_state_lists.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -14,9 +15,7 @@ struct Fixture {
     GuildMemberRecord member_records[512];
     u32 member_order[512];
     UserStore users;
-    UserRecord user_records[512];
-    u32 user_order[512];
-    u8 user_names[64 * 1024];
+    TestUserBank<512, 64 * 1024> user_bank;
     ChatStateStore state;
     GuildRecord guild;
     ChannelRecord channels[3];
@@ -35,8 +34,7 @@ bool initialize() noexcept {
     auto& f = fixture;
     if (!thread_member_store_initialize(&f.threads, {f.first_ids, 512}, {f.second_ids, 512}) ||
         !guild_member_store_initialize(&f.members, {f.member_records, 512}, {f.member_order, 512}) ||
-        !user_store_initialize(&f.users, {f.user_records, 512}, {f.user_order, 512},
-            {f.user_names, sizeof(f.user_names)}) ||
+        !f.user_bank.init(&f.users) ||
         !chat_state_store_initialize(&f.state, {&f.guild, 1}, {f.guild_order, 1},
             {f.channels, 3}, {f.channel_order, 3}, {f.state_names, sizeof(f.state_names)}) ||
         !member_list_view_initialize(&f.projection, {f.projected_rows, 768}, {f.member_scratch, 512}) ||

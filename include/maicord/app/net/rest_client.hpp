@@ -44,7 +44,6 @@ enum class RestTransactionPhase : u8 {
 // are committed only after the complete encrypted TLS record has been sent.
 struct RestTransaction {
     RestRateLease lease;
-    u64 request_id;
     u64 deadline_ms;
     u32 request_bytes;
     u32 committed_bytes;
@@ -52,8 +51,8 @@ struct RestTransaction {
     bool reused_connection;
 };
 
-void rest_transaction_acquire(RestTransaction* transaction, u64 request_id, const RestRateLease& lease,
-                              u64 deadline_ms, bool reused_connection) noexcept;
+void rest_transaction_acquire(RestTransaction* transaction, const RestRateLease& lease, u64 deadline_ms,
+                              bool reused_connection) noexcept;
 void rest_transaction_begin_send(RestTransaction* transaction, u32 request_bytes) noexcept;
 void rest_transaction_commit_plaintext(RestTransaction* transaction, u32 bytes) noexcept;
 bool rest_transaction_cancel(RestTransaction* transaction) noexcept;
@@ -208,10 +207,6 @@ using RestUserAuthConsumeFunction = bool (*)(void* context,
                                              ConstSlice<u8> locked_body) noexcept;
 
 struct RestClientResult {
-    u64 connections;
-    u64 requests;
-    u64 reused_requests;
-    u64 responses;
     u32 native_error;
     RestClientError error;
     RestClientPhase phase;
@@ -249,9 +244,7 @@ struct RestClient {
     volatile LONG native_error;
     volatile LONG request_state;
     volatile LONG64 current_request_id;
-    volatile LONG64 connections;
     volatile LONG64 requests;
-    volatile LONG64 reused_requests;
     volatile LONG64 responses;
     volatile LONG authentication_rejected;
     volatile LONG required_action;

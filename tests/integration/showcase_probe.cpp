@@ -11,6 +11,7 @@
 // MAICORD_UI_PROBE_CAPTURE_DIR as showcase-*.bmp, at 1440x900 DIP and 1x/2x.
 #include "probe_capture.hpp"
 #include "probe_present.hpp"
+#include "../support/ui_scene_fixtures.hpp"
 #include "settings/catalog.hpp"
 #include "shell/content_page.hpp"
 #include "../../src/app/shell/app_icon.hpp"
@@ -51,6 +52,7 @@
 #include "maicord/ui/guild/context_policy.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
+#include "../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -225,9 +227,7 @@ struct Fixture {
     PermissionOverwriteRecord overwrites[16];
     u8 names[8192];
     UserStore users;
-    UserRecord user_records[kUsers];
-    u32 user_order[kUsers];
-    u8 user_names[4096];
+    TestUserBank<kUsers, 4096> user_bank;
     char avatar_hashes[kUsers][33];
     char icon_hashes[kGuilds][33];
     GuildMemberStore members;
@@ -525,8 +525,7 @@ void build_folders(Fixture& f) noexcept {
 
 bool build_people(Fixture& f, D3D11Renderer& r) noexcept {
     bool ok =
-        user_store_initialize(&f.users, {f.user_records, kUsers}, {f.user_order, kUsers},
-                              {f.user_names, sizeof(f.user_names)}) &&
+        f.user_bank.init(&f.users) &&
         guild_member_store_initialize(&f.members, {f.member_records, kMembers}, {f.member_order, kMembers});
     for (u32 i = 0; ok && i < kPeopleCount; ++i) {
         const Person& p = kPeople[i];
@@ -2266,6 +2265,7 @@ bool setup(Fixture& f, D3D11Renderer& r, MessageTextPresentation& presentation) 
          popup_scene_initialize_owned(&f.popup, 32, {f.popup_widgets, 70}, {f.popup_nodes, 70});
     if (!check(ok, "scene_initialize_failed"))
         return false;
+    f.member_scene.media_cache = test_member_media_cache();
     message_composer_reset(&f.composer, g_channel, false);
     f.search_content.edit = {{}, 0, 0, true, false, false};
     f.search_content.heading = f.search_content.placeholder =

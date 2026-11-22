@@ -2054,7 +2054,6 @@ void test_user_auth_protocol() noexcept {
     char captcha_rqtoken[64]{};
     char captcha_session[64]{};
     char captcha_flow[32]{};
-    char suspended[128]{};
     const UserAuthResponseStorage storage{
         Slice<char>{token, static_cast<u32>(sizeof(token))},
         Slice<char>{ticket, static_cast<u32>(sizeof(ticket))},
@@ -2065,8 +2064,7 @@ void test_user_auth_protocol() noexcept {
         Slice<char>{captcha_rqdata, static_cast<u32>(sizeof(captcha_rqdata))},
         Slice<char>{captcha_rqtoken, static_cast<u32>(sizeof(captcha_rqtoken))},
         Slice<char>{captcha_session, static_cast<u32>(sizeof(captcha_session))},
-        Slice<char>{captcha_flow, static_cast<u32>(sizeof(captcha_flow))},
-        Slice<char>{suspended, static_cast<u32>(sizeof(suspended))}};
+        Slice<char>{captcha_flow, static_cast<u32>(sizeof(captcha_flow))}};
 
     UserAuthResponse response{};
     const Utf8View success =
@@ -2237,17 +2235,8 @@ void test_user_auth_protocol() noexcept {
         Slice<u32>{structurals, static_cast<u32>(sizeof(structurals) / sizeof(structurals[0]))}, 16,
         storage, &response);
     expect(decoded.ok() && response.kind == UserAuthResponseKind::rejected && response.has_error_code &&
-               response.error_code == 20013 && response.suspended &&
-               response.suspended_user_token_bytes == byte_literal("suspended-secret").count,
+               response.error_code == 20013 && response.suspended,
            "user_auth_decode_rejected_metadata");
-    decoded = user_auth_classify_response(
-        403, rejected,
-        Slice<u32>{structurals, static_cast<u32>(sizeof(structurals) / sizeof(structurals[0]))}, 16,
-        &classified);
-    expect(decoded.ok() && classified.kind == UserAuthResponseKind::rejected && classified.has_error_code &&
-               classified.error_code == 20013 && classified.suspended &&
-               classified.suspended_user_token_bytes == 0,
-           "user_auth_classify_rejected_metadata_without_secret_copy");
 
     char tiny_token[4] = {'Q', 'Q', 'Q', 'Q'};
     UserAuthResponseStorage tiny_storage = storage;

@@ -12,6 +12,7 @@
 
 #include "../../../support/test_output.hpp"
 #include "../../../support/ui_scene_fixtures.hpp"
+#include "../../../support/test_user_bank.hpp"
 
 namespace maicord::message_text_selection_test {
 namespace {
@@ -46,9 +47,7 @@ MessageMarkdownSemantic semantics[128];
 MessageTextMeasurement measurements[kRowCount * 2];
 MessageTextSpoilerReveal reveals[16];
 u32 scratch[8192];
-UserRecord user_records[2];
-u32 user_order[2];
-u8 user_names[128];
+TestUserBank<2, 128> user_bank;
 
 struct Fixture {
     MessageStore store{};
@@ -573,8 +572,7 @@ void test_message_cap() noexcept {
 
 void run() noexcept {
     Fixture& f = g_fixture;
-    const bool ready = user_store_initialize(&f.users, {user_records, 2}, {user_order, 2},
-                                             {user_names, sizeof(user_names)}) &&
+    const bool ready = user_bank.init(&f.users) &&
                        user_store_upsert(&f.users, kAnn, utf8_literal("Ann")).ok() &&
                        user_store_upsert(&f.users, kBob, utf8_literal("Bob")).ok() && reset_timeline(f);
     check(ready, "selection: fixture stores, scene and text presentation build");

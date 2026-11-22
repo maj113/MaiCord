@@ -3,6 +3,7 @@
 #include "settings/settings_internal.hpp"
 #include "shell/state.hpp"
 #include "voice/voice.hpp"
+#include "maicord/core/data_path.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/null.hpp"
@@ -78,18 +79,7 @@ bool button(u64 id, u32 index) noexcept {
 } // namespace
 
 void test_application_keybinds_settings_runtime(Check check) noexcept {
-    // keybinds.bin goes to a private LOCALAPPDATA for the duration of the test.
-    wchar_t previous[1024]{}, root[MAX_PATH]{}, file[MAX_PATH + 64]{}, folder[MAX_PATH + 32]{};
-    const DWORD previous_length = GetEnvironmentVariableW(L"LOCALAPPDATA", previous, 1024);
-    const DWORD length = GetTempPathW(MAX_PATH, root);
-    constexpr wchar_t leaf[] = L"maicord-keybinds-runtime";
-    for (u32 i = 0; length && i < sizeof(leaf) / sizeof(wchar_t); ++i)
-        root[length + i] = leaf[i];
-    if (!length || (!CreateDirectoryW(root, nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) ||
-        !SetEnvironmentVariableW(L"LOCALAPPDATA", root)) {
-        check(false, "keybinds settings: private LOCALAPPDATA fixture");
-        return;
-    }
+    // keybinds.bin goes to the private test profile (tools/build.ps1).
     auto* pages = application_settings_pages();
     const bool opened = pages && ui_page_registry_select(pages, kKeybindsPage).ok() && application_settings_synchronize() &&
                         content() && content()->controls.count > 30;
@@ -153,21 +143,10 @@ void test_application_keybinds_settings_runtime(Check check) noexcept {
               keybinds.count == 0,
           "keybinds settings: Delete removes keybinds; default shortcuts stay read-only");
 
-    // Restore the environment and remove the fixture files.
-    for (u32 i = 0; root[i]; ++i)
-        folder[i] = file[i] = root[i];
-    constexpr wchar_t app[] = L"\\MaiCord", bin[] = L"\\MaiCord\\keybinds.bin";
-    u32 at = 0;
-    while (root[at])
-        ++at;
-    for (u32 i = 0; i < sizeof(bin) / sizeof(wchar_t); ++i)
-        file[at + i] = bin[i];
-    for (u32 i = 0; i < sizeof(app) / sizeof(wchar_t); ++i)
-        folder[at + i] = app[i];
-    DeleteFileW(file);
-    RemoveDirectoryW(folder);
-    RemoveDirectoryW(root);
-    SetEnvironmentVariableW(L"LOCALAPPDATA", previous_length && previous_length < 1024 ? previous : nullptr);
+    // Remove the fixture file.
+    wchar_t file[MAX_PATH]{};
+    if (data_path(file, MAX_PATH, L"keybinds.bin", false).ok())
+        DeleteFileW(file);
 }
 } // namespace maicord::app_detail
 

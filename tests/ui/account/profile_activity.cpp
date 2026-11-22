@@ -19,6 +19,7 @@
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord::profile_activity_test {
 u32 failures = 0;
@@ -835,9 +836,7 @@ void test_voice_card() noexcept {
     static ChannelRecord channels[4];
     static u16 channel_order[4];
     static u8 names[1024];
-    static UserRecord user_records[8];
-    static u32 user_order[8];
-    static u8 user_names[512];
+    static TestUserBank<8, 512> user_bank;
     static VoiceState voice[8];
     ChatStateStore state{};
     UserStore users{};
@@ -849,7 +848,7 @@ void test_voice_card() noexcept {
     lounge.type = 2;
     bool ok = chat_state_store_initialize(&state, {guilds, 2}, {guild_order, 2}, {channels, 4}, {channel_order, 4},
                                           {names, sizeof(names)}) &&
-              user_store_initialize(&users, {user_records, 8}, {user_order, 8}, {user_names, sizeof(user_names)}) &&
+              user_bank.init(&users) &&
               voice_state_store_initialize_sparse(&states, {voice, 8}) &&
               chat_state_store_upsert_guild(&state, {10, utf8_literal("Workbench"), GuildMutationKind::create, 3})
                   .ok() &&

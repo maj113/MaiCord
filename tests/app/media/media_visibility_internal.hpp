@@ -3,6 +3,7 @@
 #include "../../../src/app/media/pump.hpp"
 #include "../../../src/app/chat/threads/forum_form.hpp"
 #include "maicord/app/media/account_media.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord::app_detail {
 
@@ -99,9 +100,7 @@ struct VisibilityFixture {
     u64 fenwick[3]{};
     UiWidget widgets[3 * kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode nodes[3 * kMessageSceneWidgetsPerRow + 1]{};
-    UserRecord users[1]{};
-    u32 user_order[1]{};
-    u8 user_names[32]{};
+    TestUserBank<1, 32> user_bank;
     MediaAtlasEntry atlas_entries[8]{};
     u32 atlas_buckets[16]{};
     GlyphAtlasEntry allocations[8]{};

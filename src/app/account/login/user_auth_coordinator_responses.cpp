@@ -10,7 +10,6 @@ void retain_decoded(UserAuthCoordinatorRuntime* runtime, const UserAuthResponse&
         clear_tail(runtime, kTokenOffset, runtime->token_bytes, kTokenCapacity);
         clear_mfa(runtime);
         clear_captcha(runtime);
-        clear_suspended(runtime);
         return;
     }
     clear_secret(runtime, kTokenOffset, kTokenCapacity);
@@ -24,7 +23,6 @@ void retain_decoded(UserAuthCoordinatorRuntime* runtime, const UserAuthResponse&
         clear_tail(runtime, kLoginInstanceOffset, runtime->login_instance_bytes, kLoginInstanceCapacity);
         clear_tail(runtime, kWebauthnOffset, runtime->webauthn_bytes, kWebauthnCapacity);
         clear_captcha(runtime);
-        clear_suspended(runtime);
         return;
     }
     if (response.kind == UserAuthResponseKind::captcha_required) {
@@ -55,13 +53,10 @@ void retain_decoded(UserAuthCoordinatorRuntime* runtime, const UserAuthResponse&
         clear_tail(runtime, kCaptchaRqtokenOffset, runtime->captcha_rqtoken_bytes, kCaptchaRqtokenCapacity);
         clear_tail(runtime, kCaptchaSessionOffset, runtime->captcha_session_bytes, kCaptchaSessionCapacity);
         clear_tail(runtime, kCaptchaFlowOffset, runtime->captcha_flow_bytes, kCaptchaFlowCapacity);
-        clear_suspended(runtime);
         return;
     }
     clear_mfa(runtime);
     clear_captcha(runtime);
-    runtime->suspended_bytes = response.suspended_user_token_bytes;
-    clear_tail(runtime, kSuspendedOffset, runtime->suspended_bytes, kSuspendedCapacity);
 }
 
 UserAuthCoordinatorEventKind event_kind(UserAuthResponseKind kind) noexcept {
@@ -399,7 +394,6 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
         clear_secret(runtime, kTokenOffset, kTokenCapacity);
         runtime->token_bytes = 0;
         clear_captcha(runtime);
-        clear_suspended(runtime);
         runtime->active_request_id = 0;
         runtime->flow.phase = UserAuthPhase::mfa_required;
         decoded.mfa_capabilities = runtime->mfa_capabilities;

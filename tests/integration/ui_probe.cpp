@@ -712,10 +712,7 @@ bool initialize_fixture(bool focused_text = false) noexcept {
         !chat_state_store_bind_permissions(
             &g_probe.chat_state, Slice<RoleRecord>{g_probe.roles, kProbeRoleCapacity},
             Slice<PermissionOverwriteRecord>{g_probe.overwrites, kProbeOverwriteCapacity}) ||
-        !user_store_initialize(&g_probe.users,
-                                       Slice<UserRecord>{g_probe.user_records, kProbeUserCapacity},
-                                       Slice<u32>{g_probe.user_order, kProbeUserCapacity},
-                                       Slice<u8>{g_probe.user_names, kProbeUserNameBytes}) ||
+        !g_probe.user_bank.init(&g_probe.users) ||
         !user_store_upsert(&g_probe.users, 123, utf8_literal("Mai")).ok() ||
         !message_rich_store_initialize(&g_probe.rich_store,
                                        Slice<MessageRichRecord>{g_probe.rich_records, kProbeRichCapacity},
@@ -3319,6 +3316,7 @@ int run_probe() noexcept {
                           synchronize_probe_shell_layout({}, {}, 0, 240);
             const auto* pane = ui_scene_node(g_probe.shell_scene, UiSemantic::member_sidebar);
             group_scene.measure = &g_probe.text_measure_cache;
+            group_scene.media_cache = test_member_media_cache();
             listed = listed && pane && ui_rect_width(pane->rectangle) >= 200 &&
                      member_list_scene_update(&group_scene, &group_members, &no_guild_members, &g_probe.users,
                                               &g_probe.chat_state, pane->rectangle, 0)

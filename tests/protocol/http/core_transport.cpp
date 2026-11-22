@@ -1279,11 +1279,11 @@ void test_rest_transaction() noexcept {
            "rest_transaction_complete_once");
     const RestRateLease lease{1, 2, 3, 4, true};
     RestTransaction cancelled{};
-    rest_transaction_acquire(&cancelled, 8, lease, 20'000, false);
+    rest_transaction_acquire(&cancelled, lease, 20'000, false);
     expect(rest_transaction_cancel(&cancelled) && cancelled.phase == RestTransactionPhase::cancelled,
            "rest_transaction_cancel_acquired");
     RestTransaction failed{};
-    rest_transaction_acquire(&failed, 9, lease, 30'000, false);
+    rest_transaction_acquire(&failed, lease, 30'000, false);
     rest_transaction_begin_send(&failed, 2);
     expect(rest_transaction_fail(&failed) && failed.phase == RestTransactionPhase::failed,
            "rest_transaction_fail_sending");
@@ -1333,9 +1333,9 @@ void test_rest_transaction() noexcept {
             "rest_client_target_guard");
     }
     if (idle_client.worker.thread) {
+        const bool idle = idle_client.requests == 0;
         const RestClientResult stopped = rest_client_stop(&idle_client, 5'000);
-        expect(stopped.phase == RestClientPhase::stopped && stopped.connections == 0 &&
-                   stopped.requests == 0,
+        expect(stopped.phase == RestClientPhase::stopped && idle,
                "rest_client_lazy_idle_stop");
     }
     secure_buffer_release(&owned_token);
@@ -1385,9 +1385,9 @@ void test_rest_transaction() noexcept {
             "user_auth_rejects_pageable_and_generic_paths");
     }
     if (auth_client.worker.thread) {
+        const bool idle = auth_client.requests == 0;
         const RestClientResult stopped = rest_client_stop(&auth_client, 5'000);
-        expect(stopped.phase == RestClientPhase::stopped && stopped.connections == 0 &&
-                   stopped.requests == 0,
+        expect(stopped.phase == RestClientPhase::stopped && idle,
                "user_auth_lazy_idle_stop");
     }
     RestClient public_client{};

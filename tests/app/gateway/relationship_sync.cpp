@@ -7,6 +7,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/spsc_mailbox_state.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -247,9 +248,9 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     check(relationships_replace(&store, array, {scratch, 1024}, {candidates, 8}, {}, &indexed).ok() &&
         store.revision == accepted_revision,
         "friends: unchanged snapshot validates users without retaining duplicate name arrays or bumping revision");
-    UserRecord users_storage[8]{}; u32 user_order[8]{}; u8 names[2048]{};
+    TestUserBank<8, 2048> users_storage_bank;
     UserStore users{};
-    check(user_store_initialize(&users, {users_storage, 8}, {user_order, 8}, {names, 2048}) &&
+    check(users_storage_bank.init(&users) &&
         relationships_hydrate(&users, indexed).ok() &&
         utf8_equal(relationship_display_name(records[1], users), utf8_literal("Friend ☃")) &&
         utf8_equal(user_store_username(users, *user_store_find(users, 30)), utf8_literal("outgoing")),
@@ -338,8 +339,8 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
             !capture.candidate_count && !capture.active_count,
             "friends admission: already empty snapshot requests zero prefixes and needs no committed row capacity");
     }
-    UserRecord small_users[2]{}; u32 small_order[2]{}; u8 small_names[4]{}; UserStore small{};
-    user_store_initialize(&small, {small_users, 2}, {small_order, 2}, {small_names, 4});
+    TestUserBank<2, 4> small_users_bank; UserStore small{};
+    small_users_bank.init(&small);
     const bool indexed_again = relationships_replace(&store, array, {scratch, 1024}, {candidates, 8}, {}, &indexed).ok();
     const auto hydrated = relationships_hydrate(&small, indexed);
     check(indexed_again && !hydrated.ok() && hydrated.applied == 0,

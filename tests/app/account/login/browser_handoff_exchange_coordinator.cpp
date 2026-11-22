@@ -413,7 +413,7 @@ void run() noexcept {
     check(user_auth_coordinator_pump(&coordinator, &event).ok() && event.kind == UserAuthCoordinatorEventKind::authenticated &&
         event.response.user_id == 123456789012345678ull && event.response.has_user_id &&
         !runtime->active_request_id && request_erased(*runtime) && !runtime->ticket_bytes &&
-        !runtime->captcha_rqtoken_bytes && !runtime->suspended_bytes,
+        !runtime->captcha_rqtoken_bytes,
         "browser coordinator: valid dedicated receipt retains only bounded session token and nested identity metadata");
     fixture.fail_stop = true;
     check(user_auth_coordinator_take_profile(&coordinator, 77, &profile, 1).phase == UserAuthCoordinatorPhase::stopping &&

@@ -64,7 +64,6 @@ bool drive_transport_event(RestClient* client, RestClientRuntime* runtime,
         if (current.kind == TlsStreamEventKind::ready) {
             runtime->transport_ready = true;
             runtime->connection_request_count = 0;
-            increment_single_writer(&client->connections);
             current = begin_request_send(client, runtime);
             continue;
         }
@@ -165,7 +164,7 @@ bool acquire_request(RestClient* client, RestClientRuntime* runtime, NetworkLoop
     const u64 deadline = deadline_after(now_ms, runtime->command.timeout_ms);
     retire_idle_transport(runtime, now_ms);
     const bool reused = runtime->transport_ready && runtime->connection_request_count != 0;
-    rest_transaction_acquire(&runtime->transaction, runtime->command.request_id, acquired.lease, deadline, reused);
+    rest_transaction_acquire(&runtime->transaction, acquired.lease, deadline, reused);
     if (runtime->transport_ready) {
         drive_transport_event(client, runtime, begin_request_send(client, runtime), now_ms);
         return true;

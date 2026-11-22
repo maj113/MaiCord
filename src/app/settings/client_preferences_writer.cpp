@@ -1,7 +1,5 @@
 #include "maicord/app/settings/client_preferences_writer.hpp"
 #include "maicord/core/interlocked.hpp"
-#include "maicord/app/account/account_profile.hpp"
-#include "maicord/core/data_path.hpp"
 #include "maicord/core/win32_process.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -23,11 +21,9 @@ struct ClientPreferencesWriter {
     bool pending_ready;
     Atomic32 completion_ready;
     bool stopping;
-    bool explicit_path;
-    wchar_t path[kAccountProfileMaximumPathCharacters];
 };
 
-static_assert(sizeof(ClientPreferencesWriter) <= 2304);
+static_assert(sizeof(ClientPreferencesWriter) <= 176);
 
 namespace {
 bool reject(u32 error) noexcept {
@@ -64,9 +60,7 @@ u32 write_preferences(void* context) noexcept {
 
         // Only the worker calls persistence, including directory creation,
         // write-through, flush and atomic commit. Stop cannot cancel a write.
-        const ClientPreferencesResult result = writer->explicit_path
-            ? client_preferences_save_file(writer->path, preferences)
-            : client_preferences_save(preferences);
+        const ClientPreferencesResult result = client_preferences_save(preferences);
         AcquireSRWLockExclusive(writer->lock.native());
         writer->completed_revision = revision;
         writer->completed_result = result;
@@ -77,16 +71,10 @@ u32 write_preferences(void* context) noexcept {
 }
 } // namespace
 
-bool client_preferences_writer_create(ClientPreferencesWriter** output,
-                                      const wchar_t* path) noexcept {
-    const u32 length = wide_length(path, kAccountProfileMaximumPathCharacters);
-    if (path && (length == 0 || length + 4 >= kAccountProfileMaximumPathCharacters))
-        return reject(ERROR_INVALID_PARAMETER);
+bool client_preferences_writer_create(ClientPreferencesWriter** output) noexcept {
     auto* writer = static_cast<ClientPreferencesWriter*>(
         heap_allocate(sizeof(ClientPreferencesWriter), true));
     if (!writer) return reject(ERROR_NOT_ENOUGH_MEMORY);
-    writer->explicit_path = path != nullptr;
-    for (u32 i = 0; i < length; ++i) writer->path[i] = path[i];
     writer->work_event = event_create(false, false);
     if (writer->work_event)
         writer->completion_event = event_create(true, false);

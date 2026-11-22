@@ -4,6 +4,7 @@
 #include "maicord/model/user/private_channel_store.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/model/user/relationship_store.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -20,9 +21,7 @@ struct SwitcherFixture {
     PrivateChannelRecord private_records[8]{};
     u64 recipients[32]{};
     UserStore users{};
-    UserRecord user_records[8]{};
-    u32 user_order[8]{};
-    u8 user_names[4096]{};
+    TestUserBank<8, 4096> user_bank;
     RelationshipStore relationships{};
     RelationshipRecord relations[8]{};
     QuickSwitcherController controller{};
@@ -33,8 +32,7 @@ struct SwitcherFixture {
     bool initialize() noexcept {
         if (!chat_state_store_initialize(&state, {guilds, 4}, {guild_order, 4}, {channels, 128},
                                             {channel_order, 128}, {names, sizeof(names)}) ||
-            !user_store_initialize(&users, {user_records, 8}, {user_order, 8},
-                                           {user_names, sizeof(user_names)}) ||
+            !user_bank.init(&users) ||
             !private_channel_store_initialize(&private_channels, {private_records, 8}, {recipients, 32}) ||
             !relationship_store_initialize(&relationships, {relations, 8}) ||
             !chat_state_store_bind_permissions(&state, {roles, 4}, {overwrites, 4}))

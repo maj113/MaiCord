@@ -43,7 +43,6 @@ struct PointerState {
     float axis_px_x, axis_px_y;  // wl_pointer.axis in surface units, positive = right and down
     i32 axis_value120_x, axis_value120_y;
     i32 axis_discrete_x, axis_discrete_y;
-    u8 axis_source;
     float remainder_x, remainder_y;  // pixel scroll not yet turned into 120ths
     ClickTracker click;
 

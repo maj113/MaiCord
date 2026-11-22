@@ -696,8 +696,6 @@ void test_global_shortcut() noexcept {
     if (!control)
         return;
     check(window_wayland_global_shortcut('P', mod_ctrl | mod_alt, "Push to talk"), "a push-to-talk key is bound");
-    check(pump_until([] { return dbus::global_shortcuts_state() == dbus::GlobalShortcutsState::ready; }, 5000),
-          "the portal binds it");
     check(!global_key_down('P') && !global_key_down('O'), "nothing is held yet");
     const auto set_state = [&](bool active) {
         dbus::Builder body;
@@ -706,16 +704,22 @@ void test_global_shortcut() noexcept {
         dbus::builder_bool(&body, active);
         mock_call(control, "ShortcutState", &body, "the mock changes the shortcut's state");
     };
-    set_state(true);
-    check(pump_until([] { return global_key_down('P'); }, 3000), "Activated holds the key down");
+    // The portal binds the key in the background; an Activated before that finds no session or no subscription.
+    bool held = false;
+    for (u32 attempt = 0; attempt < 10 && !held; ++attempt) {
+        set_state(true);
+        held = pump_until([] { return global_key_down('P'); }, 500);
+    }
+    check(held, "the portal binds it, and Activated holds the key down");
     check(!global_key_down('O'), "and only that key");
     set_state(false);
     check(pump_until([] { return !global_key_down('P'); }, 3000), "Deactivated lets it go");
     set_state(true);
     pump_until([] { return global_key_down('P'); }, 3000);
     window_wayland_global_shortcut_clear();
-    check(!global_key_down('P') && dbus::global_shortcuts_state() != dbus::GlobalShortcutsState::ready,
-          "clearing the shortcut releases the key");
+    check(!global_key_down('P'), "clearing the shortcut releases the key");
+    set_state(true);
+    check(!pump_until([] { return global_key_down('P'); }, 300), "and a later Activated does not hold it");
     dbus::connection_close(control);
 }
 
@@ -827,8 +831,6 @@ void dump_log() noexcept {
             test_write_u64(static_cast<u64>(static_cast<i64>(e.wheel.dx120)));
             test_write_text(" dy120=");
             test_write_u64(static_cast<u64>(static_cast<i64>(e.wheel.dy120)));
-            test_write_text(" source=");
-            test_write_u64(e.wheel.source);
             break;
         case EventType::focus_changed:
         case EventType::activation_changed:
@@ -1046,8 +1048,7 @@ void test_pointer() noexcept {
     mark();
     inject::pointer_notch(&g_injector, false, 1);
     expect("a notch down", EventType::wheel, [](const Record& r) {
-        return r.event.wheel.dy120 == -120 && r.event.wheel.dx120 == 0 && r.event.wheel.source == wl_pointer_axis_source_wheel &&
-               absolute(r.event.wheel.x - 100) <= 1.5f;
+        return r.event.wheel.dy120 == -120 && r.event.wheel.dx120 == 0 && absolute(r.event.wheel.x - 100) <= 1.5f;
     });
     mark();
     inject::pointer_notch(&g_injector, false, -2);

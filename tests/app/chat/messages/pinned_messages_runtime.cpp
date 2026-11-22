@@ -8,6 +8,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
+#include "../../../support/test_user_bank.hpp"
 
 namespace maicord::pins_runtime_test {
 using namespace app_detail;
@@ -24,9 +25,7 @@ u8 form_marker{};
 MessageRecord records[4]{};
 u32 order[4]{};
 u8 text[4096]{};
-UserRecord user_records[4]{};
-u32 user_order[4]{};
-u8 user_names[4096]{};
+TestUserBank<4, 4096> user_bank;
 void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
 }
@@ -101,8 +100,7 @@ bool initialize() noexcept {
     if (!chat_state_store_initialize(&ui.chat_state, {ui.guild_record_storage, 2},
                                         {ui.guild_order_storage, 2}, {ui.channel_record_storage, 4},
                                         {ui.channel_order_storage, 4}, {ui.chat_state_name_storage, 4096}) ||
-        !user_store_initialize(&ui.user_store, {user_records, 4},
-                                       {user_order, 4}, {user_names, 4096}) ||
+        !user_bank.init(&ui.user_store) ||
         !chat_state_store_upsert_guild(&ui.chat_state,
             {7, utf8_literal("Pinned fixture guild"), GuildMutationKind::create, 5}).ok() ||
         !chat_state_store_upsert_channel(&ui.chat_state,
@@ -120,9 +118,9 @@ bool initialize() noexcept {
     ui.chat_state.selected_guild_id = 7;
     ui.chat_state.selected_channel_id = 70;
     ui.active_channel_id = 70;
-    user_records[0].id = 5;
-    user_records[0].occupied = true;
-    user_order[0] = 0;
+    user_bank.records[0].id = 5;
+    user_bank.records[0].occupied = true;
+    user_bank.order[0] = 0;
     ui.user_store.count = ui.user_store.free_hint = ui.user_store.slot_extent = 1;
     g_app.renderer_ready = true;
     g_app.renderer.width = 1280;

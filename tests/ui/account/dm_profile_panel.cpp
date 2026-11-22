@@ -43,6 +43,7 @@
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/text/renderer_text_storage.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord::dm_profile_test {
 using namespace app_detail;
@@ -291,9 +292,7 @@ struct Fixture {
     ChannelRecord channels[8];
     u16 channel_order[8];
     u8 names[1024];
-    UserRecord users[8];
-    u32 user_order[8];
-    u8 user_names[1024];
+    TestUserBank<8, 1024> users_bank;
     PrivateChannelRecord private_records[4];
     u64 private_ids[8];
     RelationshipRecord relation_records[4];
@@ -317,7 +316,7 @@ bool fixture_setup() noexcept {
     const u64 peer[] = {123}, other[] = {124};
     if (!chat_state_store_initialize(&state, {f.guilds, 2}, {f.guild_order, 2}, {f.channels, 8},
                                      {f.channel_order, 8}, {f.names, sizeof(f.names)}) ||
-        !user_store_initialize(&ui.user_store, {f.users, 8}, {f.user_order, 8}, {f.user_names, sizeof(f.user_names)}) ||
+        !f.users_bank.init(&ui.user_store) ||
         !private_channel_store_initialize(&private_store, {f.private_records, 4}, {f.private_ids, 8}) ||
         !private_channel_store_replace(&private_store, {9998, 0, {peer, 1}, {}, true, false, false}) ||
         !private_channel_store_replace(&private_store, {9996, 0, {other, 1}, {}, true, false, false}) ||

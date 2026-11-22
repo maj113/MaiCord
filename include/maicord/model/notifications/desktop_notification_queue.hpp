@@ -6,7 +6,7 @@ inline constexpr u32 kDesktopNotificationQueueRows = 32;
 inline constexpr u32 kDesktopNotificationQueueBytes = 16 * 1024;
 inline constexpr u32 kDesktopNotificationQueueItemBytes = 4096;
 struct DesktopNotificationQueueInput {
-    u64 profile_id{}, generation{}, channel_id{}, message_id{}, source_sequence{};
+    u64 profile_id{}, generation{}, channel_id{}, message_id{};
     Utf8View title{}, body{}, avatar_file_uri{};
     bool silent{};
     // Optional policy/selection scope (e.g. thread-starter parent). Activation
@@ -18,7 +18,7 @@ struct DesktopNotificationQueueInput {
     u32 sound_id{};
 };
 struct DesktopNotificationQueueRow {
-    u64 token{}, profile_id{}, generation{}, channel_id{}, message_id{}, source_sequence{};
+    u64 profile_id{}, generation{}, channel_id{}, message_id{};
     u32 offset{}, title_bytes{}, body_bytes{}, avatar_bytes{};
     bool silent{};
     u64 policy_channel_id{};
@@ -26,12 +26,10 @@ struct DesktopNotificationQueueRow {
     u32 sound_id{};
 };
 enum class DesktopNotificationQueueError : u8 {
-    none, invalid_input, stale_generation, duplicate, full_rows, full_bytes,
-    empty, busy, stale_token, token_exhausted
+    none, invalid_input, stale_generation, duplicate, full_rows, full_bytes, empty, busy
 };
 struct DesktopNotificationQueueResult {
     DesktopNotificationQueueError error{};
-    u64 token{};
     bool ok() const noexcept { return error == DesktopNotificationQueueError::none; }
 };
 struct DesktopNotificationQueueDispatch {
@@ -41,27 +39,22 @@ struct DesktopNotificationQueueDispatch {
 };
 enum class DesktopNotificationQueueOutcome : u8 { submitted, failed, retry };
 struct DesktopNotificationQueueCompletion {
-    DesktopNotificationQueueError error{};
-    DesktopNotificationQueueRow identity{};
-    bool retry_pending{}, canceled{}, removal_required{};
-};
-struct DesktopNotificationQueueMetrics {
-    u32 waiting{}, bytes{}, outstanding{};
+    bool canceled{}, removal_required{};
 };
 struct DesktopNotificationQueue {
     Slice<DesktopNotificationQueueRow> rows{};
     Slice<char> bytes{}, scratch{};
     DesktopNotificationQueueRow inflight{};
-    u64 profile_id{}, generation{}, next_token{1};
+    u64 profile_id{}, generation{};
     u32 count{}, used{}, attempt{};
     bool has_inflight{}, dispatching{}, inflight_canceled{};
 };
-// Storage and the queue object must be disjoint, and the storage must be zeroed (fresh pages). Fresh
-// initialization invalidates all outstanding dispatch tokens; do not reinitialize while a dispatch is outstanding.
+// Storage and the queue object must be disjoint, and the storage must be zeroed (fresh pages). Do not reinitialize
+// while a dispatch is outstanding.
 // No allocation, clock, OS call or thread synchronization. One owning event-loop thread only.
 void desktop_notification_queue_initialize(DesktopNotificationQueue*,
     Slice<DesktopNotificationQueueRow>, Slice<char> packed_bytes, Slice<char> dispatch_scratch) noexcept;
-// Reset preserves the token counter and marks an active OS dispatch canceled.
+// Reset marks an active OS dispatch canceled.
 // Use a fresh nonzero generation on READY/account change; RESUMED preserves it.
 // Zero profile/generation disables enqueueing, for account stop/shutdown.
 void desktop_notification_queue_reset(DesktopNotificationQueue*, u64 profile, u64 generation) noexcept;
@@ -74,23 +67,21 @@ DesktopNotificationQueueResult desktop_notification_queue_enqueue(DesktopNotific
     const DesktopNotificationQueueInput&) noexcept;
 bool desktop_notification_queue_front(const DesktopNotificationQueue*, DesktopNotificationQueueRow*) noexcept;
 bool desktop_notification_queue_pending(const DesktopNotificationQueue*) noexcept;
-DesktopNotificationQueueMetrics desktop_notification_queue_metrics(const DesktopNotificationQueue*) noexcept;
 // Begin deep-copies the head into scratch; returned views remain stable through
 // later enqueue/purge/reset and the OS call, until complete or a later begin.
-// Retry keeps the same scratch/token and precedes later waiting FIFO entries.
+// Retry keeps the same scratch and precedes later waiting FIFO entries.
 DesktopNotificationQueueResult desktop_notification_queue_begin(DesktopNotificationQueue*,
     DesktopNotificationQueueDispatch*) noexcept;
-// Token AND attempt identify each begin, including retries. A late completion
-// from an earlier attempt leaves the active attempt and its scratch untouched.
+// Ends the dispatch of the last successful begin; call it once per begin.
 // A successful Show canceled during dispatch needs a deferred native removal;
 // submission is not proof of a visible banner. Retry count is informational:
 // the caller imposes its own attempt limit.
 DesktopNotificationQueueCompletion desktop_notification_queue_complete(DesktopNotificationQueue*,
-    u64 token, u32 attempt, DesktopNotificationQueueOutcome) noexcept;
-u32 desktop_notification_queue_purge_channel(DesktopNotificationQueue*, u64 profile, u64 generation, u64 channel) noexcept;
-u32 desktop_notification_queue_purge_message(DesktopNotificationQueue*, u64 profile, u64 generation,
+    DesktopNotificationQueueOutcome) noexcept;
+void desktop_notification_queue_purge_channel(DesktopNotificationQueue*, u64 profile, u64 generation, u64 channel) noexcept;
+void desktop_notification_queue_purge_message(DesktopNotificationQueue*, u64 profile, u64 generation,
     u64 channel, u64 message) noexcept;
-u32 desktop_notification_queue_purge_all(DesktopNotificationQueue*) noexcept;
+void desktop_notification_queue_purge_all(DesktopNotificationQueue*) noexcept;
 // Packed layout: enqueue copies only new bytes; begin/purge move at most the
 // configured byte capacity plus header capacity, zeroing discarded private text.
 static_assert(sizeof(DesktopNotificationQueueRow) <= 96);

@@ -385,14 +385,6 @@ RestClientResult client_result(const RestClient* client) noexcept {
     value.error = static_cast<RestClientError>(read_acquire(&client->error));
     value.native_error = static_cast<u32>(
         read_acquire(&client->native_error));
-    value.connections = static_cast<u64>(
-        read_acquire(&client->connections));
-    value.requests = static_cast<u64>(
-        read_acquire(&client->requests));
-    value.reused_requests = static_cast<u64>(
-        read_acquire(&client->reused_requests));
-    value.responses = static_cast<u64>(
-        read_acquire(&client->responses));
     return value;
 }
 
@@ -967,9 +959,6 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
     runtime->response_callback_failed = false;
     reset_value<RestResponseStep>(&runtime->response_step);
     increment_single_writer(&client->requests); // worker thread only
-    if (runtime->transaction.reused_connection) {
-        increment_single_writer(&client->reused_requests);
-    }
     publish_worker_phase(client, runtime, RestClientPhase::sending);
     ConstSlice<u8> spans[2]{ConstSlice<u8>{runtime->request_head, head_bytes}, {}};
     u32 span_count = 1;

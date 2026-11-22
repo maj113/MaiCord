@@ -25,7 +25,6 @@ struct Spec {
 struct Shortcuts {
     bool started;
     bool hook_added;
-    GlobalShortcutsState state;
     GlobalShortcutHandler handler;
     void* context;
     Spec specs[kMaxShortcuts];
@@ -40,7 +39,6 @@ Shortcuts g;
 
 void fail(const char* why) noexcept {
     log_write(LogLevel::trace, "global_shortcuts", why);
-    g.state = GlobalShortcutsState::unavailable;
     portal_request_end(&g.request);
 }
 
@@ -60,11 +58,8 @@ void on_activated(void*, const Message& signal) noexcept {
 }
 
 void on_bound(void*, u32 code, Reader*) noexcept {
-    if (code != 0) {
+    if (code != 0)
         fail("the shortcuts were not bound");
-        return;
-    }
-    g.state = GlobalShortcutsState::ready;
 }
 
 // The reply of a method that answers through a Request: the handle to listen on, or the failure (`context` names the
@@ -144,7 +139,6 @@ void on_session_created(void*, u32 code, Reader* results) noexcept {
 }
 
 void create_session(Connection* c) noexcept {
-    g.state = GlobalShortcutsState::starting;
     g.session[0] = 0;
     g.activated = g.deactivated = 0;
     if (!portal_request_begin(&g.request, c, on_session_created, nullptr)) {
@@ -287,10 +281,6 @@ bool global_shortcuts_start(const GlobalShortcut* shortcuts, u32 count, GlobalSh
     return session_bus_open() && session_bus() != nullptr;
 }
 
-GlobalShortcutsState global_shortcuts_state() noexcept {
-    return g.started ? g.state : GlobalShortcutsState::unavailable;
-}
-
 void global_shortcuts_stop() noexcept {
     if (!g.started)
         return;
@@ -304,7 +294,6 @@ void global_shortcuts_stop() noexcept {
         }
     }
     g.started = false;
-    g.state = GlobalShortcutsState::unavailable;
     g.session[0] = 0;
 }
 

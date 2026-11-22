@@ -34,8 +34,6 @@ inline constexpr u32 kCaptchaSessionOffset = kCaptchaRqtokenOffset + kCaptchaRqt
 inline constexpr u32 kCaptchaSessionCapacity = kUserAuthMaximumCaptchaSessionBytes;
 inline constexpr u32 kCaptchaFlowOffset = kCaptchaSessionOffset + kCaptchaSessionCapacity;
 inline constexpr u32 kCaptchaFlowCapacity = 128;
-inline constexpr u32 kSuspendedOffset = kCaptchaFlowOffset + kCaptchaFlowCapacity;
-inline constexpr u32 kSuspendedCapacity = 1024;
 
 struct UserAuthCoordinatorRuntime {
     SecureBuffer secrets;
@@ -66,7 +64,6 @@ struct UserAuthCoordinatorRuntime {
     u32 captcha_rqtoken_bytes;
     u32 captcha_session_bytes;
     u32 captcha_flow_bytes;
-    u32 suspended_bytes;
     UserAuthOperation active_operation;
     bool transport_stopped;
     bool phone_context_active;
@@ -84,7 +81,6 @@ void restore_reset_base(UserAuthCoordinatorRuntime* runtime) noexcept;
 void preserve_reset_prefix(UserAuthCoordinatorRuntime* runtime) noexcept;
 void clear_mfa(UserAuthCoordinatorRuntime* runtime) noexcept;
 void clear_captcha(UserAuthCoordinatorRuntime* runtime) noexcept;
-void clear_suspended(UserAuthCoordinatorRuntime* runtime) noexcept;
 void clear_tail(UserAuthCoordinatorRuntime* runtime, u32 offset, u32 bytes, u32 capacity) noexcept;
 UserAuthResponseStorage response_storage(UserAuthCoordinatorRuntime* runtime) noexcept;
 UserAuthCoordinatorPhase coordinator_phase(UserAuthPhase phase) noexcept;

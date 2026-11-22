@@ -46,7 +46,7 @@ u32 run() noexcept {
     const auto lease = rest_rate_acquire(r->scheduler, r->command.route, 1);
     probe.client.request_state = request_state_active;
     bool delivered = probe.signal() && lease.acquired_request();
-    rest_transaction_acquire(&r->transaction, 4001, lease.lease, 10'000, true);
+    rest_transaction_acquire(&r->transaction, lease.lease, 10'000, true);
     rest_transaction_begin_send(&r->transaction, 17);
     memset(r->request_head, 'h', 17);
     request_plaintext_committed(r, {r->request_head, 17});

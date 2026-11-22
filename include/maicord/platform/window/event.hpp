@@ -128,7 +128,6 @@ struct WindowEvent {
             float x, y;
             i32 dx120, dy120;  // 120 = one notch
             float dx_px, dy_px;
-            u8 source;
         } wheel;
         struct {
             u32 key;  // a Key

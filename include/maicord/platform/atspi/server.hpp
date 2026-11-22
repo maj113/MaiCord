@@ -24,8 +24,6 @@ bool server_start(const HostCallbacks& host) noexcept;
 // Disconnects and forgets the session bus watches.
 void server_stop() noexcept;
 
-// Registered with the registry: a screen reader can see the application.
-bool server_connected() noexcept;
 // A client has called an exported object since the connection: it is worth building snapshots and sending events.
 bool server_queried() noexcept;
 

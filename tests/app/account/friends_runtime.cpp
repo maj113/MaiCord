@@ -20,6 +20,7 @@
 #include "maicord/platform/window/key.hpp"
 #include "../../support/window_fixture.hpp"
 #include "../../support/released_memory.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord::friends_runtime_test {
 using namespace app_detail;
@@ -44,7 +45,7 @@ ApplicationFriendsStorageMetrics application_friends_storage_metrics() noexcept 
 }
 struct AccountFixture { RestClient rest; } account{};
 UiWidget popup_widgets[32]{};UiLayoutNode popup_nodes[32]{};u8 modal_token{};
-UserRecord user_records[64]{};u32 user_order[64]{};u8 user_names[8192]{};
+TestUserBank<64, 8192> user_bank;
 struct Observations {
     u32 failures, submissions, builds, form_opens, input_layouts, input_syncs;
     u64 request_id, user_id, profile_user, dm_user, call_channel;
@@ -946,8 +947,7 @@ void run() noexcept {
     auto& ui = *g_app.account_ui;
     check(chat_state_store_initialize(&ui.chat_state, {ui.guild_record_storage, 16}, {ui.guild_order_storage, 16},
             {ui.channel_record_storage, 64}, {ui.channel_order_storage, 64}, {ui.chat_state_name_storage, 4096}) &&
-        user_store_initialize(&ui.user_store, {user_records, 64}, {user_order, 64},
-            {user_names, 8192}) && ui_scene_initialize_bootstrap(&g_app.shell_scene)&&
+        user_bank.init(&ui.user_store) && ui_scene_initialize_bootstrap(&g_app.shell_scene)&&
         popup_scene_initialize_owned(&g_app.popup_scene,8,{popup_widgets,32},{popup_nodes,32}),
         "friends: actual state/user stores and retained shell initialize with bounded fixture backing");
     g_app.renderer_ready = true;g_app.renderer.width = 1280;g_app.renderer.height = 700;g_app.renderer.dpi = 96;

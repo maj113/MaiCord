@@ -6,9 +6,10 @@ namespace maicord {
 namespace openssl {
 namespace {
 
-// Sonames, newest first: OpenSSL 4.x, then 3.x.
-constexpr const char* const kSuffixes[] = {"4", "3"};
-constexpr u32 kSuffixCount = sizeof(kSuffixes) / sizeof(kSuffixes[0]);
+// Sonames, newest first: OpenSSL 4.x, then 3.x (1.1 is libcrypto.so.1.1, never opened).
+constexpr const char* const kCryptoNames[] = {"libcrypto.so.4", "libcrypto.so.3"};
+constexpr const char* const kSslNames[] = {"libssl.so.4", "libssl.so.3"};
+constexpr u32 kSuffixCount = sizeof(kCryptoNames) / sizeof(kCryptoNames[0]);
 
 // Held only while the libraries load.
 SRWLOCK g_lock = SRWLOCK_INIT;
@@ -29,20 +30,6 @@ struct LoadGuard {
     LoadGuard() noexcept { AcquireSRWLockExclusive(&g_lock); }
     ~LoadGuard() noexcept { ReleaseSRWLockExclusive(&g_lock); }
 };
-
-// "libcrypto.so.4" and the like.
-bool soname(char (&name)[32], const char* stem, const char* suffix) noexcept {
-    const char* const parts[] = {stem, ".so.", suffix};
-    u32 length = 0;
-    for (const char* part : parts)
-        for (; *part; ++part) {
-            if (length + 1 >= sizeof(name))
-                return false;
-            name[length++] = *part;
-        }
-    name[length] = 0;
-    return true;
-}
 
 // The symbol of each member of Crypto and (after its Crypto) of Ssl, in member order.
 #define MAICORD_OPENSSL_SYMBOL(ret, name, args) #name "\0"
@@ -70,11 +57,10 @@ bool resolve_ssl(const SharedLibrary& library, const char* library_name, Ssl* ta
     return resolve(library, library_name, &table->crypto + 1, sizeof(*table) - sizeof(table->crypto), kSslSymbols);
 }
 
-// Opens libcrypto.so.<suffix> into `library` and fills `table`; *failure says why not. The soname is the version: .3 is
-// OpenSSL 3.x and .4 OpenSSL 4.x (1.1 is libcrypto.so.1.1, never opened).
-bool open_crypto(const char* suffix, SharedLibrary* library, Crypto* table, u32* failure) noexcept {
-    char name[32];
-    if (!soname(name, "libcrypto", suffix) || !shared_library_open(library, name))
+// Opens kCryptoNames[index] into `library` and fills `table`; *failure says why not. The soname is the version.
+bool open_crypto(u32 index, SharedLibrary* library, Crypto* table, u32* failure) noexcept {
+    const char* const name = kCryptoNames[index];
+    if (!shared_library_open(library, name))
         return false;
     if (!resolve_crypto(*library, name, table)) {
         shared_library_close(library);
@@ -94,7 +80,7 @@ const Crypto* crypto(u32* failure) noexcept {
         return &g_crypto;
     u32 reason = kFailureLibrary;
     for (u32 index = g_first_suffix; index < kSuffixCount; ++index) {
-        if (open_crypto(kSuffixes[index], &g_crypto_library, &g_crypto, &reason)) {
+        if (open_crypto(index, &g_crypto_library, &g_crypto, &reason)) {
             g_first_suffix = index;
             __atomic_store_n(&g_crypto_ready, 1u, __ATOMIC_RELEASE);
             return &g_crypto;
@@ -113,12 +99,11 @@ const Ssl* ssl(u32* failure) noexcept {
         return &g_ssl;
     u32 reason = kFailureLibrary;
     for (u32 index = g_first_suffix; index < kSuffixCount; ++index) {
-        const char* const suffix = kSuffixes[index];
-        char name[32];
-        if (!soname(name, "libssl", suffix) || !shared_library_open(&g_ssl_library, name))
+        const char* const name = kSslNames[index];
+        if (!shared_library_open(&g_ssl_library, name))
             continue;
         // libssl pulls its libcrypto in; the second open of the same soname returns that load.
-        if (!open_crypto(suffix, &g_ssl_crypto_library, &g_ssl.crypto, &reason)) {
+        if (!open_crypto(index, &g_ssl_crypto_library, &g_ssl.crypto, &reason)) {
             shared_library_close(&g_ssl_library);
             continue;
         }

@@ -15,19 +15,10 @@ struct NullWindowProbe {
     bool captured;        // the window holds the pointer capture
     bool focused;         // the window holds the keyboard focus
     bool fullscreen;
-    bool drop_target;     // window_set_drop_target(true) is in effect
     bool capture_excluded; // window_set_capture_excluded(true) is in effect
     bool shown;           // a window_show other than hide is in effect
     u8 cursor;            // the UiCursor of the last window_set_cursor
-    u32 cursor_changes;   // window_set_cursor calls
-    u32 cursor_refreshes; // window_request_cursor_refresh calls
-    u32 captures;         // window_capture_pointer calls
-    u32 releases;         // window_release_capture calls that held the capture
-    u32 focus_requests;   // window_focus calls
-    u32 wakes;            // window_wake calls
-    u32 posts;            // window_post calls
     u32 close_requests;   // window_request_close calls
-    u32 invalidations;    // window_invalidate calls
     u32 min_width, min_height;  // the last window_set_min_size
     u32 min_size_calls;         // window_set_min_size calls
     // window_wayland_global_shortcut*: the portal binding of the push-to-talk key.

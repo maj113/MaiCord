@@ -9,6 +9,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/model/user/store.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -21,11 +22,8 @@ u8 g_message_rich_text[4 * 1024];
 
 void test_user_store() noexcept {
     UserStore store{};
-    UserRecord records[2]{};
-    u32 order[2]{};
-    u8 names[64]{};
-    const bool initialized = user_store_initialize(&store, Slice<UserRecord>{records, 2},
-                                                           Slice<u32>{order, 2}, Slice<u8>{names, 64});
+    TestUserBank<2, 64> bank;
+    const bool initialized = bank.init(&store);
     const UserStoreResult alice = user_store_upsert(&store, 1, utf8_literal("Alice"));
     const UserStoreResult bob = user_store_upsert(&store, 2, utf8_literal("Bob"));
     const UserStoreResult touch = user_store_upsert(&store, 1, utf8_literal("Alice"));
@@ -69,11 +67,9 @@ void test_user_store() noexcept {
            "user_store_validation");
 
     UserStore paired{};
-    UserRecord paired_records[2]{};
-    u32 paired_order[2]{};
-    u8 paired_names[64]{};
+    TestUserBank<2, 64> paired_bank;
     const bool paired_ready =
-        user_store_initialize(&paired, {paired_records, 2}, {paired_order, 2}, {paired_names, 64}) &&
+        paired_bank.init(&paired) &&
         user_store_upsert(&paired, 1, utf8_literal("Alice"), utf8_literal("alice")).ok() &&
         user_store_upsert(&paired, 2, utf8_literal("Bob"), utf8_literal("bob")).ok();
     const u32 paired_revision = paired.revision;
@@ -110,12 +106,10 @@ void test_user_store() noexcept {
            "user_store_equal_concatenation_retains_name_boundaries");
 
     // A user without a global name sends its username as the display name: the bank holds it once.
-    UserRecord loner_records[2]{};
-    u32 loner_order[2]{};
-    u8 loner_names[256]{};
+    TestUserBank<2, 256> loner_bank;
     UserStore loners{};
     const bool loner_stored =
-        user_store_initialize(&loners, {loner_records, 2}, {loner_order, 2}, {loner_names, 256}) &&
+        loner_bank.init(&loners) &&
         user_store_upsert(&loners, 9001, utf8_literal("loner"), utf8_literal("loner")).ok();
     const UserRecord* loner = user_store_find(loners, 9001);
     const u32 loner_revision = loner ? loner->revision : 0;

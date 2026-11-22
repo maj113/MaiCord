@@ -16,6 +16,7 @@
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 
@@ -29,9 +30,7 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
     PrivateChannelRecord private_records[8]{};
     u64 private_recipients[32]{};
     UserStore users{};
-    UserRecord user_records[8]{};
-    u32 user_order[8]{};
-    u8 user_names[2048]{};
+    TestUserBank<8, 2048> user_bank;
     u16 guild_order[4]{}, channel_order[8]{};
     u8 names[2048]{};
     check(chat_state_store_initialize(&store, {guilds, 4}, {guild_order, 4}, {channels, 8},
@@ -39,7 +38,7 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
           chat_state_store_bind_permissions(&store, {roles, 4}, {overwrites, 8}), "private state initialize");
     store.self_user_id = 1;
     check(private_channel_store_initialize(&private_store, {private_records, 8}, {private_recipients, 32}) &&
-          user_store_initialize(&users, {user_records, 8}, {user_order, 8}, {user_names, 2048}),
+          user_bank.init(&users),
           "private recipient and user storage initialize");
     store.private_channels = &private_store;
     u32 scratch[1024]{};
@@ -348,10 +347,8 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
           "private backing releases both reservations");
 
     UserStore compact_users{};
-    UserRecord compact_records[3]{};
-    u32 compact_order[3]{};
-    u8 compact_names[24]{};
-    check(user_store_initialize(&compact_users, {compact_records, 3}, {compact_order, 3}, {compact_names, 24}) &&
+    TestUserBank<3, 24> compact_bank;
+    check(compact_bank.init(&compact_users) &&
           user_store_upsert(&compact_users, 1, utf8_literal("一二")).ok() &&
           user_store_upsert(&compact_users, 2, utf8_literal("三四")).ok() &&
           user_store_upsert(&compact_users, 3, utf8_literal("五六")).ok() &&
@@ -359,7 +356,7 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
           user_store_upsert(&compact_users, 2, utf8_literal("三四七")).ok() &&
           compact_users.count == 1 && user_store_find(compact_users, 2),
           "Unicode name-byte pressure evicts older users without evicting the update target");
-    check(user_store_initialize(&compact_users, {compact_records, 3}, {compact_order, 3}, {compact_names, 24}) &&
+    check(compact_bank.init(&compact_users) &&
         user_store_upsert(&compact_users, 1, utf8_literal("A"), utf8_literal("alice")).ok() &&
         user_store_upsert(&compact_users, 2, utf8_literal("B"), utf8_literal("bob")).ok() &&
         user_store_upsert(&compact_users, 1, utf8_literal("AA")).ok() &&

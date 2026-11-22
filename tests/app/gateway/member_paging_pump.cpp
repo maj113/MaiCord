@@ -8,6 +8,7 @@
 #include "maicord/model/guild/role_policy.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/model/guild/member_store.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -16,9 +17,7 @@ struct Fixture {
     GuildMemberRecord records[8];
     u32 member_order[8];
     UserStore users;
-    UserRecord user_records[16];
-    u32 user_order[16];
-    u8 names[4096];
+    TestUserBank<16, 4096> user_bank;
     ChatStateStore state;
     GuildRecord guild;
     ChannelRecord channel;
@@ -39,8 +38,7 @@ Fixture fixture{};
 bool initialize() noexcept {
     auto& f = fixture;
     if (!guild_member_store_initialize(&f.members, {f.records, 8}, {f.member_order, 8}) ||
-        !user_store_initialize(&f.users, {f.user_records, 16}, {f.user_order, 16},
-                                       {f.names, sizeof(f.names)}) ||
+        !f.user_bank.init(&f.users) ||
         !chat_state_store_initialize(&f.state, {&f.guild, 1}, {f.guild_order, 1}, {&f.channel, 1},
                                         {f.channel_order, 1}, {f.state_names, sizeof(f.state_names)}) ||
         !chat_state_store_bind_permissions(&f.state, {f.role_records, 4}, {f.overwrites, 1}) ||
@@ -110,9 +108,9 @@ u64 state_hash() noexcept {
     hash = append_hash(hash, f.records, sizeof(f.records));
     hash = append_hash(hash, f.member_order, sizeof(f.member_order));
     hash = append_hash(hash, &f.users, sizeof(f.users));
-    hash = append_hash(hash, f.user_records, sizeof(f.user_records));
-    hash = append_hash(hash, f.user_order, sizeof(f.user_order));
-    return append_hash(hash, f.names, sizeof(f.names));
+    hash = append_hash(hash, f.user_bank.records, sizeof(f.user_bank.records));
+    hash = append_hash(hash, f.user_bank.order, sizeof(f.user_bank.order));
+    return append_hash(hash, f.user_bank.names, sizeof(f.user_bank.names));
 }
 
 bool label(u32 index, Utf8View expected) noexcept {
@@ -824,7 +822,7 @@ void test_member_paging_pump(void (*check)(bool, const char*) noexcept) noexcept
     bool old_unpinned = true, visible_retained = true;
     u32 pinned_profiles = 0;
     for (u32 slot = 0; slot < f.users.capacity; ++slot)
-        pinned_profiles += f.user_records[slot].occupied && user_store_pinned(f.users, f.user_records[slot]);
+        pinned_profiles += f.user_bank.records[slot].occupied && user_store_pinned(f.users, f.user_bank.records[slot]);
     for (u32 member_index = 0; member_index < 4; ++member_index) {
         const auto* old_profile = user_store_find(f.users, 20 + member_index);
         const auto* current_profile = user_store_find(f.users, 30 + member_index);

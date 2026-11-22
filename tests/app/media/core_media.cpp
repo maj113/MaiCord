@@ -16,6 +16,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/time.hpp"
 #include "../../support/released_memory.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -649,8 +650,7 @@ void test_cdn_client_contract() noexcept {
                        .error == CdnClientSubmitError::invalid_input,
                "cdn_client_origin_form_only");
         const CdnClientResult stopped = cdn_client_stop(&idle, 5'000);
-        expect(stopped.phase == CdnClientPhase::stopped && stopped.connections == 0 &&
-                   stopped.requests == 0,
+        expect(stopped.phase == CdnClientPhase::stopped,
                "cdn_client_idle_stop");
     }
 }
@@ -3147,13 +3147,10 @@ void test_message_media_controller() noexcept {
             ? message_rich_store_apply(&rich_store, first_record->id, first_record->revision, rich_event)
             : MessageRichStoreResult{};
 
-    UserRecord user_records[2]{};
-    u32 user_order[2]{};
-    u8 user_names[128]{};
+    TestUserBank<2, 128> user_bank;
     UserStore users{};
     const bool users_ready =
-        user_store_initialize(&users, Slice<UserRecord>{user_records, 2},
-                                      Slice<u32>{user_order, 2}, Slice<u8>{user_names, 128});
+        user_bank.init(&users);
     const Utf8View static_hash = utf8_literal("0123456789abcdef0123456789abcdef");
     const Utf8View animated_hash = utf8_literal("a_fedcba9876543210fedcba9876543210");
     const bool users_seeded = users_ready &&
@@ -3399,13 +3396,10 @@ void test_message_media_default_avatar_candidates() noexcept {
         rich_ready && record ? message_rich_store_apply(&rich_store, record->id, record->revision, rich_event)
                              : MessageRichStoreResult{};
 
-    UserRecord user_records[2]{};
-    u32 user_order[2]{};
-    u8 user_names[128]{};
+    TestUserBank<2, 128> user_bank;
     UserStore users{};
     const bool users_seeded =
-        user_store_initialize(&users, Slice<UserRecord>{user_records, 2}, Slice<u32>{user_order, 2},
-                              Slice<u8>{user_names, 128}) &&
+        user_bank.init(&users) &&
         user_store_upsert(&users, author, utf8_literal("one")).ok() &&
         user_store_upsert(&users, quoted, utf8_literal("two")).ok();
 

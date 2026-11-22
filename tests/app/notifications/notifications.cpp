@@ -3,6 +3,7 @@
 #include "maicord/core/time.hpp"
 #include "../../../src/app/notifications/notifications.hpp"
 #include "../../../src/app/shell/state.hpp"
+#include "../../../src/app/shell/window_state.hpp"
 #include "../../../src/app/gateway/ready_projection.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
@@ -11,10 +12,9 @@
 #include "../../support/gateway_message_scratch.hpp"
 #include "voice/voice.hpp"
 #include "maicord/app/voice/connection_sound.hpp"
-
-#if !defined(MAICORD_NOTIFICATION_FIXTURE)
-#error This integration fixture requires the nonemitting notification sink.
-#endif
+#include "maicord/platform/audio/notification_audio.hpp"
+#include "maicord/platform/desktop/notification_identity.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace notification_application_probe {
@@ -38,9 +38,7 @@ struct Fixture {
     PermissionOverwriteRecord overwrites[32];
     u16 guild_order[4], channel_order[32];
     u8 names[8192];
-    UserRecord users[16];
-    u32 user_order[16];
-    u8 user_names[4096];
+    TestUserBank<16, 4096> users_bank;
     MessageStore messages;
     MessageRecord message_rows[8];
     u32 message_order[8], heights[8];
@@ -51,18 +49,28 @@ struct Fixture {
     u32 arrays[4096], records[4096];
     alignas(8) char payload[32 * 1024], header[4096], source[8192];
     Captured last;
+    // What the fake audio worker took and reports, and the clock the owner reads.
     NotificationAudioRequest sounds[64];
     NotificationAudioStatus sound_status;
     NotificationAudioResult sound_result;
-    u64 sound_now;
+    NotificationAudioConfig audio_config;
+    u64 sound_now, audio_epoch;
     u32 sound_count;
+    bool audio_enabled;
     GatewayClientEvent completion;
     MessageEventPumpConsumeResult consumed;
     u32 delivered, relationship_flags, navigation_calls;
+    // The fake desktop: closed toast tags, withdrawn channels and the state each Show reports.
     DesktopNotificationActivation removals[64];
     DesktopNotificationResult removal_result;
-    u32 removal_count, show_action;
-    bool relationship_known, hold_completion, sink_valid, auto_drain;
+    DesktopNotificationShowState show_state;
+    u64 channel_removed;
+    u32 removal_count, channel_removals, show_action;
+    // The retention banks the owner holds (rows and index), the row banks it was given and the rows of the last one.
+    // refuse_pages: 1 refuses the rows, 2 the index that follows granted rows.
+    void* banks[8];
+    u32 bank_count, row_banks, row_capacity, refuse_pages;
+    bool relationship_known, hold_completion, sink_valid, auto_drain, enroll, index_next;
     ReadStateEntry read_pending[32];
     PrivateChannelRecord private_records[8];
     u64 private_recipients[32];
@@ -70,8 +78,8 @@ struct Fixture {
 Fixture fixture{};
 
 
-void capture(void* context, const DesktopNotificationPayload& payload) noexcept {
-    auto& f = *static_cast<Fixture*>(context);
+void capture(const DesktopNotificationPayload& payload) noexcept {
+    auto& f = fixture;
     ++f.delivered;
     f.last = {};
     f.last.target = payload.target;
@@ -94,22 +102,10 @@ void capture(void* context, const DesktopNotificationPayload& payload) noexcept 
     }
     else if(action==4) g_app.account.status.profile_id=88;
 }
-DesktopNotificationResult capture_removal(void* context,DesktopNotificationActivation target) noexcept {
-    auto& f=*static_cast<Fixture*>(context);
-    if(f.removal_count<64) f.removals[f.removal_count]=target;
-    ++f.removal_count; return f.removal_result;
-}
-NotificationAudioResult capture_sound(void* context,const NotificationAudioRequest& request) noexcept {
-    auto& f=*static_cast<Fixture*>(context);
-    if(!f.sound_result.ok()) return f.sound_result;
-    if(f.sound_count>=64) return {NotificationAudioError::full_queue,0};
-    f.sounds[f.sound_count++]=request; return {};
-}
-NotificationAudioStatus sound_status(void* context) noexcept {return static_cast<Fixture*>(context)->sound_status;}
-u64 sound_clock(void* context) noexcept {return static_cast<Fixture*>(context)->sound_now;}
-bool enable_sound() noexcept {
-    application_notifications_fixture_focus(&g_app,false);
-    return application_notifications_fixture_audio(&g_app,capture_sound,sound_status,sound_clock,&fixture);
+// The window state the window's events leave: shown, and active when `foreground`.
+void focus(bool foreground) noexcept {
+    g_window_state.visible=true; g_window_state.minimized=false;
+    application_window_observe_activation(foreground,0);
 }
 
 bool publish(void*, const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
@@ -124,17 +120,21 @@ bool publish(void*, const GatewayClientEvent& event, ConstSlice<u8> payload) noe
         event.dispatch_kind==GatewayClientDispatchKind::message_create) application_notifications_drain(&g_app);
     return f.consumed.ok();
 }
-bool initialize() noexcept {
+// A fresh owner, enrolled (the identity is present) unless `enrolled` is false.
+bool initialize(bool enrolled = true) noexcept {
     application_notifications_release(&g_app);
     clear_bytes(&g_app, sizeof(g_app));
+    focus(false);
     auto& f = fixture;
     f.delivered = f.relationship_flags = f.navigation_calls = 0;
     f.relationship_known = f.sink_valid = true; f.hold_completion = false;
-    f.auto_drain = true;
+    f.auto_drain = true; f.enroll = enrolled;
     f.sound_count=0; f.sound_now=0; f.sound_status={};
     f.sound_status.enabled=true; f.sound_result={};
     f.last = {}; f.completion = {}; f.consumed = {};
-    f.removal_count=f.show_action=0; f.removal_result={};
+    f.removal_count=f.channel_removals=f.show_action=0; f.channel_removed=0; f.removal_result={};
+    f.show_state=DesktopNotificationShowState::submitted;
+    f.bank_count=f.row_banks=f.row_capacity=f.refuse_pages=0; f.index_next=false;
     clear_bytes(f.removals,sizeof(f.removals));
     g_app.preferences = client_preferences_defaults();
     g_app.account.status.profile_id = 77;
@@ -146,8 +146,7 @@ bool initialize() noexcept {
         !read_state_bind(&f.ui.chat_state, &f.ui.read_state_store) ||
         !private_channel_store_initialize(&f.ui.private_channel_store, {f.private_records, 8},
             {f.private_recipients, 32}) ||
-        !user_store_initialize(&f.ui.user_store, {f.users, 16}, {f.user_order, 16},
-            {f.user_names, sizeof(f.user_names)}) ||
+        !f.users_bank.init(&f.ui.user_store) ||
         !(f.ui.chat_state.private_channels = &f.ui.private_channel_store) ||
         !message_store_initialize(&f.messages, {f.message_rows, 8}, {f.message_order, 8},
             {f.message_text, sizeof(f.message_text)}) ||
@@ -160,8 +159,7 @@ bool initialize() noexcept {
         !message_event_pump_set_user_store(&g_app.message_pump, &f.ui.user_store)) return false;
     message_event_pump_set_create_observer(&g_app.message_pump, application_notifications_message, &g_app);
     message_event_pump_set_read_badge(&g_app.message_pump, application_notifications_read_badge, &g_app);
-    return application_notifications_fixture_sink(&g_app, capture, &f) &&
-        application_notifications_fixture_retention_remove(&g_app,capture_removal,&f);
+    return application_notifications_initialize(&g_app);
 }
 // Synthetic public IDs only. READY and all mutations go through the production
 // typed producers; no pre-decoded policy records are planted in the owner.
@@ -242,22 +240,30 @@ bool safe_text() noexcept {
 }
 bool settings(Utf8View json) noexcept { return dispatch(utf8_literal("USER_GUILD_SETTINGS_UPDATE"), json); }
 bool global(Utf8View json) noexcept { return dispatch(utf8_literal("USER_SETTINGS_PROTO_UPDATE"), json); }
+// The settings the owner holds; the owner exists from initialize() on.
+const MessageNotificationStore& settings_store() noexcept { return *application_notifications_store(&g_app); }
+// One drain that shows nothing: no copied intent is left.
+bool drain_shows_nothing() noexcept {
+    const u32 shown=fixture.delivered;
+    application_notifications_drain(&g_app);
+    return fixture.delivered==shown;
+}
 void sound_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     auto& f=fixture;
-    check(initialize() && enable_sound() && hydrate(),"notification audio: explicit fake sink and production READY initialize without endpoint output");
+    check(initialize() && hydrate(),"notification audio: fake worker and production READY initialize without endpoint output");
     f.auto_drain=false;
-    check(application_notifications_fixture_metrics(&g_app).audio_output_percent==100,
+    float gain{};
+    check(f.audio_config.gain && f.audio_config.gain(f.audio_config.context,.4f,&gain) && gain==.4f,
         "notification audio: VM-created owner explicitly initializes worker volume to migrated100 percent");
     g_app.preferences.output_volume=200;application_notifications_settings_refresh(&g_app);
-    check(application_notifications_fixture_metrics(&g_app).audio_output_percent==200,
+    check(f.audio_config.gain(f.audio_config.context,.4f,&gain) && gain==.8f,
         "notification audio: refreshed volume updates atomic bank independently of queued nominal gain");
     check(message(1000,2) && f.sound_count==1 && f.sounds[0].clip_id==1 && f.sounds[0].gain==.4f &&
-        f.sounds[0].epoch==application_notifications_fixture_metrics(&g_app).audio_epoch && !f.delivered &&
+        f.sounds[0].epoch==f.audio_epoch && !f.delivered &&
         application_notifications_next_wake(&g_app)==1000,
         "notification audio: popup fallback emits leading classic1 nominal gain before deferred Show");
     application_notifications_drain(&g_app);
-    check(f.delivered==1 && f.sound_count==1 && !application_notifications_fixture_metrics(&g_app).audio_worker_started,
-        "notification audio: fake popup is silent and fixture never creates native audio worker");
+    check(f.delivered==1 && f.sound_count==1,"notification audio: the shown popup adds no second sound");
     f.sound_now=100;
     check(message(1001,3) && f.sound_count==1 && application_notifications_next_wake(&g_app)==1000,
         "notification audio: burst retains trailing request rather than dropping all later message sounds");
@@ -269,10 +275,10 @@ void sound_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     f.sound_now=1001;
     check(message(1002,4) && f.sound_count==2 && application_notifications_next_wake(&g_app)==2001,
         "notification audio: immediate post-trailing call owns later debounce deadline");
-    const u64 before_mute=application_notifications_fixture_metrics(&g_app).audio_epoch;
+    const u64 before_mute=f.audio_epoch;
     g_app.preferences.message_sounds_enabled=false;
     application_notifications_settings_refresh(&g_app);
-    check(application_notifications_fixture_metrics(&g_app).audio_epoch>before_mute && !application_notifications_next_wake(&g_app),
+    check(f.audio_epoch>before_mute && !application_notifications_next_wake(&g_app),
         "notification audio: device sound mute advances epoch and cancels H without purging PCM lifetime");
     f.sound_now=2001; application_notifications_drain(&g_app);
     check(f.sound_count==2 && f.delivered==3 && message(1003,5),
@@ -280,14 +286,17 @@ void sound_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     application_notifications_drain(&g_app);
     check(f.sound_count==2 && f.delivered==4,"notification audio: message1 disabled does not disable new ordinary popups");
     g_app.preferences.selected_message_sounds_enabled=true;
-    check(message(1004,6,20) && !application_notifications_fixture_metrics(&g_app).display_outstanding && f.sound_count==2,
+    const bool blurred_selected=message(1004,6,20);
+    application_notifications_drain(&g_app);
+    check(blurred_selected && f.delivered==4 && f.sound_count==2,
         "notification audio: blurred selected T ends ordinary popup flow even when shared message1 sound is muted");
     g_app.preferences.message_sounds_enabled=true;
     application_notifications_settings_refresh(&g_app);
-    check(message(1005,7,20) && f.sound_count==3 && f.sounds[2].clip_id==2 &&
-        !application_notifications_fixture_metrics(&g_app).display_outstanding,
+    const bool main_selection=message(1005,7,20);
+    application_notifications_drain(&g_app);
+    check(main_selection && f.sound_count==3 && f.sounds[2].clip_id==2 && f.delivered==4,
         "notification audio: blurred original main selection emits direct message3 and no ordinary popup");
-    application_notifications_fixture_focus(&g_app,true);
+    focus(true);
     check(message(1006,8,20) && f.sound_count==4 && f.sounds[3].clip_id==2,
         "notification audio: focused selected sound is direct despite ordinary selected-channel suppression");
     check(dispatch(utf8_literal("THREAD_CREATE"),utf8_literal(R"({"id":"30","guild_id":"10","parent_id":"21","type":11,"name":"selected","thread_metadata":{"archived":false},"member":{"id":"30","user_id":"1","join_timestamp":"2026-10-01T00:00:00Z","flags":8}})")) &&
@@ -297,20 +306,20 @@ void sound_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     f.sound_now=5000;
     const u32 before_type21=f.sound_count;
     check(message(1007,9,30,utf8_literal("\"thread starter\""),2,{},utf8_literal("Peer"),0,21) &&
-        f.sound_count==before_type21+2 && f.sounds[before_type21].clip_id==2 && f.sounds[before_type21+1].clip_id==1 &&
-        application_notifications_fixture_metrics(&g_app).display_outstanding==1,
+        f.sound_count==before_type21+2 && f.sounds[before_type21].clip_id==2 && f.sounds[before_type21+1].clip_id==1,
         "notification audio: type21 uses original main selection for direct3 and normalized parent for ordinary1 plus popup");
     application_notifications_drain(&g_app);
     check(f.last.target.channel_id==30 && f.last.target.message_id==1007,
         "notification audio: type21 activation retains original thread despite parent policy");
     const u32 before_thread=f.sound_count;
-    check(message(1008,10,30) && f.sound_count==before_thread+1 && f.sounds[before_thread].clip_id==2 &&
-        !application_notifications_fixture_metrics(&g_app).display_outstanding,
+    const bool joined_none=message(1008,10,30);
+    const u32 thread_shows=f.delivered;
+    application_notifications_drain(&g_app);
+    check(joined_none && f.sound_count==before_thread+1 && f.sounds[before_thread].clip_id==2 && f.delivered==thread_shows,
         "notification audio: selected generic sound ignores joined-thread NONE while ordinary p rejects it");
-    application_notifications_fixture_focus(&g_app,false);
+    check(initialize(false) && hydrate(),"notification audio: an owner without the desktop identity starts");
+    f.auto_drain=false;
     g_app.preferences.selected_message_sounds_enabled=false;
-    check(chat_state_store_select_channel(&f.ui.chat_state,20).ok() &&
-        application_notifications_fixture_sink(&g_app,nullptr,nullptr),"notification audio: popup identity unavailable fixture retains independent sound sink");
     f.sound_now=7000;
     const u32 before_missing=f.sound_count;
     check(message(1009,11) && f.sound_count==before_missing+1 && f.sounds[before_missing].clip_id==1 &&
@@ -347,86 +356,91 @@ void sound_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     application_notifications_wake(&g_app);application_notifications_drain(&g_app);
     check(application_notifications_gateway_pending(&g_app),
         "notification audio: terminal-exit wake keeps held Gateway resumable after status observation");
-    check(application_notifications_can_pop(&g_app) && application_notifications_fixture_metrics(&g_app).audio_failed &&
+    check(application_notifications_can_pop(&g_app) &&
         !application_notifications_gateway_pending(&g_app) && !application_notifications_next_wake(&g_app),
         "notification audio: terminal worker exit disables only audio instead of permanently stalling Gateway");
     check(message(1013,15) && f.sound_count==before_missing+4,"notification audio: failed worker is not relaunched behind normal message admission");
 
-    check(initialize() && enable_sound() && hydrate(),"notification audio: fresh fake owner prepares metadata-specific restrictions");
+    check(initialize() && hydrate(),"notification audio: fresh fake owner prepares metadata-specific restrictions");
     f.auto_drain=false;
-    check(message(1050,2,21,utf8_literal("\"hello\""),2,utf8_literal(",\"activity_instance\":null,\"interaction\":{\"id\":\"9\",\"type\":2,\"name\":\"command\",\"user\":{\"id\":\"1\",\"username\":\"self\"}}")) &&
-        !f.sound_count && !application_notifications_fixture_metrics(&g_app).display_outstanding,
+    const bool own_interaction=message(1050,2,21,utf8_literal("\"hello\""),2,utf8_literal(",\"activity_instance\":null,\"interaction\":{\"id\":\"9\",\"type\":2,\"name\":\"command\",\"user\":{\"id\":\"1\",\"username\":\"self\"}}"));
+    application_notifications_drain(&g_app);
+    check(own_interaction && !f.sound_count && !f.delivered,
         "notification audio: explicit null activity instance plus own legacy interaction suppresses ordinary lx");
-    check(message(1051,3,21,utf8_literal("\"hello\""),2,{},utf8_literal("Peer"),0,47) && !f.sound_count &&
-        message(1052,4,21,utf8_literal("\"hello\""),2,utf8_literal(",\"changelog_id\":\"9\""),utf8_literal("Peer"),0,47) && !f.sound_count &&
-        !application_notifications_fixture_metrics(&g_app).display_outstanding,
+    const bool changelog=message(1051,3,21,utf8_literal("\"hello\""),2,{},utf8_literal("Peer"),0,47) && !f.sound_count &&
+        message(1052,4,21,utf8_literal("\"hello\""),2,utf8_literal(",\"changelog_id\":\"9\""),utf8_literal("Peer"),0,47);
+    application_notifications_drain(&g_app);
+    check(changelog && !f.sound_count && !f.delivered,
         "notification audio: missing changelog ID rejects and unknown latest-ID match stays incomplete");
     f.sound_result={NotificationAudioError::full_queue,0};
-    check(message(1053,5) && application_notifications_fixture_metrics(&g_app).audio_failed,
-        "notification audio: fake atomic submit failure disables admission without opening endpoint");
-    const u64 failure_epoch=application_notifications_fixture_metrics(&g_app).audio_epoch;
+    const bool refused=message(1053,5);
+    f.sound_result={}; f.sound_now=5000;
+    check(refused && message(1054,6) && !f.sound_count,
+        "notification audio: a refused submit turns audio off, so a later message plays no sound");
+    const u64 failure_epoch=f.audio_epoch;
     g_app.preferences.message_sounds_enabled=false;application_notifications_settings_refresh(&g_app);
-    const auto failed_reset=application_notifications_fixture_metrics(&g_app);
-    check(failed_reset.audio_epoch>failure_epoch && failed_reset.audio_backend_epoch==failed_reset.audio_epoch && failed_reset.audio_failed,
-        "notification audio: mute still resets backend desired epoch after failed admission while keeping borrowed bank attached");
-    check(initialize() && enable_sound() && hydrate(),"notification audio: fresh fake owner prepares terminal Show failure branch");
+    check(f.audio_epoch>failure_epoch && !f.audio_enabled,
+        "notification audio: mute still resets the worker's epoch after a refused submit");
+    check(initialize() && hydrate(),"notification audio: fresh fake owner prepares terminal Show failure branch");
     f.auto_drain=false;
-    application_notifications_fixture_show_state(&g_app,DesktopNotificationShowState::retry_required);
+    f.show_state=DesktopNotificationShowState::retry_required;
     check(message(1100,2) && f.sound_count==1,"notification audio: retry fixture retains initial fallback leading sound");
     application_notifications_drain(&g_app);
-    check(f.delivered==1 && f.sound_count==1 && application_notifications_fixture_metrics(&g_app).display_outstanding==1,
+    check(f.delivered==1 && f.sound_count==1,
         "notification audio: first native retry carries copied sound epoch and does not request failure fallback yet");
     f.sound_now=1000; application_notifications_drain(&g_app);
-    check(f.delivered==2 && f.sound_count==2 && !application_notifications_fixture_metrics(&g_app).display_outstanding &&
+    check(f.delivered==2 && f.sound_count==2 &&
         f.sounds[1].clip_id==1,"notification audio: terminal retry failure requests a distinct second H invocation at its current clock");
     f.sound_now=2000;application_notifications_drain(&g_app);
-    check(f.sound_count==2,"notification audio: failure fallback single leading invocation has no synthetic trailing duplicate");
+    check(f.sound_count==2 && f.delivered==2,
+        "notification audio: failure fallback single leading invocation has no synthetic trailing duplicate or third Show");
     check(message(1101,3),"notification audio: copied old-epoch sound prepares late terminal failure");
     const u32 before_epoch=f.sound_count;
     g_app.preferences.message_sounds_enabled=false;application_notifications_settings_refresh(&g_app);
     g_app.preferences.message_sounds_enabled=true;application_notifications_settings_refresh(&g_app);
-    application_notifications_fixture_show_state(&g_app,DesktopNotificationShowState::failed);
+    f.show_state=DesktopNotificationShowState::failed;
     application_notifications_drain(&g_app);
     check(f.sound_count==before_epoch,"notification audio: canceled old sound epoch cannot reenter H on later popup failure");
     f.sound_now=2100; check(message(1102,4),"notification audio: leading sound prepares resume retained pending request");
     f.sound_now=2200; check(message(1103,5),"notification audio: second sound prepares H trailing request");
-    const u64 resume_epoch=application_notifications_fixture_metrics(&g_app).audio_epoch;
+    const u64 resume_epoch=f.audio_epoch;
     const u64 resume_due=application_notifications_next_wake(&g_app);
     check(lifecycle(GatewayClientEventKind::reconnecting) && !application_notifications_next_wake(&g_app) &&
-        lifecycle(GatewayClientEventKind::resumed) && application_notifications_fixture_metrics(&g_app).audio_epoch==resume_epoch &&
+        lifecycle(GatewayClientEventKind::resumed) && f.audio_epoch==resume_epoch &&
         application_notifications_next_wake(&g_app)==resume_due,
         "notification audio: reconnect suppresses host timers while RESUMED retains epoch and H intent");
-    check(hydrate(ready,1) && application_notifications_fixture_metrics(&g_app).audio_epoch>resume_epoch &&
+    check(hydrate(ready,1) && f.audio_epoch>resume_epoch &&
         !application_notifications_next_wake(&g_app),"notification audio: READY advances epoch and clears prior trailing request");
     f.sound_now=3000;check(message(1104,2),"notification audio: post-READY sound prepares account stop ownership barrier");
-    const u64 stop_epoch=application_notifications_fixture_metrics(&g_app).audio_epoch;
+    const u64 stop_epoch=f.audio_epoch;
     f.sound_status.queued=32;f.sound_status.outstanding=64;
     check(!application_notifications_can_pop(&g_app),"notification audio: held full Gateway prepares account invalidation");
     f.sound_status.worker_exited=true;application_notifications_wake(&g_app);application_notifications_drain(&g_app);
     check(application_notifications_gateway_pending(&g_app),"notification audio: observed failure retains held input before account invalidation");
     application_notifications_account_stop(&g_app);
-    check(application_notifications_fixture_metrics(&g_app).audio_epoch>stop_epoch && !application_notifications_next_wake(&g_app) &&
-        !application_notifications_gateway_pending(&g_app) && !application_notifications_fixture_metrics(&g_app).audio_worker_started,
-        "notification audio: account stop cancels sound epoch without creating or releasing fixture PCM worker");
+    check(f.audio_epoch>stop_epoch && !application_notifications_next_wake(&g_app) &&
+        !application_notifications_gateway_pending(&g_app),
+        "notification audio: account stop cancels sound epoch and releases held Gateway input");
     application_notifications_release(&g_app);
 }
 void voice_sound_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     auto& f=fixture;
     using S=VoiceConnectionSound;
-    check(initialize() && enable_sound() && hydrate(),"voice connection sounds: fake sink and READY initialize");
+    check(initialize() && hydrate(),"voice connection sounds: fake worker and READY initialize");
     f.auto_drain=false;
     g_app.preferences.message_sounds_enabled=false; application_notifications_settings_refresh(&g_app);
     application_notifications_voice_sound(&g_app,S::join,100);
-    check(!application_notifications_fixture_metrics(&g_app).audio_enabled && !f.sound_count,
+    check(!f.audio_enabled && !f.sound_count,
         "voice connection sounds: with message and voice sounds off the worker is off and a join plays nothing");
     application_notifications_voice_sounds(&g_app,true);
-    const auto on=application_notifications_fixture_metrics(&g_app);
+    const u64 on_epoch=f.audio_epoch;
+    const bool on_enabled=f.audio_enabled;
     application_notifications_voice_sound(&g_app,S::join,100);
     application_notifications_voice_sound(&g_app,S::leave,100);
     application_notifications_voice_sound(&g_app,S::interrupted,50);
-    check(on.audio_enabled && f.sound_count==3 && f.sounds[0].clip_id==3 && f.sounds[1].clip_id==4 &&
+    check(on_enabled && f.sound_count==3 && f.sounds[0].clip_id==3 && f.sounds[1].clip_id==4 &&
         f.sounds[2].clip_id==5 && f.sounds[0].gain==.4f && f.sounds[1].gain==.4f && f.sounds[2].gain==.2f &&
-        f.sounds[0].epoch==on.audio_epoch,
+        f.sounds[0].epoch==on_epoch,
         "voice connection sounds: they keep the worker on and play clips 3 to 5 at the connection sound volume");
     check(message(2000,2) && f.sound_count==3,"voice connection sounds: message sounds stay off while voice sounds play");
     application_notifications_voice_sound(&g_app,S::leave,0);
@@ -437,19 +451,19 @@ void voice_sound_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     f.sound_status.queued=kNotificationAudioQueueCapacity;
     application_notifications_voice_sound(&g_app,S::leave,100);
     f.sound_status.queued=0;
-    check(f.sound_count==3 && !application_notifications_fixture_metrics(&g_app).audio_failed,
+    check(f.sound_count==3,
         "voice connection sounds: volume zero, Streamer Mode and a full worker play nothing and keep audio on");
-    check(hydrate(ready,1) && application_notifications_fixture_metrics(&g_app).audio_enabled,
+    check(hydrate(ready,1) && f.audio_enabled,
         "voice connection sounds: READY keeps the worker on for them while message sounds are off");
     application_notifications_voice_sounds(&g_app,false);
     application_notifications_voice_sound(&g_app,S::join,100);
-    check(!application_notifications_fixture_metrics(&g_app).audio_enabled && f.sound_count==3,
+    check(!f.audio_enabled && f.sound_count==3,
         "voice connection sounds: when they are off the worker is off and nothing plays");
     g_app.preferences.message_sounds_enabled=true; application_notifications_settings_refresh(&g_app);
-    const u64 epoch=application_notifications_fixture_metrics(&g_app).audio_epoch;
+    const u64 epoch=f.audio_epoch;
     application_notifications_voice_sounds(&g_app,true);
     application_notifications_voice_sound(&g_app,S::join,100);
-    check(application_notifications_fixture_metrics(&g_app).audio_epoch==epoch && f.sound_count==4 &&
+    check(f.audio_epoch==epoch && f.sound_count==4 &&
         f.sounds[3].epoch==epoch && f.sounds[3].clip_id==3,
         "voice connection sounds: the switch does not cancel message sounds while those keep the worker on");
     application_notifications_release(&g_app);
@@ -466,165 +480,132 @@ bool retention_channel(u64 channel) noexcept {
         protocol_writer_append_literal(&w,"\",\"guild_id\":\"10\",\"type\":0,\"name\":\"retained\",\"nsfw\":false,\"permission_overwrites\":[]}") &&
         dispatch(utf8_literal("CHANNEL_CREATE"),{f.header,w.used});
 }
+// Sends `count` messages of `type` to `channel`, with ids and sequences counting up from `id` and `sequence`.
+bool burst(u64 channel,u64 id,u64 sequence,u32 count,u16 type=0) noexcept {
+    bool sent=true;
+    for(u32 i=0;i<count;++i)
+        sent=message(id+i,sequence+i,channel,utf8_literal("\"hello\""),2,{},utf8_literal("Peer"),0,type) && sent;
+    return sent;
+}
+// The desktop closed `count` toast tags, the last one of `message_id` in `channel` of `profile`.
+bool retired(u32 count,u64 profile,u64 channel,u64 message_id) noexcept {
+    const auto& f=fixture;
+    return f.removal_count==count && f.removals[count-1].profile_id==profile && f.removals[count-1].channel_id==channel &&
+        f.removals[count-1].message_id==message_id;
+}
 void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     auto& f=fixture;
-    check(initialize() && hydrate(ready,1),"notification retention: production owner starts with empty successful history");
-    auto m=application_notifications_fixture_metrics(&g_app);
-    check(!m.retention_channels && !m.retention_tickets && !m.retention_capacity_channels,
+    check(initialize() && hydrate(ready,1) && !f.row_banks && !f.bank_count,
         "notification retention: initialization and READY allocate no ledger");
     g_app.preferences.message_sounds_enabled=false; application_notifications_settings_refresh(&g_app);
-    bool twenty=true;
-    for(u32 i=0;i<20;++i) {
-        twenty=message(2000+i,2+i) && twenty;
-    }
-    m=application_notifications_fixture_metrics(&g_app);
-    check(twenty && f.delivered==20 && f.last.silent && m.retention_channels==1 && m.retention_tickets==20 &&
-        application_notifications_fixture_retained(&g_app,21,0)==2000 &&
-        application_notifications_fixture_retained(&g_app,21,19)==2019 && !f.removal_count,
-        "notification retention: exactly20 successful silent Shows keep actual-channel FIFO");
+    check(burst(21,2000,2,20) && f.delivered==20 && f.last.silent && !f.removal_count && f.row_banks==1 &&
+        f.row_capacity==16 && f.bank_count==2,
+        "notification retention: exactly20 successful silent Shows keep one 16-channel ledger and retire nothing");
     f.removal_result={DesktopNotificationError::transport,5};
-    check(message(2020,22) && f.removal_count==1 && f.removals[0].profile_id==77 &&
-        f.removals[0].channel_id==21 && f.removals[0].message_id==2000 &&
-        application_notifications_fixture_retained(&g_app,21,0)==2001 &&
-        application_notifications_fixture_retained(&g_app,21,19)==2020 &&
-        application_notifications_fixture_metrics(&g_app).retention_tickets==20,
-        "notification retention: 21st success retires oldest metadata even when native tag close fails");
-    application_notifications_fixture_show_state(&g_app,DesktopNotificationShowState::failed);
-    check(message(2021,23) && application_notifications_fixture_metrics(&g_app).retention_tickets==20 && f.removal_count==1,
-        "notification retention: failed Show excludes successful ledger");
-    f.auto_drain=false; application_notifications_fixture_show_state(&g_app,DesktopNotificationShowState::retry_required);
-    check(message(2022,24) && application_notifications_fixture_metrics(&g_app).display_outstanding==1 &&
-        application_notifications_fixture_metrics(&g_app).retention_tickets==20,
-        "notification retention: pending queue intent excludes successful ledger");
+    check(message(2020,22) && retired(1,77,21,2000),
+        "notification retention: 21st success retires the oldest toast even when native tag close fails");
+    f.show_state=DesktopNotificationShowState::failed;
+    check(message(2021,23) && f.removal_count==1,"notification retention: failed Show excludes successful ledger");
+    f.auto_drain=false; f.show_state=DesktopNotificationShowState::retry_required;
+    check(message(2022,24) && f.removal_count==1,"notification retention: pending queue intent excludes successful ledger");
+    const u32 shows=f.delivered;
     application_notifications_drain(&g_app);
-    check(application_notifications_fixture_metrics(&g_app).retention_tickets==20 && f.removal_count==1 &&
-        application_notifications_fixture_metrics(&g_app).display_outstanding==1,
-        "notification retention: first native retry excludes successful ledger");
-    application_notifications_fixture_show_state(&g_app,DesktopNotificationShowState::submitted);
+    check(f.delivered==shows+1 && f.removal_count==1,"notification retention: first native retry excludes successful ledger");
+    f.show_state=DesktopNotificationShowState::submitted;
     application_notifications_drain(&g_app); f.auto_drain=true;
-    check(f.removal_count==2 && f.removals[1].message_id==2001 &&
-        application_notifications_fixture_retained(&g_app,21,19)==2022 &&
-        !application_notifications_fixture_metrics(&g_app).display_outstanding,
+    check(f.delivered==shows+2 && retired(2,77,21,2001),
         "notification retention: successful retry appends once and evicts one FIFO ticket");
-    const u32 delivered=f.delivered;
+    const u32 delivered=f.delivered, withdrawn=f.channel_removals;
     application_notifications_ack(&g_app,21);
-    check(!application_notifications_fixture_metrics(&g_app).retention_channels &&
-        message(2005,25) && f.delivered==delivered &&
-        !application_notifications_fixture_metrics(&g_app).retention_tickets,
-        "notification retention: channel ACK deletes success owner without clearing receive replay state");
-    check(message(2030,26) && chat_state_store_select_channel(&f.ui.chat_state,21).ok(),
-        "notification retention: next successful message prepares selection clear");
-    application_notifications_selection(&g_app);
-    check(!application_notifications_fixture_metrics(&g_app).retention_channels,
-        "notification retention: selecting channel clears successful history");
+    check(f.channel_removals==withdrawn+1 && f.channel_removed==21 && message(2005,25) && f.delivered==delivered,
+        "notification retention: channel ACK withdraws its toasts without clearing receive replay state");
+    check(message(2030,26) && f.delivered==delivered+1 && f.removal_count==2,
+        "notification retention: channel ACK deletes the success owner, so the next success retires nothing");
+    const bool selected=chat_state_store_select_channel(&f.ui.chat_state,21).ok();
+    application_notifications_selection(&g_app); application_notifications_drain(&g_app);
+    check(selected && f.channel_removals==withdrawn+2 && f.channel_removed==21,
+        "notification retention: selecting a channel withdraws its toasts at the next drain");
     check(message(2031,27),"notification retention: blurred selected channel prepares focused ACK");
-    application_notifications_fixture_focus(&g_app,true); application_notifications_selection(&g_app);
-    check(!application_notifications_fixture_metrics(&g_app).retention_channels,
-        "notification retention: regained focus clears selected success history independently of Seen");
+    focus(true); application_notifications_selection(&g_app); application_notifications_drain(&g_app);
+    check(f.channel_removals==withdrawn+3 && f.channel_removed==21,
+        "notification retention: regained focus withdraws the selected channel's toasts independently of Seen");
 
-    check(initialize() && hydrate(ready,1) && message(2100,2),"notification retention: fresh success prepares same-profile READY");
-    check(hydrate(ready,1) && application_notifications_fixture_metrics(&g_app).retention_tickets==1 &&
-        message(2100,2) &&
-        application_notifications_fixture_retained(&g_app,21,0)==2100 &&
-        application_notifications_fixture_retained(&g_app,21,1)==2100,
-        "notification retention: same-profile READY resets ingress but retains successful duplicate opaque tags");
-    bool duplicates=true;
-    for(u32 i=0;i<18;++i) duplicates=message(2101+i,3+i) && duplicates;
-    check(duplicates && hydrate(ready,1) && message(2100,2) && f.removal_count==1 &&
-        f.removals[0].message_id==f.last.target.message_id &&
-        application_notifications_fixture_retained(&g_app,21,0)==2100 &&
-        application_notifications_fixture_retained(&g_app,21,19)==2100,
-        "notification retention: source permits duplicate tickets whose Windows stable-tag eviction also identifies newest replacement");
+    check(initialize() && hydrate(ready,1) && message(2100,2) && hydrate(ready,1) && message(2100,2) && f.delivered==2,
+        "notification retention: same-profile READY resets ingress, so the same message shows again");
+    check(burst(21,2101,3,18) && hydrate(ready,1) && !f.removal_count && message(2100,2) && retired(1,77,21,2100),
+        "notification retention: READY keeps duplicate opaque tags, so the 21st success retires the first one");
     g_app.account.status.profile_id=88;
-    check(hydrate(ready,1) && !application_notifications_fixture_metrics(&g_app).retention_tickets &&
-        !application_notifications_fixture_metrics(&g_app).retention_capacity_channels,
+    check(hydrate(ready,1) && !f.bank_count && message(2200,2) && f.row_banks==2 && f.row_capacity==16,
         "notification retention: native profile change frees prior private success metadata");
 
     check(initialize() && hydrate(ready,1) && message(2300,2),"notification retention: first success prepares geometric growth");
     bool populated=true;
     for(u32 i=0;i<15;++i) populated=retention_channel(100+i) && message(2301+i,3+i,100+i) && populated;
-    m=application_notifications_fixture_metrics(&g_app);
-    check(populated && m.retention_channels==16,
+    check(populated && f.row_banks==1 && f.row_capacity==16 && !f.removal_count,
         "notification retention: separate successful channels fill initial geometry without global FIFO eviction");
-    application_notifications_fixture_retention_oom(&g_app,true);
+    f.refuse_pages=1;
     check(message(2400,18) && retention_channel(115) && message(2316,19,115),
         "notification retention: existing channel and new capacity demand exercise isolated allocation failure");
-    auto failed_growth=application_notifications_fixture_metrics(&g_app);
-    check(f.delivered==17 && failed_growth.retention_channels==16 && failed_growth.retention_tickets==17 &&
-        notification_unavailable() && !failed_growth.display_outstanding &&
-        application_notifications_fixture_retained(&g_app,21,0)==2300 &&
-        application_notifications_fixture_retained(&g_app,21,1)==2400 && application_notifications_can_pop(&g_app),
-        "notification retention: failed growth preserves both banks and tickets; existing capacity works and failed intent retires before Show");
-    application_notifications_fixture_retention_oom(&g_app,2);
-    check(message(2317,20,115) && f.delivered==17 &&
-        application_notifications_fixture_retained(&g_app,21,1)==2400,
-        "notification retention: second-bank OOM frees replacement rows while preserving old index and successful history");
-    application_notifications_fixture_retention_oom(&g_app,false);
-    check(message(2318,21,115) && application_notifications_fixture_metrics(&g_app).retention_channels==17 &&
-        application_notifications_fixture_retained(&g_app,100,0)==2301 &&
-        application_notifications_fixture_retained(&g_app,115,0)==2318,
-        "notification retention: recovered geometric growth rebinds dense rows and channel index without losing history");
-    check(hydrate(ready,1) && application_notifications_fixture_metrics(&g_app).retention_channels==17,
-        "notification retention: READY omitting historical channels retains their successful metadata");
+    check(f.delivered==17 && f.bank_count==2 && notification_unavailable() && application_notifications_can_pop(&g_app),
+        "notification retention: failed growth keeps both banks; existing capacity works and failed intent retires before Show");
+    f.refuse_pages=2;
+    check(message(2317,20,115) && f.delivered==17 && f.row_banks==2 && f.bank_count==2,
+        "notification retention: second-bank OOM frees replacement rows while preserving the old banks");
+    f.refuse_pages=0;
+    check(message(2318,21,115) && f.delivered==18 && f.last.target.message_id==2318 && f.row_capacity==32 &&
+        f.bank_count==2,
+        "notification retention: recovered geometric growth replaces both banks and shows the next message, no refused one");
+    check(hydrate(ready,1) && burst(21,2401,2,18) && !f.removal_count && message(2419,20) && retired(1,77,21,2300),
+        "notification retention: rebind and a READY omitting historical channels keep their tickets");
     bool historical=true;
-    for(u32 i=0;i<16;++i) historical=retention_channel(200+i) && message(2410+i,2+i,200+i) && historical;
-    check(historical && application_notifications_fixture_metrics(&g_app).retention_channels==33 &&
-        application_notifications_fixture_metrics(&g_app).retention_channels>f.ui.chat_state.channel_count &&
-        application_notifications_fixture_retained(&g_app,115,0)==2318,
+    for(u32 i=0;i<16;++i) historical=retention_channel(200+i) && message(2420+i,21+i,200+i) && historical;
+    check(historical && f.row_capacity==64 && f.removal_count==1 && f.ui.chat_state.channel_count<33,
         "notification retention: historical success owners grow beyond current channel-store capacity without global eviction");
     application_notifications_account_stop(&g_app);
-    m=application_notifications_fixture_metrics(&g_app);
-    check(!m.retention_channels && !m.retention_tickets && !m.retention_capacity_channels,
-        "notification retention: account stop frees both successful metadata banks");
+    check(!f.bank_count,"notification retention: account stop frees both successful metadata banks");
 
-    check(initialize() && enable_sound() && hydrate(ready,1),"notification retention: full queue prepares pre-Show OOM fallback");
-    f.auto_drain=false; application_notifications_fixture_retention_oom(&g_app,true);
-    bool full=true;
-    for(u32 i=0;i<32;++i) full=message(2500+i,2+i) && full;
-    check(full && application_notifications_fixture_metrics(&g_app).display_outstanding==32 && !application_notifications_can_pop(&g_app),
+    check(initialize() && hydrate(ready,1),"notification retention: full queue prepares pre-Show OOM fallback");
+    f.auto_drain=false; f.refuse_pages=1;
+    check(burst(21,2500,2,32) && !application_notifications_can_pop(&g_app),
         "notification retention: deferred burst reaches existing full display queue");
     f.sound_now=2000;
     for(u32 i=0;i<32;++i) application_notifications_drain(&g_app);
-    m=application_notifications_fixture_metrics(&g_app);
-    check(!f.delivered && !m.display_outstanding && !m.retention_channels && !m.retention_capacity_channels &&
-        notification_unavailable() && application_notifications_can_pop(&g_app) && f.sound_count==3 &&
-        application_notifications_next_wake(&g_app)==3000,
+    check(!f.delivered && !f.row_banks && notification_unavailable() && application_notifications_can_pop(&g_app) &&
+        f.sound_count==3 && application_notifications_next_wake(&g_app)==3000,
         "notification retention: preflight OOM retires every full-queue intent with no untracked Show and preserves trailing failure fallback");
     f.sound_now=3000; application_notifications_drain(&g_app);
     check(f.sound_count==4 && f.sounds[3].clip_id==1 && !application_notifications_next_wake(&g_app),
         "notification retention: failed preflight fallback consumes normal H deadline without polling or blocking ingress");
-    application_notifications_fixture_retention_oom(&g_app,false); f.auto_drain=true;
-    check(message(2600,34) && f.delivered==1 && application_notifications_fixture_metrics(&g_app).retention_tickets==1,
-        "notification retention: allocation recovery admits and tracks next success");
+    f.refuse_pages=0; application_notifications_drain(&g_app); f.auto_drain=true;
+    check(!f.delivered && message(2600,34) && f.delivered==1 && f.row_banks==1 && f.bank_count==2,
+        "notification retention: allocation recovery admits and tracks next success, and no refused intent stays queued");
 
     check(initialize() && hydrate(ready,1) && dispatch(utf8_literal("THREAD_CREATE"),
         utf8_literal(R"({"id":"30","guild_id":"10","parent_id":"21","type":11,"name":"starter","thread_metadata":{"archived":false},"member":{"id":"30","user_id":"1","join_timestamp":"2026-10-01T00:00:00Z","flags":8}})")) &&
-        message(2700,2,30,utf8_literal("\"thread starter\""),2,{},utf8_literal("Peer"),0,21) &&
-        application_notifications_fixture_retained(&g_app,30,0)==2700 && !application_notifications_fixture_retained(&g_app,21,0),
-        "notification retention: normalized parent policy retains actual original thread channel");
+        message(2700,2,30,utf8_literal("\"thread starter\""),2,{},utf8_literal("Peer"),0,21),
+        "notification retention: a thread starter in a joined NONE thread prepares the thread ledger");
     application_notifications_ack(&g_app,21);
-    check(application_notifications_fixture_retained(&g_app,30,0)==2700 && dispatch(utf8_literal("MESSAGE_DELETE"),
-        utf8_literal(R"({"id":"2700","channel_id":"30","guild_id":"10"})")) &&
-        application_notifications_fixture_retained(&g_app,30,0)==2700,
-        "notification retention: parent ACK and message deletion do not rewrite successful thread ledger");
+    check(dispatch(utf8_literal("MESSAGE_DELETE"),utf8_literal(R"({"id":"2700","channel_id":"30","guild_id":"10"})")) &&
+        burst(30,2701,3,19,21) && !f.removal_count && message(2720,22,30,utf8_literal("\"hello\""),2,{},utf8_literal("Peer"),0,21) &&
+        retired(1,77,30,2700),
+        "notification retention: normalized parent policy retains the actual thread, which parent ACK and message deletion leave");
+    const u32 thread_withdrawals=f.channel_removals;
     check(dispatch(utf8_literal("CHANNEL_DELETE"),utf8_literal(R"({"id":"30","guild_id":"10","type":11})")) &&
-        !application_notifications_fixture_metrics(&g_app).retention_channels,
-        "notification retention: existing stronger native channel-delete ACK clears successful metadata");
+        f.channel_removals==thread_withdrawals+1 && f.channel_removed==30,
+        "notification retention: existing stronger native channel-delete ACK withdraws the thread's toasts");
     for(u32 action=1;action<=5;++action) {
         bool prepared=initialize() && hydrate(ready,1) && message(2800,2);
         f.auto_drain=false; f.show_action=action;
         prepared=message(2801,3) && prepared; application_notifications_drain(&g_app);
-        const auto after=application_notifications_fixture_metrics(&g_app);
-        const u32 expected=action==4?1:0;
-        check(prepared && !after.display_outstanding && after.retention_tickets==expected &&
-            !application_notifications_fixture_retained(&g_app,21,expected),
-            "notification retention: reentrant ACK/account-stop/READY/profile-change during Show retires canceled whole-channel history without stale append");
-        if(action==5) {
-            f.auto_drain=true;
-            check(hydrate(ready,1) && message(2802,2) && f.last.target.profile_id==88 &&
-                application_notifications_fixture_retained(&g_app,21,0)==2802,
-                "notification retention: old-profile canceled completion cannot erase following new-profile successful channel history");
-        }
+        // A profile id changed under the running session (4) closes the shown toast at once and keeps 2800.
+        const bool closed=action==4?retired(1,77,21,2801):!f.removal_count;
+        if(action==4) g_app.account.status.profile_id=77;
+        const u32 shown=f.delivered, kept=action==4?1:0;
+        application_notifications_drain(&g_app);
+        f.auto_drain=true;
+        check(prepared && closed && f.delivered==shown && hydrate(ready,1) && burst(21,2810,2,20-kept) &&
+            f.removal_count==kept && message(2830,22) && retired(kept+1,action==5?88:77,21,action==4?2800:2810),
+            "notification retention: reentrant ACK/account-stop/READY/profile-change during Show retires canceled whole-channel history without stale append or loss of the next profile's history");
     }
     application_notifications_account_stop(&g_app); application_notifications_release(&g_app);
 }
@@ -697,7 +678,7 @@ void dm_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     auto& f=fixture;
     const auto dm=[&](u64 id) noexcept {return chat_state_store_find_channel(f.ui.chat_state,id);};
     const auto unread=[&](u64 id) noexcept {return dm(id)&&chat_state_store_channel_unread(f.ui.chat_state,*dm(id));};
-    check(initialize() && enable_sound() && hydrate(dm_ready),"dm: READY with conversations hydrates");
+    check(initialize() && hydrate(dm_ready),"dm: READY with conversations hydrates");
     check(dm(43)&&dm(43)->mention_count==2&&unread(43)&&dm(40)&&!dm(40)->mention_count&&!unread(40),
         "dm: READY read state restores a conversation's unread count");
     check(message(4001,11,40)&&dm(40)->mention_count==1&&unread(40)&&!(dm(40)->read_flags&4u),
@@ -727,7 +708,7 @@ void dm_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     check(global(utf8_literal(R"({"partial":false,"settings":{"type":1,"proto":"WgIKAA=="}})")),
         "dm: Do Not Disturb ends");
     check(chat_state_store_select_channel(&f.ui.chat_state,40).ok(),"dm: conversation opens");
-    application_notifications_fixture_focus(&g_app,true);
+    focus(true);
     g_app.preferences.selected_message_sounds_enabled=false;
     f.sound_now=40'000;
     check(message(4005,18,40)&&f.delivered==2&&f.sound_count==2,
@@ -736,12 +717,13 @@ void dm_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     f.sound_now=50'000;
     check(message(4006,19,40)&&f.delivered==2&&f.sound_count==3&&f.sounds[2].clip_id==2,
         "dm: the focused open conversation plays only the selected-channel sound when enabled");
-    application_notifications_fixture_focus(&g_app,false);
+    focus(false);
     check(chat_state_store_select_channel(&f.ui.chat_state,20).ok()&&message(4007,20,40)&&f.delivered==3&&
-        application_notifications_fixture_metrics(&g_app).retention_tickets==3,
-        "dm: a toast for an unfocused conversation is retained");
+        f.last.target.channel_id==40,
+        "dm: an unfocused conversation shows a toast");
+    const u32 withdrawn=f.channel_removals;
     check(dispatch(utf8_literal("MESSAGE_ACK"),utf8_literal(R"({"channel_id":"40","message_id":"4007","version":2})"),21)&&
-        !dm(40)->mention_count&&!unread(40)&&application_notifications_fixture_metrics(&g_app).retention_tickets==1,
+        !dm(40)->mention_count&&!unread(40)&&f.channel_removals==withdrawn+1&&f.channel_removed==40,
         "dm: an ack clears the conversation badge and withdraws its toasts");
     check(dispatch(utf8_literal("MESSAGE_ACK"),utf8_literal(R"({"channel_id":"43","message_id":"4300","version":3})"),22)&&
         !dm(43)->mention_count&&!unread(43),"dm: an ack clears a READY-restored conversation count");
@@ -754,7 +736,7 @@ void dm_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     // Without a DM settings row, an unrelated server's incomplete settings
     // leave conversations known.
     constexpr auto no_dm_row=utf8_literal(R"({"entries":[{"guild_id":"10","message_notifications":1,"muted":false,"channel_overrides":[]}],"partial":false,"version":10})");
-    check(initialize()&&enable_sound()&&hydrate(dm_ready,10,false,no_dm_row)&&
+    check(initialize()&&hydrate(dm_ready,10,false,no_dm_row)&&
         settings(utf8_literal(R"({"guild_id":"11","message_notifications":9})"))&&
         !application_notifications_store(&g_app)->complete,"dm: another server's settings become incomplete");
     check(message(4009,21,40)&&dm(40)->mention_count==1&&f.delivered==1&&f.sound_count==1,
@@ -830,22 +812,19 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
     using namespace app_detail;
     auto& f = fixture;
     const bool owner_initialized=initialize();
-    check(owner_initialized,"notification application: nonemitting owner initializes");
+    check(owner_initialized,"notification application: owner enrolls over the fake desktop");
     if(!owner_initialized) { application_notifications_release(&g_app); return; }
     const bool initialized = hydrate(ready, 10, true);
-    check(initialized, "notification application: nonemitting owner and actual READY projection hydrate");
+    check(initialized, "notification application: owner and actual READY projection hydrate");
     if (!initialized) { application_notifications_release(&g_app); return; }
-    auto metrics = application_notifications_fixture_metrics(&g_app);
-    check(!metrics.ready && metrics.live && metrics.guilds == 1 && metrics.overrides == 1,
-        "notification application: copied READY settings do not arm before completion");
+    check(settings_store().guild_count == 1 && settings_store().override_count == 1,
+        "notification application: READY copies the settings");
     check(message(100, 11) && f.delivered == 0,
         "notification application: validated pre-completion create cannot emit");
-    check(publish(nullptr, f.completion, {}) && application_notifications_fixture_metrics(&g_app).ready,
-        "notification application: producer completion arms hydrated owner");
-    check(message(500, 12) && f.delivered == 1 && f.last.target.profile_id == 77 &&
+    check(publish(nullptr, f.completion, {}) && message(500, 12) && f.delivered == 1 && f.last.target.profile_id == 77 &&
         f.last.target.channel_id == 21 && f.last.target.message_id == 500 && body(utf8_literal("hello")) &&
         f.consumed.kind == MessageEventPumpConsumeKind::ignored_dispatch && f.messages.count == 0,
-        "notification application: real off-selected create emits through observer without selected timeline residency");
+        "notification application: producer completion arms the owner; a real off-selected create emits through observer without selected timeline residency");
     const auto* other = chat_state_store_find_channel(f.ui.chat_state, 21);
     check(other && other->last_message_id == 500 && message(400, 13) && f.delivered == 2 &&
         other->last_message_id == 500 && f.last.target.message_id == 400,
@@ -903,11 +882,11 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
         "notification application: sparse settings merge keeps explicit mute while full entry replaces overrides");
     check(settings(utf8_literal(R"({"guild_id":"10","version":13,"muted":false})")) &&
         message(542, 37) && f.delivered == 11, "notification application: explicit unmute resumes eligibility");
-    metrics = application_notifications_fixture_metrics(&g_app);
-    check(metrics.overrides == 0, "notification application: full guild update replaces prior channel override set");
+    check(settings_store().override_count == 0,
+        "notification application: full guild update replaces prior channel override set");
 
     check(dispatch(utf8_literal("THREAD_CREATE"), utf8_literal(R"({"id":"30","guild_id":"10","parent_id":"21","type":11,"name":"joined","thread_metadata":{"archived":false},"member":{"id":"30","user_id":"1","join_timestamp":"2026-10-01T00:00:00Z","flags":2}})")) &&
-        application_notifications_fixture_metrics(&g_app).threads == 1 && message(550, 38, 30) && f.delivered == 12,
+        settings_store().thread_count == 1 && message(550, 38, 30) && f.delivered == 12,
         "notification application: real thread channel sidecar hydrates self membership outside selected participant cache");
     check(dispatch(utf8_literal("THREAD_MEMBER_UPDATE"), utf8_literal(R"({"id":"30","guild_id":"10","user_id":"1","join_timestamp":"2026-10-01T00:00:00Z","flags":8})")) &&
         message(551, 39, 30) && f.delivered == 12,
@@ -916,7 +895,7 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
         message(552, 40, 30) && f.delivered == 13,
         "notification application: full self thread update restores ALL and unmuted defaults");
     check(dispatch(utf8_literal("CHANNEL_DELETE"), utf8_literal(R"({"id":"30","guild_id":"10","type":11})")) &&
-        application_notifications_fixture_metrics(&g_app).threads == 0,
+        settings_store().thread_count == 0,
         "notification application: channel deletion clears notification membership alongside ordinary state");
 
     check(dispatch(utf8_literal("USER_UPDATE"), utf8_literal(R"({"id":"1","restricted_schedule":{"rules":[{"enabled":true}]}})")) &&
@@ -939,15 +918,13 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
     const u32 before_partial = f.delivered;
     check(snapshot(utf8_literal(R"({"entries":[{"guild_id":"99","message_notifications":2}],"partial":true,"version":20})")),
         "notification application: actual partial snapshot producer admission succeeds");
-    metrics = application_notifications_fixture_metrics(&g_app);
-    check(metrics.guilds == 2 && metrics.overrides == 1,
+    check(settings_store().guild_count == 2 && settings_store().override_count == 1,
         "notification application: partial snapshot preserves omitted guild and override counts");
     check(message(571, 3) && f.delivered == before_partial + 1,
         "notification application: partial snapshot preserves omitted guild live eligibility");
     check(snapshot(utf8_literal(R"({"entries":[],"partial":false,"version":1})")),
         "notification application: actual full snapshot producer admission succeeds");
-    metrics = application_notifications_fixture_metrics(&g_app);
-    check(metrics.guilds == 0 && metrics.overrides == 0,
+    check(settings_store().guild_count == 0 && settings_store().override_count == 0,
         "notification application: full snapshot replaces prior guild and override counts");
     check(message(572, 4) && f.delivered == before_partial + 2,
         "notification application: full snapshot reset version retains live default eligibility");
@@ -962,14 +939,14 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
         "notification application: full READY restores the initial guild policy");
     check(hydrate(ready,1,false,utf8_literal(R"({"entries":[{"guild_id":"99","message_notifications":2}],"partial":true,"version":20})")),
         "notification application: same-account partial READY producer succeeds");
-    metrics=application_notifications_fixture_metrics(&g_app);
-    check(metrics.guilds==2 && metrics.overrides==1 && message(591,2) && f.delivered==before_partial_ready+2,
+    check(settings_store().guild_count==2 && settings_store().override_count==1 && message(591,2) &&
+        f.delivered==before_partial_ready+2,
         "notification application: same-account partial READY retains omitted settings and resets numeric create sequence");
     const u32 before_snapshot_versions=f.delivered;
     check(snapshot(utf8_literal(R"({"entries":[{"guild_id":"99","version":100,"message_notifications":0},{"guild_id":"10","version":4,"message_notifications":2}],"partial":false,"version":100})")),
         "notification application: full snapshot admits descending per-entry versions");
-    metrics=application_notifications_fixture_metrics(&g_app);
-    check(metrics.guilds==2 && !metrics.overrides && message(600,3) && f.delivered==before_snapshot_versions,
+    check(settings_store().guild_count==2 && !settings_store().override_count && message(600,3) &&
+        f.delivered==before_snapshot_versions,
         "notification application: lower-version full snapshot entry retains explicit NONE rather than implicit ALL");
     check(snapshot(utf8_literal(R"({"entries":[{"guild_id":"99","version":200,"message_notifications":2},{"guild_id":"10","version":5,"message_notifications":0}],"partial":true,"version":200})")),
         "notification application: partial snapshot admits descending per-entry versions");
@@ -1041,70 +1018,62 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
     check(hydrate(ready,1),"notification application: fresh READY prepares bounded burst");
     f.auto_drain=false;
     const u32 before_burst=f.delivered;
-    bool burst=true;
-    for(u32 i=0;i<32;++i) burst=burst && application_notifications_can_pop(&g_app) &&
+    bool admitted=true;
+    for(u32 i=0;i<32;++i) admitted=admitted && application_notifications_can_pop(&g_app) &&
         message(700+i,2+i,21,i?utf8_literal("\"later\""):utf8_literal("\"first copied body\""));
-    metrics=application_notifications_fixture_metrics(&g_app);
-    check(burst && f.delivered==before_burst && metrics.display_outstanding==32 &&
+    check(admitted && f.delivered==before_burst &&
         !application_notifications_can_pop(&g_app) && application_notifications_gateway_pending(&g_app),
         "notification application: copied burst fills exactly32 rows and pre-pop admission applies backpressure");
     application_notifications_drain(&g_app);
-    metrics=application_notifications_fixture_metrics(&g_app);
     check(f.delivered==before_burst+1 && f.last.target.message_id==700 && body(utf8_literal("first copied body")) &&
-        metrics.display_outstanding==31 && application_notifications_can_pop(&g_app) &&
-        !application_notifications_gateway_pending(&g_app),
+        application_notifications_can_pop(&g_app) && !application_notifications_gateway_pending(&g_app),
         "notification application: one outer continuation submits one copied FIFO intent and releases producer capacity");
     application_notifications_ack(&g_app,21);
-    application_notifications_drain(&g_app);
-    check(!application_notifications_fixture_metrics(&g_app).display_outstanding && f.delivered==before_burst+1,
-        "notification application: ACK purges all pending channel intents before submission");
-    check(message(750,40) && application_notifications_fixture_metrics(&g_app).display_outstanding==1 &&
-        hydrate(ready,1) && !application_notifications_fixture_metrics(&g_app).display_outstanding,
+    for(u32 i=0;i<31;++i) application_notifications_drain(&g_app);
+    check(f.delivered==before_burst+1,"notification application: ACK purges all pending channel intents before submission");
+    check(message(750,40) && hydrate(ready,1) && drain_shows_nothing(),
         "notification application: READY discards prior-generation copied intents");
     check(message(751,2),"notification application: copied intent prepares current permission revalidation");
     auto* queued_channel=const_cast<ChannelRecord*>(chat_state_store_find_channel(f.ui.chat_state,21));
     if(queued_channel) queued_channel->actions&=~channel_action_view;
     application_notifications_drain(&g_app);
-    check(queued_channel && f.delivered==before_burst+1 && !application_notifications_fixture_metrics(&g_app).display_outstanding,
+    if(queued_channel) queued_channel->actions|=channel_action_view;
+    check(queued_channel && f.delivered==before_burst+1 && drain_shows_nothing(),
         "notification application: lost current view permission retires copied intent without delivery");
     check(hydrate(ready,1) && message(752,2),"notification application: copied intent prepares device toggle revalidation");
     g_app.preferences.desktop_enabled=false;
     application_notifications_drain(&g_app);
-    check(f.delivered==before_burst+1 && !application_notifications_fixture_metrics(&g_app).display_outstanding,
-        "notification application: disabled device popup sink retires copied intent without delivery");
     g_app.preferences.desktop_enabled=true;
-    check(hydrate(ready,1) && message(790,2) && message(791,3) &&
+    check(f.delivered==before_burst+1 && drain_shows_nothing(),
+        "notification application: disabled device popup sink retires copied intent without delivery");
+    const bool deleted=hydrate(ready,1) && message(790,2) && message(791,3) &&
         dispatch(utf8_literal("MESSAGE_DELETE"),utf8_literal(R"({"id":"790","channel_id":"21"})")) &&
-        application_notifications_fixture_metrics(&g_app).display_outstanding==1 && message(792,4) && message(793,5) &&
-        dispatch(utf8_literal("MESSAGE_DELETE_BULK"),utf8_literal(R"({"ids":["792","793"],"channel_id":"21"})")) &&
-        application_notifications_fixture_metrics(&g_app).display_outstanding==1,
-        "notification application: single and bulk deletion purge matching copied intents using existing pump scratch");
+        message(792,4) && message(793,5) &&
+        dispatch(utf8_literal("MESSAGE_DELETE_BULK"),utf8_literal(R"({"ids":["792","793"],"channel_id":"21"})"));
     application_notifications_drain(&g_app);
-    check(f.delivered==before_burst+2 && f.last.target.message_id==791,
-        "notification application: delete cancellation preserves the other FIFO message");
+    check(deleted && f.delivered==before_burst+2 && f.last.target.message_id==791 && drain_shows_nothing(),
+        "notification application: single and bulk deletion purge matching copied intents and keep the other FIFO message");
     check(message(794,6),"notification application: copied intent prepares required action revalidation");
     g_app.account.status.required_action=AccountRequirement::agreements;
     application_notifications_drain(&g_app);
-    check(f.delivered==before_burst+2 && !application_notifications_fixture_metrics(&g_app).display_outstanding,
-        "notification application: current required action blocks a previously admitted copied intent");
     g_app.account.status.required_action=AccountRequirement::none;
+    check(f.delivered==before_burst+2 && drain_shows_nothing(),
+        "notification application: current required action blocks a previously admitted copied intent");
     f.auto_drain=true;
     check(settings(utf8_literal(R"({"guild_id":"10","muted":true})")) &&
         dispatch(utf8_literal("THREAD_CREATE"),utf8_literal(R"({"id":"31","guild_id":"10","parent_id":"21","type":11,"name":"joined","thread_metadata":{"archived":false},"member":{"id":"31","user_id":"1","join_timestamp":"2026-10-01T00:00:00Z","flags":2}})")),
         "notification application: guild settings and self thread membership precede unavailable transition");
     check(dispatch(utf8_literal("GUILD_DELETE"),utf8_literal(R"({"id":"10","unavailable":true})")),
         "notification application: unavailable guild preserves ordinary state admission");
-    metrics=application_notifications_fixture_metrics(&g_app);
-    check(metrics.guilds==1 && metrics.threads==0,
+    check(settings_store().guild_count==1 && settings_store().thread_count==0,
         "notification application: unavailable retains notification choices while clearing self thread membership");
     check(dispatch(utf8_literal("GUILD_DELETE"),utf8_literal(R"({"id":"10","unavailable":false})")) &&
-        !application_notifications_fixture_metrics(&g_app).guilds,
+        !settings_store().guild_count,
         "notification application: actual leave frees guild notification authority");
     application_notifications_account_stop(&g_app);
-    metrics = application_notifications_fixture_metrics(&g_app);
-    check(!metrics.ready && !metrics.live && !metrics.guilds && !metrics.overrides && !metrics.threads &&
-        f.navigation_calls == 0 && !metrics.audio_worker_started,
-        "notification application: account stop discards owner authority and never navigates or opens OS delivery");
+    check(!settings_store().guild_count && !settings_store().override_count && !settings_store().thread_count &&
+        f.navigation_calls == 0 && message(800, 50) && f.delivered == before_burst+2,
+        "notification application: account stop discards owner authority and never navigates");
     application_notifications_release(&g_app);
     dm_regressions(check);
     speech_regressions(check);
@@ -1172,6 +1141,127 @@ UiVoicePanelView application_voice_view() noexcept {
     return view;
 }
 }
+
+// The calls of src/platform/desktop/notification_identity.cpp and notifications.cpp the owner makes, replaced at link
+// time: the identity is present when the test enrolls, each Show reports fixture.show_state, and the fake records the
+// closed toast tags and withdrawn channels.
+namespace maicord {
+using notification_application_probe::fixture;
+NotificationIdentityResult notification_identity_set_process(ConstSlice<wchar_t>) noexcept { return {}; }
+NotificationIdentityResult notification_identity_check(const NotificationIdentityConfig&) noexcept {
+    return fixture.enroll ? NotificationIdentityResult{} : NotificationIdentityResult{NotificationIdentityError::absent};
+}
+// Never called: the check never reports a stale identity, so the test writes no icon and no registry key.
+NotificationIdentityResult notification_identity_create(const NotificationIdentityConfig&) noexcept {
+    return {NotificationIdentityError::registry};
+}
+DesktopNotificationResult desktop_notifications_initialize(DesktopNotifications*, const DesktopNotificationConfig&) noexcept {
+    return {};
+}
+DesktopNotificationShowResult desktop_notifications_show_once(DesktopNotifications*,
+                                                              const DesktopNotificationPayload& payload) noexcept {
+    const DesktopNotificationShowState state = fixture.show_state;
+    notification_application_probe::capture(payload);
+    if (state == DesktopNotificationShowState::submitted)
+        return {state, {}, true};
+    return {state, {DesktopNotificationError::transport, 1}, true};
+}
+DesktopNotificationResult desktop_notifications_remove_message(DesktopNotifications*,
+                                                               DesktopNotificationActivation target) noexcept {
+    if (fixture.removal_count < 64)
+        fixture.removals[fixture.removal_count] = target;
+    ++fixture.removal_count;
+    return fixture.removal_result;
+}
+DesktopNotificationResult desktop_notifications_remove_channel(DesktopNotifications*, u64, u64 channel) noexcept {
+    ++fixture.channel_removals;
+    fixture.channel_removed = channel;
+    return {};
+}
+DesktopNotificationResult desktop_notifications_history_step(DesktopNotifications*, bool* pending) noexcept {
+    *pending = false;
+    return {};
+}
+bool desktop_notifications_history_pending(const DesktopNotifications*) noexcept { return false; }
+DesktopNotificationResult desktop_notifications_remove_profile(DesktopNotifications*, u64) noexcept { return {}; }
+DesktopNotificationResult desktop_notifications_setting(DesktopNotifications*, u32* setting) noexcept {
+    *setting = 0;
+    return {};
+}
+DesktopNotificationResult desktop_notifications_set_wake(DesktopNotifications*, const Waker&) noexcept { return {}; }
+bool desktop_notifications_take_activation(DesktopNotifications*, DesktopNotificationActivation*) noexcept { return false; }
+void desktop_notifications_discard_activations(DesktopNotifications*) noexcept {}
+void desktop_notifications_release(DesktopNotifications*) noexcept {}
+
+// The notification audio worker (src/platform/audio/notification_audio.cpp), replaced at link time: it takes each
+// request the fixture lets it, reports fixture.sound_status and records the epoch and switch of each reset.
+NotificationAudioResult notification_audio_initialize(NotificationAudio* audio, const NotificationAudioConfig& config) noexcept {
+    fixture.audio_config = config;
+    fixture.audio_epoch = config.initial_epoch;
+    fixture.audio_enabled = config.enabled;
+    audio->config = config;
+    audio->initialized = true;
+    return {};
+}
+bool notification_audio_can_accept(const NotificationAudio*, u32 needed) noexcept {
+    const auto& state = fixture.sound_status;
+    return state.enabled && !state.stopping && !state.worker_exited && state.queued <= kNotificationAudioQueueCapacity &&
+        state.outstanding <= kNotificationAudioVoiceCapacity && needed <= kNotificationAudioQueueCapacity - state.queued &&
+        needed <= kNotificationAudioVoiceCapacity - state.outstanding;
+}
+NotificationAudioResult notification_audio_submit(NotificationAudio*, const NotificationAudioRequest& request) noexcept {
+    if (!fixture.sound_result.ok())
+        return fixture.sound_result;
+    if (fixture.sound_count >= 64)
+        return {NotificationAudioError::full_queue, 0};
+    fixture.sounds[fixture.sound_count++] = request;
+    return {};
+}
+NotificationAudioResult notification_audio_reset(NotificationAudio*, u64 epoch, bool enabled) noexcept {
+    fixture.audio_epoch = epoch;
+    fixture.audio_enabled = enabled;
+    return {};
+}
+NotificationAudioStatus notification_audio_status(const NotificationAudio*) noexcept { return fixture.sound_status; }
+bool notification_audio_status_pending(const NotificationAudio*) noexcept { return true; }
+NotificationAudioResult notification_audio_release(NotificationAudio* audio, u32) noexcept {
+    reset_value(audio);
+    return {};
+}
+} // namespace maicord
+
+// The clock and page calls of the owner (notifications_fixture.hpp).
+namespace maicord::notification_fixture {
+u64 now() noexcept {
+    return fixture.sound_now;
+}
+void* pages(usize bytes, u32 kind) noexcept {
+    auto& f = fixture;
+    const bool index = kind == 2 && f.index_next;
+    if (kind == 2)
+        f.index_next = false;
+    if ((kind == 1 && f.refuse_pages == 1) || (index && f.refuse_pages == 2))
+        return nullptr;
+    void* block = pages_allocate(bytes);
+    if (block && kind == 1) {
+        f.index_next = true;
+        ++f.row_banks;
+        f.row_capacity = static_cast<u32>(bytes / sizeof(NotificationRetentionRow));
+    }
+    if (block && (kind == 1 || index) && f.bank_count < 8)
+        f.banks[f.bank_count++] = block;
+    return block;
+}
+bool release(void* base) noexcept {
+    auto& f = fixture;
+    for (u32 i = 0; i < f.bank_count; ++i)
+        if (f.banks[i] == base) {
+            f.banks[i] = f.banks[--f.bank_count];
+            break;
+        }
+    return pages_release_call(base) != 0;
+}
+} // namespace maicord::notification_fixture
 
 namespace maicord {
 namespace application_notifications_entry {

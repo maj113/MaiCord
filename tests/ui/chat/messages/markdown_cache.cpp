@@ -5,6 +5,7 @@
 #include "maicord/model/user/store.hpp"
 #include "../../../support/test_output.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
+#include "../../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -37,9 +38,7 @@ struct Fixture {
     u32 scratch[kMessageTextByteStyleScratchCapacity];
     MessageMarkdownCacheEntry entries[kMessageMarkdownCacheSlots];
     alignas(8) u8 arena[kMessageMarkdownCacheArenaBytes];
-    UserRecord users[2];
-    u32 user_order[2];
-    u8 user_names[128];
+    TestUserBank<2, 128> users_bank;
     GuildRecord guilds[1];
     u16 guild_order[1];
     ChannelRecord channels[1];
@@ -115,7 +114,7 @@ void test_message_markdown_cache(void (*check)(bool, const char*) noexcept) noex
     NavigationView navigation{};
     navigation.selected_channel_id = 7;
     ready = ready &&
-            user_store_initialize(&users, {f.users, 2}, {f.user_order, 2}, {f.user_names, sizeof(f.user_names)}) &&
+            f.users_bank.init(&users) &&
             user_store_upsert(&users, 8, utf8_literal("Author")).ok() &&
             user_store_upsert(&users, 9, utf8_literal("Mentioned")).ok() &&
             chat_state_store_initialize(&state, {f.guilds, 1}, {f.guild_order, 1}, {f.channels, 1},

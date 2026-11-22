@@ -16,6 +16,7 @@
 #include "maicord/model/chat/game_store.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/time.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -31,9 +32,7 @@ struct MentionFixture {
     RoleRecord roles[4]{};
     u8 names[64]{};
     ChatStateStore state{};
-    UserRecord user_records[1]{};
-    u32 user_order[1]{};
-    u8 user_names[32]{};
+    TestUserBank<1, 32> user_bank;
     UserStore users{};
     MemberListView members{};
     NavigationView navigation{};
@@ -77,8 +76,7 @@ struct MentionFixture {
         state.names = names;
         state.name_bank_bytes = sizeof(names);
         return message_composer_initialize(&composer, Slice<char>{text, sizeof(text)}) &&
-               user_store_initialize(&users, Slice<UserRecord>{user_records, 1}, Slice<u32>{user_order, 1},
-                                     Slice<u8>{user_names, sizeof(user_names)});
+               user_bank.init(&users);
     }
 
     bool build(u64 channel_id, Utf8View draft) noexcept {
@@ -164,9 +162,7 @@ struct MemberFixture {
     RoleRecord roles[2]{};
     u8 names[32]{};
     ChatStateStore state{};
-    UserRecord user_records[24]{};
-    u32 user_order[24]{};
-    u8 user_names[1024]{};
+    TestUserBank<24, 1024> user_bank;
     UserStore users{};
     GuildMemberRecord member_records[24]{};
     u32 member_order[24]{};
@@ -244,7 +240,7 @@ struct MemberFixture {
         state.self_user_id = 1;
         state.private_channels = &privates;
         if (!message_composer_initialize(&composer, Slice<char>{text, sizeof(text)}) ||
-            !user_store_initialize(&users, {user_records, 24}, {user_order, 24}, {user_names, sizeof(user_names)}) ||
+            !user_bank.init(&users) ||
             !guild_member_store_initialize(&members, {member_records, 24}, {member_order, 24}) ||
             !message_store_initialize(&messages, {message_records, 8}, {message_order, 8},
                                       {message_text, sizeof(message_text)}) ||

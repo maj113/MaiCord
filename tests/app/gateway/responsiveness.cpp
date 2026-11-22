@@ -10,6 +10,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/member_store.hpp"
+#include "../../support/test_user_bank.hpp"
 
 namespace maicord {
 namespace {
@@ -110,9 +111,7 @@ struct PresenceFixture {
     GuildMemberRecord member_records[64];
     u32 member_order[64];
     GuildMemberStore members;
-    UserRecord user_records[64];
-    u32 user_order[64];
-    u8 user_names[4096];
+    TestUserBank<64, 4096> user_bank;
     UserStore users;
     GuildRecord guilds[2];
     ChannelRecord channels[2];
@@ -156,8 +155,7 @@ void test_presence_visibility(void (*check)(bool, const char*) noexcept) noexcep
                  ui_variable_list_initialize(&f.list, {f.heights, 4}, {f.fenwick, 4}, 1, 100) &&
                  message_timeline_initialize(&f.timeline, &f.store, &f.list, 100, 50, false) &&
                  guild_member_store_initialize(&f.members, {f.member_records, 64}, {f.member_order, 64}) &&
-                 user_store_initialize(&f.users, {f.user_records, 64}, {f.user_order, 64},
-                                               {f.user_names, sizeof(f.user_names)}) &&
+                 f.user_bank.init(&f.users) &&
                  chat_state_store_initialize(&f.state, {f.guilds, 2}, {f.guild_order, 2}, {f.channels, 2},
                                                 {f.channel_order, 2}, {f.state_names, sizeof(f.state_names)}) &&
                  member_list_view_initialize(&f.projection, {f.rows, 96}, {f.scratch, 64});

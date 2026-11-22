@@ -7,9 +7,9 @@
 namespace maicord {
 
 inline constexpr u32 kUserAuthCoordinatorRequestBytes = 32 * 1024;
-inline constexpr u32 kUserAuthCoordinatorSecretBytes = 64 * 1024;
+inline constexpr u32 kUserAuthCoordinatorSecretBytes = 63 * 1024;
 inline constexpr u32 kUserAuthResetCoordinatorRequestBytes = 72 * 1024;
-inline constexpr u32 kUserAuthResetCoordinatorSecretBytes = 104 * 1024;
+inline constexpr u32 kUserAuthResetCoordinatorSecretBytes = 103 * 1024;
 inline constexpr u32 kUserAuthCoordinatorMaximumTokenBytes = kAccountProfileMaximumCredentialBytes;
 
 enum class UserAuthCoordinatorPhase : u8 {
