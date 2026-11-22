@@ -164,9 +164,8 @@ __declspec(noinline) Settled settle(Defer kind,u8 value,B b,ConstSlice<u32> text
     return {b==B::nu?u8{0}:value,Defer::none};
 }
 }
-bool unicode_line_breaks(ConstSlice<u32> text,Slice<u8> out) noexcept {
-    if((text.count&&!text.data)||!out.data||out.count<=text.count)return false;
-    if(!text.count){out[0]=0;return true;}
+void unicode_line_breaks(ConstSlice<u32> text,Slice<u8> out) noexcept {
+    if(!text.count){out[0]=0;return;}
     // One pass with constant state: each boundary is decided from the bases
     // before it, and a deferred one when the bases it reads have arrived.
     B a=sot,before=sot,nonspace=sot;u32 a_at=~0u,before_at=~0u,deferred=0;
@@ -215,6 +214,6 @@ bool unicode_line_breaks(ConstSlice<u32> text,Slice<u8> out) noexcept {
     // At eot LB15b and LB19a hold and LB15c fails; the others keep their fallback.
     const Defer last=static_cast<Defer>(carry&deferral);
     if(last==Defer::final_quote||last==Defer::quote||last==Defer::decimal)out[deferred]=0;
-    out[text.count]=in(hard,a)?2:1;return true;
+    out[text.count]=in(hard,a)?2:1;
 }
 }

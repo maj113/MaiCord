@@ -53,6 +53,6 @@ SfntStatus sfnt_syllabic_run(SfntSyllabicScript,const SfntShapePlan&,const SfntC
 // The cluster starts sfnt_syllabic_run forms (1 at the first scalar of each cluster, 0 elsewhere) for a run of scalars
 // in a font that maps every character: full decomposition and recomposition, syllables from the shaper's grammar,
 // and no cluster for a syllable that begins inside a grapheme. HarfBuzz's unsafe-to-break flags in a font without
-// layout tables give the same starts. At most 256 scalars; 16 work units each.
-SfntStatus sfnt_syllabic_boundaries(SfntSyllabicScript,ConstSlice<u32> scalars,Slice<u8> output,u64 work_limit=1000000) noexcept;
+// layout tables give the same starts. At most 256 valid scalars, an output of one byte each.
+SfntStatus sfnt_syllabic_boundaries(SfntSyllabicScript,ConstSlice<u32> scalars,Slice<u8> output) noexcept;
 }

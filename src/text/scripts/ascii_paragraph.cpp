@@ -76,7 +76,7 @@ void native_ascii_paragraph_flags(Utf8View text,Slice<NativeParagraphCluster> cl
 }
 SfntStatus native_line_trim_cut(ConstSlice<NativeParagraphCluster> clusters,float width,float extent,
     float box,float sign_width,bool force,ConstSlice<float> tabs,NativeLineTrimCut* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if((clusters.count&&!clusters.data)||(tabs.count&&!tabs.data)||!is_finite(width)||width<0||!is_finite(extent)||extent<0||
         !is_finite(box)||box<=0||!is_finite(sign_width)||sign_width<0)return SfntStatus::invalid_input;
     u32 tab_count=0;
@@ -109,7 +109,7 @@ SfntStatus native_line_trim_cut(ConstSlice<NativeParagraphCluster> clusters,floa
 }
 SfntStatus native_ascii_paragraph_shape(const NativeRunPlanStore& store,NativeRunPlanHandle plan,Utf8View input,bool independent,float em,
     const NativeAsciiParagraphStorage& s,NativeParagraphShape* output,float trailing_spacing) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(input.bytes>65535)return SfntStatus::resource_limit;
     if((input.bytes&&!input.data)||(s.source_glyphs.count&&!s.source_glyphs.data)||(s.clusters.count&&!s.clusters.data)||
        (s.glyphs.count&&!s.glyphs.data)||(s.placements.count&&!s.placements.data))return SfntStatus::invalid_input;
@@ -133,7 +133,7 @@ SfntStatus native_ascii_paragraph_shape(const NativeRunPlanStore& store,NativeRu
 namespace {
 SfntStatus paragraph_layout(const NativeParagraphShape& shape,ConstSlice<NativeParagraphCluster> clusters,
     ConstSlice<SfntPlacement> placements,float width,float stop,bool wrap,Slice<NativeParagraphRun> runs,NativeParagraphLayout* output,NativeParagraphHitStorage* hits,ConstSlice<SfntFontLineParts> styles,Slice<NativeParagraphLine> lines,NativeParagraphLineSink sink,float trimming_height,Slice<NativeParagraphLineFit> fit) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(hits){if(!hits->output)return SfntStatus::invalid_input;reset_value(&(*hits->output));
         if((hits->clusters.count&&!hits->clusters.data)||(hits->lines.count&&!hits->lines.data)||(hits->advances.count&&!hits->advances.data))return SfntStatus::invalid_input;}
     if(!is_finite(trimming_height)||trimming_height<0||(trimming_height&&hits))return SfntStatus::invalid_input;
@@ -248,7 +248,7 @@ SfntStatus native_prepared_paragraph_layout(const NativeParagraphShape& shape,Co
 }
 SfntStatus native_prepared_styled_paragraph_layout(const NativeParagraphShape& shape,ConstSlice<NativeParagraphCluster> clusters,
     ConstSlice<SfntPlacement> placements,ConstSlice<SfntFontLineParts> styles,float width,float stop,bool wrap,Slice<NativeParagraphRun> runs,NativeParagraphLayout* output,Slice<NativeParagraphLine> lines,NativeParagraphHitStorage* hits,NativeParagraphLineSink sink,float trimming_height,Slice<NativeParagraphLineFit> fit) noexcept {
-    if(!styles.count){if(output)reset_value(output);return SfntStatus::invalid_input;}
+    if(!styles.count){reset_value(output);return SfntStatus::invalid_input;}
     return paragraph_layout(shape,clusters,placements,width,stop,wrap,runs,output,hits,styles,lines,sink,trimming_height,fit);
 }
 }

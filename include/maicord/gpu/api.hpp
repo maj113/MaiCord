@@ -274,7 +274,7 @@ MAICORD_GPU_INLINE void gpu_clear_rtv(GpuContext* context, GpuRtv* target, const
 // Clears only `rectangle` (D3D11 ClearView), ignoring the scissor.
 MAICORD_GPU_INLINE void gpu_clear_uav_rect(GpuContext1* context, GpuUav* target, const float rgba[4],
                                            const GpuRect& rectangle);
-// Replaces the whole contents of a default-usage constant buffer from `bytes` bytes.
+// Replaces the whole contents of a default-usage constant buffer from `bytes` bytes, the size it was made with.
 MAICORD_GPU_INLINE void gpu_update_buffer(GpuContext* context, GpuBuffer* buffer, const void* data, u32 bytes);
 // Write-only mapping of a dynamic buffer: the whole buffer for discard, which keeps no old contents, or for
 // no_overwrite, which promises the GPU does not read the bytes written. Null on failure.

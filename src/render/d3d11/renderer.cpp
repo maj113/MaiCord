@@ -710,7 +710,7 @@ void renderer_text_measure_failures_settled() noexcept {
 }
 
 bool renderer_measure_message_composer(D3D11Renderer* renderer, float* preferred_height) noexcept {
-    if (!preferred_height || !renderer->message_composer_scene ||
+    if (!renderer->message_composer_scene ||
         !d3d11_renderer_measure_composer_edit(renderer))
         return false;
     *preferred_height = message_composer_scene_measured_height(*renderer->message_composer_scene,

@@ -18,7 +18,7 @@ inline SfntStatus mark_sets(const SfntGdef& gdef,ConstSlice<u8>* table,u16* coun
 }
 }
 SfntStatus sfnt_gdef_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntGdef* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!bytes.data || !glyph_limit || glyph_limit>65536)return SfntStatus::invalid_input;
     if(!span(bytes,0,4))return SfntStatus::truncated;const u16 major=r16(bytes,0),minor=r16(bytes,2);
     if(major!=1 || (minor!=0 && minor!=2 && minor!=3))return SfntStatus::unsupported;
@@ -39,17 +39,17 @@ SfntStatus sfnt_gdef_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntGdef* output)
 SfntGlyphClass sfnt_gdef_glyph_class(const SfntGdef& gdef,u16 glyph) noexcept {return static_cast<SfntGlyphClass>(sfnt_class_value(gdef.glyph_classes,glyph));}
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 SfntStatus sfnt_gdef_mark_set(const SfntGdef& gdef,u16 index,SfntCoverage* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);ConstSlice<u8> table{};u16 count=0;auto status=mark_sets(gdef,&table,&count);if(status!=SfntStatus::ok)return status;
+    reset_value(output);ConstSlice<u8> table{};u16 count=0;auto status=mark_sets(gdef,&table,&count);if(status!=SfntStatus::ok)return status;
     if(index>=count)return SfntStatus::glyph_out_of_range;ConstSlice<u8> data{};status=tail(table,byte_load_be32(table.data+4+static_cast<u32>(index)*4),4+static_cast<u32>(count)*4,&data);if(status!=SfntStatus::ok)return status;
     return sfnt_coverage_open(data,gdef.glyph_limit,output);
 }
 SfntStatus sfnt_gdef_variation_store(const SfntGdef& gdef,ItemVariationStore* output,u32 work_limit) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!gdef.table.data || gdef.minor_version<3)return SfntStatus::missing_table;
+    reset_value(output);if(!gdef.table.data || gdef.minor_version<3)return SfntStatus::missing_table;
     const u32 offset=byte_load_be32(gdef.table.data+14);if(!offset)return SfntStatus::missing_table;
     return item_variation_store_open(gdef.table,offset,output,work_limit);
 }
 SfntStatus sfnt_lookup_filter_prepare(const SfntGdef& gdef,u16 flags,u16 mark_set,SfntLookupFilter* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(flags&0x00e0)return SfntStatus::unsupported;
+    reset_value(output);if(flags&0x00e0)return SfntStatus::unsupported;
     SfntLookupFilter result{{},flags};if(flags&0x10){SfntCoverage coverage{};const auto status=sfnt_gdef_mark_set(gdef,mark_set,&coverage);if(status!=SfntStatus::ok)return status;
         result.mark_records=coverage.records;result.mark_format=coverage.format;result.mark_count=coverage.record_count;}
     *output=result;return SfntStatus::ok;

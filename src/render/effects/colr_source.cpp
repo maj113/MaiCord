@@ -185,21 +185,21 @@ bool child(ColrNativeSource& s,u32 index,ColrPaintElement* out) noexcept {
     }
     ++s.depth;return resolve(s,frame,raw,out);
 }
-bool first(void* context,ColrPaintElement* out) noexcept {auto& s=*static_cast<ColrNativeSource*>(context);return s.status==SfntStatus::ok && child(s,0,out);}
+// The callbacks follow colr_program_build's walk: it calls them only after a successful colr_source_begin, stops on
+// the first false, and asks for stops only of the gradient it was just given, with that gradient's stop count.
+bool first(void* context,ColrPaintElement* out) noexcept {return child(*static_cast<ColrNativeSource*>(context),0,out);}
 bool next(void* context,ColrPaintElement* out) noexcept {
-    auto& s=*static_cast<ColrNativeSource*>(context);if(s.status!=SfntStatus::ok || !s.depth)return false;
+    auto& s=*static_cast<ColrNativeSource*>(context);if(!s.depth)return false;
     const u32 index=s.frames[s.depth].child_index+1;--s.depth;return child(s,index,out);
 }
-bool parent(void* context) noexcept {auto& s=*static_cast<ColrNativeSource*>(context);if(s.status!=SfntStatus::ok || !s.depth)return false;--s.depth;return true;}
+bool parent(void* context) noexcept {auto& s=*static_cast<ColrNativeSource*>(context);if(!s.depth)return false;--s.depth;return true;}
 bool stops(void* context,Slice<ColrGradientStop> output) noexcept {
-    auto& s=*static_cast<ColrNativeSource*>(context);if(s.status!=SfntStatus::ok)return false;
+    auto& s=*static_cast<ColrNativeSource*>(context);
     const auto& frame=s.frames[s.depth];
-    if(frame.format<4 || frame.format>9)return failed(s,SfntStatus::invalid_input);
     // The immutable font's complete line was validated when this leaf was
     // entered. Reuse its count instead of reconstructing and decoding a paint.
     const ColrColorLine line{{s.font->table.data+frame.color_line+3,frame.stop_count*(frame.variable?10u:6u)},
         static_cast<u16>(frame.stop_count),s.font->table[frame.color_line],frame.variable};
-    if(output.count!=line.count || !output.data)return failed(s,SfntStatus::invalid_input);
     if(s.work<line.count)return failed(s,SfntStatus::resource_limit);s.work-=line.count;
     if(line.count>s.stop_storage.count && s.stop_arena) {
         arena_reset(s.stop_arena);
@@ -212,7 +212,7 @@ bool stops(void* context,Slice<ColrGradientStop> output) noexcept {
     return true;
 }
 bool outline(void* context,u16 glyph,GlyphOutline* output) noexcept {
-    auto& s=*static_cast<ColrNativeSource*>(context);return s.status==SfntStatus::ok && s.outline_provider(s.outline_context,glyph,output);
+    auto& s=*static_cast<ColrNativeSource*>(context);return s.outline_provider(s.outline_context,glyph,output);
 }
 u32 outline_capacity(void* context,u16 glyph) noexcept {
     const auto& s=*static_cast<const ColrNativeSource*>(context);
@@ -221,7 +221,6 @@ u32 outline_capacity(void* context,u16 glyph) noexcept {
 #pragma float_control(pop)
 }
 SfntStatus colr_source_begin(ColrNativeSource* source,u16 glyph,u32 work,ColrPaintElement* root,ColrRect* clip,ColrPaintSource* callbacks) noexcept {
-    if(!source || !root || !clip || !callbacks)return SfntStatus::invalid_input;
     auto& s=*source;reset_value(root);reset_value(clip);reset_value(callbacks);s.status=SfntStatus::ok;s.depth=0;s.work=work;s.uses_foreground=false;
     if(!s.font || !s.variation || !s.frames.count || !s.frames.data || !s.outline_provider || !(s.inverse_em>0) || s.palette>=s.font->palette.palette_count)return s.status=SfntStatus::invalid_input;
     ColrSourceFrame frame{};ColrPaint raw;u32 offset=0;auto status=colr_base_paint(*s.font,glyph,&offset);

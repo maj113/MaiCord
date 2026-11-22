@@ -41,7 +41,7 @@ SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& 
 // affected values and translations are bounded integers; anything outside that
 // range executes eagerly. Flush it before any other position read or write and
 // before using the result; forward and discontinuous calls flush automatically.
-// No extra per-glyph storage.
+// No extra per-glyph storage. Runs under 32 glyphs cannot amortize the flush: pass none.
 SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,
     Slice<SfntPosition> positions,u32 selected,u32 input_end,bool rtl,
     const SfntPositionInstance& instance,Slice<SfntCursiveChainNode> chains,SfntCursiveExecution* result,

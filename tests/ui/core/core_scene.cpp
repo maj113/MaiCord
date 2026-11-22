@@ -3224,9 +3224,6 @@ void test_glyph_atlas_allocator() noexcept {
     expect(glyph_atlas_initialize(&atlas, 64, 32, 1, Slice<GlyphAtlasEntry>{entries, 8},
                                   Slice<GlyphAtlasRow>{rows, 4}),
            "glyph_atlas_initialize");
-    expect(!glyph_atlas_initialize(nullptr, 64, 32, 1, Slice<GlyphAtlasEntry>{entries, 8},
-                                   Slice<GlyphAtlasRow>{rows, 4}),
-           "glyph_atlas_reject_null");
 
     const GlyphAtlasAllocation first = glyph_atlas_allocate_unique(&atlas, 101, 10, 10);
     const GlyphAtlasAllocation second = glyph_atlas_allocate_unique(&atlas, 202, 10, 10);

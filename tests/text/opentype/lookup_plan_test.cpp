@@ -70,7 +70,7 @@ bool boundaries() noexcept {
             }
         }
     }
-    if(sfnt_latin_lookup_plan({}, {},false,{},{},&r)!=SfntStatus::invalid_input || sfnt_latin_lookup_plan(l,{},false,{nullptr,1},{},&r)!=SfntStatus::invalid_input || sfnt_latin_lookup_plan(l,{},false,{},{nullptr,1},&r)!=SfntStatus::invalid_input || sfnt_latin_lookup_plan(l,{},false,{},{},nullptr)!=SfntStatus::invalid_input)return false;
+    if(sfnt_latin_lookup_plan({}, {},false,{},{},&r)!=SfntStatus::invalid_input || sfnt_latin_lookup_plan(l,{},false,{nullptr,1},{},&r)!=SfntStatus::invalid_input || sfnt_latin_lookup_plan(l,{},false,{},{nullptr,1},&r)!=SfntStatus::invalid_input)return false;
     return true;
 }
 bool corpus(ConstSlice<u8> bytes) noexcept {

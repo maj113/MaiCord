@@ -21,7 +21,7 @@ __attribute__((minsize)) i32 varied(i32 base,u32 tag,const SfntMvar* mvar,ConstS
 // Once per plan: compiled for size. The line geometry below runs per line and stays /O2.
 __attribute__((minsize)) SfntStatus sfnt_font_layout_metrics(const SfntFace& face,const SfntHorizontalMetrics& h,
     const SfntMvar* mvar,ConstSlice<double> scalars,SfntFontLayoutMetrics* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!h.units_per_em)return SfntStatus::invalid_input;
+    reset_value(output);if(!h.units_per_em)return SfntStatus::invalid_input;
     ConstSlice<u8> os2{},post{};auto status=sfnt_table(face,sfnt_tag('O','S','/','2'),&os2);if(status!=SfntStatus::ok)return status;
     status=sfnt_table(face,sfnt_tag('p','o','s','t'),&post);if(status!=SfntStatus::ok)return status;
     if(os2.count<78||post.count<12)return SfntStatus::truncated;
@@ -54,7 +54,7 @@ __attribute__((minsize)) SfntStatus sfnt_font_layout_metrics(const SfntFace& fac
     return SfntStatus::ok;
 }
 SfntStatus sfnt_font_line_parts(const SfntFontLayoutMetrics& m,float em,SfntFontLineParts* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);u32 bits=0;copy_bytes(&bits,&em,4);
+    reset_value(output);u32 bits=0;copy_bytes(&bits,&em,4);
     if(!m.units_per_em||!bits||bits>=0x7f800000u||em>65536)return SfntStatus::invalid_input;
     // Default layout rounds the product before dividing. Keep this order at
     // fractional heading sizes even under /fp:fast; double scaling differs.
@@ -62,7 +62,7 @@ SfntStatus sfnt_font_line_parts(const SfntFontLayoutMetrics& m,float em,SfntFont
     *output={scaled(static_cast<i32>(m.ascent)+m.line_gap),scaled(m.descent)};return SfntStatus::ok;
 }
 SfntStatus sfnt_single_font_line(const SfntFontLayoutMetrics& m,float em,SfntSingleFontLine* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);SfntFontLineParts parts{};const auto status=sfnt_font_line_parts(m,em,&parts);if(status!=SfntStatus::ok)return status;
+    reset_value(output);SfntFontLineParts parts{};const auto status=sfnt_font_line_parts(m,em,&parts);if(status!=SfntStatus::ok)return status;
     *output={layout_add(parts.baseline,parts.descent),parts.baseline};return SfntStatus::ok;
 }
 }

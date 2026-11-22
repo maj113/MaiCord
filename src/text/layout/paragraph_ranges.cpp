@@ -29,7 +29,7 @@ void run_part(const NativeParagraphGeometry& g,const NativeParagraphLine& line,c
 }
 }
 SfntStatus native_paragraph_geometry_visit(const NativeParagraphGeometry& g,u32 first,u32 length,NativeParagraphRangeSink sink,u32* count,bool terminal) noexcept {
-    if(!count)return SfntStatus::invalid_input;*count=0;
+    *count=0;
     if(!g.lines.count||!g.lines.data||!g.runs.count||!g.runs.data||!g.clusters.count||!g.clusters.data||(g.placements.count&&!g.placements.data)||
        g.source_units>65535||first>g.source_units||length>g.source_units-first)return SfntStatus::invalid_input;
     const u32 begin=source_at(g,cluster_at(g,first)),end=source_at(g,cluster_at(g,first+length));

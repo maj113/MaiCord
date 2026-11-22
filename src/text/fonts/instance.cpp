@@ -8,7 +8,6 @@
 namespace maicord {namespace {
 using namespace sfnt_read;
 NativeFontResult result(NativeFontError error,SfntStatus font=SfntStatus::ok,u32 native=0) noexcept {return {error,font,native};}
-bool valid(const NativeFontInstanceStore& s) noexcept {return s.fonts&&s.slots.data&&s.slots.count;}
 NativeFontInstanceSlot* slot(const NativeFontInstanceStore& s,NativeFontInstanceHandle h) noexcept {
     if(!h.slot||h.slot>s.slots.count||!h.generation)return nullptr;
     auto& p=s.slots[h.slot-1];return p.references&&p.generation==h.generation?&p:nullptr;
@@ -24,7 +23,7 @@ __attribute__((minsize)) NativeFontResult native_font_instance_acquire(NativeFon
     ConstSlice<FontAxisSetting> settings,bool instructions,NativeFontPrepareScratch scratch,
     NativeFontInstanceHandle* output,u32 work,u32* used,usize state_limit) noexcept {
     WorkReport report{work,work,used};
-    if(output)reset_value(output);if(!store||!valid(*store)||!output)return result(NativeFontError::invalid_input);
+    reset_value(output);
     const auto* face=native_font_get(*store->fonts,handle);if(!face)return result(NativeFontError::invalid_input);
     const auto& geometry=face->geometry;const u32 axes=geometry.axes.axis_count;u32 child=0;
     if(instructions && geometry.kind!=FontGeometryKind::truetype)return result(NativeFontError::font,SfntStatus::unsupported);

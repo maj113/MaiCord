@@ -24,9 +24,9 @@ struct RegionalFlagRange { u32 first_byte, end_byte; u16 sequence; };
 bool regional_flag_next(Utf8View text, u32* cursor, RegionalFlagRange* range) noexcept;
 
 // Writes the pinned upstream prefix and canonical lowercase Unicode filename.
-// TargetBytes is maximum capacity; RI targets are shorter than subdivisions.
+// `output` holds kRegionalFlagSvgTargetBytes; RI targets are shorter than subdivisions.
 // No caller-controlled URL, revision, asset hash or path is accepted.
-// Returns zero without writing when identity/capacity is invalid.
+// Returns zero without writing when the sequence is not a known flag.
 u32 regional_flag_svg_target(u16 sequence, Slice<char> output) noexcept;
 
 

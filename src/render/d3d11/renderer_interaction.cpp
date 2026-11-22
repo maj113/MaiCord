@@ -63,7 +63,7 @@ bool renderer_bind_poll_voters_scene(D3D11Renderer* renderer, const UiPollVoters
 }
 
 bool renderer_bind_ui_scene(D3D11Renderer* renderer, const UiScene* scene) noexcept {
-    if (!scene || scene->count == 0 || !ui_scene_node(*scene, UiSemantic::root)) {
+    if (scene->count == 0 || !ui_scene_node(*scene, UiSemantic::root)) {
         return false;
     }
     renderer->ui_scene = scene;
@@ -81,7 +81,7 @@ bool renderer_bind_thread_header(D3D11Renderer* renderer, const UiThreadHeader* 
 }
 
 bool renderer_bind_guild_rail_scene(D3D11Renderer* renderer, const GuildRailScene* scene) noexcept {
-    if (!scene || !scene->rows.data || !scene->widgets.storage.data) {
+    if (!scene->rows.data || !scene->widgets.storage.data) {
         return false;
     }
     renderer->guild_rail_scene = scene;
@@ -90,7 +90,7 @@ bool renderer_bind_guild_rail_scene(D3D11Renderer* renderer, const GuildRailScen
 
 bool renderer_bind_shell_navigation_scene(D3D11Renderer* renderer,
                                           const ShellNavigationScene* scene) noexcept {
-    if (!scene || !scene->rows.data || !scene->widgets.storage.data) {
+    if (!scene->rows.data || !scene->widgets.storage.data) {
         return false;
     }
     renderer->shell_navigation_scene = scene;
@@ -98,7 +98,7 @@ bool renderer_bind_shell_navigation_scene(D3D11Renderer* renderer,
 }
 
 bool renderer_bind_message_scene(D3D11Renderer* renderer, const MessageScene* scene) noexcept {
-    if (!scene || !scene->timeline || !scene->rows.data || !scene->widgets.storage.data) {
+    if (!scene->timeline || !scene->rows.data || !scene->widgets.storage.data) {
         return false;
     }
     renderer->message_scene = scene;
@@ -106,16 +106,13 @@ bool renderer_bind_message_scene(D3D11Renderer* renderer, const MessageScene* sc
 }
 
 bool renderer_bind_message_action_bar(D3D11Renderer* renderer, const MessageActionBar* bar) noexcept {
-    if (!bar) {
-        return false;
-    }
     renderer->message_action_bar = bar;
     return true;
 }
 
 bool renderer_bind_message_composer_scene(D3D11Renderer* renderer,
                                           const MessageComposerScene* scene) noexcept {
-    if (!scene || !scene->widgets.storage.data) {
+    if (!scene->widgets.storage.data) {
         return false;
     }
     if (renderer->message_composer_scene != scene)
@@ -125,7 +122,7 @@ bool renderer_bind_message_composer_scene(D3D11Renderer* renderer,
 }
 
 bool renderer_bind_member_list_scene(D3D11Renderer* renderer, const MemberListScene* scene) noexcept {
-    if (!scene || !scene->rows.data || !scene->widgets.storage.data) {
+    if (!scene->rows.data || !scene->widgets.storage.data) {
         return false;
     }
     renderer->member_list_scene = scene;
@@ -142,9 +139,6 @@ bool renderer_bind_popup_scene(D3D11Renderer* renderer, const PopupScene* scene)
 }
 
 bool renderer_bind_reaction_viewer(D3D11Renderer* renderer, const ReactionViewer* viewer) noexcept {
-    if (!viewer) {
-        return false;
-    }
     renderer->reaction_viewer = viewer;
     return true;
 }
@@ -182,7 +176,7 @@ void renderer_bind_settings_scene(D3D11Renderer* renderer, const UiSettingsScene
 
 bool renderer_bind_message_text_presentation(D3D11Renderer* renderer,
                                              const MessageTextPresentation* presentation) noexcept {
-    if (!presentation || !presentation->commands.data || !presentation->measurements.data ||
+    if (!presentation->commands.data || !presentation->measurements.data ||
         renderer->message_text) {
         return false;
     }
@@ -224,7 +218,7 @@ bool renderer_bind_search_message_text_presentation(D3D11Renderer* renderer,
                                                     const MessageTextPresentation* presentation,
                                                     const UserStore* users,
                                                     UiTextMeasureCache* cache) noexcept {
-    if (!presentation || !presentation->commands.data || !presentation->measurements.data || !users || !cache)
+    if (!presentation->commands.data || !presentation->measurements.data)
         return false;
     if (renderer->search_message_text == presentation && renderer->search_message_users == users &&
         renderer->search_message_measure_cache == cache)
@@ -250,7 +244,7 @@ void renderer_unbind_search_message_text_presentation(D3D11Renderer* renderer) n
 bool renderer_login_edit_hit_test(const D3D11Renderer& renderer, const UiRect& text_rectangle,
                                   Utf8View visible_text, i32 client_x_pixels, i32 client_y_pixels,
                                   u32* codepoint) noexcept {
-    if (!codepoint || !renderer.login_edit.active || renderer.dpi == 0 ||
+    if (!renderer.login_edit.active || renderer.dpi == 0 ||
         !ui_rect_has_area(text_rectangle) || (!visible_text.data && visible_text.bytes != 0)) {
         return false;
     }

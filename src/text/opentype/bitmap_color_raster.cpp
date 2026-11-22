@@ -175,10 +175,8 @@ u32 round_channel(float value, u32 limit) noexcept {
 
 SfntStatus bitmap_color_glyph_build(const CbdtFont& font, u16 glyph, float pixels_per_em, Arena* arena,
                                     BitmapColorGlyph* output) noexcept {
-    if (!output)
-        return SfntStatus::invalid_input;
     reset_value(output);
-    if (!arena || !arena->base || !(pixels_per_em > 0.0f) || pixels_per_em > 4096.0f)
+    if (!arena->base || !(pixels_per_em > 0.0f) || pixels_per_em > 4096.0f)
         return SfntStatus::invalid_input;
     // The selection already located the image; the strike gives its size.
     u32 strike_index = 0;

@@ -9,8 +9,7 @@ namespace maicord {
 // Byte i describes the boundary before scalar i and byte count the end of
 // text, which is mandatory only after a hard break. Values: 0 prohibited, 1
 // allowed, 2 mandatory.
-// Needs count+1 output bytes, disjoint from the input (the rest is untouched);
-// null input or insufficient output fail before any write. The scalars must be
-// valid Unicode scalar values, as a UTF decoder yields them.
-bool unicode_line_breaks(ConstSlice<u32>,Slice<u8>) noexcept;
+// Needs count+1 output bytes, disjoint from the input (the rest is untouched).
+// The scalars must be valid Unicode scalar values, as a UTF decoder yields them.
+void unicode_line_breaks(ConstSlice<u32>,Slice<u8>) noexcept;
 }

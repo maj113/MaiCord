@@ -11,7 +11,7 @@ bool sfnt_arabic_combining_mark(u32 scalar) noexcept;
 // leading modifier combining marks of classes 220 and 230 moved to the front
 // (reorder_marks_arabic). Writes a permutation of scalar indices; the text itself is
 // not changed. Marks of equal class keep their order; a longer run keeps its order.
-// Input and output must be disjoint; all checks run before any write. Work
-// reserves 16 units per scalar.
+// Input (valid scalars) and output must be disjoint; all checks run before any
+// write. Work reserves 16 units per scalar.
 SfntStatus sfnt_arabic_mark_order(ConstSlice<u32> scalars,Slice<u32> order,u64 work_limit=1000000) noexcept;
 } // namespace maicord

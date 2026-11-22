@@ -276,7 +276,7 @@ SfntStatus finish(void* opaque,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u
 SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,const SfntCmap& cmap,Utf8View text,ConstSlice<u8> forms,
     float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,ConstSlice<u64> per_syllable,
     const SfntShapeLimits& limits,bool rtl,float trailing_spacing) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
+    reset_value(result);
     const auto* info=sfnt_indic_script(profile);
     if(!info||(text.bytes&&!text.data)||forms.count!=128||!forms.data||(steps.count&&!steps.data)||!plan.advance||!plan.units_per_em||!(em>0)||em>65536)return SfntStatus::invalid_input;
     if(!sfnt_trailing_spacing_valid(trailing_spacing))return SfntStatus::invalid_input;
@@ -364,7 +364,7 @@ SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,con
 }
 SfntStatus indic_owned_run(SfntIndicProfile profile,const NativeRunPlanStore& store,const NativeIndicFormPlan& prepared,Utf8View text,float em,
     const SfntShapeStorage& storage,SfntShapeRunResult* result,const SfntShapeLimits& limits,bool rtl,float trailing_spacing) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
+    reset_value(result);
     if(!sfnt_indic_script(profile)||prepared.indic.profile!=profile)return SfntStatus::invalid_input;
     const auto* parent=native_run_plan_get(store,prepared.indic.run);if(!parent||!prepared.indic.cmap)return SfntStatus::invalid_input;
     SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.indic.positioning_program,{},prepared.indic.positioning());
@@ -379,7 +379,7 @@ SfntStatus indic_owned_run(SfntIndicProfile profile,const NativeRunPlanStore& st
 }
 SfntStatus indic_form_paragraph(SfntIndicProfile profile,const NativeRunPlanStore& store,const NativeIndicFormPlan& plan,
     Utf8View text,float em,const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,float trailing_spacing,bool rtl) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!sfnt_indic_script(profile)||plan.indic.profile!=profile)return SfntStatus::invalid_input;
     return script_paragraph_shape(store,plan,plan.indic.run,text,em,s,boundaries,output,trailing_spacing,rtl,
         [](const NativeRunPlanStore& store,const NativeIndicFormPlan& plan,Utf8View input,float size,const NativeAsciiStorage& storage,NativeAsciiResult* result,float spacing,bool rtl) noexcept {

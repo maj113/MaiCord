@@ -48,7 +48,6 @@ bool input_validation() noexcept {
             const auto error=!bytes||units?TextShapeError::none:TextShapeError::invalid_utf8;
             CHECK(check({input,bytes},error,units>0?static_cast<u32>(units):0));
         }
-        CHECK(check({nullptr,1},TextShapeError::invalid_input,0));
         // The output's cluster capacity bounds the UTF-16 units a shape takes.
         const auto mixed=utf8_literal("A\xc3\xa9\xe6\xb0\xb4\xf0\x9f\x98\x80");
         for(u32 capacity=1;capacity<=6;++capacity){TextGlyph glyphs[16];TextRun runs[4];u16 clusters[6];ShapedText bounded{};
@@ -290,7 +289,7 @@ bool retained_run_lifetime() noexcept {
     text_system_release(&transient);
     CHECK(native_font_session_stats(observer).references==2&&native_font_run_get(*native_font_session_runs(observer),handle));
     CHECK(arena_initialize(&scratch,4*1024*1024,0,4096));
-    CHECK(native_font_run_prepare(native_font_session_runs(observer),handle,&scratch,&outlined).ok());
+    bool oblique=false,bold=false;CHECK(native_font_run_prepare(native_font_session_runs(observer),handle,&scratch,&outlined,&oblique,&bold).ok());
     shaped_text_reset(&native_output.text);
     CHECK(!native_output.text.native_fonts()&&!native_font_run_get(*native_font_session_runs(observer),handle));
     CHECK(native_font_session_stats(observer).references==1&&native_font_session_stats(observer).instances==1&&native_font_instance_get(*native_font_session_instances(observer),outlined));

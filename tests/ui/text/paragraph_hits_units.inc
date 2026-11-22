@@ -63,9 +63,6 @@ inline bool hit_guards() noexcept {
     for(u32 bits:invalid_bits){float bad=0;copy_bytes(&bad,&bits,4);CHECK(build(&storage,bad)==SfntStatus::invalid_input&&!hits.lines.count);}
     CHECK(build(&storage)==SfntStatus::ok);NativeParagraphHitMetric metric{};NativeParagraphHitPoint point{};float x=0;u32 count=0;
     CHECK(native_paragraph_hit_position(hits,4,false,&metric,&x)==SfntStatus::invalid_input);
-    CHECK(native_paragraph_hit_position(hits,0,false,nullptr,&x)==SfntStatus::invalid_input);
-    CHECK(native_paragraph_hit_position(hits,0,false,&metric,nullptr)==SfntStatus::invalid_input);
-    CHECK(native_paragraph_hit_point(hits,0,0,nullptr)==SfntStatus::invalid_input);
     CHECK(native_paragraph_hit_range(hits,0,4,0,0,{&metric,1},&count)==SfntStatus::invalid_input);
     CHECK(native_paragraph_hit_range(hits,0,1,0,0,{nullptr,1},&count)==SfntStatus::invalid_input);
     CHECK(native_paragraph_hit_range(hits,0,1,0,0,{&metric,1},nullptr)==SfntStatus::invalid_input);

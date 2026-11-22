@@ -12,7 +12,7 @@
 namespace maicord {
 bool text_composer_emoji_rectangle(const TextEditLayoutOwner& owner,
     const MessageComposerScene& scene, u32 index, UiRect* rectangle, UiRect* clip) noexcept {
-    if (!rectangle || !clip || !scene.active || !owner.active || index >= scene.projection_span_count) return false;
+    if (!scene.active || !owner.active || index >= scene.projection_span_count) return false;
     const auto& span = scene.projection_spans[index];
     const auto* field = message_composer_scene_layout_node(scene, MessageComposerControl::edit);
     const bool game = span.kind == MessageComposerProjectionKind::game;
@@ -212,7 +212,7 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner,
                               const TextEditLayoutInput& input,
                               const TextSystem& text_system) noexcept {
     const u64 format = native_text_format_identity(text_system);
-    if (!owner || !format ||
+    if (!format ||
         !owner->selections || owner->selection_capacity == 0 ||
         owner->selection_capacity > kTextEditSelectionCapacity ||
         (!input.text.data && input.text.bytes != 0) ||
@@ -220,8 +220,7 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner,
         input.width <= 0.0f || input.height <= 0.0f ||
         input.maximum_layout_height <= 0.0f || (input.options & ~kKnownOptions) != 0 ||
         input.styles.count > kTextStyleSpanMaximum || (!input.styles.data && input.styles.count)) {
-        if (owner)
-            text_edit_layout_invalidate(owner);
+        text_edit_layout_invalidate(owner);
         return false;
     }
     const u64 styles = style_signature(input.styles);
@@ -385,9 +384,6 @@ bool text_edit_layout_current_font(const TextEditLayoutOwner& owner,
 
 bool text_composer_layout_measure(TextEditLayoutOwner* owner, const MessageComposerScene* scene,
                                   const TextSystem& text_system) noexcept {
-    if (!owner) {
-        return false;
-    }
     if (!scene || !scene->active || !scene->model) {
         text_edit_layout_invalidate(owner);
         return true;
@@ -443,7 +439,7 @@ bool text_edit_layout_hit_test(const TextEditLayoutOwner& owner, float x, float 
 
 bool text_edit_layout_move_vertical(const TextEditLayoutOwner& owner, bool down,
                                     u32* utf16_position) noexcept {
-    if (!utf16_position || !owner.active) {
+    if (!owner.active) {
         return false;
     }
     if (owner.text_bytes == 0) {
@@ -489,7 +485,7 @@ bool text_edit_layout_pill_geometry(const TextEditLayoutOwner& owner, u32 first,
 }
 
 bool text_edit_layout_position_geometry(const TextEditLayoutOwner& owner,u32 position,TextEditMetric* metric) noexcept {
-    if(!metric||!owner.active||position>owner.utf16_units)return false;
+    if(!owner.active||position>owner.utf16_units)return false;
     if(!owner.text_bytes){*metric=owner.caret;return position==0;}
     float x=0,y=0;if(!position_metric(owner,position,&x,&y,metric))return false;
     metric->left=owner.origin_x+x;metric->top=owner.origin_y+y;metric->width=1;return true;
@@ -504,7 +500,7 @@ u32 text_edit_layout_line_count(const TextEditLayoutOwner& owner) noexcept {
 }
 
 bool text_edit_layout_scroll(TextEditLayoutOwner* owner, float delta) noexcept {
-    if (!owner || !owner->active || !ui_coordinate_valid(delta)) return false;
+    if (!owner->active || !ui_coordinate_valid(delta)) return false;
     const float next = minimum(maximum(0.0f, owner->scroll_y + delta), maximum(0.0f, owner->layout_height - owner->height));
     if (next == owner->scroll_y) return true;
     const float offset = owner->scroll_y - next;
@@ -549,9 +545,6 @@ void text_edit_layout_invalidate(TextEditLayoutOwner* owner) noexcept {
 }
 
 void text_edit_layout_release(TextEditLayoutOwner* owner) noexcept {
-    if (!owner) {
-        return;
-    }
     text_edit_layout_invalidate(owner);
     stable_storage_release(&owner->storage);
     owner->selections = nullptr;

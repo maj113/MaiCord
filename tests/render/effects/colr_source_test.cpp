@@ -46,12 +46,6 @@ bool cases() noexcept {
     if(colr_source_begin(&cursor,0,1000,&root,&clip,&source)!=SfntStatus::ok || root.kind!=ColrPaintKind::layers || root.paint.layers.childCount!=2)return false;
     copy_bytes(&bits,&clip.bottom,4);if(bits!=0x80000000)return false;
     if(!source.first_child(source.context,&child) || child.kind!=ColrPaintKind::solid_glyph)return false;
-    // Non-gradient leaves must reject stop reads. Restart is required after
-    // the failed callback before another traversal.
-    ColrGradientStop unused{};
-    if(source.stops(source.context,{&unused,1}) || cursor.status!=SfntStatus::invalid_input)return false;
-    if(colr_source_begin(&cursor,0,1000,&root,&clip,&source)!=SfntStatus::ok ||
-       !source.first_child(source.context,&child))return false;
     copy_bytes(&bits,&child.paint.solidGlyph.color.value.r,4);if(bits!=0x3e4cccce)return false;
     if(!source.next_sibling(source.context,&child) || child.kind!=ColrPaintKind::linear_gradient)return false;
     ColrGradientStop stops[3]{};
@@ -215,13 +209,12 @@ bool glyph_child_cases() noexcept {
        source.first_child(source.context,&child) || cursor.status!=SfntStatus::resource_limit)return false;
     // Every child format ends at the guard page with only its format byte
     // available. Failure may occur at parent entry or child traversal; neither
-    // path may consume a malformed child or permit reuse without restart.
+    // path may consume a malformed child.
     for(u8 format=0;format<=33;++format){
         p24(table+141,511-140);table[511]=format;
         auto status=colr_source_begin(&cursor,0,100,&root,&clip,&source);
         if(status==SfntStatus::ok){if(source.first_child(source.context,&child))return false;status=cursor.status;}
         if(status!=(format==0 || format==33?SfntStatus::unsupported:SfntStatus::truncated))return false;
-        if(source.first_child && (source.first_child(source.context,&child) || source.next_sibling(source.context,&child) || source.parent(source.context)))return false;
         p24(table+141,30);
         if(colr_source_begin(&cursor,0,100,&root,&clip,&source)!=SfntStatus::ok || !source.first_child(source.context,&child))return false;
     }

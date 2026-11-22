@@ -96,9 +96,7 @@ bool icon_atlas_stale(const IconAtlas& atlas, u32 dpi, float weight) noexcept {
 
 bool icon_atlas_resolve(IconAtlas* atlas, GpuContext* context, const PaintQuad* source,
                         PaintQuad* destination, u32 count, u32 dpi, float weight) noexcept {
-    if (!source || !destination)
-        return false;
-    if (!atlas || !context || dpi == 0) {
+    if (dpi == 0) {
         memmove(destination, source, static_cast<usize>(count) * sizeof(PaintQuad));
         return false;
     }

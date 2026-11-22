@@ -120,7 +120,7 @@ inline SfntStatus hebrew_mark_positioning(const NativeFontFace& font,bool* outpu
 }
 }
 SfntStatus native_alphabetic_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,u32 script,bool independent,Arena* state,Arena* scratch,NativeAlphabeticPlan* out,u32 work) noexcept {
-    if(!out)return SfntStatus::invalid_input;reset_value(out);
+    reset_value(out);
     if(script&&script!=sfnt_tag('l','a','t','n')&&!sfnt_alphabetic_script_supported(script))return SfntStatus::invalid_input;
     NativePlanSource source{};const auto found=native_plan_source(store,run,independent,state,scratch,source);if(found!=SfntStatus::ok)return found;
     const auto* parent=source.parent;const auto* instance=source.instance;const auto* font=source.font;

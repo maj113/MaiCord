@@ -260,7 +260,7 @@ struct Executor {
 }
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 SfntStatus sfnt_gsub_lookup_requirements(const SfntLayout& layout,u16 index,SfntGsubProgramRequirements* output,u32 budget) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(layout.kind!=SfntLayoutKind::substitution)return SfntStatus::invalid_input;
+    reset_value(output);if(layout.kind!=SfntLayoutKind::substitution)return SfntStatus::invalid_input;
     if(!budget)return SfntStatus::resource_limit;
     SfntLookup lookup{};auto s=sfnt_layout_lookup(layout,index,&lookup);if(s!=SfntStatus::ok)return s;
     SfntGsubProgramRequirements result{1,0,0,0};u64 work=budget-1;
@@ -280,7 +280,7 @@ SfntStatus sfnt_gsub_prepare_lookup(const SfntLayout& layout,u16 index,const Sfn
 }
 #pragma clang attribute pop
 SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,u32 start,u32 end,u32 alternate,SfntGsubExecutionScratch scratch,SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,SfntClusterMap* clusters,SfntComponentForest* components,u8 mask) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!buffer || (components && (!clusters || components->sealed)) || buffer->record_size!=(components?sizeof(SfntComponentGlyph):clusters?sizeof(SfntClusterGlyph):sizeof(SfntGsubGlyph)) || !filled(scratch.frames) || !filled(scratch.positions) || !filled(scratch.rebased) || !filled(scratch.consumed) || !filled(scratch.replacements) || !filled(scratch.component_journal) || scratch.positions.count>0x3fffffffu || scratch.rebased.count>0x3fffffffu || scratch.consumed.count>0x3fffffffu)return SfntStatus::invalid_input;
+    reset_value(output);if((components && (!clusters || components->sealed)) || buffer->record_size!=(components?sizeof(SfntComponentGlyph):clusters?sizeof(SfntClusterGlyph):sizeof(SfntGsubGlyph)) || !filled(scratch.frames) || !filled(scratch.positions) || !filled(scratch.rebased) || !filled(scratch.consumed) || !filled(scratch.replacements) || !filled(scratch.component_journal) || scratch.positions.count>0x3fffffffu || scratch.rebased.count>0x3fffffffu || scratch.consumed.count>0x3fffffffu)return SfntStatus::invalid_input;
     // Preparation rejects an index or directory it cannot resolve.
     const SfntGsubExecutableLookup* root=nullptr;const auto prepared=sfnt_gsub_lookup_prepare(program,lookup,&root);if(prepared!=SfntStatus::ok)return prepared;
     const auto s=sfnt_glyph_buffer_seek(buffer,buffer->gap_begin,0);if(s!=SfntStatus::ok)return s;
@@ -298,7 +298,7 @@ SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,Sf
 }
 SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,u32 start,u32 end,u32 alternate,SfntGsubExecutionScratch scratch,SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,SfntClusterMap* clusters,SfntComponentForest* components,u8 mask,ConstSlice<u32> segments) noexcept {
     if(!segments.count)return sfnt_gsub_execute_lookup(program,lookup,buffer,start,end,alternate,scratch,limits,output,clusters,components,mask);
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!segments.data||!clusters||segments.data[0])return SfntStatus::invalid_input;
     for(u32 i=0;i<segments.count;++i)if(segments.data[i]>=clusters->text_count||(i&&segments.data[i]<=segments.data[i-1]))return SfntStatus::invalid_input;
     // The plain entry over the empty range [start,start) validates the arguments and the run without

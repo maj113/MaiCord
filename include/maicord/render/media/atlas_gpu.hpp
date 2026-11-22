@@ -120,11 +120,12 @@ struct MediaAtlasGpuResult {
     }
 };
 
-// Creates the primary surface for `atlas`'s pages (rows are backed as the atlas allocates them).
+// Creates the primary surface for `atlas`'s pages (rows are backed as the atlas allocates them). `gpu` has no
+// surface yet. The calls below take a live device and context, an atlas and a valid key (the renderer checks them).
 MediaAtlasGpuResult media_atlas_gpu_initialize(
     MediaAtlasGpu* gpu, GpuDevice* device, const MediaAtlas& atlas) noexcept;
 // Adds a second surface that shares the decoder shaders, upload buffers
-// and workspaces, so large previews cannot evict small identity media.
+// and workspaces, so large previews cannot evict small identity media. The primary surface exists.
 MediaAtlasGpuResult media_atlas_gpu_initialize_preview(
     MediaAtlasGpu* gpu, GpuDevice* device, const MediaAtlas& atlas) noexcept;
 // Backs or returns the surface's rows to match the atlas's pages (after a trim).
@@ -135,7 +136,7 @@ bool media_atlas_gpu_sync(MediaAtlasGpu* gpu, GpuContext1* context, const MediaA
 bool media_atlas_gpu_select(MediaAtlasGpu* gpu, GpuContext1* context, const MediaAtlas& atlas, bool preview,
                             MediaAtlasResult* allocation) noexcept;
 // The straight RGBA8, PNG, JPEG and VP8 keyframe uploads target the primary
-// surface, or the preview surface (large-preview keys only) when `preview` is set.
+// surface, or the preview surface when `preview` is set (for large-preview keys only).
 MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device,
     GpuContext1* context, MediaAssetKey key, u16 width,

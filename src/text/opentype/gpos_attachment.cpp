@@ -46,20 +46,20 @@ SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGposAttachment* out,
 inline SfntAnchor anchor_view(const ConstSlice<u8>& parent,u32 field) noexcept {const u16 at=r16(parent,field);return at?SfntAnchor{slice(parent,at)}:SfntAnchor{};}
 }
 __attribute__((minsize)) SfntStatus sfnt_gpos_attachment_open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGposAttachment* output,u32 work,u32* used) noexcept {
-    const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;return open(bytes,type,limit,output,&work);
+    const WorkReport report{work,work,used};return open(bytes,type,limit,output,&work);
 }
 SfntStatus sfnt_gpos_cursive_anchors(const SfntGposAttachment& sub,u16 glyph,SfntGposCursiveAnchors* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(sub.type!=3)return SfntStatus::invalid_input;if(glyph>=sub.glyph_limit)return SfntStatus::glyph_out_of_range;
+    reset_value(output);if(sub.type!=3)return SfntStatus::invalid_input;if(glyph>=sub.glyph_limit)return SfntStatus::glyph_out_of_range;
     const u32 index=sfnt_coverage_index(sub.coverage[0],glyph);if(index==sfnt_not_covered)return SfntStatus::ok;
     *output={anchor_view(sub.arrays[0],6+index*4),anchor_view(sub.arrays[0],8+index*4),true};return SfntStatus::ok;
 }
 SfntStatus sfnt_gpos_mark_anchor(const SfntGposAttachment& sub,u16 glyph,SfntGposMarkAnchor* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(sub.type<4 || sub.type>6)return SfntStatus::invalid_input;if(glyph>=sub.glyph_limit)return SfntStatus::glyph_out_of_range;
+    reset_value(output);if(sub.type<4 || sub.type>6)return SfntStatus::invalid_input;if(glyph>=sub.glyph_limit)return SfntStatus::glyph_out_of_range;
     const u32 index=sfnt_coverage_index(sub.coverage[0],glyph);if(index==sfnt_not_covered)return SfntStatus::ok;
     *output={anchor_view(sub.arrays[0],4+index*4),r16(sub.arrays[0],2+index*4),true};return SfntStatus::ok;
 }
 SfntStatus sfnt_gpos_target_anchors(const SfntGposAttachment& sub,u16 glyph,SfntGposTargetAnchors* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(sub.type<4 || sub.type>6)return SfntStatus::invalid_input;if(glyph>=sub.glyph_limit)return SfntStatus::glyph_out_of_range;
+    reset_value(output);if(sub.type<4 || sub.type>6)return SfntStatus::invalid_input;if(glyph>=sub.glyph_limit)return SfntStatus::glyph_out_of_range;
     const u32 index=sfnt_coverage_index(sub.coverage[1],glyph);if(index==sfnt_not_covered)return SfntStatus::ok;
     SfntGposTargetAnchors result{};result.parent=sub.arrays[1];result.class_count=sub.class_count;result.covered=true;
     if(sub.type==5){result.parent=slice(result.parent,r16(result.parent,2+index*2));result.offset=2;result.component_count=r16(result.parent,0);}
@@ -67,7 +67,7 @@ SfntStatus sfnt_gpos_target_anchors(const SfntGposAttachment& sub,u16 glyph,Sfnt
     *output=result;return SfntStatus::ok;
 }
 SfntStatus sfnt_gpos_target_anchor(const SfntGposTargetAnchors& target,u16 component,u16 mark_class,SfntAnchor* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!target.covered || component>=target.component_count || mark_class>=target.class_count)return SfntStatus::invalid_input;
+    reset_value(output);if(!target.covered || component>=target.component_count || mark_class>=target.class_count)return SfntStatus::invalid_input;
     const u16 at=r16(target.parent,target.offset+(static_cast<u32>(component)*target.class_count+mark_class)*2);
     if(!at)return SfntStatus::ok;
     const u32 minimum=2+static_cast<u32>(r16(target.parent,0))*target.class_count*2;

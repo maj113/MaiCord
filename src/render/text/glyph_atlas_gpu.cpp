@@ -216,9 +216,6 @@ bool GlyphRasterBatch::finish() noexcept {
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 void glyph_atlas_gpu_release(GlyphAtlasGpu* gpu) noexcept {
-    if (!gpu) {
-        return;
-    }
     gpu_release(gpu->raster_shader);
     gpu_release(gpu->command_view);
     gpu_release(gpu->command_buffer);

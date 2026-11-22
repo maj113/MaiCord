@@ -550,7 +550,6 @@ bool colr_program_tests() noexcept {
     ok=ok && colr_program_build(&program,callbacks,root,{0,0,1,1},32) && program.nodes==2;
     root.paint.linearGradient.gradientStopCount=0;
     ok=ok && !colr_program_build(&program,callbacks,root,{},32);
-    callbacks.stops=nullptr;ok=ok && !colr_program_build(&program,callbacks,root,{},32);
     arena_release(&program.storage);return vector_ok && ok && segment_capacity_cases() && row_bin_cases() && outline_capacity_cases() && packed_bounds_cases() && matrix_validation_cases() && gradient_value_cases() && closing_edge_cases() && layer_group_cases();
 }
 bool colr_source_tests() noexcept;

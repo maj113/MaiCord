@@ -49,7 +49,6 @@ bool guards(const NativeEmojiPlan& plan) noexcept {
     CHECK(native_emoji_paragraph_shape(store,plan,utf8_literal("\xff"),17.5f,s,b,&out)==SfntStatus::invalid_input);
     CHECK(native_emoji_paragraph_shape(store,plan,utf8_literal("\xc2\xad"),17.5f,s,b,&out)==SfntStatus::unsupported_sequence);
     CHECK(native_emoji_paragraph_shape(store,plan,utf8_literal("\xe2\x80\x8f"),17.5f,s,b,&out)==SfntStatus::unsupported_sequence);
-    CHECK(native_emoji_paragraph_shape(store,plan,{},17.5f,s,b,nullptr)==SfntStatus::invalid_input);
     const auto tag=utf8_literal("\xf3\xa0\x81\xa7");s.work={};s.glyphs={};s.placements={};
     CHECK(native_emoji_paragraph_shape(store,plan,tag,17.5f,s,b,&out,true)==SfntStatus::ok&&out.source_units==2&&out.cluster_count==1&&!out.glyph_count);
     CHECK(paragraph_map[0]==0xffffffffu&&paragraph_map[1]==0xffffffffu&&paragraph_clusters[0].flags==native_paragraph_nonvisual);

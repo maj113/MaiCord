@@ -86,7 +86,7 @@ struct D3D11EffectOwner {
     // Per frame.
     bool active;          // the frame's canvases composite the target
     bool rendered;        // this frame redrew the target
-    float layer_opacity;
+    float layer_opacity;  // the paint layer's group opacity in [0, 1], set by the draw loop
     float pixel_scale;    // the frame's DPI scale
     u32 caption_pixels;   // window rows above the content
     u32 drawn[kD3D11EffectCanvases];

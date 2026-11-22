@@ -72,7 +72,7 @@ struct Builder {
 }
 SfntStatus sfnt_indic_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,SfntIndicProfile profile,
     Slice<u16> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work,Slice<u64> per_syllable) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
+    reset_value(result);
     const auto* info=sfnt_indic_script(profile);const u32 script=info?info->tag:0;
     if(!script||!layout.table.data||static_cast<u8>(layout.kind)>1||(scratch.count&&!scratch.data)||(output.count&&!output.data)||
        (per_syllable.count&&!per_syllable.data))return SfntStatus::invalid_input;
@@ -80,7 +80,7 @@ SfntStatus sfnt_indic_lookup_plan(const SfntLayout& layout,const SfntFeatureSubs
 }
 SfntStatus sfnt_indic_form_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,SfntIndicProfile profile,SfntIndicForm form,
     Slice<u16> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);u8 stage=0;
+    reset_value(result);u8 stage=0;
     switch(form){case sfnt_deva_reph:stage=3;break;case sfnt_deva_pre:stage=5;break;case sfnt_deva_below:stage=6;break;
         case sfnt_deva_post:stage=9;break;case sfnt_deva_vatu:stage=10;break;default:return SfntStatus::invalid_input;}
     const auto* info=sfnt_indic_script(profile);const u32 script=info?info->tag:0;

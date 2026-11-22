@@ -312,8 +312,6 @@ void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
               !text_form_choice_index(TextFormElement::select_0, &option) &&
               ui_layout_engine_validate(choices.widgets.layout, {diagnostics, 32}).clean(),
           "text_form_choices_unfold_the_editor_and_list_the_open_dropdown_beneath_it");
-    dialog.choice_selected = 5;
-    check(!text_form_update(&choices, dialog, dialog_viewport, &cache), "text_form_choices_refuse_a_missing_option");
     text_form_release(&choices);
 }
 } // namespace maicord

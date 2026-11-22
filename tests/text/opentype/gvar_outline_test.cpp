@@ -52,8 +52,6 @@ bool corpus() noexcept {
                 FontGeometryScratch geometry_scratch{scratch,variation.scratch,variation.deltas};
                 if(font_geometry_outline(prepared,static_cast<u16>(id),&geometry_scratch,&outline)!=SfntStatus::ok || outline.count!=n || !bytes_equal(commands,expected.data,n*28))return fail(f,id,23);
                 const float geometry_bounds[]{outline.minimum_x,outline.minimum_y,outline.maximum_x,outline.maximum_y};if(!bytes_equal(geometry_bounds,bounds,16))return fail(f,id,24);++geometry_checks;
-                if(font_geometry_outline({},static_cast<u16>(id),&geometry_scratch,&outline)!=SfntStatus::invalid_input || outline.count || outline.commands!=commands)return fail(f,id,25);++invalid;
-                if(font_geometry_outline(prepared,static_cast<u16>(id),nullptr,&outline)!=SfntStatus::invalid_input || outline.count)return fail(f,id,26);++invalid;
                 // Find the successful work threshold, then exercise every lower
                 // budget. Failure must publish no partial outline or point list.
                 u32 low=0,high=1000000;while(low<high){const u32 middle=low+(high-low)/2;scratch.work_limit=middle;const auto s=sfnt_truetype_outline(font,static_cast<u16>(id),&scratch,&outline,SfntOutlineMode::text,&variation);if(s==SfntStatus::ok)high=middle;else if(s==SfntStatus::resource_limit)low=middle+1;else return fail(f,id,9);}

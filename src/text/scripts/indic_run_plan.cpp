@@ -11,7 +11,7 @@ namespace maicord {namespace {
 // HarfBuzz (its zero-context matching for the other modern scripts).
 SfntStatus forms(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,const SfntGsubProgram& program,
     NativeIndicPlan& plan,Slice<u8> bits,Arena* scratch,Slice<u16> mask,const SfntShapeLimits& limits) noexcept {
-    const auto* info=sfnt_indic_script(plan.profile);if(!info)return SfntStatus::invalid_input;const u32 first=info->block_first;
+    const u32 first=sfnt_indic_script(plan.profile)->block_first; // native_indic_plan_prepare checked the profile
     u16 halant=0,joiner=0;auto status=sfnt_cmap_glyph(*plan.cmap,first+0x4d,0,&halant);if(status!=SfntStatus::ok)return status;
     if(!halant)return SfntStatus::unsupported_sequence;
     status=sfnt_cmap_glyph(*plan.cmap,0x200d,0,&joiner);if(status!=SfntStatus::ok)return status;

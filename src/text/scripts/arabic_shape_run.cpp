@@ -30,7 +30,7 @@ SfntStatus first_component_masks(void*,SfntGlyphBuffer*,SfntClusterMap*,SfntComp
 SfntStatus sfnt_arabic_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntClusterGlyph> input,ConstSlice<u32> scalars,
     u32 units,ConstSlice<u32> boundaries,bool paragraph_start,float em,const SfntShapeStorage& storage,
     SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
+    reset_value(result);
     if(scalars.count!=input.count)return SfntStatus::invalid_input;
     auto status=sfnt_arabic_mark_order(scalars,storage.character_glyphs,limits.stage_work);
     if(status!=SfntStatus::ok)return status;

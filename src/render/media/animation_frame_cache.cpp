@@ -147,7 +147,7 @@ bool animation_frame_cache_initialize(
     Slice<AnimationFrameCacheEntry> entries, Slice<u32> buckets,
     Slice<GlyphAtlasEntry> allocations,
     Slice<GlyphAtlasRow> rows) noexcept {
-    if (!cache || !entries.data || entries.count == 0 ||
+    if (!entries.data || entries.count == 0 ||
         entries.count > (~0u / 2u) || !buckets.data ||
         buckets.count < entries.count * 2u ||
         allocations.count != entries.count) {
@@ -174,7 +174,7 @@ bool animation_frame_cache_initialize(
 bool animation_frame_cache_grow_storage(
     AnimationFrameCache* cache, Slice<AnimationFrameCacheEntry> entries,
     Slice<u32> buckets, Slice<GlyphAtlasEntry> allocations) noexcept {
-    if (!cache || !cache->entries || !cache->buckets ||
+    if (!cache->entries || !cache->buckets ||
         !cache->allocations.entries || entries.data != cache->entries ||
         buckets.data != cache->buckets ||
         allocations.data != cache->allocations.entries ||
@@ -222,7 +222,7 @@ bool animation_frame_cache_grow_storage(
 }
 
 void animation_frame_cache_reset(AnimationFrameCache* cache) noexcept {
-    if (!cache || !cache->entries || !cache->buckets) {
+    if (!cache->entries) {
         return;
     }
     glyph_atlas_reset(&cache->allocations);
@@ -238,9 +238,6 @@ void animation_frame_cache_reset(AnimationFrameCache* cache) noexcept {
 }
 
 u32 animation_frame_cache_trim(AnimationFrameCache* cache) noexcept {
-    if (!cache || !cache->entries || !cache->buckets) {
-        return 0;
-    }
     const u32 evicted = glyph_atlas_trim(&cache->allocations);
     if (evicted != 0) {
         clear_stale(cache);
@@ -251,14 +248,12 @@ u32 animation_frame_cache_trim(AnimationFrameCache* cache) noexcept {
 
 void animation_frame_cache_begin_visibility(
     AnimationFrameCache* cache) noexcept {
-    if (cache) {
-        glyph_atlas_clear_pins(&cache->allocations);
-    }
+    glyph_atlas_clear_pins(&cache->allocations);
 }
 
 AnimationFrameCacheResult animation_frame_cache_find(
     AnimationFrameCache* cache, const AnimationFrameCacheKey& key) noexcept {
-    if (!cache || !cache->entries || !cache->buckets || !key_valid(key)) {
+    if (!cache->entries || !key_valid(key)) {
         return failure(AnimationFrameCacheError::invalid_input);
     }
     const u32 bucket = find_bucket(cache, key);
@@ -280,7 +275,7 @@ AnimationFrameCacheResult animation_frame_cache_find(
 AnimationFrameCacheResult animation_frame_cache_allocate(
     AnimationFrameCache* cache,
     const AnimationFrameCacheDescriptor& descriptor) noexcept {
-    if (!cache || !cache->entries || !cache->buckets ||
+    if (!cache->entries ||
         !key_valid(descriptor.key) || descriptor.width == 0 ||
         descriptor.height == 0 || descriptor.duration_us == 0 ||
         descriptor.kind == AnimationFrameCacheKind::none) {

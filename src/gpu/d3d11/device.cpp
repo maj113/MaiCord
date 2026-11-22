@@ -191,7 +191,7 @@ u64 gpu_adapter_key(const GpuDevice* device) {
 }
 
 bool gpu_device_lost(GpuDevice* device) {
-    return device && FAILED(device->GetDeviceRemovedReason());
+    return FAILED(device->GetDeviceRemovedReason());
 }
 
 void gpu_device_set_native_display(void*) {}
@@ -233,7 +233,7 @@ void gpu_device_prestart_finish() {
 }
 
 bool gpu_device_prestarted(const GpuDevice* device) {
-    return device && device == g_prestart.adopted;
+    return device == g_prestart.adopted;
 }
 
 // Direct3D 11.1 ships with every Windows 10 device: the interface is always there.

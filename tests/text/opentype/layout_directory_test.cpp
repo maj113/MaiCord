@@ -39,8 +39,8 @@ bool selection_units() noexcept {
     if(sfnt_layout_select_language(layout,{default_first,2},english,&result)!=SfntStatus::malformed)return false;
     put(bytes,fallback_at,0);
     if(sfnt_layout_select_language(layout,{},0,&result,0,&work)!=SfntStatus::missing_table||result.script_tag||work)return false;
-    if(sfnt_layout_select_language({}, {},0,&result)!=SfntStatus::invalid_input||sfnt_layout_select_language(layout,{nullptr,1},0,&result)!=SfntStatus::invalid_input||
-       sfnt_layout_select_language(layout,{},0,nullptr)!=SfntStatus::invalid_input)return false;
+    if(sfnt_layout_select_language({}, {},0,&result)!=SfntStatus::invalid_input||sfnt_layout_select_language(layout,{nullptr,1},0,&result)!=SfntStatus::invalid_input)
+        return false;
     return true;
 }
 bool units() noexcept {

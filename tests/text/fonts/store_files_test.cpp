@@ -187,9 +187,6 @@ void test_refusals() noexcept {
     result = native_font_acquire(&g_store, path, 2, &handle);
     check(result.error == NativeFontError::font && result.font_status == SfntStatus::face_out_of_range && !handle.slot,
           "a face past the collection");
-    check(native_font_acquire(nullptr, path, 0, &handle).error == NativeFontError::invalid_input, "no store");
-    check(native_font_acquire(&g_store, L"", 0, &handle).error == NativeFontError::invalid_input, "no path");
-    check(native_font_acquire(&g_store, path, 0, nullptr).error == NativeFontError::invalid_input, "no output");
     check(stats(0, 0, 0) && open_handles() == before, "refusals leave nothing open or mapped");
     for (u32 round = 0; round < 64; ++round) {
         file_path(L"bad.ttf", path);

@@ -28,7 +28,7 @@ inline SfntStatus substitutions_open(ConstSlice<u8> table,u16 feature_limit,Sfnt
 }
 SfntStatus sfnt_layout_variation_select(const SfntLayout& l,ConstSlice<i16> coordinates,SfntFeatureSubstitutions* output,u32* record_index,u32 work,u32* work_used) noexcept {
     WorkReport report{work,work,work_used};
-    if(!output || !record_index)return SfntStatus::invalid_input;reset_value(output);*record_index=sfnt_no_variation_record;
+    reset_value(output);*record_index=sfnt_no_variation_record;
     if(coordinates.count>65535 || (coordinates.count && !coordinates.data))return SfntStatus::invalid_input;
     if(coordinates.count>work)return SfntStatus::resource_limit;work-=coordinates.count;
     for(u32 i=0;i<coordinates.count;++i)if(coordinates.data[i]< -16384 || coordinates.data[i]>16384)return SfntStatus::invalid_input;

@@ -75,13 +75,14 @@ SfntStatus native_font_family(const SfntFace& face,Slice<u16> output,NativeFontF
     SfntFontAttributes attributes{};auto status=sfnt_font_attributes(face,&attributes);if(status!=SfntStatus::ok)return status;
     ConstSlice<u8> table{};status=sfnt_table(face,sfnt_tag('n','a','m','e'),&table);if(status!=SfntStatus::ok)return status;
     SfntNames names{};status=sfnt_names_open(table,&names);if(status!=SfntStatus::ok)return status;
-    SfntName family{},subfamily{};bool found=false;u16 chosen=0;
-    const u16 ids[]{21,16,1};for(u16 id:ids){status=sfnt_name_english(names,id,&family,&found);if(status!=SfntStatus::ok)return status;if(found){chosen=id;break;}}
+    SfntName family{},subfamily{};u16 chosen=0;
+    const u16 ids[]{21,16,1};for(u16 id:ids)if(sfnt_name_english(names,id,&family)){chosen=id;break;}
     if(!chosen||!family.bytes.count)return SfntStatus::unsupported;
-    const u16 sub_ids[]{22,17,2};for(u16 id:sub_ids){if(id==22&&chosen!=21)continue;status=sfnt_name_english(names,id,&subfamily,&found);if(status!=SfntStatus::ok)return status;if(found)break;}
+    // subfamily stays empty when none of its names exists.
+    const u16 sub_ids[]{22,17,2};for(u16 id:sub_ids)if((id!=22||chosen==21)&&sfnt_name_english(names,id,&subfamily))break;
     const bool english=family.language==0x409||(family.platform==3&&(family.language&0x3ff)==9);
     const bool repair=chosen!=21&&!(attributes.selection&256)&&english;
-    const u32 family_units=family.bytes.count/2,sub_units=repair&&found?subfamily.bytes.count/2:0;
+    const u32 family_units=family.bytes.count/2,sub_units=repair?subfamily.bytes.count/2:0;
     if(family_units+sub_units+(sub_units?1u:0u)>output.count)return SfntStatus::output_too_small;
     u32 count=0;status=sfnt_name_decode(family,output,&count);if(status!=SfntStatus::ok)return status;
     NativeFontProperties properties{attributes.weight,static_cast<u8>(attributes.width),static_cast<u8>(attributes.selection&512?1:attributes.selection&1?2:0)};

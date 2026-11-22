@@ -50,7 +50,7 @@ bool resolve_mention_color(const D3D11Renderer* renderer, u64 message_id, Messag
                            u64 target, Color* color) noexcept {
     const bool user = kind == MessageMarkdownSemanticKind::user_mention;
     // Message id zero is the composer: its projected role spans carry colours.
-    if (color && message_id == 0 && target != 0 && renderer->message_composer_scene) {
+    if (message_id == 0 && renderer->message_composer_scene) {
         const auto& composer = *renderer->message_composer_scene;
         for (u32 index = 0; !user && composer.projection_spans && index < composer.projection_span_count; ++index) {
             const auto& span = composer.projection_spans[index];
@@ -61,9 +61,8 @@ bool resolve_mention_color(const D3D11Renderer* renderer, u64 message_id, Messag
         }
         return false;
     }
-    if (!renderer || !renderer->chat_state || !renderer->message_scene ||
-        !renderer->message_scene->timeline || !renderer->message_scene->timeline->store || !color ||
-        message_id == 0 || target == 0) {
+    if (!renderer->chat_state || !renderer->message_scene || !renderer->message_scene->timeline ||
+        !renderer->message_scene->timeline->store || message_id == 0) {
         return false;
     }
     const MessageStoreResult found =
@@ -1500,7 +1499,7 @@ TextSystem renderer_text_system(D3D11Renderer* renderer, UiTextFace face) noexce
 
 bool renderer_prepare_typography(D3D11Renderer* renderer, const UiThemeTypography& value,
                                  RendererTypographyCandidate* candidate) noexcept {
-    if (!candidate || candidate->prepared || !renderer->glyph_text.ready ||
+    if (candidate->prepared || !renderer->glyph_text.ready ||
         !ui_theme_typography_valid(value))
         return false;
     const auto& source = renderer->glyph_text.system;
@@ -1562,14 +1561,12 @@ bool renderer_prepare_typography(D3D11Renderer* renderer, const UiThemeTypograph
 }
 
 void renderer_discard_typography(RendererTypographyCandidate* candidate) noexcept {
-    if (!candidate)
-        return;
     release_typography_owner(candidate->owner);
     reset_value(candidate);
 }
 
 bool renderer_commit_typography(D3D11Renderer* renderer, RendererTypographyCandidate* candidate) noexcept {
-    if (!candidate || !candidate->prepared || candidate->renderer != renderer ||
+    if (!candidate->prepared || candidate->renderer != renderer ||
         candidate->source_revision != renderer->typography_revision ||
         candidate->source_identity != typography_source_identity(renderer->glyph_text.system))
         return false;

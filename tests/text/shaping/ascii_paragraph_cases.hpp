@@ -134,7 +134,6 @@ bool styled_paragraph_cases() noexcept {
     visitor={0,0,true};CHECK(native_paragraph_geometry_visit(geometry,0,4,sink,&range_count)==SfntStatus::ok&&range_count==2&&visitor.calls==2&&visitor.width==14);
     CHECK(native_paragraph_geometry_visit(geometry,0,4,{},&range_count)==SfntStatus::ok&&range_count==2);
     CHECK(native_paragraph_geometry_visit(geometry,3,2,sink,&range_count)==SfntStatus::invalid_input&&!range_count&&visitor.calls==2);
-    CHECK(native_paragraph_geometry_visit(geometry,0,4,sink,nullptr)==SfntStatus::invalid_input&&visitor.calls==2);
     struct TerminalRegions {NativeParagraphHitMetric values[3];u32 count;};TerminalRegions terminal{};
     const NativeParagraphRangeSink terminal_sink{&terminal,[](void* opaque,const NativeParagraphHitMetric& value) noexcept {
         auto& state=*static_cast<TerminalRegions*>(opaque);if(state.count==3)return false;state.values[state.count++]=value;return true;}};
@@ -186,7 +185,7 @@ bool ascii_break_equivalence() noexcept {
         NativeParagraphCluster clusters[5]{};u32 scalars[5];u8 breaks[6];
         for(u32 i=0;i<count;++i){clusters[i]={i,i+1,0,0,0,0};scalars[i]=static_cast<u8>(bytes[i]);}
         native_ascii_paragraph_flags({bytes,count},{clusters,count});
-        if(!unicode_line_breaks({scalars,count},{breaks,count+1}))return false;
+        unicode_line_breaks({scalars,count},{breaks,count+1});
         for(u32 i=1;i<count;++i)if(((clusters[i].flags&native_paragraph_break_before)!=0)!=(breaks[i]!=0))return false;
         return true;
     };
@@ -229,7 +228,6 @@ bool paragraph_cases() noexcept {
     shape.vertical.height=3.0e38f;CHECK(layout(100,16,true)==SfntStatus::resource_limit&&!out.line_count);shape.vertical.height=10;
     const NativeParagraphShape empty{0,0,0,{10,7}};
     CHECK(native_prepared_paragraph_layout(empty,{},{},100,16,true,{},&out)==SfntStatus::ok&&out.line_count==1&&!out.run_count&&out.height==10);
-    CHECK(native_prepared_paragraph_layout(empty,{},{},100,16,true,{},nullptr)==SfntStatus::invalid_input);
     return true;
 }
 bool ordered_paragraph_cases() noexcept {

@@ -56,7 +56,7 @@ SfntStatus prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,PlanD
 }
 }
 NativeFontResult native_arabic_plan_acquire(NativeArabicPlanStore* store,NativeRunPlanHandle run,Arena* scratch,NativeArabicPlanHandle* output,u32 work,usize limit) noexcept {
-    if(output)reset_value(output);if(!store || !store->runs || !store->slots.data || !store->slots.count || !scratch || !scratch->base || !output || !native_run_plan_get(*store->runs,run))return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
+    reset_value(output);if(!store->runs || !store->slots.data || !store->slots.count || !scratch->base || !native_run_plan_get(*store->runs,run))return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     if(store->slots.count>work)return failure(SfntStatus::resource_limit);
     u32 available=store->slots.count;
     for(u32 i=0;i<store->slots.count;++i){auto& value=store->slots[i];
@@ -79,7 +79,7 @@ NativeArabicPlanView native_arabic_plan_get(const NativeArabicPlanStore& store,N
     const auto& data=*reinterpret_cast<const PlanData*>(value->state.base);const u32 mode=independent?1u:0u;return {&data.shapes[mode],data.steps[mode],data.cmap};
 }
 bool native_arabic_plan_release(NativeArabicPlanStore* store,NativeArabicPlanHandle handle) noexcept {
-    if(!store)return false;auto* value=slot(*store,handle);if(!value)return false;if(--value->references)return true;
+    auto* value=slot(*store,handle);if(!value)return false;if(--value->references)return true;
     const auto run=value->run;const u32 generation=value->generation;arena_release(&value->state);reset_value(value);value->generation=generation;return native_run_plan_release(store->runs,run);
 }
 }

@@ -162,7 +162,7 @@ SfntStatus glyph_advance(const SfntTrueType& font,const SfntGvarInstance& instan
 }
 // Once per face and per instance: compiled for size.
 __attribute__((minsize)) SfntStatus sfnt_gvar_open(ConstSlice<u8> table,u16 axes,u16 glyphs,SfntGvar* output,u32 work,u32* used) noexcept {
-    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;reset_value(output);if(!span(table,0,20))return SfntStatus::truncated;
+    WorkReport report{work,work,used};reset_value(output);if(!span(table,0,20))return SfntStatus::truncated;
     if(r16(table,0)!=1 || r16(table,2)!=0)return SfntStatus::unsupported;if(r16(table,4)!=axes || r16(table,12)!=glyphs || (r16(table,14)&~1))return SfntStatus::malformed;
     const u16 shared=r16(table,6),stride=r16(table,14)&1?4:2;const u32 tuples=r32(table,8),data=r32(table,16),header=20+(static_cast<u32>(glyphs)+1)*stride,cells=static_cast<u32>(shared)*axes;
     if(shared>4096 || data<header || (shared && tuples<header))return SfntStatus::malformed;
@@ -179,7 +179,7 @@ __attribute__((minsize)) SfntStatus sfnt_gvar_instance_prepare(const SfntGvar& f
     *output={font,coordinates,{storage.data,font.shared_count}};return SfntStatus::ok;
 }
 SfntStatus sfnt_gvar_design_advance(const SfntTrueType& font,const SfntGvarInstance& instance,u16 glyph,u16* output,u32 work,u32* used) noexcept {
-    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output=0;
+    WorkReport report{work,work,used};*output=0;
     // font and instance come from the same geometry: matching glyph counts, a validated loca and prepared scalars.
     if(glyph>=instance.font.glyph_count)return SfntStatus::glyph_out_of_range;
     u16 chain[64];Advance advance{};const auto status=glyph_advance(font,instance,glyph,{chain,64},0,&advance,work);if(status!=SfntStatus::ok)return status;

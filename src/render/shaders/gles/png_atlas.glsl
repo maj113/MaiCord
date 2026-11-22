@@ -1,4 +1,4 @@
-// twin: src/render/shaders/png_atlas.hlsl 2ab0755152bb14b6
+// twin: src/render/shaders/png_atlas.hlsl 528181fdfd15d82b
 // png_expand (STAGE_CS): decodes reconstructed PNG scanlines into the premultiplied media atlas.
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -64,7 +64,7 @@ void main() {
     uvec4 rgba = uvec4(0u, 0u, 0u, 255u);
 
     // The bit depth is uniform: each type branches on it before its loads, so a pixel reads and scales only the
-    // samples of its depth. Color types 2, 4 and 6 have 8 or 16 bits a sample (png_format_valid).
+    // samples of its depth. Color types 2, 4 and 6 have 8 or 16 bits a sample (png_image_configure).
     // 8-bit RGBA rows (PNG color type 6, raw color type 7): one word per pixel instead of four byte loads.
     if (color_type == 7u || (color_type == 6u && bit_depth == 8u)) {
         rgba = unpack_rgba(load_word(row + x * 4u));

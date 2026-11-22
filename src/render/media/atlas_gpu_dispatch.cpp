@@ -226,7 +226,7 @@ void account_animated_webp_dispatch(MediaAtlasGpu* gpu, u64 uploaded_bytes) noex
 bool vp8_atlas_frame_ready(const MediaAtlasGpu* gpu, const Vp8Keyframe& frame,
                            ConstSlice<u8> alpha) noexcept {
     const u64 pixel_count = static_cast<u64>(frame.width) * frame.height;
-    return gpu && gpu->vp8_yuv_view && frame.width != 0 && frame.height != 0 &&
+    return gpu->vp8_yuv_view && frame.width != 0 && frame.height != 0 &&
            gpu->vp8_width == frame.width && gpu->vp8_height == frame.height &&
            gpu->vp8_last_filtered_reconstruction == gpu->vp8_reconstructions &&
            gpu->vp8_last_atlas_reconstruction != gpu->vp8_reconstructions &&

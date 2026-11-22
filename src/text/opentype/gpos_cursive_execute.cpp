@@ -26,10 +26,10 @@ void attach(SfntPosition& p,SfntPosition& q,double ax,double bx,bool rtl) noexce
 }
 }
 SfntStatus sfnt_position_cursive_flush(Slice<SfntPosition> positions,Slice<SfntCursiveChainNode> chains,SfntCursiveDeferred* pending,SfntCursiveExecution* out,u64 work) noexcept {
-    if(!out || !pending)return SfntStatus::invalid_input;reset_value(out);return flush(positions,chains,pending,out,&work);
+    reset_value(out);return flush(positions,chains,pending,out,&work);
 }
 SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,Slice<u64> bits,SfntCursiveExecution* out,u64 work) noexcept {
-    if(!out)return SfntStatus::invalid_input;reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
+    reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
     if(!sfnt_glyph_view_valid(glyphs) || start>end || end>count || positions.count<count || (count && !positions.data) || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(!lookup.subtables.count || start==end)return SfntStatus::ok;if(lookup.subtables.data[0].type!=3)return SfntStatus::unsupported;
     const bool backward=(lookup.filter.flags&1)!=0;const u32 length=end-start,words=backward?length/64+(length%64?1u:0u):0;
@@ -59,13 +59,11 @@ SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& 
     return SfntStatus::ok;
 }
 SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,Slice<SfntPosition> positions,u32 at,u32 end,bool rtl,const SfntPositionInstance& instance,Slice<SfntCursiveChainNode> chains,SfntCursiveExecution* out,u64 work,SfntCursiveDeferred* pending) noexcept {
-    if(!out)return SfntStatus::invalid_input;reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
+    reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
     if(!sfnt_glyph_view_valid(glyphs) || at>=end || end>count || positions.count<count || !positions.data || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(!lookup.subtables.count)return SfntStatus::ok;if(lookup.subtables.data[0].type!=3)return SfntStatus::unsupported;
     const bool backward=(lookup.filter.flags&1)!=0;
     if(backward && (chains.count<count || !chains.data))return SfntStatus::output_too_small;
-    // Small runs cannot amortize proof/flush overhead. Keep their eager path.
-    if(pending && pending->head==0xffffffffu && count<32)pending=nullptr;
     if(pending && pending->head!=0xffffffffu && (!backward || at!=pending->next)){const auto s=flush(positions,chains,pending,out,&work);if(s!=SfntStatus::ok)return s;}
     u32 other=at;bool found=false;
     while(backward?other+1<end:other>0){other=backward?other+1:other-1;if(!spend(out,&work))return SfntStatus::resource_limit;++out->scan_steps;const auto& g=sfnt_glyph_at(glyphs,other);

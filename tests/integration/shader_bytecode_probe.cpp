@@ -55,19 +55,12 @@ bool run() noexcept {
     u32 failed=static_cast<u32>(ShaderId::count);
     for(u32 id=0;id<static_cast<u32>(ShaderId::count);++id)
         if(!create(device,static_cast<ShaderId>(id))){failed=id;break;}
-    ID3D11ComputeShader* invalid_compute=nullptr;ID3D11PixelShader* invalid_pixel=nullptr;
-    ID3D11VertexShader* invalid_vertex=nullptr;ID3D11InputLayout* invalid_layout=nullptr;bool layout_failed=true;
-    const bool rejected=FAILED(gpu_compute_shader_create(device,ShaderId::count,&invalid_compute)) && !invalid_compute &&
-        FAILED(gpu_pixel_shader_create(device,ShaderId::count,&invalid_pixel)) && !invalid_pixel &&
-        FAILED(gpu_vertex_shader_create(device,ShaderId::count,{kUiElements,4},&invalid_vertex,&invalid_layout,&layout_failed)) &&
-        !invalid_vertex && !invalid_layout && !layout_failed;
     context->Release();device->Release();
     if(failed!=static_cast<u32>(ShaderId::count)){
         char line[]="FAIL: packed shader id 00 could not be created\n";
         line[23]=static_cast<char>('0'+failed/10);line[24]=static_cast<char>('0'+failed%10);
         test_write_text(line);return false;
     }
-    CHECK(rejected);
     test_write_text("PASS packed shaders inflate and create\n");
     return true;
 }

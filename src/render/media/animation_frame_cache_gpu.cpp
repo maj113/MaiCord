@@ -78,9 +78,6 @@ bool publish_presentation(AnimationFrameCacheGpu* gpu, const MediaAtlasResult& m
 } // namespace
 
 bool animation_frame_cache_gpu_initialize(AnimationFrameCacheGpu* gpu, bool preview) noexcept {
-    if (!gpu) {
-        return false;
-    }
     reset_value<AnimationFrameCacheGpu>(gpu);
     gpu->maximum_frame_extent = preview ? kAnimationFrameCacheGpuPreviewFrameExtent
                                         : kAnimationFrameCacheGpuMaximumFrameExtent;
@@ -123,9 +120,7 @@ bool animation_frame_cache_gpu_initialize(AnimationFrameCacheGpu* gpu, bool prev
 }
 
 void animation_frame_cache_gpu_observe_time(AnimationFrameCacheGpu* gpu, u64 now_ms) noexcept {
-    if (gpu) {
-        glyph_atlas_observe_time(&gpu->cache.allocations, now_ms);
-    }
+    glyph_atlas_observe_time(&gpu->cache.allocations, now_ms);
 }
 
 u64 animation_frame_cache_gpu_trim_deadline(const AnimationFrameCacheGpu& gpu) noexcept {
@@ -133,7 +128,7 @@ u64 animation_frame_cache_gpu_trim_deadline(const AnimationFrameCacheGpu& gpu) n
 }
 
 bool animation_frame_cache_gpu_trim(AnimationFrameCacheGpu* gpu, GpuContext1* context, u64 now_ms) noexcept {
-    const u64 deadline = gpu ? animation_frame_cache_gpu_trim_deadline(*gpu) : 0;
+    const u64 deadline = animation_frame_cache_gpu_trim_deadline(*gpu);
     if (!deadline || now_ms < deadline) {
         return false;
     }
@@ -145,7 +140,7 @@ bool animation_frame_cache_gpu_trim(AnimationFrameCacheGpu* gpu, GpuContext1* co
 }
 
 bool animation_frame_cache_gpu_reserve(AnimationFrameCacheGpu* gpu, u32 required_capacity) noexcept {
-    if (!gpu || !gpu->storage.entries.arena.base || required_capacity == 0 ||
+    if (!gpu->storage.entries.arena.base || required_capacity == 0 ||
         required_capacity > kAnimationFrameCacheGpuEntryCapacity) {
         return false;
     }
@@ -185,9 +180,6 @@ bool animation_frame_cache_gpu_reserve(AnimationFrameCacheGpu* gpu, u32 required
 }
 
 void animation_frame_cache_gpu_reset(AnimationFrameCacheGpu* gpu) noexcept {
-    if (!gpu) {
-        return;
-    }
     gpu_paged_texture_release(&gpu->surface);
     gpu->texture_view = nullptr;
     animation_frame_cache_reset(&gpu->cache);
@@ -197,18 +189,13 @@ void animation_frame_cache_gpu_reset(AnimationFrameCacheGpu* gpu) noexcept {
 }
 
 void animation_frame_cache_gpu_release(AnimationFrameCacheGpu* gpu) noexcept {
-    if (!gpu) {
-        return;
-    }
     gpu_paged_texture_release(&gpu->surface);
     release_storage(&gpu->storage);
     reset_value<AnimationFrameCacheGpu>(gpu);
 }
 
 void animation_frame_cache_gpu_begin_visibility(AnimationFrameCacheGpu* gpu) noexcept {
-    if (gpu) {
-        animation_frame_cache_begin_visibility(&gpu->cache);
-    }
+    animation_frame_cache_begin_visibility(&gpu->cache);
 }
 
 bool animation_frame_cache_gpu_capture(AnimationFrameCacheGpu* gpu, GpuDevice* device,
@@ -219,7 +206,7 @@ bool animation_frame_cache_gpu_capture(AnimationFrameCacheGpu* gpu, GpuDevice* d
     if (presented_media) {
         reset_value<MediaAtlasHandle>(presented_media);
     }
-    if (!gpu || !device || !context || !media_atlas || !media_surface || descriptor.width == 0 ||
+    if (!device || !context || !media_atlas || !media_surface || descriptor.width == 0 ||
         descriptor.height == 0 || descriptor.width > gpu->maximum_frame_extent ||
         descriptor.height > gpu->maximum_frame_extent) {
         return false;
@@ -266,7 +253,7 @@ bool animation_frame_cache_gpu_restore(AnimationFrameCacheGpu* gpu, MediaAtlas* 
     if (presented_media) {
         reset_value<MediaAtlasHandle>(presented_media);
     }
-    if (!gpu || !media_atlas || !gpu->texture_view || !result) {
+    if (!media_atlas || !gpu->texture_view || !result) {
         return false;
     }
     const AnimationFrameCacheResult source = animation_frame_cache_find(&gpu->cache, key);
@@ -289,10 +276,8 @@ bool animation_frame_cache_gpu_restore(AnimationFrameCacheGpu* gpu, MediaAtlas* 
 
 bool animation_frame_cache_gpu_resolve(AnimationFrameCacheGpu* gpu, const MediaAtlasResult& media,
                                        GlyphAtlasAllocation* frame) noexcept {
-    if (frame) {
-        reset_value<GlyphAtlasAllocation>(frame);
-    }
-    if (!gpu || !frame || media.handle.generation == 0 ||
+    reset_value<GlyphAtlasAllocation>(frame);
+    if (media.handle.generation == 0 ||
         media.handle.slot >= gpu->storage.presentations.capacity || !gpu->texture_view) {
         return false;
     }
@@ -312,7 +297,7 @@ bool animation_frame_cache_gpu_resolve(AnimationFrameCacheGpu* gpu, const MediaA
 bool animation_frame_cache_gpu_materialize(AnimationFrameCacheGpu* gpu, GpuContext1* context,
                                            MediaAtlas* media_atlas, GpuPagedTexture* media_surface,
                                            MediaAssetKey key) noexcept {
-    if (!gpu || !context || !media_atlas || !media_surface) {
+    if (!context || !media_atlas || !media_surface) {
         return false;
     }
     if (!gpu->surface) {

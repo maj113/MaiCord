@@ -13,7 +13,7 @@ namespace maicord {
 GpuStatus video_frame_gpu_present(VideoFrameGpu* gpu, GpuDevice* device, GpuContext1* context,
                                   const GpuVideoFrame& frame, GpuUav* destination, u32 x, u32 y, u32 step) noexcept {
     // The planes are the decoder's: a luma plane (the frame's texture) and a chroma plane of half its extent.
-    if (!gpu || !device || !context || !frame.texture || !frame.luma || !frame.chroma || !destination ||
+    if (!frame.texture || !frame.luma || !frame.chroma || !destination ||
         !destination->texture || frame.rotation > 3 || frame.width == 0 || frame.height == 0 || step == 0 ||
         step > kGpuVideoReductionMaximum)
         return kGpuInvalidArgument;
@@ -47,8 +47,6 @@ GpuStatus video_frame_gpu_present(VideoFrameGpu* gpu, GpuDevice* device, GpuCont
 }
 
 void video_frame_gpu_release(VideoFrameGpu* gpu) noexcept {
-    if (!gpu)
-        return;
     gpu_release(gpu->shader);
     gpu_release(gpu->constants);
     reset_value<VideoFrameGpu>(gpu);

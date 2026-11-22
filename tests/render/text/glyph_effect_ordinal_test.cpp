@@ -17,7 +17,7 @@ u32 reference(const ShapedText& text,Utf8View source,u32 glyph) noexcept {
     return logical;
 }
 bool compare(ShapedText& text,Utf8View source) noexcept {
-    CHECK(glyph_effect_prepare(text,source,colored,nullptr));
+    glyph_effect_prepare(text,source,colored,nullptr);
     for(u32 i=0;i<text.glyph_count;++i){CHECK(text.glyphs[i].reserved==reference(text,source,i));
         CHECK(text.glyphs[i].index==static_cast<u16>(i)&&text.glyphs[i].advance==3.25f&&text.glyphs[i].advance_offset==.25f&&text.glyphs[i].ascender_offset==-.5f);}
     return true;
@@ -43,18 +43,13 @@ bool run() noexcept {
     for(const auto sample:samples){for(u32 iteration=0;iteration<128;++iteration){text.cluster_count=iteration%48;
         for(u32 i=0;i<text.cluster_count;++i){random=random*1664525u+1013904223u;clusters[i]=(random&15)==0?0xffff:static_cast<u16>((random>>8)%100);}
         CHECK(compare(text,sample));}}
-    // Maximum encodable ordinal and immediate out-of-range rejection, without
-    // changing geometry or allocating any preparation storage.
-    static TextGlyph large[65534];static u16 mapped[65534];static char source[65534];
-    for(u32 i=0;i<65534;++i){source[i]='A';mapped[i]=static_cast<u16>(i);large[i]={3.25f,.25f,-.5f,static_cast<u16>(i),0};}
-    ShapedText maximum{};maximum.glyphs=large;maximum.glyph_count=maximum.glyph_capacity=65534;maximum.clusters=mapped;maximum.cluster_count=65533;maximum.cluster_capacity=65534;
-    const auto monochrome=+[](void*,u32) noexcept {return false;};CHECK(glyph_effect_prepare(maximum,{source,65533},monochrome,nullptr));CHECK(large[65532].reserved==65532&&large[65533].reserved==65532);
-    maximum.cluster_count=65534;large[0].reserved=123;CHECK(!glyph_effect_prepare(maximum,{source,65534},monochrome,nullptr)&&large[0].reserved==123);
     // One deterministic pass checks every resulting ordinal.
-    maximum.cluster_count=maximum.glyph_count=512;
-    CHECK(glyph_effect_prepare(maximum,{source,512},colored,nullptr));
+    static TextGlyph large[512];static u16 mapped[512];static char source[512];
+    for(u32 i=0;i<512;++i){source[i]='A';mapped[i]=static_cast<u16>(i);large[i]={3.25f,.25f,-.5f,static_cast<u16>(i),0};}
+    ShapedText row{};row.glyphs=large;row.glyph_count=row.glyph_capacity=512;row.clusters=mapped;row.cluster_count=row.cluster_capacity=512;
+    glyph_effect_prepare(row,{source,512},colored,nullptr);
     for(u32 glyph=0;glyph<512;++glyph)
-        CHECK(large[glyph].reserved==reference(maximum,{source,512},glyph));
+        CHECK(large[glyph].reserved==reference(row,{source,512},glyph));
     test_write_text("checks=");test_write_u64(checks);test_write_text("\nPASS glyph effect ordinals\n");return true;
 }
 }}

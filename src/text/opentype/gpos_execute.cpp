@@ -93,7 +93,7 @@ SfntStatus sfnt_trailing_spacing(Slice<SfntPlacement> placements,
     return SfntStatus::ok;
 }
 SfntStatus sfnt_position_execute_lookup(const SfntGposLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntPositionExecution* result,u64 work,u32 match_limit,SfntPositionApplication application,const SfntLookupBounds* bounds) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);if(!sfnt_glyph_view_valid(glyphs) || start>end || end>sfnt_glyph_count(glyphs) || positions.count<sfnt_glyph_count(glyphs) || (positions.count && !positions.data) || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
+    reset_value(result);if(!sfnt_glyph_view_valid(glyphs) || start>end || end>sfnt_glyph_count(glyphs) || positions.count<sfnt_glyph_count(glyphs) || (positions.count && !positions.data) || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(static_cast<u8>(application)>1)return SfntStatus::invalid_input;const bool selected=application==SfntPositionApplication::selected;
     // Every charge spends work: the operations are the work used, published on each return.
     struct Report {SfntPositionExecution& result;u64 initial;const u64& left;~Report() noexcept {result.operations=initial-left;}} report{*result,work,work};

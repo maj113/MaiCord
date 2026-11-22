@@ -17,8 +17,8 @@ SfntStatus native_latin_paragraph_boundaries(Utf8View text,Slice<NativeParagraph
     for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return SfntStatus::invalid_input;
         if(count==s.scalar_count)return SfntStatus::output_too_small;s.scalar_data[count++]=cp.codepoint;thai|=cp.codepoint-0xe00u<128;units+=cp.codepoint>65535?2u:1u;at+=cp.width;}
     if(s.breaks.count<=count)return SfntStatus::output_too_small;
-    if(!unicode_line_breaks({s.scalar_data,count},s.breaks))return SfntStatus::invalid_input;
-    if(thai&&!native_thai_word_breaks({s.scalar_data,count},s.breaks))return SfntStatus::invalid_input;
+    unicode_line_breaks({s.scalar_data,count},s.breaks);
+    if(thai)native_thai_word_breaks({s.scalar_data,count},s.breaks);
     u32 scalar=0,source=0,previous=0;
     for(u32 i=0;i<clusters.count;++i){auto& c=clusters[i];
         if(c.source_first!=previous||c.source_end<=c.source_first||c.source_end>units)return SfntStatus::invalid_input;
@@ -42,7 +42,7 @@ SfntStatus native_latin_paragraph_boundaries(Utf8View text,Slice<NativeParagraph
 }
 SfntStatus native_script_paragraph_shape(const SfntFontLayoutMetrics& metrics,Utf8View input,float em,
     const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,NativeParagraphLineSource source,bool paragraph_start) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(input.bytes>65535)return SfntStatus::resource_limit;
+    reset_value(output);if(input.bytes>65535)return SfntStatus::resource_limit;
     if((input.bytes&&!input.data)||(s.source_glyphs.count&&!s.source_glyphs.data)||(s.clusters.count&&!s.clusters.data)||
        (s.glyphs.count&&!s.glyphs.data)||(s.placements.count&&!s.placements.data))return SfntStatus::invalid_input;
     NativeParagraphShape shaped{};if(!source.shape)return SfntStatus::invalid_input;
@@ -66,7 +66,7 @@ SfntStatus native_script_paragraph_shape(const SfntFontLayoutMetrics& metrics,Ut
 }
 SfntStatus native_latin_paragraph_shape(const NativeRunPlanStore& store,NativeRunPlanHandle plan,Utf8View input,bool independent,float em,
     const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,float trailing_spacing,const NativeAlphabeticPlan* profile,bool force_shaping,bool rtl,bool paragraph_start) noexcept {
-    if(output)reset_value(output);
+    reset_value(output);
     const auto* metrics=native_run_plan_metrics(store,plan);if(!metrics)return SfntStatus::invalid_input;
     struct Source {const NativeRunPlanStore& store;NativeRunPlanHandle plan;const NativeAlphabeticPlan* profile;float spacing;bool independent,force,rtl;} source{store,plan,profile,trailing_spacing,independent,force_shaping,rtl};
     const auto shape=[](void* opaque,Utf8View text,float size,const NativeAsciiLineStorage& storage,NativeAsciiLineResult* result,bool start) noexcept {

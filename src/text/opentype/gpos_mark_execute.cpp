@@ -12,7 +12,7 @@ inline SfntStatus glyph_check(const SfntGsubGlyph& glyph,u32 limit) noexcept {
 }
 }
 SfntStatus sfnt_position_execute_mark_lookup(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,ConstSlice<u8> flags,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntMarkExecution* out,u64 work,ConstSlice<SfntMarkAssociation> associations,SfntPositionApplication application,bool component_records,ConstSlice<u32> directory) noexcept {
-    if(!out)return SfntStatus::invalid_input;reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
+    reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
     if(!sfnt_glyph_view_valid(glyphs) || start>end || end>count || flags.count<count || positions.count<count || (count && (!flags.data || !positions.data)) || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(static_cast<u8>(application)>1 || (associations.count && (associations.count<count || !associations.data)) || (directory.count&&!directory.data))return SfntStatus::invalid_input;
     const bool selected=application==SfntPositionApplication::selected;if(selected && start<end)end=start+1;

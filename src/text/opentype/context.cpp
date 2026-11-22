@@ -170,11 +170,11 @@ SfntStatus context_match(const SfntContext& c,const SfntGdef& gdef,const SfntLoo
     return SfntStatus::ok;
 }
 __attribute__((minsize)) SfntStatus sfnt_gsub_reverse_requirements(ConstSlice<u8> bytes,u32* count) noexcept {
-    if(!count)return SfntStatus::invalid_input;*count=0;ReverseHeader h{};const auto s=reverse_header(bytes,&h);if(s==SfntStatus::ok)*count=1u+h.back+h.look;return s;
+    *count=0;ReverseHeader h{};const auto s=reverse_header(bytes,&h);if(s==SfntStatus::ok)*count=1u+h.back+h.look;return s;
 }
 __attribute__((minsize)) SfntStatus sfnt_gsub_reverse_open(ConstSlice<u8> bytes,u32 limit,Slice<SfntCoverage> coverages,SfntReverseSubstitution* output,u32 work,u32* work_used) noexcept {
     const WorkReport report{work,work,work_used};
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!limit || limit>65536)return SfntStatus::invalid_input;ReverseHeader h{};auto s=reverse_header(bytes,&h);if(s!=SfntStatus::ok)return s;const u32 count=1u+h.back+h.look;
+    reset_value(output);if(!limit || limit>65536)return SfntStatus::invalid_input;ReverseHeader h{};auto s=reverse_header(bytes,&h);if(s!=SfntStatus::ok)return s;const u32 count=1u+h.back+h.look;
     if(coverages.count<count)return SfntStatus::output_too_small;if(!coverages.data)return SfntStatus::invalid_input;if(!spend(&work,count+h.outputs))return SfntStatus::resource_limit;
     s=coverage_open(bytes,r16(bytes,2),h.end,limit,&coverages.data[0],&work);if(s!=SfntStatus::ok)return s;if(coverages.data[0].covered_count!=h.outputs)return SfntStatus::malformed;
     for(u32 i=0;i<h.outputs;++i)if(r16(bytes,h.outputs_at+i*2)>=limit)return SfntStatus::malformed;
@@ -183,7 +183,7 @@ __attribute__((minsize)) SfntStatus sfnt_gsub_reverse_open(ConstSlice<u8> bytes,
 }
 SfntStatus sfnt_gsub_reverse_match_view(const SfntReverseSubstitution& r,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,SfntGsubMatch* output,u32 work,u32* work_used,u8 mask) noexcept {
     const WorkReport report{work,work,work_used};
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!sfnt_glyph_view_valid(glyphs) || start>=sfnt_glyph_count(glyphs))return SfntStatus::invalid_input;if(!spend(&work))return SfntStatus::resource_limit;
+    reset_value(output);if(!sfnt_glyph_view_valid(glyphs) || start>=sfnt_glyph_count(glyphs))return SfntStatus::invalid_input;if(!spend(&work))return SfntStatus::resource_limit;
     if(!sfnt_glyph_feature_enabled(sfnt_glyph_at(glyphs,start),mask))return SfntStatus::ok;
     const u32 index=sfnt_coverage_index(r.coverages.data[0],sfnt_glyph_at(glyphs,start).glyph);if(index==sfnt_not_covered)return SfntStatus::ok;u32 coverage=1;
     const auto replacement=[&]() noexcept {return r16(r.table,10+(static_cast<u32>(r.backtrack_count)+r.lookahead_count+index)*2);};

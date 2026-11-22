@@ -127,8 +127,8 @@ bool d3d11_draw_pipeline_update_transform(const D3D11DrawPipelineOwner& owner, G
                                           u32 width, u32 height, u32 dpi, u32 origin_y = 0) noexcept;
 // Opacity plus a uniform scale about a DIP origin and a DIP shift, written into the existing
 // shared frame buffer without uploading instances or changing the viewport.
-// Invalid opacity becomes identity; the caller restores the identity layer
-// (opacity and scale 1, no shift) before drawing other groups. update_transform also restores it.
+// The opacity is in [0, 1] and the scale in (0, 1.1] (the layer setters keep them there). The caller restores the
+// identity layer (opacity and scale 1, no shift) before drawing other groups. update_transform also restores it.
 bool d3d11_draw_pipeline_update_layer(const D3D11DrawPipelineOwner& owner, GpuContext* context,
                                       u32 width, u32 height, u32 dpi, float opacity, float scale, float origin_x,
                                       float origin_y, float shift_x = 0, float shift_y = 0) noexcept;

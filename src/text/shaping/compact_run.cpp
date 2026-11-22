@@ -41,7 +41,7 @@ SfntStatus compact_shape_result(const NativeAsciiStorage& storage,const SfntShap
     return compact_publish(storage,shaped.glyph_count,shaped.source_units,shaped.lookup_operations,result);
 }
 SfntStatus compact_run_begin(const NativeAsciiStorage& storage,NativeAsciiResult* result) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
+    reset_value(result);
     if((storage.glyphs.count&&!storage.glyphs.data)||(storage.placements.count&&!storage.placements.data)||
         (storage.character_glyphs.count&&!storage.character_glyphs.data))return SfntStatus::invalid_input;
     return SfntStatus::ok;

@@ -15,8 +15,8 @@ bool vectors() noexcept {
         if(!count || count>128 || count>size-at)return false;
         for(u32 i=0;i<128;++i){forms[i]=0xa5;glyphs[i]={static_cast<u16>(i+1),SfntGlyphClass::base,0xa5};}
         for(u32 i=0;i<count;++i)scalars[i]=arabic_joining_vectors[at+i]&0x1fffff;
-        if(arabic_joining_forms({scalars,count},{forms,128},1,count*2)!=S::ok ||
-           arabic_joining_forms({scalars,count},{&glyphs[0].reserved,sizeof(glyphs)-3},sizeof(glyphs[0]),count*2)!=S::ok)return false;
+        if(arabic_joining_forms({scalars,count},forms,1,count*2)!=S::ok ||
+           arabic_joining_forms({scalars,count},&glyphs[0].reserved,sizeof(glyphs[0]),count*2)!=S::ok)return false;
         for(u32 i=0;i<128;++i) {
             const u8 expected=i<count?static_cast<u8>(arabic_joining_vectors[at+i]>>21):0xa5;
             if(forms[i]!=expected || glyphs[i].reserved!=expected || glyphs[i].glyph!=i+1 || glyphs[i].glyph_class!=SfntGlyphClass::base)return false;
@@ -28,21 +28,10 @@ bool vectors() noexcept {
 bool contracts() noexcept {
     u8 output[16];for(auto& b:output)b=0xa5;
     const u32 valid[]{0x628,0x628};
-    if(arabic_joining_forms({nullptr,1},{output,16})!=S::invalid_input ||
-       arabic_joining_forms({valid,2},{nullptr,16})!=S::invalid_input ||
-       arabic_joining_forms({valid,2},{output,16},0)!=S::invalid_input ||
-       arabic_joining_forms({valid,2},{output,1})!=S::output_too_small ||
-       arabic_joining_forms({valid,2},{output,4},4)!=S::output_too_small ||
-       arabic_joining_forms({valid,2},{output,16},~0u)!=S::output_too_small ||
-       arabic_joining_forms({valid,2},{output,16},1,3)!=S::work_limit ||
-       arabic_joining_forms({valid,~0u},{output,~0u},1,10)!=S::work_limit ||
-       arabic_joining_forms({},{output,16},1,0)!=S::ok)return false;
+    if(arabic_joining_forms({valid,2},output,1,3)!=S::work_limit || arabic_joining_forms({},output,1,0)!=S::ok)return false;
     for(const auto b:output)if(b!=0xa5)return false;
-    u32 alias[]{0x628,0x628};const auto* bytes=reinterpret_cast<const u8*>(alias);
-    if(arabic_joining_forms({alias,2},{reinterpret_cast<u8*>(alias)+3,5},4)!=S::invalid_input ||
-       alias[0]!=0x628 || alias[1]!=0x628 || bytes[3])return false;
     // Input is read only; exact strided span and untouched prefix/suffix.
-    if(arabic_joining_forms({valid,2},{output+2,5},4,4)!=S::ok)return false;
+    if(arabic_joining_forms({valid,2},output+2,4,4)!=S::ok)return false;
     for(u32 i=0;i<16;++i)if(output[i]!=(i==2?8:i==6?2:0xa5))return false;
     return true;
 }
@@ -53,7 +42,7 @@ bool long_marks() noexcept {
     if(!forms){pages_release(scalars);return false;}
     for(u32 i=0;i<count;++i)scalars[i]=(i==0 || i==count-1)?0x628:0x64e;
     bool ok=pages_protect(scalars, count*sizeof(u32), PageAccess::read)!=0;
-    ok=ok && arabic_joining_forms({scalars,count},{forms,count},1,count*2)==S::ok;
+    ok=ok && arabic_joining_forms({scalars,count},forms,1,count*2)==S::ok;
     for(u32 i=0;i<count && ok;++i)ok=forms[i]==(i==0?8:i==count-1?2:0);
     pages_release(forms);pages_release(scalars);return ok;
 }

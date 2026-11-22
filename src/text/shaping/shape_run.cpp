@@ -55,7 +55,6 @@ SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyph
 SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph> input,
     u32 units,ConstSlice<u32> boundaries,bool rtl,float em,const SfntShapeStorage& s,
     SfntShapeRunResult* result,SfntShapeLimits limits,ConstSlice<SfntLookupStep> steps,ConstSlice<u32> input_order,SfntShapeGlyphPolicy policy,const SfntShapeInputPolicy* initial,const SfntShapeStagePolicy* stages,bool defer_output) noexcept {
-    if(!result)return SfntStatus::invalid_input;
     reset_value(result);
     if(!filled(input)||!filled(boundaries)||!filled(steps)||!filled(input_order)||!filled(plan.substitution_roots)||!filled(plan.positioning_roots)||
        !filled(s.glyphs)||!filled(s.components)||!filled(s.cluster_bits)||!filled(s.character_glyphs)||
@@ -67,7 +66,7 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
         return SfntStatus::invalid_input;
     // Runs with per-cluster steps (the Indic and syllabic shapers) take the scoped path of the root loop.
     const bool scoped=stages&&stages->per_cluster.count;
-    if(stages&&(!stages->prepare||!stages->count||stages->count>256||plan.substitution_roots.count))return SfntStatus::invalid_input;
+    if(stages&&plan.substitution_roots.count)return SfntStatus::invalid_input;
     if(scoped&&(!stages->per_cluster.data||stages->per_cluster.count<(static_cast<u64>(steps.count)+63)/64))return SfntStatus::invalid_input;
     if(input.count>limits.stage_work||steps.count>limits.stage_work||plan.substitution_roots.count>limits.stage_work||
        plan.positioning_roots.count>limits.stage_work)return SfntStatus::resource_limit;

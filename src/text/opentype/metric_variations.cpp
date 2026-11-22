@@ -7,7 +7,7 @@ using namespace sfnt_read;
 }
 // Once per plan of a variable font: compiled for size.
 __attribute__((minsize)) SfntStatus sfnt_hvar_open(ConstSlice<u8> table,SfntHvar* output,u32 work,u32* used) noexcept {
-    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;reset_value(output);
+    WorkReport report{work,work,used};reset_value(output);
     if(!span(table,0,20))return SfntStatus::truncated;
     if(r16(table,0)!=1 || r16(table,2)!=0)return SfntStatus::unsupported;
     const u32 store=r32(table,4),map=r32(table,8);
@@ -18,7 +18,7 @@ __attribute__((minsize)) SfntStatus sfnt_hvar_open(ConstSlice<u8> table,SfntHvar
     *output=result;return SfntStatus::ok;
 }
 __attribute__((minsize)) SfntStatus sfnt_mvar_open(ConstSlice<u8> table,SfntMvar* output,u32 work,u32* used) noexcept {
-    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;reset_value(output);
+    WorkReport report{work,work,used};reset_value(output);
     if(!span(table,0,12))return SfntStatus::truncated;if(r16(table,0)!=1)return SfntStatus::unsupported;
     const u16 stride=r16(table,6),count=r16(table,8),store=r16(table,10);
     // Windows accepts an empty MVAR with zero stride. There are no records to
@@ -34,13 +34,13 @@ __attribute__((minsize)) SfntStatus sfnt_mvar_open(ConstSlice<u8> table,SfntMvar
     *output=result;return SfntStatus::ok;
 }
 SfntStatus sfnt_hvar_advance_delta(const SfntHvar& view,ConstSlice<double> scalars,u16 glyph,double* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output=0;u32 index=0;const auto s=variation_index_map_get(view.advances,glyph,&index);if(s!=SfntStatus::ok)return s;
+    *output=0;u32 index=0;const auto s=variation_index_map_get(view.advances,glyph,&index);if(s!=SfntStatus::ok)return s;
     return item_variation_delta({view.store,scalars},index,output);
 }
 #pragma float_control(precise,on,push)
 #pragma clang fp contract(off)
 SfntStatus sfnt_hvar_design_advance(const SfntHvar& view,ConstSlice<double> scalars,const SfntHorizontalMetrics& metrics,u16 glyph,u16* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output=0;SfntGlyphMetrics base{};
+    *output=0;SfntGlyphMetrics base{};
     auto s=sfnt_horizontal_metrics(metrics,glyph,&base);if(s!=SfntStatus::ok)return s;
     // HVAR delta-set indices come from the glyph ID itself, through the index
     // map when present (OpenType 1.9 HVAR "Advance width mapping"), including
@@ -54,7 +54,7 @@ SfntStatus sfnt_hvar_design_advance(const SfntHvar& view,ConstSlice<double> scal
 }
 #pragma float_control(pop)
 SfntStatus sfnt_mvar_delta(const SfntMvar& view,ConstSlice<double> scalars,u32 tag,double* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output=0;
+    *output=0;
     u32 low=0,high=view.record_count;
     while(low<high){const u32 middle=low+(high-low)/2,value=r32(view.records,middle*view.record_stride);if(value<tag)low=middle+1;else high=middle;}
     if(low==view.record_count || r32(view.records,low*view.record_stride)!=tag)return SfntStatus::ok;

@@ -3,7 +3,7 @@
 namespace maicord {
 // Once per face: compiled for size. Outline emission below stays /O2.
 __attribute__((minsize)) SfntStatus font_geometry_open(const SfntFace& face,FontGeometry* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);auto& font=*output;font.face=face;
+    reset_value(output);auto& font=*output;font.face=face;
     const bool cff=face.version==sfnt_tag('O','T','T','O');font.kind=cff?FontGeometryKind::cff:FontGeometryKind::truetype;
     auto status=cff?cff_open(face,&font.outline.cff):sfnt_truetype_open(face,&font.outline.truetype,true);
 #if !defined(_WIN32)
@@ -21,8 +21,10 @@ __attribute__((minsize)) SfntStatus font_geometry_open(const SfntFace& face,Font
     return status;
 }
 namespace {
+#if !defined(_WIN32)
 // Clears a result but keeps the caller's command storage.
 void clear(GlyphOutline* output) noexcept {auto* commands=output->commands;const u32 capacity=output->capacity;reset_value(output);output->commands=commands;output->capacity=capacity;}
+#endif
 // A bold CFF or CFF2 glyph: the regular outline, then the bold simulation. Kept out of the regular path.
 __declspec(noinline) SfntStatus cff_bold_outline(const FontGeometryInstance& instance,u16 glyph,GlyphOutline* output,u32 work,bool oblique) noexcept {
     const auto status=font_geometry_outline(instance,glyph,nullptr,output,work,oblique);
@@ -32,7 +34,6 @@ __declspec(noinline) SfntStatus cff_bold_outline(const FontGeometryInstance& ins
 }
 SfntStatus font_geometry_outline(const FontGeometryInstance& instance,u16 glyph,
     FontGeometryScratch* scratch,GlyphOutline* output,u32 work,bool oblique,bool bold) noexcept {
-    if(!instance.font || !output || (!scratch && instance.font->kind==FontGeometryKind::truetype)){if(output)clear(output);return SfntStatus::invalid_input;}
     const auto& font=*instance.font;
 #if !defined(_WIN32)
     if(font.kind==FontGeometryKind::bitmap){clear(output);return SfntStatus::unsupported;}

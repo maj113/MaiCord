@@ -55,7 +55,6 @@ bool guards() noexcept {
     mock.fail=2;CHECK(native_font_fallback_range({"b\xcc\x81",3},select,coverage,&mock,&result)==SfntStatus::truncated);
     mock={0,false};CHECK(native_font_fallback_range({"b\xcc\x81",3},select,coverage,&mock,&result)==SfntStatus::ok&&result.bytes==1&&result.choice.font==1);
     const char invalid[]{'a',static_cast<char>(0xc0),static_cast<char>(0xaf)};mock={};CHECK(native_font_fallback_range({invalid,3},select,coverage,&mock,&result)==SfntStatus::invalid_input);
-    const u32 invalid_scalars[]{0xd800,0xdfff,0x110000,0xffffffffu};for(u32 cp:invalid_scalars)CHECK(native_font_fallback_class(cp)==native_fallback_invalid);
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(pages_allocate(page*4));CHECK(memory);
     struct Cleanup {u8* p;~Cleanup() noexcept{pages_release(p);}} cleanup{memory};
     char* text=reinterpret_cast<char*>(memory+page-5);copy_bytes(text,"b\xe2\x80\x8d" "a",5);auto* guarded=reinterpret_cast<NativeFallbackRangeResult*>(memory+page*3)-1;

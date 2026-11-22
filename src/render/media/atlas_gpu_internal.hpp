@@ -152,16 +152,9 @@ bool dimensions_valid(u16 width, u16 height) noexcept;
 
 // The surface of `preview` (the primary one otherwise) exists for this atlas's geometry.
 inline bool surface_ready(const MediaAtlasGpu* gpu, const MediaAtlas& atlas, bool preview) noexcept {
-    return gpu && (preview ? gpu->preview_surface && gpu->preview_width == atlas.allocations.width &&
-                                 gpu->preview_height == atlas.allocations.height
-                           : gpu->surface && gpu->width == atlas.allocations.width &&
-                                 gpu->height == atlas.allocations.height);
-}
-
-// The atlas texture exists and matches the allocation grid.
-inline bool animation_target_ready(const MediaAtlasGpu* gpu, const MediaAtlas* atlas, GpuDevice* device,
-                                   GpuContext1* context, MediaAssetKey key) noexcept {
-    return atlas && device && context && surface_ready(gpu, *atlas, false) && media_asset_key_valid(key);
+    return preview ? gpu->preview_surface && gpu->preview_width == atlas.allocations.width &&
+                         gpu->preview_height == atlas.allocations.height
+                   : gpu->surface && gpu->width == atlas.allocations.width && gpu->height == atlas.allocations.height;
 }
 
 // A first frame's canvas is non-empty and fits a page with its padding.
@@ -176,10 +169,6 @@ inline bool image_fits(const MediaAtlas& atlas, u32 width, u32 height) noexcept 
     return width + atlas.allocations.padding * 2u <= atlas.allocations.width &&
            height + atlas.allocations.padding * 2u <= atlas.allocations.page_rows;
 }
-
-bool png_format_valid(const PngImage& image) noexcept;
-
-bool png_scanlines_reconstructed(const PngImage& image, ConstSlice<u8> scanlines) noexcept;
 
 GpuStatus create_png_resources(MediaAtlasGpu* gpu, GpuDevice* device) noexcept;
 
@@ -196,12 +185,8 @@ GpuStatus create_vp8_atlas_resources(MediaAtlasGpu* gpu, GpuDevice* device) noex
 
 GpuStatus create_jpeg_resources(MediaAtlasGpu* gpu, GpuDevice* device) noexcept;
 
-bool jpeg_icc_curve_valid(const JpegIccCurve& curve, u32 entry_count) noexcept;
-
 void store_jpeg_icc_curve(JpegAtlasConstants* constants, u32 destination, const JpegIccCurve& curve,
                           u32 table_base) noexcept;
-
-bool jpeg_image_valid(const JpegImage& image) noexcept;
 
 bool vp8_reconstruction_valid(const Vp8Keyframe& frame, const Vp8ModeWorkspace& modes,
                               const Vp8CoefficientWorkspace& coefficients) noexcept;

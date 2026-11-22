@@ -436,7 +436,7 @@ SecureEditResult secure_edit_utf16_selection(const SecureEdit& edit,
 
 SecureEditResult secure_edit_codepoint_from_utf16(const SecureEdit& edit, u32 position,
                                                   u32* codepoint) noexcept {
-    if (!codepoint || !ready(&edit)) {
+    if (!ready(&edit)) {
         return SecureEditResult::invalid_input;
     }
     const u32 byte = byte_for_units(edit, position, true);
@@ -466,14 +466,14 @@ SecureEditResult secure_edit_set_utf16_selection(SecureEdit* edit,
 
 SecureEditResult secure_edit_copy_utf16(const SecureEdit& edit, u32 start, u32 end, const Slice<u16>& output,
                                         u32* written, u32* next) noexcept {
-    if (!written || !next || (!output.data && output.count != 0) || !ready(&edit) || start > end)
+    if ((!output.data && output.count != 0) || !ready(&edit) || start > end)
         return SecureEditResult::invalid_input;
     return utf8_copy_utf16_range({reinterpret_cast<const char*>(edit.storage.data), edit.storage.bytes},
         start, end, output, written, next) ? SecureEditResult::unchanged : SecureEditResult::invalid_utf16;
 }
 SecureEditResult secure_edit_replace_utf16(SecureEdit* edit, u32 start, u32 end, const ConstSlice<u16>& input,
                                            SecureEditUtf16Change* change) noexcept {
-    if (!change || (!input.data && input.count != 0) || !ready(edit) || start > end) {
+    if ((!input.data && input.count != 0) || !ready(edit) || start > end) {
         return SecureEditResult::invalid_input;
     }
     if (input.count > edit->storage.capacity * 2u) {
@@ -540,7 +540,7 @@ SecureEditResult secure_edit_replace_utf16(SecureEdit* edit, u32 start, u32 end,
 SecureEditResult secure_edit_render_window(const SecureEdit& edit, u32 maximum_codepoints,
                                            const Slice<char>& output, u32* output_bytes,
                                            SecureEditRenderWindow* window) noexcept {
-    if (!output_bytes || !window || maximum_codepoints == 0 || (!output.data && output.count != 0) ||
+    if (maximum_codepoints == 0 || (!output.data && output.count != 0) ||
         !ready(&edit)) {
         return SecureEditResult::invalid_input;
     }

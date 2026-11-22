@@ -681,8 +681,7 @@ bool d3d11_effect_draw(D3D11EffectOwner* owner, GpuContext* context, UiRect canv
         offset_x = share_x * ((content_width - tile_width / cover) * .5f - canvas.left / cover) / content_width;
         offset_y = share_y * (caption + (content_height - tile_height / cover) * .5f - canvas.top / cover) / window_dip_height;
     }
-    const float opacity = owner->layer_opacity;
-    const float factor = opacity >= 0 && opacity <= 1 ? opacity : 1;
+    const float factor = owner->layer_opacity;
     const u32 blend = static_cast<u32>(owner->settings.blend);
     const float light = owner->light;
     const EffectCompositeConstants constants{{canvas.left, canvas.top, canvas.right, canvas.bottom},

@@ -25,7 +25,7 @@ __declspec(noinline) SfntName record_at(const SfntNames& names,u32 index) noexce
 }
 }
 SfntStatus sfnt_names_open(ConstSlice<u8> table,SfntNames* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!table.data)return SfntStatus::invalid_input;
+    reset_value(output);
     if(table.count<6)return SfntStatus::truncated;
     const u16 version=word(table,0),count=word(table,2),storage=word(table,4);
     if(version>1)return SfntStatus::unsupported;
@@ -40,8 +40,7 @@ SfntStatus sfnt_names_open(ConstSlice<u8> table,SfntNames* output) noexcept {
         if(word(table,at)&1)return SfntStatus::malformed;}
     *output={table,count,storage,tags,version};return SfntStatus::ok;
 }
-SfntStatus sfnt_name_english(const SfntNames& names,u16 id,SfntName* output,bool* found) noexcept {
-    if(output)reset_value(output);if(found)*found=false;if(!output||!found||!names.table.data)return SfntStatus::invalid_input;
+bool sfnt_name_english(const SfntNames& names,u16 id,SfntName* output) noexcept {
     u32 best=0xffffffff;SfntName selected{};
     for(u32 i=0;i<names.records;++i){
         // Opening already validated every record span. Unrelated IDs need no
@@ -57,10 +56,11 @@ SfntStatus sfnt_name_english(const SfntNames& names,u16 id,SfntName* output,bool
         const u32 rank=language*2+(name.platform==3?0:1);
         if(rank<best){best=rank;selected=name;if(!rank)break;} // First rank-zero record cannot be improved or displaced by a tie.
     }
-    if(best!=0xffffffff){*output=selected;*found=true;}return SfntStatus::ok;
+    if(best==0xffffffff)return false;
+    *output=selected;return true;
 }
 SfntStatus sfnt_name_decode(const SfntName& name,Slice<u16> output,u32* units) noexcept {
-    if(!units)return SfntStatus::invalid_input;*units=0;
+    *units=0;
     if((name.bytes.count&&!name.bytes.data)||(output.count&&!output.data))return SfntStatus::invalid_input;
     if(!unicode(name.platform,name.encoding))return SfntStatus::unsupported;
     if(name.bytes.count&1)return SfntStatus::malformed;const u32 count=name.bytes.count/2;
@@ -72,7 +72,7 @@ SfntStatus sfnt_name_decode(const SfntName& name,Slice<u16> output,u32* units) n
     for(u32 i=0;i<count;++i)output[i]=word(name.bytes,i*2);*units=count;return SfntStatus::ok;
 }
 SfntStatus sfnt_font_attributes(const SfntFace& face,SfntFontAttributes* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);ConstSlice<u8> table{};
+    reset_value(output);ConstSlice<u8> table{};
     const auto status=sfnt_table(face,sfnt_tag('O','S','/','2'),&table);if(status!=SfntStatus::ok)return status;
     if(table.count<64)return SfntStatus::truncated;
     const u16 weight=word(table,4),width=word(table,6);

@@ -101,7 +101,6 @@ bool native_text_catalogs_initialize(NativeTextCatalogs* owner) noexcept {
     return true;
 }
 void native_text_catalogs_release(NativeTextCatalogs* owner) noexcept {
-    if(!owner)return;
     const u64 counts[]={owner->builds,owner->selections,owner->unsupported,owner->failures,owner->build_ticks,owner->storage.committed};
     LogEvent("native_catalog_released").fields("native_catalog_builds\0native_catalog_selections\0native_catalog_unsupported\0"
         "native_catalog_failures\0native_catalog_build_ticks\0native_catalog_commit",counts).write(LogLevel::info,"text");
@@ -124,8 +123,8 @@ inline NativeTextCatalogScope* append_scope(NativeTextCatalogs& owner,const wcha
 }
 }
 bool native_text_catalog_register_path(NativeTextCatalogs* owner,const wchar_t* path,u32* scope) noexcept {
-    if(!scope)return false;*scope=0xffffffffu;
-    if(!owner||!owner->count||!path)return false;u32 units=0;while(units<32768&&path[units])++units;if(!units||units==32768)return false;
+    *scope=0xffffffffu;
+    if(!owner->count)return false;u32 units=0;while(units<32768&&path[units])++units;if(!units||units==32768)return false;
     for(u32 i=1;i<owner->count;++i){const auto* p=owner->scopes[i].path;if(!p)continue;u32 n=0;while(p[n])++n;
         if(n==units&&bytes_equal(p,path,(units+1)*2)){*scope=i;return true;}}
     const u32 index=owner->count;if(!append_scope(*owner,path,units))return false;
@@ -137,8 +136,8 @@ bool native_text_catalog_select_query(NativeTextCatalogs* owner,const NativeText
 #if !defined(_WIN32)
     LocatorIdle idle{owner};
 #endif
-    if(output)reset_value(output);if(source)reset_value(source);if(candidate)*candidate=0xffffffffu;if(simulations)*simulations=0;if(selected_scope)*selected_scope=0xffffffffu;
-    if(!owner||query.scope>=owner->count||!query.family.count||!query.family.data||query.family.count>32767||!session||!scratch||!scratch->base||!output||!source)return false;
+    reset_value(output);reset_value(source);if(candidate)*candidate=0xffffffffu;if(simulations)*simulations=0;if(selected_scope)*selected_scope=0xffffffffu;
+    if(query.scope>=owner->count||!query.family.count||!query.family.data||query.family.count>32767||!scratch->base)return false;
     const FamilyOrder* family=nullptr;bool loaded=false;if(!coverage_ready(*owner,session)||!family_order(*owner,query,*scratch,&family,&loaded))return false;
     if(!family->order.count){
         if(!selected_scope)return false;
@@ -155,8 +154,8 @@ bool native_text_catalog_select_query(NativeTextCatalogs* owner,const NativeText
 }
 #include "native_system_fallback.inc"
 bool native_text_catalog_select_face(NativeTextCatalogs* owner,u32 scope,u32 candidate,u32 simulations,NativeFontSession* session,Arena* scratch,NativeFontInstanceHandle* output,NativeFontSelection* source,bool refresh) noexcept {
-    if(output)reset_value(output);if(source)reset_value(source);
-    if(!owner||scope>=owner->count||simulations>3||!session||!scratch||!scratch->base||!output||!source||owner->coverage.session!=session)return false;
+    reset_value(output);reset_value(source);
+    if(scope>=owner->count||simulations>3||!scratch->base||owner->coverage.session!=session)return false;
     const auto* selected=candidate_catalog(*owner,scope,&candidate);if(!selected)return false;const auto& catalog=*selected;
     const auto settings=native_font_catalog_settings(catalog,candidate);
     NativeFontHandle face{};const auto acquired=native_font_coverage_acquire(&owner->coverage,catalog,&face,refresh);

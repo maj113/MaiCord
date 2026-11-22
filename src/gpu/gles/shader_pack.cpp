@@ -14,8 +14,6 @@ using namespace gles;
 struct GlesPackedShader {
     u32 offset, raw_bytes, binding_first;
     u16 binding_count;
-    u8 stage; // 0 vertex, 1 pixel, 2 compute
-    u8 reserved;
 };
 #include "maicord_shader_pack_gles.inc"
 
@@ -62,10 +60,8 @@ static_assert([]() constexpr {
     return true;
 }());
 
-// The GLSL of `entry`, which must be of `stage`. Inflates the pack unless a shader made since the last present did.
-GpuStatus pack_source(GpuDevice& device, const GlesPackedShader& entry, u8 stage, const char** text) noexcept {
-    if (entry.stage != stage)
-        return kGpuInvalidArgument;
+// The GLSL of `entry`. Inflates the pack unless a shader made since the last present did.
+GpuStatus pack_source(GpuDevice& device, const GlesPackedShader& entry, const char** text) noexcept {
     if (!device.pack_text) {
         auto* block = static_cast<DeflateWorkspace*>(heap_allocate(sizeof(DeflateWorkspace) + kPackCapacity));
         if (!block)
@@ -135,12 +131,10 @@ GpuStatus compile_text(GpuDevice* device, gl::Enum type, const char* text, u32 l
 
 // A vertex (stage 0) or pixel (stage 1) shader of the pack.
 GpuStatus create_shader(GpuDevice* device, ShaderId id, gl::Enum type, GlesShader* shader) noexcept {
-    if (id >= ShaderId::count)
-        return kGpuInvalidArgument;
     const u32 index = pack_index(id);
     const GlesPackedShader& entry = kGlesShaders[index];
     const char* text = nullptr;
-    GpuStatus status = pack_source(*device, entry, type == gl::kVertexShader ? 0 : 1, &text);
+    GpuStatus status = pack_source(*device, entry, &text);
     if (gpu_ok(status))
         status = compile_text(device, type, text, entry.raw_bytes, index, &shader->name);
     if (!gpu_ok(status))
@@ -267,8 +261,6 @@ GpuStatus create_blob_shader(GpuDevice* device, ConstSlice<u8> payload, u8 stage
 }
 
 GpuStatus create_compute_program(GpuDevice* device, ShaderId id, GlesShader* shader) noexcept {
-    if (id >= ShaderId::count)
-        return kGpuInvalidArgument;
     // One program per pack entry: the atlases made on the prestart worker and on the main thread run the same compute
     // shaders, and a driver compiles a program again for each (a pipeline state on Direct3D 12, LLVM code on llvmpipe).
     const u32 index = pack_index(id);
@@ -278,7 +270,7 @@ GpuStatus create_compute_program(GpuDevice* device, ShaderId id, GlesShader* sha
         gl::Api& gl = device->gl;
         const char* text = nullptr;
         u32 object = 0;
-        GpuStatus status = pack_source(*device, entry, 2, &text);
+        GpuStatus status = pack_source(*device, entry, &text);
         if (gpu_ok(status))
             status = compile_text(device, gl::kComputeShader, text, entry.raw_bytes, static_cast<u32>(id), &object);
         if (!gpu_ok(status))
@@ -449,8 +441,7 @@ void gpu_release(GpuPixelShader*& handle) noexcept {
     }
     GpuDevice& d = gles::device();
     drop_programs(d, shader);
-    if (shader->name)
-        d.gl.glDeleteShader(shader->name);
+    d.gl.glDeleteShader(shader->name);
     if (gles::context().pixel_shader == shader)
         gles::context().pixel_shader = nullptr;
     d.pixel_shaders.release(shader);

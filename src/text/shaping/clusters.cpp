@@ -41,7 +41,7 @@ SfntClusterMap sfnt_cluster_map_frame(u64* storage,u32 text_count) noexcept {
     return map;
 }
 SfntStatus sfnt_cluster_map_open(u32 text_count,ConstSlice<u32> starts,Slice<u64> storage,SfntClusterMap* output,u64 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);SfntClusterMap result=sfnt_cluster_map_frame(storage.data,text_count);const u32 words=result.storage.count;
+    reset_value(output);SfntClusterMap result=sfnt_cluster_map_frame(storage.data,text_count);const u32 words=result.storage.count;
     if((starts.count && !starts.data) || (storage.count && (!storage.data || (reinterpret_cast<usize>(storage.data)&7))))return SfntStatus::invalid_input;
     if(words>storage.count)return SfntStatus::output_too_small;
     if(static_cast<u64>(words)*3+starts.count>work)return SfntStatus::resource_limit;
@@ -57,7 +57,7 @@ SfntStatus sfnt_cluster_map_open(u32 text_count,ConstSlice<u32> starts,Slice<u64
 }
 u32 sfnt_cluster_map_start(const SfntClusterMap& map,u32 source) noexcept {return find(map,source,false);}
 SfntStatus sfnt_cluster_map_plan(const SfntClusterMap& map,u32 first,u32 last,SfntClusterMerge* output,u64 work,u64* used) noexcept {
-    if(used)*used=0;if(!output)return SfntStatus::invalid_input;reset_value(output);if(first>last || last>=map.text_count)return SfntStatus::invalid_input;
+    if(used)*used=0;reset_value(output);if(first>last || last>=map.text_count)return SfntStatus::invalid_input;
     SfntClusterMerge plan{first,last,0};u64 charged=0;const u32 search_cost=map.levels*2+2;
     if(first!=last){u32 at=first+1;for(;;){if(search_cost>work-charged){if(used)*used=charged;return SfntStatus::resource_limit;}charged+=search_cost;
             const u32 found=find(map,at,true);plan.commit_work+=search_cost;if(found==absent || found>last)break;

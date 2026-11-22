@@ -35,7 +35,7 @@ constexpr char subdivisions[3][3] = {{'e', 'n', 'g'}, {'s', 'c', 't'}, {'w', 'l'
 }
 
 u16 regional_flag_sequence(const Utf8View& glyph) noexcept {
-    if (!glyph.data || (glyph.bytes != 8 && glyph.bytes != 28)) return 0;
+    if (glyph.bytes != 8 && glyph.bytes != 28) return 0;
     u32 scalars[7];
     const u32 count = glyph.bytes / 4;
     for (u32 i = 0; i < count; ++i) {
@@ -63,8 +63,8 @@ u16 regional_flag_sequence(const Utf8View& glyph) noexcept {
 }
 
 bool regional_flag_next(Utf8View text, u32* cursor, RegionalFlagRange* range) noexcept {
-    if (range) reset_value(range);
-    if (!cursor || !range || (!text.data && text.bytes) || *cursor > text.bytes) return false;
+    reset_value(range);
+    if (*cursor > text.bytes) return false;
     u32 position = *cursor;
     // A flag starts at a 4-byte scalar. An ASCII byte followed by another ASCII
     // byte neither starts a candidate nor can its look-ahead be malformed.
@@ -107,7 +107,7 @@ bool regional_flag_next(Utf8View text, u32* cursor, RegionalFlagRange* range) no
 }
 
 u32 regional_flag_svg_target(u16 sequence, Slice<char> output) noexcept {
-    if (!known(sequence) || !output.data) return 0;
+    if (!known(sequence)) return 0;
     u32 scalars[7];
     u32 count = 2;
     if (sequence <= 676) {
@@ -119,7 +119,6 @@ u32 regional_flag_svg_target(u16 sequence, Slice<char> output) noexcept {
         scalars[6] = 0xe007f;
     }
     const u32 bytes = kRegionalFlagSvgTargetPrefixBytes + count * 6 - 1 + 4;
-    if (output.count < bytes) return 0;
     copy_bytes(output.data, kRegionalFlagSvgTargetPrefix, kRegionalFlagSvgTargetPrefixBytes);
     static constexpr char hexadecimal[] = "0123456789abcdef", suffix[] = ".svg";
     u32 at = kRegionalFlagSvgTargetPrefixBytes;

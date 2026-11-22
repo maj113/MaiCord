@@ -34,8 +34,7 @@ struct TimelineInputs {
 };
 
 // Folds the inputs a frame depends on into the stamp, a word per value or per
-// eight bytes of a block. An unusable input (counter overflow, a null block
-// with a length) invalidates the stamp for good.
+// eight bytes of a block. A block with a length has its storage.
 class StampWriter {
 public:
     explicit StampWriter(RendererPresentationStamp* stamp) noexcept : stamp_(stamp) {}
@@ -76,11 +75,6 @@ private:
 
 StampWriter& StampWriter::bytes(const void* bytes, u32 count) noexcept {
     RendererPresentationStamp* stamp = stamp_;
-    const u32 words = count / sizeof(u64) + (count % sizeof(u64) != 0);
-    if ((!bytes && count != 0) || !stamp->valid || stamp->count >= ~0u - words) {
-        stamp->valid = false;
-        return *this;
-    }
     // The accumulators stay in registers across the block (a theme is
     // hundreds of words).
     const u8* source = static_cast<const u8*>(bytes);
@@ -197,13 +191,6 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
         if (form.active)
             for (u32 field = 0; field < 2; ++field) {
                 const auto& geometry = renderer.forum_form->geometry[field];
-                if ((!geometry.selections.data && geometry.selections.count) ||
-                    geometry.selections.count > kTextEditSelectionCapacity ||
-                    (!geometry.composition.data && geometry.composition.count) ||
-                    geometry.composition.count > kTextCompositionSpanCapacity) {
-                    stamp.valid = false;
-                    return stamp;
-                }
                 s.push(geometry.selections.count, geometry.composition.count)
                     .bytes(&geometry.text_rectangle, sizeof(UiRect))
                     .bytes(&geometry.caret, sizeof(UiRect))
@@ -765,8 +752,7 @@ bool renderer_frame_copy_record(RendererFrameCopy* copy, const D3D11Renderer& re
         renderer_frame_copy_release(copy);
         return false;
     }
-    if (paint.batch_count > kMaxPaintBatches || paint.clip_count > kMaxPaintClips ||
-        !record_array(&copy->paint_quads, paint.quads, paint.count) ||
+    if (!record_array(&copy->paint_quads, paint.quads, paint.count) ||
         !record_array(&copy->media_quads, media.quad_data, count) ||
         !record_array(&copy->media_handles, media.handle_data, count) ||
         !record_array(&copy->media_domains, media.domain_data, count) ||
@@ -794,7 +780,6 @@ bool renderer_paint_diff_damage(D3D11Renderer* renderer, const Theme& theme) noe
     const bool pending_valid = renderer->presentation_damage.pending_valid;
     const bool partial =
         diff.valid && !renderer->login_visible && renderer->content_text && paint.rejected == 0 &&
-        paint.batch_count <= kMaxPaintBatches && paint.clip_count <= kMaxPaintClips &&
         renderer_presentation_stamp_equal(structure, diff.structure) && text == diff.text_signature &&
         layout == diff.layout_signature && paint.clip_count == diff.frame.clip_count &&
         paint.batch_count == diff.frame.batch_count &&

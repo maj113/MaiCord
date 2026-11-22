@@ -1257,7 +1257,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     // A frame whose inputs differ from the last build only in the message
     // timeline replays everything painted before it (see RendererShellSegment).
     const u64 segment_key =
-        stamp && stamp->valid && !content_hidden && !friends_requests_active
+        stamp && !content_hidden && !friends_requests_active
             ? shell_segment_key(*stamp, composer_presentation, renderer->paint_stream)
             : 0;
     const bool segment_replayed = replay_shell && segment_key &&

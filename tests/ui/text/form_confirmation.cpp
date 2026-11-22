@@ -144,10 +144,6 @@ void test_text_form_confirmation(void (*check)(bool,const char*) noexcept) noexc
         paint_stream_release(&info_paint);}
     check(detail_drawn,"info_dialog_read_only_text_renders_as_text");
     check(info_painted[0]==info_painted[1],"info_dialog_read_only_text_adds_no_field_border_background_or_caret");
-    TextFormContent editor_detail=info;editor_detail.confirmation_only=false;editor_detail.single_action=false;
-    editor_detail.cancel=utf8_literal("Cancel");TextFormContent no_cancel=info;no_cancel.single_action=false;
-    check(!text_form_update(&scene,editor_detail,viewport,&cache)&&!text_form_update(&scene,no_cancel,viewport,&cache),
-        "read_only_text_needs_a_confirmation_and_two_buttons_need_a_cancel_label");
     text_form_release(&scene);check(!scene.storage.arena.base&&!scene.active,"confirmation_release_frees_native_scene");
 }
 }

@@ -72,7 +72,6 @@ inline bool lexical_end(ConstSlice<u32> text,u32 end) noexcept {
 }
 NativeThaiWordCandidates native_thai_lexical_candidates(ConstSlice<u32> text,u32 first) noexcept {
     NativeThaiWordCandidates output{};
-    if(!text.data||first>=text.count)return output;
     const u32 cp=text[first];
     if(cp==0x20||cp==0x200b||cp==0xe2f||cp==0xe46){output.lengths[0]=1;return output;}
     const u32 initial=cp-0xe00u<sizeof(thai_word_initial)/sizeof(thai_word_initial[0])?thai_word_initial[cp-0xe00u]:no_node;

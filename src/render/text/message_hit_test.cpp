@@ -286,7 +286,7 @@ MessagePositionHit message_position_hit_test(MessageHitTestCacheOwner* owner,
                                              const MessageTextPresentation& presentation,
                                              const TextSystem& text_system, const TextSystem& chat_system, u32 dpi,
                                              i32 client_x_pixels, i32 client_y_pixels) noexcept {
-    if (!owner || !presentation.active || dpi == 0 ||
+    if (!presentation.active || dpi == 0 ||
         client_x_pixels < 0 || client_y_pixels < 0 ||
         presentation.command_count > presentation.commands.count) {
         return MessagePositionHit{};
@@ -322,7 +322,7 @@ MessagePositionHit message_position_nearest_hit_test(MessageHitTestCacheOwner* o
                                                      const TextSystem& text_system, const TextSystem& chat_system,
                                                      u32 dpi, i32 client_x_pixels, i32 client_y_pixels,
                                                      const UiRect& bounds) noexcept {
-    if (!owner || !presentation.active || dpi == 0 || !ui_rect_has_area(bounds) ||
+    if (!presentation.active || dpi == 0 || !ui_rect_has_area(bounds) ||
         presentation.command_count > presentation.commands.count)
         return MessagePositionHit{};
     constexpr float kInside = 0.01f;
@@ -371,7 +371,7 @@ MessagePositionHit message_position_nearest_hit_test(MessageHitTestCacheOwner* o
 MessageEmojiHit message_emoji_hit_test(MessageHitTestCacheOwner* owner, const MessageTextPresentation& presentation,
                                        const TextSystem& text_system, const TextSystem& chat_system, float x,
                                        float y) noexcept {
-    if (!owner || !presentation.active || presentation.command_count > presentation.commands.count ||
+    if (!presentation.active || presentation.command_count > presentation.commands.count ||
         !ui_coordinate_valid(x) || !ui_coordinate_valid(y))
         return {};
     for (u32 cursor = presentation.command_count; cursor != 0; --cursor) {

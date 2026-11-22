@@ -23,7 +23,7 @@ struct D3D11BackgroundFxOwner {
     BackgroundFxSource source;
     bool vertex_constants_bound; // VS b2 holds the effect constants
     BackgroundFxConstants frame;
-    float layer_opacity; // the paint layer's group opacity, set by the draw loop
+    float layer_opacity; // the paint layer's group opacity in [0, 1], set by the draw loop
     u32 drawn[kD3D11BackgroundFxCanvases];
     u32 drawn_count;
 };

@@ -10,7 +10,7 @@ namespace maicord {
 using native_direction::continues;using native_direction::reverses;using native_direction::reverse;
 SfntStatus native_arabic_run(const NativeArabicPlanStore& store,NativeArabicPlanHandle handle,
     Utf8View text,bool independent,bool rtl,float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,SfntShapeLimits limits,ArabicJoiningContext context,bool paragraph_start) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
+    reset_value(result);
     const auto plan=native_arabic_plan_get(store,handle,independent);
     if(!plan.shape || !plan.cmap || (text.bytes && !text.data) || !(em>0) || em>65536 ||
        (storage.components.count && !storage.components.data) || (storage.positions.count && !storage.positions.data) ||
@@ -47,9 +47,9 @@ SfntStatus native_arabic_run(const NativeArabicPlanStore& store,NativeArabicPlan
         u32 source=0;for(u32 i=0;i<count;++i){if(mapped[i].glyph.reserved){if(starts==storage.targets.count)return SfntStatus::output_too_small;storage.targets[starts++]=source;}
             mapped[i].glyph.reserved=0;mapped[i].source=source;source+=scalars[i]>0xffff?2u:1u;}
     }
-    if(count){const u64 span=static_cast<u64>(count-1)*sizeof(SfntClusterGlyph)+1;if(span>0xffffffffu)return SfntStatus::output_too_small;
-        const auto status=arabic_joining_forms({scalars,count},{&mapped[0].glyph.reserved,static_cast<u32>(span)},sizeof(SfntClusterGlyph),limits.stage_work,context);
-        if(status!=ArabicJoiningStatus::ok)return status==ArabicJoiningStatus::work_limit?SfntStatus::resource_limit:status==ArabicJoiningStatus::output_too_small?SfntStatus::output_too_small:SfntStatus::invalid_input;
+    if(count){
+        if(arabic_joining_forms({scalars,count},&mapped[0].glyph.reserved,sizeof(SfntClusterGlyph),limits.stage_work,context)!=ArabicJoiningStatus::ok)
+            return SfntStatus::resource_limit;
         for(u32 i=0;i<count;++i)if(storage.flags[i])mapped[i].glyph.reserved|=sfnt_arabic_rtlm_mask;
     }
     // HarfBuzz inserts the dotted circle before reversing; a reversed run whose paragraph begins with a mark

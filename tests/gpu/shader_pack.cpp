@@ -1,6 +1,6 @@
 // Every built-in shader of the GLSL pack inflates, compiles (graphics) or compiles and links (compute) on the
-// driver, every vertex/pixel pair the renderer draws with links, and a request that names the wrong stage or an
-// unknown id is refused. White-box: the pair link goes through the backend's program cache.
+// driver, and every vertex/pixel pair the renderer draws with links. White-box: the pair link goes through the
+// backend's program cache.
 #include "maicord/core/log.hpp"
 #include "gpu/gles/internal.hpp"
 #include "../support/test_output.hpp"
@@ -80,17 +80,6 @@ void run() noexcept {
         gpu_release(shader);
     }
 
-    GpuPixelShader* pixel = nullptr;
-    check(gpu_pixel_shader_create(device, ShaderId::ui_vertex, &pixel) == kGpuInvalidArgument && !pixel,
-          "a vertex shader is not a pixel shader");
-    GpuVertexShader* vertex = nullptr;
-    GpuInputLayout* layout = nullptr;
-    check(gpu_vertex_shader_create(device, ShaderId::count, {}, &vertex, &layout, nullptr) == kGpuInvalidArgument &&
-              !vertex,
-          "an unknown id is refused");
-    GpuComputeShader* shader = nullptr;
-    check(gpu_compute_shader_create(device, ShaderId::ui_pixel, &shader) == kGpuInvalidArgument && !shader,
-          "a pixel shader is not a compute shader");
     gpu_device_destroy(&device, &context);
 }
 

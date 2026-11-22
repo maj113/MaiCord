@@ -674,7 +674,7 @@ bool settings_modal_visible(const D3D11Renderer& renderer) noexcept {
 bool settings_layer_entrance(const D3D11Renderer& renderer) noexcept {
     return renderer_settings_page_visible(renderer) &&
            renderer.settings_scene->presentation == UiSettingsPresentation::layer &&
-           renderer.settings_modal_progress >= 0 && renderer.settings_modal_progress < 1;
+           renderer.settings_modal_progress < 1;
 }
 bool settings_backdrop_wanted(const D3D11Renderer& renderer) noexcept {
     return !renderer.login_visible && (settings_modal_visible(renderer) || settings_layer_entrance(renderer));
@@ -1289,8 +1289,8 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     // from 90% about its centre, trailing the scrim slightly.
     const bool layer_entrance = settings_layer_entrance(*renderer);
     const bool modal_active = settings_modal_visible(*renderer) || layer_entrance;
-    float modal_progress = modal_active ? renderer->settings_modal_progress : 1;
-    modal_progress = modal_progress >= 0 && modal_progress <= 1 ? modal_progress : 1;
+    // renderer_set_settings_modal_progress keeps the progress in [0, 1].
+    const float modal_progress = modal_active ? renderer->settings_modal_progress : 1;
     // Layers fade in while settling from 110%; dialogs grow from 90%.
     const float modal_opacity = modal_progress >= 1 ? 1
                                 : layer_entrance  ? modal_progress
@@ -1377,7 +1377,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     // The tooltip (the form layer's only content while it shows) pops in: opacity and scale about its centre.
     const float tooltip_remaining =
         (shown & d3d11_surface_tooltip) ? renderer->tooltip_entrance_remaining : 0;
-    const bool tooltip_entering = tooltip_remaining > 0 && tooltip_remaining <= 1;
+    const bool tooltip_entering = tooltip_remaining > 0;
     const UiRect tooltip_rect = tooltip_entering ? renderer->tooltip_scene->rectangle : UiRect{};
     const LayerBatchRange tooltip_layer{0, 0, 1 - tooltip_remaining,
                                         1 - (1 - kUiMotionTooltipScale) * tooltip_remaining,

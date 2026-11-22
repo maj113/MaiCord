@@ -47,10 +47,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_icon_atlas_copy_entry() noex
     }
     guards(8);
     reset_output();
-    check(!resolve(nullptr, context, 8), "icon copy: null atlas rejection");
-    check(bytes_equal(destination + 1, source, 8 * sizeof(PaintQuad)), "icon copy: fallback copies every quad");
-    guards(8);
-    reset_output();
     check(!resolve(&atlas, context, 8, 0), "icon copy: zero DPI rejection");
     check(bytes_equal(destination + 1, source, 8 * sizeof(PaintQuad)), "icon copy: fallback copies every quad");
     guards(8);
@@ -62,10 +58,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_icon_atlas_copy_entry() noex
     check(bytes_equal(destination + 1, source, 8 * sizeof(PaintQuad)), "icon copy: raster failure preserves current quad and tail");
     guards(8);
     atlas.ready = false;
-    reset_output();
-    check(!resolve(&atlas, nullptr, 8), "icon copy: null context rejection");
-    check(bytes_equal(destination + 1, source, 8 * sizeof(PaintQuad)), "icon copy: null context plain copy");
-    guards(8);
     reset_output();
     check(resolve(&atlas, context, 0), "icon copy: empty stream");
     guards(0);

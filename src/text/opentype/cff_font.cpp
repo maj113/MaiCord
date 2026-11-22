@@ -375,7 +375,6 @@ SfntStatus cff2_open(const SfntFace& face, CffFont* font) noexcept {
 // Once per face, before any outline: compiled for size.
 __attribute__((minsize))
 SfntStatus cff_open(const SfntFace& face, CffFont* font) noexcept {
-    if (!font) return SfntStatus::invalid_input;
     reset_value(font);
     CffFont result{};
     auto status = sfnt_table(face, sfnt_tag('C','F','F',' '), &result.table);

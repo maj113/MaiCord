@@ -730,7 +730,7 @@ u32 renderer_media_crop_palette(D3D11Renderer* renderer, MediaAssetKey key, cons
 
 bool renderer_media_dominant_color(D3D11Renderer* renderer, MediaAssetKey key, u32* rgb) noexcept {
     u32 colors[kImagePaletteColors];
-    if (!rgb || !renderer_media_palette(renderer, key, colors))
+    if (!renderer_media_palette(renderer, key, colors))
         return false;
     *rgb = colors[0];
     return true;

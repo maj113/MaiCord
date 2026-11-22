@@ -10,7 +10,6 @@ u32 syllable_scalar(const ConstSlice<u32>& text,u32 first,u32 offset) noexcept {
 bool syllable_consonant(u32 cp) noexcept {return cp-0xe01u<46;}
 }
 i32 native_thai_syllable_result(ConstSlice<u32> text,u32 first) noexcept {
-    if(!text.data||first>=text.count)return 0;
     u32 state=0,position=0;
     for(;;){
         const u32 index=syllable_scalar(text,first,position)-0xe00u;
@@ -33,7 +32,6 @@ bool native_thai_boundary_class(u32 scalar) noexcept {
     return offset>30||!((0x7fa007ffu>>offset)&1);
 }
 u32 native_thai_unknown_recovery(ConstSlice<u32> text,u32 first,i32 syllable) noexcept {
-    if(!text.data||first>=text.count)return 0;
     const auto at=[&](u32 offset) noexcept {return syllable_scalar(text,first,offset);};
     if(!syllable)return 0;
     u32 length=static_cast<u32>(syllable>0?syllable:-syllable)-1;

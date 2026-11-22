@@ -50,7 +50,7 @@ SfntStatus stat_axes(const SfntFace& face,const FontAxes& axes) noexcept {
 }
 }
 SfntStatus native_font_candidates_open(const SfntFace& face,NativeFontCandidates* output,u32 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!spend(work,1))return SfntStatus::resource_limit;
+    reset_value(output);if(!spend(work,1))return SfntStatus::resource_limit;
     SfntFontAttributes attributes{};auto status=sfnt_font_attributes(face,&attributes);if(status!=SfntStatus::ok)return status;
     NativeFontCandidates result{};result.base={attributes.weight,static_cast<u8>(attributes.width),static_cast<u8>(attributes.selection&512?1:attributes.selection&1?2:0)};
     status=font_axes_open(face,&result.axes,work);if(status!=SfntStatus::ok)return status;
@@ -66,8 +66,8 @@ SfntStatus native_font_candidates_open(const SfntFace& face,NativeFontCandidates
     bool has_default=false;
     for(u32 i=0;i<result.axes.instance_count;++i){if(!spend(work,result.axes.axis_count*2+names.records+1))return SfntStatus::resource_limit;
         NativeFontProperties p{};status=properties(result,i,&p);if(status!=SfntStatus::ok)return status;
-        FontNamedInstance instance{};font_named_instance(result.axes,i,&instance);SfntName name{};bool found=false;
-        status=sfnt_name_english(names,instance.name,&name,&found);if(status!=SfntStatus::ok)return status;if(!found||!name.bytes.count)return SfntStatus::unsupported;
+        FontNamedInstance instance{};font_named_instance(result.axes,i,&instance);SfntName name{};
+        if(!sfnt_name_english(names,instance.name,&name)||!name.bytes.count)return SfntStatus::unsupported;
         if(!spend(work,name.bytes.count/2))return SfntStatus::resource_limit;u32 units=0;
         status=sfnt_name_decode(name,{},&units);if(status!=SfntStatus::output_too_small)return status==SfntStatus::ok?SfntStatus::unsupported:status;
         bool is_default=true;for(u32 j=0;j<result.axes.axis_count;++j){FontAxis axis{};font_axis(result.axes,j,&axis);is_default=is_default&&coordinate(result.axes,i,j,axis)==axis.normal;}
@@ -76,12 +76,10 @@ SfntStatus native_font_candidates_open(const SfntFace& face,NativeFontCandidates
     result.count=static_cast<u32>(result.axes.instance_count)+(has_default?0u:1u);*output=result;return SfntStatus::ok;
 }
 SfntStatus native_font_candidate(const NativeFontCandidates& source,u32 index,NativeFontCandidate* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!source.count||index>=source.count)return SfntStatus::invalid_input;
     const u32 named=index<source.axes.instance_count?index:default_named;NativeFontProperties p{};const auto status=properties(source,named,&p);if(status!=SfntStatus::ok)return status;
     *output={p};return SfntStatus::ok;
 }
 SfntStatus native_font_candidate_settings(const NativeFontCandidates& source,u32 index,Slice<FontAxisSetting> output,u32* count) noexcept {
-    if(!count)return SfntStatus::invalid_input;*count=0;if(!source.count||index>=source.count||(output.count&&!output.data))return SfntStatus::invalid_input;
     if(output.count<source.axes.axis_count)return SfntStatus::output_too_small;
     const u32 named=index<source.axes.instance_count?index:default_named;
     for(u32 i=0;i<source.axes.axis_count;++i){FontAxis axis{};font_axis(source.axes,i,&axis);output[i]={axis.tag,coordinate(source.axes,named,i,axis)/65536.0};}

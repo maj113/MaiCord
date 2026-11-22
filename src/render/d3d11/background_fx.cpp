@@ -101,8 +101,7 @@ bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, GpuContext* context
     }
     gpu_set_shader(context, owner->builtin_shader);
     gpu_set_constants(context, GpuStage::pixel, 0, 1, &owner->constant_buffer);
-    const float opacity = owner->layer_opacity;
-    const float factor = opacity >= 0 && opacity <= 1 ? opacity : 1;
+    const float factor = owner->layer_opacity;
     const float blend_factor[4]{factor, factor, factor, factor};
     gpu_set_blend(context, owner->blend_state, blend_factor);
     gpu_draw_instanced(context, 4, instances, 0, 0);

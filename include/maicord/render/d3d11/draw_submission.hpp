@@ -140,10 +140,9 @@ struct DrawRun {
 
 // Extends a non-empty `run` by [first, first + count) when that continues it
 // under the same scissor. Otherwise the run is unchanged and the caller draws
-// it before starting the next one.
+// it before starting the next one. first + count is an instance count: it does not wrap.
 inline bool draw_run_extend(DrawRun* run, const RasterClipRect& scissor, u32 first, u32 count) noexcept {
-    if (run->end <= run->first || run->end != first || count > ~0u - first ||
-        !raster_clip_equal(run->scissor, scissor))
+    if (run->end <= run->first || run->end != first || !raster_clip_equal(run->scissor, scissor))
         return false;
     run->end = first + count;
     return true;

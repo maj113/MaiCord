@@ -8,7 +8,7 @@ namespace maicord {namespace {
 u32 cases=0,checks=0;
 bool compare(ConstSlice<u32> text,ConstSlice<u8> expected) noexcept {
     u8 out[258];if(text.count>256||expected.count!=text.count+1)return false;out[text.count+1]=0x5a;
-    if(!unicode_line_breaks(text,{out,text.count+1})||out[text.count+1]!=0x5a)return false;
+    unicode_line_breaks(text,{out,text.count+1});if(out[text.count+1]!=0x5a)return false;
     ++cases;for(u32 i=0;i<expected.count;++i){++checks;if(out[i]!=expected[i]){print(utf8_literal("FAIL case="));number(cases);print(utf8_literal(" boundary="));number(i);print(utf8_literal("\n"));return false;}}return true;
 }
 template<usize N,usize M> bool sample(const u32 (&text)[N],const u8 (&expected)[M]) noexcept {return compare({text,static_cast<u32>(N)},{expected,static_cast<u32>(M)});}
@@ -21,7 +21,7 @@ bool vectors() noexcept {
         for(u32 i=0;i<n;++i,at+=3){const u32 value=line_break_vectors[at]|static_cast<u32>(line_break_vectors[at+1])<<8|static_cast<u32>(line_break_vectors[at+2])<<16;
             text[i]=value&0x1fffff;expected[i]=(value&0x800000)!=0;}
         expected[n]=true;++count;
-        if(!unicode_line_breaks({text,n},{out,n+1}))return false;
+        unicode_line_breaks({text,n},{out,n+1});
         for(u32 i=0;i<=n;++i){++checks;
             if((out[i]!=0)!=expected[i]){if(++failed<=10){print(utf8_literal("FAIL LineBreakTest case="));number(count);print(utf8_literal(" boundary="));number(i);print(utf8_literal("\n"));}break;}}
     }
@@ -65,10 +65,7 @@ bool units() noexcept {
        !sample(word,word_breaks)||!sample(affix,affix_breaks)||!sample(aksara,aksara_breaks)||!sample(virama,virama_breaks)||
        !sample(killer,killer_breaks)||!sample(dotted,dotted_breaks)||!sample(joiner,joiner_breaks))return false;
     u8 out[8];for(auto& b:out)b=0x5a;
-    if(unicode_line_breaks({nullptr,1},{out,8})||unicode_line_breaks({space,6},{nullptr,8})||
-       unicode_line_breaks({space,6},{out,6})||unicode_line_breaks({space,~0u},{out,~0u}))return false;
-    for(u8 b:out){++checks;if(b!=0x5a)return false;}
-    if(!unicode_line_breaks({},{out,8})||out[0])return false;for(u32 i=1;i<8;++i){++checks;if(out[i]!=0x5a)return false;}
+    unicode_line_breaks({},{out,8});if(out[0])return false;for(u32 i=1;i<8;++i){++checks;if(out[i]!=0x5a)return false;}
     return true;
 }
 bool long_contexts() noexcept {
@@ -77,15 +74,15 @@ bool long_contexts() noexcept {
     auto* out=static_cast<u8*>(pages_allocate(n+1));
     struct Release {u32* text;u8* out;~Release() noexcept {if(out)pages_release(out);if(text)pages_release(text);}} release{text,out};
     if(!text||!out)return false;text[0]='a';text[1]=10;for(u32 i=2;i<n-2;++i)text[i]=0xfe0f;text[n-2]=0x301;text[n-1]='b';
-    if(!unicode_line_breaks({text,n},{out,n+1}))return false;
+    unicode_line_breaks({text,n},{out,n+1});
     for(u32 i=0;i<=n;++i){++checks;if(out[i]!=(i==n?1:i==2?2:0))return false;}
     // Regional indicators pair up across the marks they carry.
     for(u32 i=0;i<n-1;++i)text[i]=i&1?0x301:0x1f1e6;text[n-1]='a';
-    if(!unicode_line_breaks({text,n},{out,n+1}))return false;
+    unicode_line_breaks({text,n},{out,n+1});
     for(u32 i=0;i<=n;++i){++checks;if(out[i]!=(i>=n-1||(i&&i%4==0)?1:0))return false;}
     // Every boundary between aksaras waits for a following VF.
     for(u32 i=0;i<n-1;++i)text[i]=0x1b13;text[n-1]=0x1bf3;
-    if(!unicode_line_breaks({text,n},{out,n+1}))return false;
+    unicode_line_breaks({text,n},{out,n+1});
     for(u32 i=0;i<=n;++i){++checks;if(out[i]!=(i==n||(i&&i<n-2)?1:0))return false;}
     return true;
 }
@@ -104,7 +101,7 @@ bool thai_long_clusters() noexcept {
     static u32 text[600];static u8 out[601];const u32 counts[]{256,257,300,512,600};
     for(const u32 n:counts)for(u32 base=0;base<2;++base){
         for(u32 i=0;i<n;++i){text[i]=i||!base?0xe48u:0xe01u;out[i]=0;}out[n]=0;
-        if(!native_thai_word_breaks({text,n},{out,n+1}))return false;
+        native_thai_word_breaks({text,n},{out,n+1});
         for(u32 i=1;i<255;++i){++checks;if(out[i])return false;}
         ++cases;}
     return true;

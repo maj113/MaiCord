@@ -463,7 +463,7 @@ bool tree(Builder& b, const ColrPaintElement& e, const ColrMatrix& m, u32 depth,
 
 bool colr_program_build(ColrPaintProgram* p, const ColrPaintSource& source,
                       const ColrPaintElement& root, ColrRect bounds, float scale) noexcept {
-    if (!p || !source.first_child || !source.next_sibling || !source.parent || !source.stops || !source.outline || !(scale > 0))
+    if (!p || !(scale > 0))
         return false;
     if (!p->storage.base && !arena_initialize(&p->storage, 8 * 1024 * 1024, 0, 4096, ArenaTag::render))
         return false;

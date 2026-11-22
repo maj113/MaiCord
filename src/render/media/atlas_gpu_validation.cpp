@@ -4,15 +4,6 @@
 
 namespace maicord::media_atlas_gpu_detail {
 
-bool jpeg_icc_curve_valid(const JpegIccCurve& curve, u32 entry_count) noexcept {
-    if (static_cast<u8>(curve.kind) > static_cast<u8>(JpegIccCurveKind::table)) {
-        return false;
-    }
-    return curve.kind != JpegIccCurveKind::table ||
-           (curve.table_count >= 2 && curve.table_count <= kJpegIccCurveEntryMaximum &&
-            curve.table_offset <= entry_count && curve.table_count <= entry_count - curve.table_offset);
-}
-
 void store_jpeg_icc_curve(JpegAtlasConstants* constants, u32 destination, const JpegIccCurve& curve,
                           u32 table_base) noexcept {
     constants->icc_curve_layouts[destination][0] = static_cast<u8>(curve.kind);
@@ -27,122 +18,6 @@ void store_jpeg_icc_curve(JpegAtlasConstants* constants, u32 destination, const 
     parameters1[0] = curve.d;
     parameters1[1] = curve.e;
     parameters1[2] = curve.f;
-}
-
-bool jpeg_image_valid(const JpegImage& image) noexcept {
-    if (!image.tables || image.width == 0 || image.height == 0 || image.width > kJpegDimensionMaximum ||
-        image.height > kJpegDimensionMaximum ||
-        (image.component_count != 1 && image.component_count != 3 && image.component_count != 4) ||
-        image.maximum_horizontal_sampling == 0 || image.maximum_horizontal_sampling > 2 ||
-        image.maximum_vertical_sampling == 0 || image.maximum_vertical_sampling > 2 ||
-        image.coefficient_blocks == 0 || image.coefficient_blocks > kJpegCoefficientBlockMaximum ||
-        !jpeg_orientation_valid(image.orientation) ||
-        static_cast<u8>(image.color_transform) > static_cast<u8>(JpegColorTransform::ycck)) {
-        return false;
-    }
-    if (image.tables->icc && static_cast<u8>(image.tables->icc->profile.disposition) >
-                                 static_cast<u8>(JpegIccDisposition::unsupported_ignored)) {
-        return false;
-    }
-    if (image.tables->icc && image.tables->icc->profile.disposition == JpegIccDisposition::applied) {
-        const JpegIccWorkspace& icc = *image.tables->icc;
-        const JpegIccProfile& profile = icc.profile;
-        if (profile.entries != icc.entries || profile.profile_bytes == 0 ||
-            (profile.major_version != 2 && profile.major_version != 4) ||
-            profile.entry_count > kJpegIccEntryMaximum ||
-            static_cast<u8>(profile.pcs) > static_cast<u8>(JpegIccPcs::lab) ||
-            static_cast<u8>(profile.data_color_space) > static_cast<u8>(JpegIccDataColorSpace::cmyk)) {
-            return false;
-        }
-        if (profile.transform_kind == JpegIccTransformKind::matrix_trc) {
-            if (profile.pcs != JpegIccPcs::xyz || profile.data_color_space != JpegIccDataColorSpace::rgb ||
-                image.component_count != 3) {
-                return false;
-            }
-            for (u32 channel = 0; channel < kJpegIccCurveChannelCount; ++channel) {
-                if (!jpeg_icc_curve_valid(profile.curves[channel], profile.entry_count)) {
-                    return false;
-                }
-            }
-        } else if (profile.transform_kind == JpegIccTransformKind::gray_trc) {
-            if (profile.data_color_space != JpegIccDataColorSpace::gray || image.component_count != 1 ||
-                !jpeg_icc_curve_valid(profile.curves[0], profile.entry_count)) {
-                return false;
-            }
-        } else if (profile.transform_kind == JpegIccTransformKind::lut) {
-            const JpegIccLut& lut = profile.lut;
-            if (lut.input_channels != image.component_count || lut.input_channels == 0 ||
-                lut.input_channels > kJpegIccInputChannelMaximum ||
-                lut.output_channels != kJpegIccCurveChannelCount ||
-                (lut.precision_bytes != 1 && lut.precision_bytes != 2) ||
-                (lut.precision_bytes == 1 && profile.pcs == JpegIccPcs::xyz) ||
-                (image.component_count == 1 && profile.data_color_space != JpegIccDataColorSpace::gray) ||
-                (image.component_count == 3 && profile.data_color_space != JpegIccDataColorSpace::rgb) ||
-                (image.component_count == 4 && profile.data_color_space != JpegIccDataColorSpace::cmyk)) {
-                return false;
-            }
-            u64 grid_product = 1;
-            for (u32 channel = 0; channel < lut.input_channels; ++channel) {
-                if (lut.grid_points[channel] < 2 || lut.grid_points[channel] > kJpegIccLutGridMaximum ||
-                    !jpeg_icc_curve_valid(lut.input_curves[channel], profile.entry_count)) {
-                    return false;
-                }
-                grid_product *= lut.grid_points[channel];
-            }
-            for (u32 channel = 0; channel < kJpegIccCurveChannelCount; ++channel) {
-                if (!jpeg_icc_curve_valid(lut.output_curves[channel], profile.entry_count)) {
-                    return false;
-                }
-            }
-            if (grid_product * kJpegIccCurveChannelCount != lut.clut_entry_count ||
-                lut.clut_entry_count > kJpegIccLutClutEntryMaximum ||
-                lut.clut_offset > profile.entry_count ||
-                lut.clut_entry_count > profile.entry_count - lut.clut_offset) {
-                return false;
-            }
-        } else {
-            return false;
-        }
-    }
-    const u32 expected_mcu_columns =
-        (static_cast<u32>(image.width) + 8u * image.maximum_horizontal_sampling - 1u) /
-        (8u * image.maximum_horizontal_sampling);
-    const u32 expected_mcu_rows =
-        (static_cast<u32>(image.height) + 8u * image.maximum_vertical_sampling - 1u) /
-        (8u * image.maximum_vertical_sampling);
-    if (image.mcu_columns != expected_mcu_columns || image.mcu_rows != expected_mcu_rows) {
-        return false;
-    }
-    u32 expected_offset = 0;
-    u8 maximum_horizontal = 0;
-    u8 maximum_vertical = 0;
-    for (u32 index = 0; index < image.component_count; ++index) {
-        const JpegComponent& component = image.components[index];
-        const u32 expected_columns = expected_mcu_columns * component.horizontal_sampling;
-        const u32 expected_rows = expected_mcu_rows * component.vertical_sampling;
-        const u32 expected_count = static_cast<u32>(component.block_columns) * component.block_rows;
-        if (component.block_offset != expected_offset || component.block_count != expected_count ||
-            component.block_columns != expected_columns || component.block_rows != expected_rows ||
-            expected_count == 0 || component.horizontal_sampling == 0 ||
-            component.horizontal_sampling > 2 || component.vertical_sampling == 0 ||
-            component.vertical_sampling > 2 || component.quantization_table >= kJpegTableMaximum ||
-            !image.tables->quantization[component.quantization_table].present) {
-            return false;
-        }
-        maximum_horizontal = maximum(maximum_horizontal, component.horizontal_sampling);
-        maximum_vertical = maximum(maximum_vertical, component.vertical_sampling);
-        expected_offset += expected_count;
-    }
-    return expected_offset == image.coefficient_blocks &&
-           maximum_horizontal == image.maximum_horizontal_sampling &&
-           maximum_vertical == image.maximum_vertical_sampling &&
-           (image.component_count != 1 || image.color_transform == JpegColorTransform::grayscale) &&
-           (image.component_count != 3 || (image.color_transform == JpegColorTransform::ycbcr ||
-                                           image.color_transform == JpegColorTransform::rgb)) &&
-           (image.component_count != 4 || image.color_transform == JpegColorTransform::cmyk ||
-            image.color_transform == JpegColorTransform::ycck) &&
-           (image.color_transform != JpegColorTransform::rgb ||
-            (image.maximum_horizontal_sampling == 1 && image.maximum_vertical_sampling == 1));
 }
 
 bool vp8_reconstruction_valid(const Vp8Keyframe& frame, const Vp8ModeWorkspace& modes,
@@ -259,10 +134,12 @@ bool apng_control_valid(const ApngFrame& frame, u16 canvas_width, u16 canvas_hei
            static_cast<u8>(frame.blend) <= static_cast<u8>(ApngBlend::over);
 }
 
+// The frame image comes from the APNG decode (configure_frame_image) or the profile fit (png_image_configure):
+// its format and row sizes are valid.
 bool apng_frame_valid(const ApngFrame& frame, u16 canvas_width, u16 canvas_height,
                       const PngImage& frame_image) noexcept {
     return apng_control_valid(frame, canvas_width, canvas_height) && frame.width == frame_image.width &&
-           frame.height == frame_image.height && png_format_valid(frame_image);
+           frame.height == frame_image.height;
 }
 
 bool gif_control_valid(const GifFrame& frame, u16 canvas_width, u16 canvas_height) noexcept {

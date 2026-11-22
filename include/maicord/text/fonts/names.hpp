@@ -15,8 +15,8 @@ SfntStatus sfnt_names_open(ConstSlice<u8> table,SfntNames* output) noexcept;
 // English metadata policy: en-US, other English, Unicode-neutral, then first
 // supported language. Windows wins a platform tie; record order wins remaining
 // ties. Unknown version-1 language-tag references are ignored. This chooses a
-// name record, not a WWS family or font face. Missing names return ok/found=false.
-SfntStatus sfnt_name_english(const SfntNames&,u16 id,SfntName* output,bool* found) noexcept;
+// name record, not a WWS family or font face. Returns whether the name exists; output changes only then.
+bool sfnt_name_english(const SfntNames&,u16 id,SfntName* output) noexcept;
 // Windows Unicode/symbol and Unicode-platform strings are UTF-16BE. Decode to
 // caller-owned UTF-16 units, without a terminator, preserving supplementary
 // pairs. Other encodings return unsupported. Source/output must be

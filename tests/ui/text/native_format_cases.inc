@@ -19,12 +19,6 @@ bool native_output_capacity_corpus() noexcept {
     return true;
 }
 bool native_bootstrap_corpus() noexcept {
-    const TextSystem empty{};TextSystem invalid{};
-    CHECK(text_system_initialize(nullptr,L"Segoe UI",16).error==TextShapeError::invalid_input);
-    wchar_t long_name[257];for(u32 i=0;i<256;++i)long_name[i]=L'A';long_name[256]=0;
-    CHECK(text_system_initialize(&invalid,long_name,16).error==TextShapeError::invalid_input);
-    CHECK(text_system_initialize(&invalid,L"Segoe UI",250001).error==TextShapeError::invalid_input);
-    CHECK(bytes_equal(&invalid,&empty,sizeof(empty)));text_system_release(&invalid);text_system_release(&invalid);
     const wchar_t* families[]{L"Segoe UI",L"Georgia",L"Consolas"};const float sizes[]{16,17.5f};
     for(const auto* family:families)for(float em:sizes){TextSystem system{};
         struct Release {TextSystem& s;~Release() noexcept {shaped_text_reset(&native_output.text);text_system_release(&s);}} release{system};

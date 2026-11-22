@@ -402,19 +402,9 @@ bool text_form_bind_theme_styles(TextFormScene* scene, const UiResolvedThemeStyl
 
 bool text_form_update(TextFormScene* scene, const TextFormContent& content, const UiRect& viewport,
                       UiTextMeasureCache* measure) noexcept {
-    if (!measure || !measure->backend || !ui_rect_valid(viewport) ||
+    if (!ui_rect_valid(viewport) ||
         ui_rect_width(viewport) < 96 || ui_rect_height(viewport) < 64 || !content.title.bytes ||
-        (!content.confirmation_only && !content.label.bytes && !content.choices.count) ||
-        (!content.single_action && !content.cancel.bytes) || (content.detail.bytes && !content.confirmation_only) ||
-        !content.accept.bytes || content.choices.count > kTextFormChoices ||
-        (!content.choices.data && content.choices.count) || content.select_options.count > kTextFormSelectOptions ||
-        (!content.select_options.data && content.select_options.count) ||
-        (content.choice_selected != ~0u && content.choice_selected >= content.choices.count) ||
-        (content.choice_editor != ~0u && content.choice_editor >= content.choices.count) ||
-        (content.select_options.count && content.select_selected >= content.select_options.count) ||
-        (content.picker && (content.confirmation_only || !content.swatch ||
-                            content.color.suggested.count > kColorPickerSuggestedColors ||
-                            (!content.color.suggested.data && content.color.suggested.count))))
+        (!content.confirmation_only && !content.label.bytes && !content.choices.count) || !content.accept.bytes)
         return false;
     u64 signature = hash64_bytes(kHash64Seed, &viewport, sizeof(viewport));
     signature = hash64_mix(signature, scene->theme_geometry_revision);
@@ -680,8 +670,7 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
     if (!scene.active)
         return true;
     const auto* panel = text_form_node(scene, TextFormElement::panel);
-    if (!paint || !panel ||
-        !paint_stream_push_clip(paint, scene.viewport))
+    if (!panel || !paint_stream_push_clip(paint, scene.viewport))
         return false;
     bool valid =
         fill(paint, scene.viewport, theme.tokens.overlay.scrim) &&

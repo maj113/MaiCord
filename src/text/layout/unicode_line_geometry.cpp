@@ -28,7 +28,7 @@ template<Geometry kind> SfntStatus geometry(const Utf8View& text,const NativeAsc
         bool space=false;
         if constexpr(kind==Geometry::printable_ascii)space=text.data[at]==' ';
         else if constexpr(kind==Geometry::unicode)for(u32 source=at;source<end;){u32 scalar=static_cast<u8>(text.data[byte]),width=1;
-            if(scalar>=0x80){const auto cp=utf8_decode_one(text.data+byte,text.bytes-byte);if(!cp.valid)return SfntStatus::invalid_input;scalar=cp.codepoint;width=cp.width;}
+            if(scalar>=0x80){const auto cp=utf8_decode_one(text.data+byte,text.bytes-byte);scalar=cp.codepoint;width=cp.width;} // the run shaper decoded the same text
             if(source==at)space=scalar<0x80?scalar==' '||scalar-9u<5:unicode_properties(scalar)->has(UnicodeFlag::white_space);
             source+=scalar>65535?2u:1u;byte+=width;if(source>end)return SfntStatus::unsupported_sequence;}
         float width=0;const float left=pen;

@@ -19,16 +19,13 @@ bool corpus() noexcept {
     return cases==arabic_mark_cases;
 }
 bool contracts() noexcept {
-    u32 output[8];for(auto& v:output)v=0xeeeeeeee;const u32 input[]{0x628,0x64e,0x651,0x628},invalid[]{0x628,0xd800};
+    u32 output[8];for(auto& v:output)v=0xeeeeeeee;const u32 input[]{0x628,0x64e,0x651,0x628};
     if(sfnt_arabic_mark_order({input,4},{output,3})!=SfntStatus::output_too_small ||
        sfnt_arabic_mark_order({input,4},{output,8},63)!=SfntStatus::resource_limit ||
-       sfnt_arabic_mark_order({invalid,2},{output,8})!=SfntStatus::invalid_input ||
        sfnt_arabic_mark_order({nullptr,1},{output,8})!=SfntStatus::invalid_input ||
        sfnt_arabic_mark_order({input,4},{nullptr,8})!=SfntStatus::invalid_input ||
        sfnt_arabic_mark_order({},{},0)!=SfntStatus::ok)return false;
     for(auto v:output)if(v!=0xeeeeeeee)return false;
-    u32 overlap[]{0x628,0x64e,0x651,0x628};if(sfnt_arabic_mark_order({overlap,4},{overlap,4})!=SfntStatus::invalid_input)return false;
-    if(!bytes_equal(overlap,input,sizeof(input)))return false;
     if(sfnt_arabic_mark_order({input,4},{output,8},64)!=SfntStatus::ok || output[0]!=0 || output[1]!=2 || output[2]!=1 || output[3]!=3)return false;
     for(u32 i=4;i<8;++i)if(output[i]!=0xeeeeeeee)return false;return true;
 }

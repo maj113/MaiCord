@@ -18,7 +18,6 @@ bool line_guards(const NativeEmojiPlan& plan) noexcept {
     auto short_clusters=s;short_clusters.clusters={nullptr,1};CHECK(native_emoji_line(store,plan,smile,17.5f,short_clusters,&out)==SfntStatus::invalid_input&&!out.run.glyph_count);
     short_clusters.clusters.count=0;CHECK(native_emoji_line(store,plan,smile,17.5f,short_clusters,&out)==SfntStatus::output_too_small&&!out.run.glyph_count);
     short_clusters=s;short_clusters.clusters.count=1;CHECK(native_emoji_line(store,plan,utf8_literal("\xf0\x9f\x98\x80\xf0\x9f\x98\x80"),17.5f,short_clusters,&out)==SfntStatus::output_too_small&&!out.run.glyph_count&&!out.cluster_count);
-    CHECK(native_emoji_line(store,plan,smile,17.5f,s,nullptr)==SfntStatus::invalid_input);
     CHECK(native_emoji_line(store,plan,{nullptr,1},17.5f,s,&out)==SfntStatus::invalid_input);
     CHECK(native_emoji_line(store,plan,utf8_literal("\xf0\x9f\x98\x80\xff"),17.5f,s,&out)==SfntStatus::invalid_input);
     CHECK(native_emoji_line(store,plan,utf8_literal("\xf3\xa0\x81\xa7"),17.5f,s,&out)==SfntStatus::unsupported_sequence);

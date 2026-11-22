@@ -128,7 +128,7 @@ struct RendererPresentationStamp {
     u64 shell;
     u32 count;
     u32 shell_count;
-    bool valid;
+    bool valid; // Set by every capture. The renderer clears its retained stamp to force a rebuild.
     // Captured without caret visibility and hovered widgets: those inputs
     // may change paint quads but never draw structure.
     bool structural;

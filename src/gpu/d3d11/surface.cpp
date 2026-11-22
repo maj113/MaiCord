@@ -33,7 +33,7 @@ HRESULT create_target(GpuDevice* device, GpuSurface* surface) noexcept {
 } // namespace
 
 GpuStatus gpu_surface_create(GpuDevice* device, const GpuSurfaceDesc& desc, GpuSurface* surface) {
-    if (!device || !desc.window || surface->swap_chain || surface->target || surface->frame_latency_waitable) {
+    if (!desc.window) {
         return E_INVALIDARG;
     }
     IDXGIDevice* dxgi_device;

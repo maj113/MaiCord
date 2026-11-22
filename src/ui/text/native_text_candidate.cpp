@@ -418,7 +418,7 @@ bool prepare_script_profile(NativeTextContext& owner,Binding& selected,u16 scrip
     return selected.arabic.slot!=0;
 }
 const NativeFormat* format_at(const NativeTextContext& owner,u32 handle) noexcept {
-    if(!handle||handle>owner.format_count)return nullptr;
+    if(!handle)return nullptr; // every other handle was made by native_text_format_create on this context
     if(handle==1&&owner.first_format.identity)return &owner.first_format;
     --handle;const auto* page=owner.formats;
     for(u32 n=handle/64;n;--n)page=page->next;
@@ -860,7 +860,7 @@ bool native_text_candidate_hits_once(const TextSystem& system,const NativeTextRe
     CatalogOperation catalog_operation(system.native_text);
     if(!hits.output)return false;reset_value(&(*hits.output));
     const Utf8View text=request.text;
-    if(!measure||!system.native_text||!tracking_valid(system.tracking)||!text.bytes||text.bytes>native_text_maximum_bytes||!text.data)return false;
+    if(!system.native_text||!tracking_valid(system.tracking)||!text.bytes||text.bytes>native_text_maximum_bytes||!text.data)return false;
     if(text.bytes>16000)return styled_hits(system,request,hits,measure);
     const auto& cached=*system.native_text;
     if(cached.last_valid&&cached.last_styled&&(cached.last_mode&8)&&!cached.last_styles.count&&cached.last_text.count==text.bytes&&bytes_equal(cached.last_text.data,text.data,text.bytes)&&

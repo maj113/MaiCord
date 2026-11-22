@@ -11,8 +11,7 @@ using namespace media_atlas_gpu_detail;
 MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas* atlas,
     GpuDevice* device, GpuContext1* context, MediaAssetKey key,
     const GpuVideoFrame& frame, bool preview, u32 maximum_extent) noexcept {
-    if (!gpu || !atlas || !device || !context || !media_asset_key_valid(key) ||
-        !frame.texture || !gpu_video_frame_visible_valid(frame.width, frame.height) ||
+    if (!frame.texture || !gpu_video_frame_visible_valid(frame.width, frame.height) ||
         !surface_ready(gpu, *atlas, preview)) {
         return failure(MediaAtlasGpuError::invalid_input);
     }
@@ -32,7 +31,7 @@ MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas
 
 MediaAtlasGpuResult media_atlas_gpu_initialize(MediaAtlasGpu* gpu, GpuDevice* device,
                                                const MediaAtlas& atlas) noexcept {
-    if (!gpu || !device || gpu->surface || !dimensions_valid(atlas.allocations.width, atlas.allocations.height)) {
+    if (!dimensions_valid(atlas.allocations.width, atlas.allocations.height)) {
         return failure(MediaAtlasGpuError::invalid_input);
     }
     const GpuStatus result = create_media_surface(device, atlas, &gpu->surface, &gpu->texture_view);
@@ -47,8 +46,7 @@ MediaAtlasGpuResult media_atlas_gpu_initialize(MediaAtlasGpu* gpu, GpuDevice* de
 
 MediaAtlasGpuResult media_atlas_gpu_initialize_preview(MediaAtlasGpu* gpu, GpuDevice* device,
                                                        const MediaAtlas& atlas) noexcept {
-    if (!gpu || !device || !gpu->surface || gpu->preview_surface ||
-        !dimensions_valid(atlas.allocations.width, atlas.allocations.height)) {
+    if (!dimensions_valid(atlas.allocations.width, atlas.allocations.height)) {
         return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
     const GpuStatus result = create_media_surface(device, atlas, &gpu->preview_surface, &gpu->preview_texture_view);
@@ -61,7 +59,7 @@ MediaAtlasGpuResult media_atlas_gpu_initialize_preview(MediaAtlasGpu* gpu, GpuDe
 }
 
 bool media_atlas_gpu_sync(MediaAtlasGpu* gpu, GpuContext1* context, const MediaAtlas& atlas, bool preview) noexcept {
-    GpuPagedTexture* surface = gpu ? (preview ? gpu->preview_surface : gpu->surface) : nullptr;
+    GpuPagedTexture* surface = preview ? gpu->preview_surface : gpu->surface;
     if (!surface || !context) {
         return false;
     }
@@ -78,9 +76,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
     u32 row_pitch, ConstSlice<u8> straight_rgba8, bool preview) noexcept {
     const u64 minimum_pitch = static_cast<u64>(width) * 4;
     const u64 required = height == 0 ? 0 : static_cast<u64>(height - 1) * row_pitch + minimum_pitch;
-    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context ||
-        !surface_ready(gpu, *atlas, preview) ||
-        !media_asset_key_valid(key) || width == 0 || height == 0 ||
+    if (!surface_ready(gpu, *atlas, preview) || width == 0 || height == 0 ||
         width > kPngDimensionMaximum || height > kPngDimensionMaximum || row_pitch < minimum_pitch ||
         required > straight_rgba8.count || (!straight_rgba8.data && straight_rgba8.count != 0) ||
         !image_fits(*atlas, width, height)) {
@@ -108,13 +104,13 @@ MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
 }
 
+// The image and scanlines come from the PNG decode (png_parse and png_decode_parsed_scanlines: a valid format,
+// inflated_bytes of scanlines with every filter byte 0) or the profile fit (png_image_configure, unfiltered rows).
 MediaAtlasGpuResult media_atlas_gpu_upload_png(MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device,
                                                GpuContext1* context, MediaAssetKey key,
                                                const PngImage& image, ConstSlice<u8> reconstructed_scanlines,
                                                bool preview) noexcept {
-    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context ||
-        !surface_ready(gpu, *atlas, preview) || !media_asset_key_valid(key) ||
-        !png_format_valid(image) || !png_scanlines_reconstructed(image, reconstructed_scanlines) ||
+    if (!surface_ready(gpu, *atlas, preview) ||
         !image_fits(*atlas, image.width, image.height)) {
         return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
@@ -137,13 +133,15 @@ MediaAtlasGpuResult media_atlas_gpu_upload_png(MediaAtlasGpu* gpu, MediaAtlas* a
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
 }
 
+// The image and coefficients come from a successful jpeg_parse and jpeg_decode_parsed_coefficients: the frame
+// geometry, block layout, quantization tables, colour transform, orientation and an applied ICC profile are valid,
+// at most kJpegCoefficientBlockMaximum blocks (64 samples each, far below 2^32) and 8 stored rows a block.
 MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device,
                                                 GpuContext1* context, MediaAssetKey key,
                                                 const JpegImage& image,
                                                 const JpegCoefficientWorkspace& coefficients,
                                                 bool preview) noexcept {
-    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context ||
-        !surface_ready(gpu, *atlas, preview) || !media_asset_key_valid(key) || !jpeg_image_valid(image) ||
+    if (!surface_ready(gpu, *atlas, preview) ||
         !image_fits(*atlas, jpeg_display_width(image), jpeg_display_height(image))) {
         return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
@@ -154,13 +152,11 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
     idct_constants.stored_rows = coefficients.whole_blocks ? 0u : 1u;
     JpegAtlasConstants atlas_constants{};
     u32 sample_count = 0;
+    static_assert(u64{kJpegCoefficientBlockMaximum} * 64u <= 0xFFFFFFFFu);
     for (u32 index = 0; index < image.component_count; ++index) {
         const JpegComponent& component = image.components[index];
         const u32 stride = component.block_columns * 8u;
         const u32 count = stride * component.block_rows * 8u;
-        if (count > ~0u - sample_count) {
-            return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
-        }
         idct_constants.components[index] = JpegIdctComponentConstants{
             component.block_offset, component.block_count, component.block_columns,
             sample_count,           stride,                component.quantization_table,
@@ -178,9 +174,6 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
         sample_count += count;
     }
     // The decoder's layout is the GPU's (jpeg.hpp, JpegCoefficientWorkspace): one copy of the bytes it holds.
-    if (coefficients.stored_rows > image.coefficient_blocks * 8u) {
-        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
-    }
     const ConstSlice<u8> coefficient_upload = jpeg_coefficient_upload(coefficients, image.coefficient_blocks);
     const u32 coefficient_bytes = coefficient_upload.count;
     const u32 quantization_bytes = kJpegTableMaximum * 64u * sizeof(u16);
@@ -306,9 +299,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
 }
 
 void media_atlas_gpu_release_backup(MediaAtlasGpu* gpu, bool preview) noexcept {
-    if (gpu) {
-        gpu_paged_texture_release(preview ? &gpu->preview_backup : &gpu->backup);
-    }
+    gpu_paged_texture_release(preview ? &gpu->preview_backup : &gpu->backup);
 }
 
 } // namespace maicord

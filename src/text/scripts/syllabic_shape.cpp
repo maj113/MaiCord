@@ -1,5 +1,4 @@
 #include "maicord/text/scripts/syllabic_shape.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/text/unicode/unicode.hpp"
@@ -376,7 +375,7 @@ SfntStatus merge(void* opaque,SfntClusterMap* clusters,const SfntComponentForest
 SfntStatus sfnt_syllabic_run(SfntSyllabicScript script,const SfntShapePlan& plan,const SfntCmap& cmap,Utf8View text,float em,
     const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,ConstSlice<u64> per_syllable,
     const SfntShapeLimits& limits,bool rtl) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
+    reset_value(result);
     if(static_cast<u8>(script)>3||(text.bytes&&!text.data)||(steps.count&&!steps.data)||(per_syllable.count&&!per_syllable.data)||
        !plan.advance||!plan.units_per_em||!(em>0)||em>65536)return SfntStatus::invalid_input;
     if(text.bytes>limits.stage_work)return SfntStatus::resource_limit;
@@ -474,15 +473,11 @@ SfntStatus sfnt_syllabic_run(SfntSyllabicScript script,const SfntShapePlan& plan
         storage.glyphs[i].glyph.glyph=space;storage.placements[i].advance=0;storage.placements[i].advance_offset=0;}
     return SfntStatus::ok;
 }
-SfntStatus sfnt_syllabic_boundaries(SfntSyllabicScript script,ConstSlice<u32> scalars,Slice<u8> output,u64 work) noexcept {
-    if(static_cast<u8>(script)>3||(scalars.count&&!scalars.data)||(output.count&&!output.data))return SfntStatus::invalid_input;
-    if(output.count<scalars.count)return SfntStatus::output_too_small;
-    if(static_cast<u64>(scalars.count)*16>work)return SfntStatus::resource_limit;
-    if(byte_ranges_overlap_or_wrap(scalars.data,static_cast<u64>(scalars.count)*4,output.data,scalars.count))return SfntStatus::invalid_input;
+SfntStatus sfnt_syllabic_boundaries(SfntSyllabicScript script,ConstSlice<u32> scalars,Slice<u8> output) noexcept {
     // Up to 256 scalars: at most four UTF-8 bytes each, and three pieces plus a circle.
     if(scalars.count>256)return SfntStatus::resource_limit;
     char text[1024];u32 bytes=0;
-    for(u32 i=0;i<scalars.count;++i){if(!unicode_is_scalar(scalars[i]))return SfntStatus::invalid_input;bytes+=utf8_encode(scalars[i],text+bytes);}
+    for(u32 i=0;i<scalars.count;++i)bytes+=utf8_encode(scalars[i],text+bytes);
     // Map UTF-16 sources back to scalar indices.
     u32 index[512];for(u32 i=0,units=0;i<scalars.count;++i){index[units++]=i;if(scalars[i]>0xffff)index[units++]=i;}
     const auto& shaper=shaper_of(script);Piece pieces[1024];u8 starts[256]{};

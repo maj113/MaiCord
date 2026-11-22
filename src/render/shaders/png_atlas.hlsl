@@ -64,7 +64,7 @@ void png_expand(uint3 dispatch_id : SV_DispatchThreadID) {
 
     // The bit depth is uniform: each type branches on it before its loads, so
     // a pixel reads and scales only the samples of its depth. Color types 2,
-    // 4 and 6 have 8 or 16 bits a sample (png_format_valid).
+    // 4 and 6 have 8 or 16 bits a sample (png_image_configure).
     // 8-bit RGBA rows (PNG color type 6, raw color type 7): one word per pixel
     // instead of four byte loads.
     [branch] if (color_type == 7u || (color_type == 6u && bit_depth == 8u)) {

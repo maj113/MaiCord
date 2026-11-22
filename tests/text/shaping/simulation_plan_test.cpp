@@ -16,11 +16,11 @@ bool exercise(const wchar_t* path,u32 index,u32 count,const u8* expected) noexce
         ~Release() noexcept{for(u32 i=store.slots.count;i;--i)while(store.slots[i-1].references)native_run_plan_release(&store,{i,store.slots[i-1].generation});
             if(instance.slot)native_font_instance_release(native_font_session_instances(session),instance);if(face.slot)native_font_release(native_font_session_fonts(session),face);native_font_session_release(&session);arena_release(&scratch);}}
         release{session,scratch,store,face,instance};
-    CHECK(native_font_session_face(session,path,index,&face).ok());CHECK(native_font_prepare(session,face,{},0,false,&scratch,&instance).ok());
+    bool oblique=false,bold=false;CHECK(native_font_session_face(session,path,index,&face).ok());
+    CHECK(native_font_prepare(session,face,{},0,false,&scratch,&instance,&oblique,&bold).ok());
     CHECK(native_font_release(native_font_session_fonts(session),face));face={};
     NativeRunPlanHandle failed{};
     CHECK(!native_run_plan_acquire(&store,instance,&scratch,&failed,1000000,4096,1).ok()&&!failed.slot&&!slots[0].references&&!slots[1].references);
-    CHECK(!native_run_plan_acquire(&store,instance,&scratch,&failed,1000000,16*1024*1024,4).ok()&&!failed.slot);
     NativeRunPlanHandle handles[4]{};
     CHECK(native_run_plan_acquire(&store,instance,&scratch,handles,1000000,16*1024*1024,0).ok());
     const auto normal=handles[0];const auto instance_refs=native_font_session_instances(session)->slots[instance.slot-1].references;

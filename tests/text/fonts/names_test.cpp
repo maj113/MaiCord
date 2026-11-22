@@ -21,18 +21,13 @@ bool basic() noexcept {
     record(table+6,3,1,0x411,1,2,0);record(table+18,0,4,0,1,2,2);record(table+30,3,10,0x409,1,6,4);
     const u16 data[]{'J','U','A',0xd83d,0xde00};for(u32 i=0;i<5;++i)byte_store_be16(table+42+i*2,data[i]);
     SfntNames names{};CHECK(sfnt_names_open({table,52},&names)==SfntStatus::ok&&names.records==3);
-    SfntName name{};bool found=true;CHECK(sfnt_name_english(names,1,&name,&found)==SfntStatus::ok&&found&&name.platform==3&&name.encoding==10&&name.language==0x409);
+    SfntName name{};CHECK(sfnt_name_english(names,1,&name)&&name.platform==3&&name.encoding==10&&name.language==0x409);
     u32 units=99;CHECK(sfnt_name_decode(name,{decoded,32768},&units)==SfntStatus::ok&&units==3&&bytes_equal(decoded,data+2,6));
     decoded[0]=0xbeef;CHECK(sfnt_name_decode(name,{decoded,2},&units)==SfntStatus::output_too_small&&!units&&decoded[0]==0xbeef);
-    CHECK(sfnt_name_english(names,21,&name,&found)==SfntStatus::ok&&!found&&!name.bytes.data);
-    byte_store_be16(table+34,0x809);CHECK(sfnt_names_open({table,52},&names)==SfntStatus::ok);CHECK(sfnt_name_english(names,1,&name,&found)==SfntStatus::ok&&found&&name.language==0x809);
-    byte_store_be16(table+34,0x411);CHECK(sfnt_names_open({table,52},&names)==SfntStatus::ok);CHECK(sfnt_name_english(names,1,&name,&found)==SfntStatus::ok&&found&&name.platform==0);
-    byte_store_be16(table+24,2);CHECK(sfnt_names_open({table,52},&names)==SfntStatus::ok);CHECK(sfnt_name_english(names,1,&name,&found)==SfntStatus::ok&&found&&name.language==0x411&&name.encoding==1);
-    CHECK(sfnt_names_open({nullptr,0},&names)==SfntStatus::invalid_input&&!names.table.data);
-    CHECK(sfnt_names_open({table,52},nullptr)==SfntStatus::invalid_input);
-    CHECK(sfnt_name_english({},1,&name,&found)==SfntStatus::invalid_input&&!found&&!name.bytes.data);
-    CHECK(sfnt_name_english({},1,nullptr,&found)==SfntStatus::invalid_input);
-    CHECK(sfnt_name_decode({}, {},nullptr)==SfntStatus::invalid_input);
+    CHECK(!sfnt_name_english(names,21,&name));
+    byte_store_be16(table+34,0x809);CHECK(sfnt_names_open({table,52},&names)==SfntStatus::ok);CHECK(sfnt_name_english(names,1,&name)&&name.language==0x809);
+    byte_store_be16(table+34,0x411);CHECK(sfnt_names_open({table,52},&names)==SfntStatus::ok);CHECK(sfnt_name_english(names,1,&name)&&name.platform==0);
+    byte_store_be16(table+24,2);CHECK(sfnt_names_open({table,52},&names)==SfntStatus::ok);CHECK(sfnt_name_english(names,1,&name)&&name.language==0x411&&name.encoding==1);
     SfntName empty{};CHECK(sfnt_name_decode(empty,{},&units)==SfntStatus::ok&&!units);
     empty.platform=1;CHECK(sfnt_name_decode(empty,{},&units)==SfntStatus::unsupported&&!units);
     return true;
@@ -42,11 +37,11 @@ bool tags() noexcept {
     record(table+6,3,1,0x8000,16,2,0);record(table+18,3,1,0x8001,16,2,2);record(table+30,3,1,0x8002,16,2,4);
     byte_store_be16(table+42,2);byte_store_be16(table+44,4);byte_store_be16(table+46,6);byte_store_be16(table+48,10);byte_store_be16(table+50,10);
     const u16 strings[]{'A','B','C','e','n','E','N','-','u','S'};for(u32 i=0;i<10;++i)byte_store_be16(table+52+i*2,strings[i]);
-    SfntNames names{};SfntName name{};bool found=false;
+    SfntNames names{};SfntName name{};
     CHECK(sfnt_names_open({table,72},&names)==SfntStatus::ok&&names.language_tags==2);
-    CHECK(sfnt_name_english(names,16,&name,&found)==SfntStatus::ok&&found&&name.language==0x8001);
-    byte_store_be16(table+22,0x8002);CHECK(sfnt_names_open({table,72},&names)==SfntStatus::ok);CHECK(sfnt_name_english(names,16,&name,&found)==SfntStatus::ok&&found&&name.language==0x8000);
-    byte_store_be16(table+10,0x8003);CHECK(sfnt_names_open({table,72},&names)==SfntStatus::ok);CHECK(sfnt_name_english(names,16,&name,&found)==SfntStatus::ok&&!found);
+    CHECK(sfnt_name_english(names,16,&name)&&name.language==0x8001);
+    byte_store_be16(table+22,0x8002);CHECK(sfnt_names_open({table,72},&names)==SfntStatus::ok);CHECK(sfnt_name_english(names,16,&name)&&name.language==0x8000);
+    byte_store_be16(table+10,0x8003);CHECK(sfnt_names_open({table,72},&names)==SfntStatus::ok);CHECK(!sfnt_name_english(names,16,&name));
     byte_store_be16(table+44,3);CHECK(sfnt_names_open({table,72},&names)==SfntStatus::malformed&&!names.table.data);
     return true;
 }
@@ -64,8 +59,8 @@ bool selection_permutations() noexcept {
         for(u32 i=0;i<9;++i){const auto* v=variants[order[i]];const u16 id=sample&1?v[3]:static_cast<u16>(v[3]+20);
             record(table+6+i*12,v[0],v[1],v[2],id,2,static_cast<u16>(order[i]*2));}
         SfntNames names{};CHECK(sfnt_names_open({table,160},&names)==SfntStatus::ok);
-        const u16 ids[]{1,2,16,17,21,22};for(u16 id:ids){SfntName actual{},expected{};bool a=false,b=false;
-            CHECK(sfnt_name_english(names,id,&actual,&a)==font_names_reference::english(names,id,&expected,&b)&&a==b&&font_names_reference::equal(actual,expected));}
+        const u16 ids[]{1,2,16,17,21,22};for(u16 id:ids){SfntName actual{},expected{};
+            CHECK(sfnt_name_english(names,id,&actual)==font_names_reference::english(names,id,&expected)&&font_names_reference::equal(actual,expected));}
     }return true;
 }
 bool guards() noexcept {
@@ -79,8 +74,8 @@ bool guards() noexcept {
     for(u32 size=0;size<=38;++size){auto* end=memory+page-size;copy_bytes(end,table,size);SfntNames names{};
         CHECK(sfnt_names_open({end,size},&names)==(size<38?SfntStatus::truncated:SfntStatus::ok));if(size<38)CHECK(!names.table.data);}
     auto* source=memory+page-38;copy_bytes(source,table,38);CHECK(pages_protect(memory, page, PageAccess::read));
-    SfntNames names{};SfntName name{};bool found=false;CHECK(sfnt_names_open({source,38},&names)==SfntStatus::ok);
-    CHECK(sfnt_name_english(names,1,&name,&found)==SfntStatus::ok&&found);
+    SfntNames names{};SfntName name{};CHECK(sfnt_names_open({source,38},&names)==SfntStatus::ok);
+    CHECK(sfnt_name_english(names,1,&name));
     auto* target=reinterpret_cast<u16*>(memory+page*3-4);u32 units=0;CHECK(sfnt_name_decode(name,{target,2},&units)==SfntStatus::ok&&units==2&&target[0]=='A'&&target[1]=='B');
     CHECK(pages_protect(memory, page, PageAccess::read_write));
     byte_store_be16(memory+page-4,0xd83d);byte_store_be16(memory+page-2,0xde00);name={{memory+page-4,4},{},3,10,0x409,1};

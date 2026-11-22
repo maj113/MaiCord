@@ -74,8 +74,7 @@ bool block_reuse() noexcept {
     if(variation_instance_prepare(store,{zero,2},{scalars,16},&instance)!=SfntStatus::ok)return false;
     VariationDeltaBlock block{};double value=99;
     return item_variation_delta_cached(instance,0,&value,&block,VariationArithmetic::wide)==SfntStatus::ok &&
-           item_variation_delta_cached(instance,2,&value,&block,VariationArithmetic::wide)==SfntStatus::malformed && value==0 &&
-           item_variation_delta_cached(instance,0,&value,nullptr,VariationArithmetic::wide)==SfntStatus::invalid_input && value==0;
+           item_variation_delta_cached(instance,2,&value,&block,VariationArithmetic::wide)==SfntStatus::malformed && value==0;
 }
 bool maps() noexcept {
     for(u32 width=1;width<=4;++width)for(u32 format=0;format<=1;++format) {

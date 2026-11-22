@@ -34,7 +34,6 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SHADER_LIST = ROOT / 'cmake' / 'generated_sources.cmake'
 GLSL_DIRECTORY = ROOT / 'src' / 'render' / 'shaders' / 'gles'
 PACKED_FILE = 'maicord_shader_pack_gles.bin'
-STAGES = {'vs': 0, 'ps': 1, 'cs': 2}
 STAGE_KIND = {'vs': 'vert', 'ps': 'frag', 'cs': 'comp'}
 CACHE = optimal_deflate.DeflateCache('gles_shaders')
 GLES_VARIANTS = [('colr_layers_narrow_compute', 'colr_layers_compute', ['COLR_SLICES=2'])]
@@ -466,8 +465,8 @@ def generate(shaders, results):
             solid += text
         offsets[index] = shared[text]
     entries, bindings = [], []
-    for index, ((name, stage, _, _, _), (text, rows)) in enumerate(zip(shaders, results)):
-        entries.append((offsets[index], len(text), len(bindings), len(rows), STAGES[stage], name))
+    for index, ((name, _, _, _, _), (text, rows)) in enumerate(zip(shaders, results)):
+        entries.append((offsets[index], len(text), len(bindings), len(rows), name))
         bindings += rows
     blob = CACHE.stream(bytes(solid), optimal_deflate.zlib_best)
     if zlib.decompress(blob) != solid:
@@ -476,13 +475,13 @@ def generate(shaders, results):
              'constexpr u32 kGlesShaderMaximumBytes=%d;' % max(entry[1] for entry in entries),
              'constexpr u32 kGlesShaderPackBytes=%d;' % len(solid),
              'constexpr GlesPackedShader kGlesShaders[]={']
-    lines += ['{%d,%d,%d,%d,%d,0}, // %s' % entry for entry in entries]
+    lines += ['{%d,%d,%d,%d}, // %s' % entry for entry in entries]
     lines.append('};')
     lines.append('constexpr GlesBinding kGlesBindings[]={')
     lines += ['{%d,%d,%d,%d},' % row for row in bindings] or ['{0,0,0,0}']
     lines.append('};')
     for index, entry in enumerate(entries):
-        lines.append('constexpr u32 kGlesShaderIndex_%s=%d;' % (entry[5], index))
+        lines.append('constexpr u32 kGlesShaderIndex_%s=%d;' % (entry[4], index))
     lines.append(embed_arrays([('alignas(16) constexpr u8 kGlesShaderPacked[]', PACKED_FILE)]).rstrip('\n'))
     return '\n'.join(lines) + '\n', bytes(blob)
 

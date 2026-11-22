@@ -223,7 +223,6 @@ __declspec(noinline) SfntStatus variation(const SfntCmap& cmap, u32 scalar, u32 
 // Once per face, before any lookup: compiled for size.
 __attribute__((minsize))
 SfntStatus sfnt_cmap_open(const SfntFace& face, SfntCmap* cmap) noexcept {
-    if (!cmap) return SfntStatus::invalid_input;
     reset_value(cmap);
     SfntCmap result{};
     auto status = sfnt_glyph_count(face, &result.glyph_count);
@@ -271,7 +270,6 @@ SfntStatus sfnt_cmap_open(const SfntFace& face, SfntCmap* cmap) noexcept {
 
 SfntStatus sfnt_cmap_glyph(const SfntCmap& cmap, u32 scalar, u32 selector,
                             u16* glyph) noexcept {
-    if (!glyph) return SfntStatus::invalid_input;
     *glyph = 0;
     // sfnt_cmap_open leaves a zero cmap, or a base map with a nonzero glyph count.
     if (!cmap.glyph_count || !scalar_valid(scalar) || (selector && !selector_valid(selector)))

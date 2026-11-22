@@ -61,7 +61,6 @@ inline bool inflate(const PackedShader& entry, DeflateWorkspace* workspace, u8* 
 // Create* call copies the bytecode. Not stack: workspace and shader reach 38 KB,
 // and every stack page a thread touches stays committed for its lifetime.
 HRESULT inflate_and_create(ShaderId id, HRESULT (*call)(void*, const u8*, u32) noexcept, void* create) noexcept {
-    if (id >= ShaderId::count) return E_FAIL;
     const PackedShader& entry = kShaders[static_cast<u32>(id)];
     const u32 raw = raw_size(entry);
     auto* workspace = static_cast<DeflateWorkspace*>(HeapAlloc(process_heap(), 0, sizeof(DeflateWorkspace) + raw));
@@ -105,8 +104,6 @@ GpuStatus gpu_vertex_shader_create(GpuDevice* device, ShaderId id, ConstSlice<Gp
     if (!layout_failed)
         layout_failed = &failed;
     *layout_failed = false;
-    if (elements.count > kMaximumInputElements)
-        return E_INVALIDARG;
     // Every attribute is four floats per instance from vertex buffer slot 0. Only the first elements.count entries
     // reach CreateInputLayout.
     D3D11_INPUT_ELEMENT_DESC descriptions[kMaximumInputElements];

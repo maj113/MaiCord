@@ -33,7 +33,7 @@ bool kerned_ascii_run(const SfntShapePlan& plan,const NativeNominalPlan& nominal
 SfntStatus native_ascii_run(const NativeRunPlanStore& store,NativeRunPlanHandle handle,
     Utf8View text,bool independent,float em,const NativeAsciiStorage& s,NativeAsciiResult* result,SfntShapeLimits limits) noexcept {
     const auto mapped=s.mapped;const auto glyphs=s.glyphs;const auto placements=s.placements;const auto sources=s.character_glyphs;
-    if(!result)return SfntStatus::invalid_input;reset_value(result);u32 em_bits=0;copy_bytes(&em_bits,&em,4);
+    reset_value(result);u32 em_bits=0;copy_bytes(&em_bits,&em,4);
     const auto* plan=native_run_plan_get(store,handle,independent);
     if(!plan||!store.instances->fonts||(text.bytes&&!text.data)||!em_bits||em_bits>=0x7f800000u||em>65536||
        !filled(mapped)||!filled(glyphs)||!filled(placements)||!filled(sources))return SfntStatus::invalid_input;

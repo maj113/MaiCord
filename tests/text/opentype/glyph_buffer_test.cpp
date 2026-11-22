@@ -48,7 +48,6 @@ bool failures() noexcept {
     u32 positions[]{1,3,3};const auto original=buffer;Record saved[8];copy_bytes(saved,storage,sizeof(storage));
     if(sfnt_glyph_buffer_replace(&buffer,1,{positions,3},{reinterpret_cast<const u8*>(replacement),sizeof(replacement)},&edit)!=SfntStatus::invalid_input)return false;
     positions[2]=7;if(sfnt_glyph_buffer_replace(&buffer,1,{positions,3},{reinterpret_cast<const u8*>(replacement),sizeof(replacement)},&edit)!=SfntStatus::invalid_input)return false;
-    if(sfnt_glyph_buffer_replace(&buffer,1,{positions,1},{reinterpret_cast<const u8*>(storage),sizeof(Record)},&edit)!=SfntStatus::invalid_input)return false;
     if(sfnt_glyph_buffer_replace(&buffer,1,{positions,1},{reinterpret_cast<const u8*>(replacement),sizeof(replacement)},&edit,0)!=SfntStatus::resource_limit)return false;
     if(sfnt_glyph_buffer_seek(&buffer,0,0)!=SfntStatus::resource_limit || !bytes_equal(&buffer,&original,sizeof(buffer)) || !bytes_equal(storage,saved,sizeof(storage)))return false;
     if(sfnt_glyph_buffer_replace(&buffer,6,{}, {},&edit,0)!=SfntStatus::ok || edit.moved_records || !bytes_equal(&buffer,&original,sizeof(buffer)))return false;

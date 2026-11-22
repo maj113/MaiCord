@@ -48,9 +48,7 @@ bool basic() noexcept {
     NativeFontCandidate value{};FontAxisSetting settings[2]{};u32 count=99;
     CHECK(native_font_candidate(source,1,&value)==SfntStatus::ok&&value.properties.weight==600&&value.properties.width==5);
     CHECK(native_font_candidate_settings(source,1,{settings,2},&count)==SfntStatus::ok&&count==2&&settings[0].value==600&&settings[1].value==100);
-    settings[0].value=123;CHECK(native_font_candidate_settings(source,1,{settings,1},&count)==SfntStatus::output_too_small&&!count&&settings[0].value==123);
-    CHECK(native_font_candidate(source,3,&value)==SfntStatus::invalid_input&&!value.properties.weight);
-    CHECK(native_font_candidate_settings(source,3,{settings,2},&count)==SfntStatus::invalid_input&&!count);
+    settings[0].value=123;CHECK(native_font_candidate_settings(source,1,{settings,1},&count)==SfntStatus::output_too_small&&settings[0].value==123);
     CHECK(native_font_candidates_open(face,&source,0)==SfntStatus::resource_limit&&!source.count);
     CHECK(native_font_candidates_open(face,&source,10)==SfntStatus::resource_limit&&!source.count);
     byte_store_be32(bytes+fvar_at+60,1000*65536);CHECK(native_font_candidates_open(face,&source)==SfntStatus::ok&&source.count==4);
@@ -92,7 +90,6 @@ bool basic() noexcept {
     CHECK(native_font_candidates_open(face,&source)==SfntStatus::ok&&source.count==1&&!source.axes.axis_count);
     CHECK(native_font_candidate(source,0,&value)==SfntStatus::ok&&value.properties.style==1);
     CHECK(native_font_candidate_settings(source,0,{},&count)==SfntStatus::ok&&!count);
-    CHECK(native_font_candidate({},0,&value)==SfntStatus::invalid_input&&native_font_candidates_open(face,nullptr)==SfntStatus::invalid_input);
     return true;
 }
 bool guards() noexcept {
@@ -105,7 +102,6 @@ bool guards() noexcept {
     SfntFace face{};CHECK(sfnt_open({end,font_size},0,&face)==SfntStatus::ok);NativeFontCandidates source{};CHECK(native_font_candidates_open(face,&source)==SfntStatus::ok);
     auto* settings=reinterpret_cast<FontAxisSetting*>(memory+page*3-2*sizeof(FontAxisSetting));u32 count=0;
     CHECK(native_font_candidate_settings(source,2,{settings,2},&count)==SfntStatus::ok&&count==2&&settings[0].value==300&&settings[1].value==75);
-    CHECK(native_font_candidate_settings(source,0,{nullptr,2},&count)==SfntStatus::invalid_input&&!count);
     return true;
 }
 #if defined(MAICORD_FONT_FAMILY)

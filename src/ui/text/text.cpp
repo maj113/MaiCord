@@ -44,13 +44,8 @@ inline u32 ascii_prefix(Utf8View input, u32 from) noexcept {
     return ascii;
 }
 
-} // namespace
-
 TextShapeResult validate_text_input(const TextShapingView& view) noexcept {
     const Utf8View input = view.text;
-    if (!input.data && input.bytes != 0) {
-        return shape_result(TextShapeError::invalid_input);
-    }
     // ASCII, most UI text, is valid with one unit per byte. Validation decodes
     // only from the first non-ASCII byte, a scalar boundary.
     const u32 ascii = ascii_prefix(input, view.ascii);
@@ -69,12 +64,8 @@ TextShapeResult validate_text_input(const TextShapingView& view) noexcept {
     return shape_result(TextShapeError::none, required);
 }
 
+// The caller checked the span count against kTextHitSpanMaximum and gives at least one span.
 bool resolve_text_hits(Utf8View input, ConstSlice<TextHitSpan> hits, TextHitRange* resolved) noexcept {
-    if (hits.count > kTextHitSpanMaximum || (!hits.data && hits.count != 0) ||
-        (!resolved && hits.count != 0)) {
-        return false;
-    }
-    if (!hits.count) return true;
     TextHitEndpoint endpoints[kTextHitSpanMaximum * 2];
     for (u32 index = 0; index < hits.count; ++index) {
         const TextHitSpan& hit = hits[index];
@@ -126,9 +117,11 @@ bool resolve_text_hits(Utf8View input, ConstSlice<TextHitSpan> hits, TextHitRang
     return true;
 }
 
+} // namespace
+
 bool shaped_text_initialize(ShapedText* text, Slice<TextGlyph> glyphs, Slice<TextRun> runs, Slice<u16> clusters,
                             Slice<TextDecoration> decorations, Slice<TextHitRegion> hit_regions) noexcept {
-    if (!text || !glyphs.data || glyphs.count == 0 || glyphs.count > 0xFFFFu || !runs.data ||
+    if (!glyphs.data || glyphs.count == 0 || glyphs.count > 0xFFFFu || !runs.data ||
         runs.count == 0 || !clusters.data || clusters.count == 0) {
         return false;
     }
@@ -167,13 +160,11 @@ void shaped_text_reset(ShapedText* text) noexcept {
 }
 
 TextShapeResult text_system_initialize(TextSystem* system, const wchar_t* family_name, float em_size) noexcept {
-    if (!system || !family_name || !family_name[0] || !layout_extent_valid(em_size)) {
-        return shape_result(TextShapeError::invalid_input);
-    }
+    // Callers pass their own system and a family of at most 64 units (Linux: the system's configuration may leave it
+    // empty) at 16 DIPs.
+    if (!family_name[0]) return shape_result(TextShapeError::invalid_input);
     reset_value<TextSystem>(system);
-    u32 units=0;while(units<256&&family_name[units])++units;
-    if(units==256||em_size>250000)
-        return shape_result(TextShapeError::invalid_input);
+    u32 units=0;while(family_name[units])++units;
     if(!native_font_session_create(&system->native_fonts)||
        !native_text_context_initialize(&system->native_text,system->native_fonts)||
        !native_text_format_create(system->native_text,
@@ -184,9 +175,6 @@ TextShapeResult text_system_initialize(TextSystem* system, const wchar_t* family
 }
 
 void text_system_release(TextSystem* system) noexcept {
-    if (!system) {
-        return;
-    }
     native_text_context_release(&system->native_text);
     system->native_format=0;
     if(system->native_fonts){const auto stats=native_font_session_stats(system->native_fonts);
@@ -507,8 +495,7 @@ __forceinline TextShapeResult text_layout_utf8(TextSystem* system, const TextLay
     const ConstSlice<TextStyleSpan> styles = folding.styles;
     if (!folding.valid || !usable_text_system(system) || !layout_extent_valid(request.maximum_width) ||
         !layout_extent_valid(request.maximum_height) || styles.count > kTextStyleSpanMaximum ||
-        (!hits.data && hits.count != 0) || hits.count > kTextHitSpanMaximum ||
-        (output && (!output->glyphs || !output->runs || !output->clusters))) {
+        (!hits.data && hits.count != 0) || hits.count > kTextHitSpanMaximum) {
         return shape_result(TextShapeError::invalid_input);
     }
     if (output)
@@ -545,8 +532,6 @@ __forceinline TextShapeResult text_layout_utf8(TextSystem* system, const TextLay
 } // namespace
 
 TextShapeResult text_shape_utf8(TextSystem* system, const TextLayoutRequest& request, ShapedText* output) noexcept {
-    if (!output)
-        return shape_result(TextShapeError::invalid_input);
     return text_layout_utf8(system, request, output, nullptr);
 }
 

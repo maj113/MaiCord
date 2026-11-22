@@ -25,7 +25,7 @@ SfntStatus declared_sizes(const SfntFace& face,ConstSlice<u8>* maxp,ConstSlice<u
 // Once per prepared instance: compiled for size.
 __attribute__((minsize))
 SfntStatus tt_outline_requirements(const SfntFace& face,TtOutlineRequirements* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);ConstSlice<u8> maxp{},cvt{};
+    reset_value(output);ConstSlice<u8> maxp{},cvt{};
     const auto status=declared_sizes(face,&maxp,&cvt);if(status!=SfntStatus::ok)return status;
     *output={byte_load_be16(maxp.data+24),byte_load_be16(maxp.data+18),cvt.count/2,byte_load_be16(maxp.data+20),byte_load_be16(maxp.data+16)};return SfntStatus::ok;
 }
@@ -34,7 +34,7 @@ SfntStatus tt_outline_requirements(const SfntFace& face,TtOutlineRequirements* o
 __attribute__((minsize))
 SfntStatus tt_outline_prepare(const FontGeometry& geometry,TtInterpreter* buffers,TtOutlineInstance* output,TtExecution* execution,u32 work,u32* used) noexcept {
     WorkReport report{work,work,used};
-    if(output)reset_value(output);if(execution)reset_value(execution);if(!buffers || !output || !execution)return SfntStatus::invalid_input;TtOutlineInstance result{};
+    reset_value(output);reset_value(execution);TtOutlineInstance result{};
     auto& s=*buffers;
     if(!geometry.face.file.data)return SfntStatus::invalid_input;
     if(geometry.kind!=FontGeometryKind::truetype)return SfntStatus::unsupported;

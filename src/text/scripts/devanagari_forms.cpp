@@ -49,7 +49,7 @@ SfntStatus context(const SfntContext& context,ConstSlice<u16> glyphs,bool zero_c
 }
 SfntStatus sfnt_gsub_would_substitute(const SfntGsubProgram& program,ConstSlice<SfntLookupStep> steps,ConstSlice<u16> glyphs,
     bool zero_context,bool* result,u64* work) noexcept {
-    if(!result||!work||!glyphs.count||!glyphs.data||(steps.count&&!steps.data))return SfntStatus::invalid_input;*result=false;
+    if(!glyphs.count||!glyphs.data||(steps.count&&!steps.data))return SfntStatus::invalid_input;*result=false;
     for(u32 s=0;s<steps.count&&!*result;++s){
         const SfntGsubExecutableLookup* lookup=nullptr;auto status=sfnt_gsub_lookup_prepare(program,steps[s].lookup,&lookup);if(status!=SfntStatus::ok)return status;
         for(u32 i=0;i<lookup->subtables.count&&!*result;++i){if(!charge(work))return SfntStatus::resource_limit;const auto& subtable=lookup->subtables[i];

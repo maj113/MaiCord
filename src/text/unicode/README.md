@@ -102,8 +102,7 @@ implements the default rules of
 NS); Thai runs then take dictionary breaks from `native_thai_word_breaks`. It
 takes scalar values as a UTF decoder yields them and writes `count + 1`
 caller-owned bytes (0 prohibited, 1 allowed, 2 mandatory), in one linear pass
-with constant additional state; null input or short output leaves the output
-untouched. Rules that read ahead (LB15b, LB15c, LB19a, LB25, LB28a) keep their
+with constant additional state. Rules that read ahead (LB15b, LB15c, LB19a, LB25, LB28a) keep their
 boundary's fallback until the next one or two bases arrive. Pairs whose answer
 depends on their two classes alone come from a table built from the rules at
 compile time; the rest run the rules in order. The ASCII paragraph path

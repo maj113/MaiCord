@@ -133,8 +133,8 @@ inline bool draw_source(const TextSystem& system,const ShapedText& text) noexcep
     CHECK(native_font_run_prepare(native_font_session_runs(system.native_fonts),font,&draw_scratch,&prepared,&oblique,&bold).ok());
     if(system.native_fonts==owner.native_fonts)CHECK(draw_retain(system.native_fonts,prepared));
     observe_value(static_cast<u32>(oblique|bold<<1));
-    CHECK(!native_font_run_prepare(nullptr,font,&draw_scratch,&rejected).ok()&&!rejected.slot);
-    CHECK(!native_font_run_prepare(native_font_session_runs(system.native_fonts),{font.slot,font.generation+1},&draw_scratch,&rejected).ok()&&!rejected.slot);
+    CHECK(!native_font_run_prepare(nullptr,font,&draw_scratch,&rejected,&oblique,&bold).ok()&&!rejected.slot);
+    CHECK(!native_font_run_prepare(native_font_session_runs(system.native_fonts),{font.slot,font.generation+1},&draw_scratch,&rejected,&oblique,&bold).ok()&&!rejected.slot);
     return true;
 }
 // With --bundled-fonts, the system families the corpora name map to the repository's fonts in their private scopes

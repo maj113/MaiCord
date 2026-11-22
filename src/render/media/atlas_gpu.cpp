@@ -33,57 +33,6 @@ static u32 retained_upload_capacity(u32 current, u32 required) noexcept {
     return capacity;
 }
 
-
-bool png_format_valid(const PngImage& image) noexcept {
-    u32 channels = 0;
-    bool depth_valid = false;
-    switch (image.color_type) {
-    case 0:
-        channels = 1;
-        depth_valid = image.bit_depth == 1 || image.bit_depth == 2 || image.bit_depth == 4 ||
-                      image.bit_depth == 8 || image.bit_depth == 16;
-        break;
-    case 2:
-        channels = 3;
-        depth_valid = image.bit_depth == 8 || image.bit_depth == 16;
-        break;
-    case 3:
-        channels = 1;
-        depth_valid =
-            image.bit_depth == 1 || image.bit_depth == 2 || image.bit_depth == 4 || image.bit_depth == 8;
-        break;
-    case 4:
-        channels = 2;
-        depth_valid = image.bit_depth == 8 || image.bit_depth == 16;
-        break;
-    case 6:
-        channels = 4;
-        depth_valid = image.bit_depth == 8 || image.bit_depth == 16;
-        break;
-    }
-    const u64 row_bits = static_cast<u64>(image.width) * channels * image.bit_depth;
-    const u64 row_bytes = (row_bits + 7) / 8;
-    const u64 inflated = (row_bytes + 1) * image.height;
-    return depth_valid && image.width != 0 && image.height != 0 && image.width <= kPngDimensionMaximum &&
-           image.height <= kPngDimensionMaximum && image.channels == channels &&
-           image.row_bytes == row_bytes && image.row_stride == row_bytes + 1 &&
-           image.inflated_bytes == inflated && inflated <= kPngInflatedMaximumBytes &&
-           (image.color_type != 3 ||
-             (image.palette_count != 0 && image.palette_count <= kPngPaletteCapacity));
-}
-
-bool png_scanlines_reconstructed(const PngImage& image, ConstSlice<u8> scanlines) noexcept {
-    if (!scanlines.data || scanlines.count < image.inflated_bytes) {
-        return false;
-    }
-    for (u32 y = 0; y < image.height; ++y) {
-        if (scanlines[y * image.row_stride] != 0) {
-            return false;
-        }
-    }
-    return true;
-}
-
 // A constant buffer and the compute shader that reads it, created together
 // unless both already exist.
 static GpuStatus ensure_constants_and_shader(GpuDevice* device, u32 constant_bytes, ShaderId shader_id,

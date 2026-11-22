@@ -666,7 +666,8 @@ bool renderer_set_caption(D3D11Renderer* renderer, const UiCaptionBarState& stat
 
 bool renderer_set_caption_icon(D3D11Renderer* renderer, const u32* pixels, u32 extent) noexcept {
     auto* caption = renderer->caption;
-    if (!caption || !renderer->graphics.device || !pixels || !extent || extent > 256)
+    // The only caller decodes the icon first (app_icon_decode: 1 to 64 pixels square).
+    if (!caption || !renderer->graphics.device)
         return false;
     if (caption->icon_view && caption->icon_extent == extent)
         return true;

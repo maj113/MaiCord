@@ -32,7 +32,7 @@ bool before(const ColrResolvedColorStop& a,const ColrResolvedColorStop& b) noexc
 
 // Once per colour face binding: compiled for size.
 __attribute__((minsize)) SfntStatus colr_variation_data_open(const ColrFont& font,ColrVariationData* output,u32 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!font.table.data)return SfntStatus::invalid_input;
     if(!font.variation_store)return SfntStatus::ok;
     ColrVariationData result{};
@@ -43,7 +43,7 @@ __attribute__((minsize)) SfntStatus colr_variation_data_open(const ColrFont& fon
 }
 __attribute__((minsize)) SfntStatus colr_variation_instance_prepare(const ColrVariationData& data,ConstSlice<double> coordinates,
                                           Slice<double> storage,ColrVariationInstance* output,u32 work,ColrVariationMode mode) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!data.present){output->mode=mode;return SfntStatus::ok;}
     ColrVariationInstance result{};
     const auto status=variation_instance_prepare(data.store,coordinates,storage,&result.instance,work,
@@ -52,7 +52,7 @@ __attribute__((minsize)) SfntStatus colr_variation_instance_prepare(const ColrVa
     result.map=data.map;result.present=true;result.mode=mode;*output=result;return SfntStatus::ok;
 }
 SfntStatus colr_resolve_paint_values(const ColrVariationInstance& instance,const ColrPaint& paint,ColrPaintValues* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!paint.format || paint.format>32 || paint.value_count>6)return SfntStatus::invalid_input;
     ColrPaintValues result{};result.count=paint.value_count;
     VariationDeltaBlock block;
@@ -75,7 +75,7 @@ SfntStatus colr_resolve_paint_values(const ColrVariationInstance& instance,const
     *output=result;return SfntStatus::ok;
 }
 SfntStatus colr_resolve_clip(const ColrVariationInstance& instance,const ColrClip& clip,ColrClip* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!clip.present){output->variation_index=0xffffffff;return SfntStatus::ok;}
     double values[]{clip.minimum_x,clip.minimum_y,clip.maximum_x,clip.maximum_y};
     VariationDeltaBlock block;

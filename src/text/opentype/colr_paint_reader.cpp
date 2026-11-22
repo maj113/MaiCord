@@ -69,14 +69,14 @@ SfntStatus read_paint(const ColrFont& font,u32 at,ColrPaint* p) noexcept {
 }
 
 SfntStatus colr_paint_read(const ColrFont& font,u32 offset,ColrPaint* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!font.table.data)return SfntStatus::invalid_input;
     const auto status=read_paint(font,offset,output);
     if(status!=SfntStatus::ok)reset_value(output);
     return status;
 }
 SfntStatus colr_color_line(const ColrFont& font,const ColrPaint& paint,ColrColorLine* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!font.table.data || paint.format<4 || paint.format>9)return SfntStatus::invalid_input;
     const u32 at=paint.color_line;
     if(!span(font.table,at,3))return SfntStatus::truncated;
@@ -87,7 +87,7 @@ SfntStatus colr_color_line(const ColrFont& font,const ColrPaint& paint,ColrColor
     *output={view(font.table,at+3,length),count,extend,paint.variable};return SfntStatus::ok;
 }
 SfntStatus colr_color_stop(const ColrFont& font,const ColrColorLine& line,u32 index,ColrColorStop* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!font.table.data || index>=line.count)return SfntStatus::invalid_input;
     // colr_color_line checked that the stops hold count records.
     const u32 stride=line.variable?10u:6u,at=index*stride;

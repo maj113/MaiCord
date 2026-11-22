@@ -10,7 +10,7 @@ using namespace sfnt_read;
 // Once per table of a variable font, before any delta: compiled for size.
 __attribute__((minsize)) SfntStatus variation_index_map_open(ConstSlice<u8> table,u32 at,VariationIndexMap* output,u32 work,u32* work_used) noexcept {
     WorkReport report{work,work,work_used};
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!span(table,at,4))return SfntStatus::truncated;
     const u8 format=table[at],entry=table[at+1];
     if(format>1)return SfntStatus::unsupported;
@@ -29,14 +29,14 @@ __attribute__((minsize)) SfntStatus variation_index_map_open(ConstSlice<u8> tabl
     *output={entries,count,width,bits};return SfntStatus::ok;
 }
 SfntStatus variation_index_map_get(const VariationIndexMap& map,u32 index,u32* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output=0xffffffff;
+    *output=0xffffffff;
     if(!map.count){*output=index;return SfntStatus::ok;}
     const u32 at=minimum(index,map.count-1)*map.entry_size;
     const u32 value=packed(map.entries.data+at,map.entry_size);
     *output=((value>>map.inner_bits)<<16)|(value&((1u<<map.inner_bits)-1));return SfntStatus::ok;
 }
 SfntStatus item_variation_data(const ItemVariationStore& store,u16 outer,ItemVariationData* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!store.table.data)return SfntStatus::invalid_input;
     if(outer>=store.offsets.count/4)return SfntStatus::malformed;
     const u32 offset=r32(store.offsets,outer*4u);
@@ -95,7 +95,7 @@ SfntStatus item_variation_store_open(ConstSlice<u8> table,u32 at,ItemVariationSt
 // Once per instance and table: compiled for size.
 __attribute__((minsize)) SfntStatus variation_instance_prepare(const ItemVariationStore& store,ConstSlice<double> coordinates,
                                      Slice<double> storage,VariationInstance* output,u32 work,VariationCoordinatePrecision precision) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!store.table.data || coordinates.count!=store.axis_count || (coordinates.count && !coordinates.data))return SfntStatus::invalid_input;
     if(storage.count<store.region_count || (store.region_count && !storage.data))return SfntStatus::output_too_small;
     for(u32 i=0;i<coordinates.count;++i)if(!(coordinates[i]>=-1 && coordinates[i]<=1))return SfntStatus::invalid_input;
@@ -126,8 +126,7 @@ __attribute__((minsize)) SfntStatus variation_instance_prepare(const ItemVariati
     *output={store,{storage.data,store.region_count}};return SfntStatus::ok;
 }
 SfntStatus item_variation_delta_cached(const VariationInstance& instance,u32 index,double* output,VariationDeltaBlock* block,VariationArithmetic arithmetic) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output=0;
-    if(!block)return SfntStatus::invalid_input;
+    *output=0;
     if(!instance.store.table.data || instance.scalars.count!=instance.store.region_count ||
        (instance.scalars.count && !instance.scalars.data))return SfntStatus::invalid_input;
     if(index==0xffffffff)return SfntStatus::ok;

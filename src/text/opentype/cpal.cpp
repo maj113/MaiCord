@@ -5,7 +5,6 @@ namespace maicord {
 using namespace color_detail;
 
 SfntStatus cpal_open(const SfntFace& face,CpalFont* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;
     reset_value(output); ConstSlice<u8> bytes{};
     auto status=sfnt_table(face,sfnt_tag('C','P','A','L'),&bytes);
     if(status!=SfntStatus::ok)return status;
@@ -34,7 +33,6 @@ SfntStatus cpal_open(const SfntFace& face,CpalFont* output) noexcept {
 }
 
 SfntStatus cpal_color(const CpalFont& font,u16 palette,u16 entry,CpalColor* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;
     reset_value(output);
     // cpal_open leaves a zero font (no palettes) or both views with one or more palettes.
     if(palette>=font.palette_count)return SfntStatus::invalid_input;

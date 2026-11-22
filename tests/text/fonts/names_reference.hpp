@@ -24,8 +24,7 @@ inline SfntName record(const SfntNames& names,u32 index) noexcept {
     }
     return name;
 }
-SfntStatus english(const SfntNames& names,u16 id,SfntName* output,bool* found) noexcept {
-    if(output)*output={};if(found)*found=false;if(!output||!found||!names.table.data)return SfntStatus::invalid_input;
+bool english(const SfntNames& names,u16 id,SfntName* output) noexcept {
     u32 best=0xffffffff;SfntName selected{};
     for(u32 i=0;i<names.records;++i){const SfntName name=record(names,i);
         if(name.id!=id||!unicode(name.platform,name.encoding))continue;
@@ -37,7 +36,7 @@ SfntStatus english(const SfntNames& names,u16 id,SfntName* output,bool* found) n
         const u32 rank=language*2+(name.platform==3?0:1);
         if(rank<best){best=rank;selected=name;}
     }
-    if(best!=0xffffffff){*output=selected;*found=true;}return SfntStatus::ok;
+    if(best!=0xffffffff)*output=selected;return best!=0xffffffff;
 }
 inline bool equal(const SfntName& a,const SfntName& b) noexcept {
     return a.bytes.data==b.bytes.data&&a.bytes.count==b.bytes.count&&a.language_tag.data==b.language_tag.data&&a.language_tag.count==b.language_tag.count&&

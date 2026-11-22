@@ -8,7 +8,6 @@ using namespace sfnt_read;
 // Opens run once per face or plan: compiled for size. sfnt_table and the
 // metric queries stay /O2.
 __attribute__((minsize)) SfntStatus sfnt_open(ConstSlice<u8> bytes, u32 face_index, SfntFace* face) noexcept {
-    if (!face) return SfntStatus::invalid_input;
     reset_value(face);
     if (!bytes.data) return SfntStatus::invalid_input;
     if (!span(bytes, 0, 12)) return SfntStatus::truncated;
@@ -50,7 +49,6 @@ __attribute__((minsize)) SfntStatus sfnt_open(ConstSlice<u8> bytes, u32 face_ind
 }
 
 SfntStatus sfnt_table(const SfntFace& face, u32 tag, ConstSlice<u8>* table) noexcept {
-    if (!table) return SfntStatus::invalid_input;
     reset_value(table);
     // sfnt_open leaves a zero face, or a directory of one or more entries that each lie inside the file.
     if (!face.directory.data) return SfntStatus::invalid_input;
@@ -71,7 +69,6 @@ SfntStatus sfnt_table(const SfntFace& face, u32 tag, ConstSlice<u8>* table) noex
 }
 
 SfntStatus sfnt_glyph_count(const SfntFace& face, u16* count) noexcept {
-    if (!count) return SfntStatus::invalid_input;
     *count = 0;
     ConstSlice<u8> maxp{};
     const auto status = sfnt_table(face, sfnt_tag('m', 'a', 'x', 'p'), &maxp);
@@ -87,7 +84,6 @@ SfntStatus sfnt_glyph_count(const SfntFace& face, u16* count) noexcept {
 
 __attribute__((minsize)) SfntStatus sfnt_horizontal_metrics_open(const SfntFace& face,
                                          SfntHorizontalMetrics* metrics) noexcept {
-    if (!metrics) return SfntStatus::invalid_input;
     reset_value(metrics);
     u16 glyphs = 0;
     auto status = sfnt_glyph_count(face, &glyphs);
@@ -113,7 +109,6 @@ __attribute__((minsize)) SfntStatus sfnt_horizontal_metrics_open(const SfntFace&
 
 SfntStatus sfnt_horizontal_metrics(const SfntHorizontalMetrics& metrics, u16 glyph,
                                     SfntGlyphMetrics* output) noexcept {
-    if (!output) return SfntStatus::invalid_input;
     reset_value(output);
     // sfnt_horizontal_metrics_open leaves zero metrics, or a table with 1..glyph_count long metrics.
     if (!metrics.long_metrics) return SfntStatus::invalid_input;

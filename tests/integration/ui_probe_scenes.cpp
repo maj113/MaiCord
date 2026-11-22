@@ -4193,7 +4193,6 @@ bool probe_plugin_surfaces() noexcept {
             renderer_refresh_interaction_text(&g_probe.renderer, kDefaultTheme) &&
             probe_present(&g_probe.renderer, kDefaultTheme) && probe_capture_frame(L"plugin-surfaces-hover-bar.bmp");
     message_action_bar_close(&g_probe.message_action_bar);
-    renderer_bind_message_action_bar(&g_probe.renderer, nullptr);
     // Hide: the card's space goes with it.
     g_card = false;
     g_ui_plugin_render_revision = saved_revision + 3;

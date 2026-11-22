@@ -3,7 +3,7 @@
 namespace maicord {
 enum NativeFallbackClass:u8 {
     native_fallback_extending=1,native_fallback_joining=2,
-    native_fallback_selector=4,native_fallback_invalid=8
+    native_fallback_selector=4
 };
 // en-US fallback attachment, separate from grapheme/caret boundaries. Extending
 // characters may keep a preceding font if it covers them; the joining bit
@@ -11,7 +11,7 @@ enum NativeFallbackClass:u8 {
 // font without nominal coverage. Within one policy a missing choice ends when the
 // family covers a selector; a selector crossing policy boundaries stays with the
 // preceding choice. Routed fallback uses native_font_fallback_routed_range.
-u8 native_font_fallback_class(u32 scalar) noexcept;
+u8 native_font_fallback_class(u32 scalar) noexcept; // scalar: a valid Unicode scalar
 // Opaque effective-font and mapping-interval identities. Policy distinguishes
 // interval/scale boundaries even when a mapping list and font are unchanged. The caller manages
 // their metadata and keeps identities stable for this query. A missing font is

@@ -5,7 +5,7 @@
 namespace maicord {
 SfntStatus native_arabic_paragraph_shape(const NativeArabicPlanStore& store,NativeArabicPlanHandle handle,Utf8View input,
     bool independent,bool rtl,float em,const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,float trailing_spacing,Utf8View paragraph,bool paragraph_start) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     const auto plan=native_arabic_plan_get(store,handle,independent);if(!plan.shape)return SfntStatus::invalid_input;
     const auto* metrics=native_run_plan_metrics(*store.runs,store.slots[handle.slot-1].run);if(!metrics)return SfntStatus::invalid_input;
     if(!paragraph.data)paragraph=input;if(input.data<paragraph.data||input.bytes>paragraph.bytes||static_cast<u32>(input.data-paragraph.data)>paragraph.bytes-input.bytes)return SfntStatus::invalid_input;

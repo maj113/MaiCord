@@ -76,9 +76,7 @@ bool corpus() noexcept {
     }return r.at==r.bytes.count;
 }
 bool invalid() noexcept {
-    u8 bytes[128]{};SfntHvar h{};SfntMvar m{};u32 used=99;
-    if(sfnt_hvar_open({},nullptr,0,&used)!=SfntStatus::invalid_input || used)return false;++malformed;
-    if(sfnt_mvar_open({},nullptr,0,&used)!=SfntStatus::invalid_input || used)return false;++malformed;
+    u8 bytes[128]{};SfntHvar h{};SfntMvar m{};
     bytes[1]=2;if(sfnt_hvar_open({bytes,20},&h)!=SfntStatus::unsupported || sfnt_mvar_open({bytes,12},&m)!=SfntStatus::unsupported)return false;malformed+=2;
     bytes[1]=1;if(sfnt_hvar_open({bytes,20},&h)!=SfntStatus::malformed || sfnt_mvar_open({bytes,12},&m)!=SfntStatus::ok)return false;malformed+=2;
     bytes[7]=8;if(sfnt_mvar_open({bytes,12},&m)!=SfntStatus::ok)return false;
@@ -86,7 +84,7 @@ bool invalid() noexcept {
     bytes[11]=12;if(sfnt_mvar_open({bytes,12},&m)!=SfntStatus::malformed)return false;++malformed;
     bytes[9]=1;if(sfnt_mvar_open({bytes,20},&m)!=SfntStatus::malformed)return false;++malformed;
     // Query output contracts and malformed variation-index references.
-    if(sfnt_hvar_advance_delta({}, {}, 0, &d)!=SfntStatus::invalid_input || d!=0 || sfnt_hvar_advance_delta({}, {}, 0, nullptr)!=SfntStatus::invalid_input || sfnt_mvar_delta({}, {}, 0, nullptr)!=SfntStatus::invalid_input)return false;malformed+=3;
+    if(sfnt_hvar_advance_delta({}, {}, 0, &d)!=SfntStatus::invalid_input || d!=0)return false;++malformed;
     return true;
 }
 int run() noexcept {

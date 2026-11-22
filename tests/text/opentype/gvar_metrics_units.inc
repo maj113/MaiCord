@@ -29,8 +29,8 @@ bool gvar_metrics_units() noexcept {
                    outline.count!=n||static_cast<u32>(outline.fill_rule)!=fill||outline.has_bounds!=(bounded!=0)||!bytes_equal(commands,expected.data,n*28))return fail(f,glyph,35);
                 const float actual[]{outline.minimum_x,outline.minimum_y,outline.maximum_x,outline.maximum_y};if(!bytes_equal(actual,bounds,16))return fail(f,glyph,36);++shapes;
             }
-            u16 value=1;if(sfnt_gvar_design_advance(font,instance,font.metrics.glyph_count,&value)!=SfntStatus::glyph_out_of_range||value||
-                sfnt_gvar_design_advance(font,instance,0,nullptr)!=SfntStatus::invalid_input)return fail(f,0,34);
+            u16 value=1;if(sfnt_gvar_design_advance(font,instance,font.metrics.glyph_count,&value)!=SfntStatus::glyph_out_of_range||value)
+                return fail(f,0,34);
         }
     }
     print(utf8_literal("phantom_advances="));number(checked);print(utf8_literal("\nphantom_outlines="));number(shapes);print(utf8_literal("\n"));return reader.at==reader.bytes.count;

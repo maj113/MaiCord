@@ -23,10 +23,8 @@ inline u64 key_hash(const UiTextMeasureKey& key) noexcept {
     return mix(hash, key.backend_revision);
 }
 
+// The stamp never wraps: one tick per measurement, 2^64 of them take 584 years at one a nanosecond.
 inline u64 next_stamp(UiTextMeasureCache* cache) noexcept {
-    if (cache->stamp == ~0ull) {
-        ui_text_measure_cache_invalidate(cache);
-    }
     return ++cache->stamp;
 }
 
@@ -34,7 +32,7 @@ inline u64 next_stamp(UiTextMeasureCache* cache) noexcept {
 
 bool ui_text_measure_cache_initialize(UiTextMeasureCache* cache, Slice<UiTextMeasureRecord> storage,
                                       UiTextMeasureBackend backend, void* backend_context) noexcept {
-    if (!cache || !storage.data || storage.count < kUiTextMeasureCacheWays ||
+    if (!storage.data || storage.count < kUiTextMeasureCacheWays ||
         storage.count % kUiTextMeasureCacheWays != 0 || !backend) {
         return false;
     }
@@ -50,7 +48,7 @@ bool ui_text_measure_cache_initialize(UiTextMeasureCache* cache, Slice<UiTextMea
 }
 
 void ui_text_measure_cache_invalidate(UiTextMeasureCache* cache) noexcept {
-    if (!cache || !cache->storage.data) {
+    if (!cache->storage.data) {
         return;
     }
     ++cache->generation;
@@ -65,7 +63,8 @@ void ui_text_measure_cache_invalidate(UiTextMeasureCache* cache) noexcept {
 UiTextMeasureResult ui_text_measure_cache_measure(UiTextMeasureCache* cache,
                                                   const UiTextMeasureRequest& request,
                                                   UiTextMeasureValue* value) noexcept {
-    if (!cache || !cache->storage.data || !cache->backend || !value ||
+    // initialize sets the backend with the storage.
+    if (!cache || !cache->storage.data || !value ||
         (request.key.source_id == 0 && request.key.content_signature == 0) ||
         (!request.text.data && request.text.bytes != 0) ||
         (!request.styles.data && request.styles.count != 0) || !ui_size_valid(request.constraint)) {

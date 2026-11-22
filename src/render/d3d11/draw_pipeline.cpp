@@ -288,11 +288,8 @@ bool write_frame(const D3D11DrawPipelineOwner& owner, GpuContext* context, u32 w
     if (!owner.ui_frame_buffer || !context || width == 0 || height == 0 || dpi == 0) {
         return false;
     }
-    if (!(scale > 0.0f && scale <= 2.0f) || !(origin_x == origin_x) || !(origin_y == origin_y))
-        scale = 1.0f, origin_x = origin_y = 0.0f;
-    if (!(shift_x == shift_x) || !(shift_y == shift_y))
-        shift_x = shift_y = 0.0f;
-
+    // The layer setters (layer_presentation.cpp) keep scale in (0, 1.1], the opacity in [0, 1] and the origin and
+    // shift finite.
     // position' = origin + (position - origin) * scale + shift, then the DIP-to-clip map.
     const float dpi_scale = static_cast<float>(dpi) / 96.0f;
     const float x_scale = 2.0f * dpi_scale / static_cast<float>(width);
@@ -310,7 +307,7 @@ bool write_frame(const D3D11DrawPipelineOwner& owner, GpuContext* context, u32 w
                                    y_scale * scale,
                                    -1.0f + (origin_x * (1.0f - scale) + shift_x) * x_scale,
                                    1.0f + (origin_y * (1.0f - scale) + shift_y) * y_scale,
-                                   opacity >= 0.0f && opacity <= 1.0f ? opacity : 1.0f,
+                                   opacity,
                                    {axis_x, axis_y, 0.5f - (half_x * axis_x + (surface_top + half_y) * axis_y)}};
     gpu_update_buffer(context, owner.ui_frame_buffer, &transform, sizeof(transform));
     return true;

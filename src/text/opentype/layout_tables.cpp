@@ -11,7 +11,7 @@ ConstSlice<u8> slice(const ConstSlice<u8>& bytes,u32 at,u32 count) noexcept {ret
 // Opens, bounds and coverage enumeration run while a cached plan is prepared:
 // compiled for size. The index, class and device queries stay /O2.
 __attribute__((minsize)) SfntStatus sfnt_coverage_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntCoverage* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!bytes.data || !glyph_limit || glyph_limit>65536)return SfntStatus::invalid_input;
     if(!span(bytes,0,4))return SfntStatus::truncated;
     const u16 format=read(bytes,0),count=read(bytes,2);
@@ -78,7 +78,7 @@ u32 sfnt_lookup_bounds_find(const SfntLookupBounds& bounds,const SfntGlyphView& 
     return end;
 }
 __attribute__((minsize)) SfntStatus sfnt_coverage_glyph(const SfntCoverage& coverage,u32 index,u16* glyph) noexcept {
-    if(!glyph)return SfntStatus::invalid_input;*glyph=0;
+    *glyph=0;
     if(coverage.format!=1 && coverage.format!=2)return SfntStatus::invalid_input;
     if(index>=coverage.covered_count)return SfntStatus::glyph_out_of_range;
     if(coverage.format==1){*glyph=read(coverage.records,index*2);return SfntStatus::ok;}
@@ -90,7 +90,7 @@ __attribute__((minsize)) SfntStatus sfnt_coverage_glyph(const SfntCoverage& cove
     return SfntStatus::malformed; // A prepared, immutable view cannot reach this.
 }
 __attribute__((minsize)) SfntStatus sfnt_class_def_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntClassDef* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!bytes.data || !glyph_limit || glyph_limit>65536)return SfntStatus::invalid_input;
     if(!span(bytes,0,4))return SfntStatus::truncated;
     const u16 format=read(bytes,0);u16 count=0,start=0,maximum=0;u32 offset=4,stride=6;
@@ -123,7 +123,7 @@ u16 sfnt_class_value(const SfntClassDef& classes,u16 glyph) noexcept {
     return glyph>=read(at,0) && glyph<=read(at,2)?read(at,4):0;
 }
 SfntStatus sfnt_device_open(ConstSlice<u8> bytes,SfntDevice* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(!bytes.data)return SfntStatus::invalid_input;
     if(!span(bytes,0,6))return SfntStatus::truncated;
     const u16 start=read(bytes,0),end=read(bytes,2),format=read(bytes,4);
@@ -137,7 +137,7 @@ SfntStatus sfnt_device_open(ConstSlice<u8> bytes,SfntDevice* output) noexcept {
     *output={slice(bytes,6,words*2),start,end,format};return SfntStatus::ok;
 }
 SfntStatus sfnt_device_pixels(const SfntDevice& device,u16 ppem,i16* delta) noexcept {
-    if(!delta)return SfntStatus::invalid_input;*delta=0;
+    *delta=0;
     if(device.format==0x8000)return SfntStatus::unsupported;
     if(device.format<1 || device.format>3)return SfntStatus::invalid_input;
     if(ppem<device.start_or_outer || ppem>device.end_or_inner)return SfntStatus::ok;
@@ -146,7 +146,7 @@ SfntStatus sfnt_device_pixels(const SfntDevice& device,u16 ppem,i16* delta) noex
     *delta=static_cast<i16>(static_cast<i32>(value)-((value&(1u<<(bits-1)))?static_cast<i32>(1u<<bits):0));return SfntStatus::ok;
 }
 bool sfnt_device_variation_index(const SfntDevice& device,u32* index) noexcept {
-    if(!index)return false;*index=0;
+    *index=0;
     if(device.format!=0x8000)return false;*index=(static_cast<u32>(device.start_or_outer)<<16)|device.end_or_inner;return true;
 }
 }

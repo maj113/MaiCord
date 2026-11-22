@@ -69,7 +69,7 @@ struct Tree {
 };
 }
 SfntStatus sfnt_components_open(Slice<SfntComponentGlyph> glyphs,Slice<SfntComponentNode> storage,SfntComponentForest* out,u64 work,bool preserve_forms) noexcept {
-    if(!out)return SfntStatus::invalid_input;reset_value(out);if((glyphs.count && !glyphs.data) || (storage.count && !storage.data))return SfntStatus::invalid_input;
+    reset_value(out);if((glyphs.count && !glyphs.data) || (storage.count && !storage.data))return SfntStatus::invalid_input;
     if(storage.count<glyphs.count)return SfntStatus::output_too_small;if(static_cast<u64>(glyphs.count)*2>work)return SfntStatus::resource_limit;
     for(u32 i=0;i<glyphs.count;++i)if(static_cast<u8>(glyphs.data[i].glyph.glyph_class)>4)return SfntStatus::invalid_input;
     for(u32 i=0;i<glyphs.count;++i){auto& g=glyphs.data[i];g.component=i;g.attachment=i?i-1:nil;const bool mark=g.glyph.glyph_class==SfntGlyphClass::mark;
@@ -77,14 +77,14 @@ SfntStatus sfnt_components_open(Slice<SfntComponentGlyph> glyphs,Slice<SfntCompo
     *out={{storage.data,glyphs.count},false,preserve_forms};return SfntStatus::ok;
 }
 SfntStatus sfnt_component_location(const SfntComponentForest& f,u32 node,u32* root,u32* ordinal,u64 work,u64* used) noexcept {
-    if(used)*used=0;if(!root || !ordinal)return SfntStatus::invalid_input;*root=nil;*ordinal=0;if(node==nil)return SfntStatus::ok;if(node>=f.nodes.count)return SfntStatus::invalid_input;
+    if(used)*used=0;*root=nil;*ordinal=0;if(node==nil)return SfntStatus::ok;if(node>=f.nodes.count)return SfntStatus::invalid_input;
     WorkReport report{work,work,used};return locate(f.nodes.data,node,root,ordinal,work)?SfntStatus::ok:SfntStatus::resource_limit;
 }
 void sfnt_components_rollback(SfntComponentForest* forest,ConstSlice<SfntComponentUndo> journal) noexcept {
     for(u32 i=journal.count;i;){const auto& item=journal.data[--i];forest->nodes.data[item.index]=item.before;}
 }
 SfntStatus sfnt_components_edit(SfntComponentForest* forest,SfntGlyphView glyphs,ConstSlice<u32> consumed,bool ligature,Slice<u8> outputs,Slice<SfntComponentUndo> journal,SfntComponentEdit* out,u64 work) noexcept {
-    if(!out)return SfntStatus::invalid_input;reset_value(out);if(!forest || forest->sealed || !sfnt_glyph_view_valid(glyphs) || glyphs.record_size!=sizeof(SfntComponentGlyph) || !consumed.count || !consumed.data || !outputs.count || !outputs.data || outputs.count%sizeof(SfntComponentGlyph) || (journal.count && !journal.data))return SfntStatus::invalid_input;
+    reset_value(out);if(!forest || forest->sealed || !sfnt_glyph_view_valid(glyphs) || glyphs.record_size!=sizeof(SfntComponentGlyph) || !consumed.count || !consumed.data || !outputs.count || !outputs.data || outputs.count%sizeof(SfntComponentGlyph) || (journal.count && !journal.data))return SfntStatus::invalid_input;
     const u32 output_count=outputs.count/sizeof(SfntComponentGlyph);if((ligature && output_count!=1) || (!ligature && consumed.count!=1))return SfntStatus::invalid_input;
     Tree t{*forest,journal,0,work};u32 root=nil;bool history=false;
     for(u32 i=0;i<consumed.count;++i){if(consumed.data[i]>=sfnt_glyph_count(glyphs) || (i && consumed.data[i]<=consumed.data[i-1])){t.status=SfntStatus::invalid_input;break;}
@@ -110,8 +110,8 @@ SfntStatus sfnt_components_edit(SfntComponentForest* forest,SfntGlyphView glyphs
 }
 SfntStatus sfnt_components_export(SfntComponentForest* f,SfntGlyphView glyphs,Slice<u32> targets,Slice<SfntMarkAssociation> associations,u32* target_count,u64 work,u64* used) noexcept {
     const u64 initial=work;WorkReport report{initial,work,used};
-    if(!target_count)return SfntStatus::invalid_input;*target_count=0;
-    if(!f || !sfnt_glyph_view_valid(glyphs) || glyphs.record_size!=sizeof(SfntComponentGlyph) || (targets.count && !targets.data) || (associations.count && !associations.data))return SfntStatus::invalid_input;
+    *target_count=0;
+    if(!sfnt_glyph_view_valid(glyphs) || glyphs.record_size!=sizeof(SfntComponentGlyph) || (targets.count && !targets.data) || (associations.count && !associations.data))return SfntStatus::invalid_input;
     const u32 count=sfnt_glyph_count(glyphs);if(associations.count<count)return SfntStatus::output_too_small;
     f->sealed=true;
     for(u32 i=0;i<f->nodes.count;++i){if(!spend(work))return SfntStatus::resource_limit;auto& n=f->nodes.data[i];if(n.flags&owner){n.parent=nil;n.flags&=~owner;}}

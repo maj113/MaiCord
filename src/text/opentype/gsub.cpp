@@ -118,6 +118,6 @@ SfntStatus gsub_subtable_match(const SfntGsubSubtable& sub,const SfntGdef& gdef,
 }
 __attribute__((minsize)) SfntStatus sfnt_gsub_subtable_open(ConstSlice<u8> bytes,u16 type,u32 glyph_limit,SfntGsubSubtable* output,u32 work,u32* work_used,bool ignore_empty) noexcept {
     const WorkReport report{work,work,work_used};
-    if(!output)return SfntStatus::invalid_input;return open(bytes,type,glyph_limit,output,&work,ignore_empty);
+    return open(bytes,type,glyph_limit,output,&work,ignore_empty);
 }
 }

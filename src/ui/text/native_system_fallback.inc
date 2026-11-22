@@ -106,11 +106,11 @@ SfntStatus system_cover(void* context,u32 font,u32 cp,bool* output) noexcept {
 }
 }
 bool native_text_catalog_range(NativeTextCatalogs* owner,const NativeTextFontQuery& query,NativeFontSession* session,Arena* scratch,Utf8View text,NativeTextFontRange* output) noexcept {
-    if(output)*output={{native_fallback_missing,{},0},0,0,native_fallback_missing};
+    *output={{native_fallback_missing,{},0},0,0,native_fallback_missing};
 #if !defined(_WIN32)
     LocatorIdle idle{owner};
 #endif
-    if(!owner||!output||!session||!scratch||!scratch->base||query.scope>=owner->count||!query.family.data||!query.family.count||query.family.count>32767||!text.data||!text.bytes)return false;
+    if(!scratch->base||query.scope>=owner->count||!query.family.data||!query.family.count||query.family.count>32767||!text.data||!text.bytes)return false;
     const auto props=query.properties;
     if(props.width!=5||(props.weight!=400&&props.weight!=600)||(props.style!=0&&props.style!=2))return false;
     const FamilyOrder* family=nullptr;if(!coverage_ready(*owner,session)||!family_order(*owner,query,*scratch,&family))return false;

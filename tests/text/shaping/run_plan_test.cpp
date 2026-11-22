@@ -43,7 +43,6 @@ bool acquire(const wchar_t* path,NativeRunPlanHandle* out,u32 weight=0) noexcept
     CHECK(native_run_plan_release(&store,alias));
     if(!fonts){NativeRunPlanHandle emoji{},cached{},failed{};
         CHECK(!native_run_plan_acquire(&store,instance,&scratch,&failed,1000000,1,0,NativeRunPlanKind::emoji).ok()&&!failed.slot);
-        CHECK(!native_run_plan_acquire(&store,instance,&scratch,&failed,1000000,0,0,static_cast<NativeRunPlanKind>(2)).ok()&&!failed.slot);
         CHECK(native_run_plan_acquire(&store,instance,&scratch,&emoji,1000000,16*1024*1024,0,NativeRunPlanKind::emoji).ok()&&emoji.slot!=out->slot);
         CHECK(!native_run_plan_nominal(store,emoji).glyph_limit);
         CHECK(native_run_plan_acquire(&store,instance,&scratch,&cached,1000000,0,0,NativeRunPlanKind::emoji).ok()&&cached.slot==emoji.slot&&cached.generation==emoji.generation);

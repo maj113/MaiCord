@@ -224,9 +224,8 @@ struct Machine {
 };
 }
 SfntStatus tt_execute(TtInterpreter* state,ConstSlice<u8> program,TtPhase phase,TtExecution* result,u32 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
+    reset_value(result);
     // The state's arrays come from tt_outline_prepare/apply, which validate every capacity first.
-    if(!state)return SfntStatus::invalid_input;
     if(phase==TtPhase::glyph && (state->graphics.instruction_control&1))return SfntStatus::ok;
     Machine machine{*state,*result,phase,work,0,program,0};const auto status=machine.run();
     result->operations=work-machine.work;result->byte_offset=machine.op_at;result->opcode=machine.op_code;

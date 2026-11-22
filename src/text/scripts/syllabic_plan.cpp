@@ -96,7 +96,7 @@ ConstSlice<SfntJoinerFeature> sfnt_syllabic_manual_joiners(SfntSyllabicScript sc
 }
 SfntStatus sfnt_syllabic_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,SfntSyllabicScript script,bool independent,
     Slice<u16> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work,Slice<u64> per_syllable) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
+    reset_value(result);
     if(static_cast<u8>(script)>3||!layout.table.data||static_cast<u8>(layout.kind)>1||(scratch.count&&!scratch.data)||(output.count&&!output.data)||
        (per_syllable.count&&!per_syllable.data))return SfntStatus::invalid_input;
     // HarfBuzz's script tags for the script (hb_ot_tags_from_script_and_language), then its fallbacks.
@@ -111,7 +111,7 @@ SfntStatus sfnt_syllabic_lookup_plan(const SfntLayout& layout,const SfntFeatureS
 }
 SfntStatus sfnt_hangul_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,
     Slice<u16> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
+    reset_value(result);
     if(!layout.table.data||static_cast<u8>(layout.kind)>1||(scratch.count&&!scratch.data)||(output.count&&!output.data))return SfntStatus::invalid_input;
     const u32 scripts[]{tag("hang"),tag("DFLT"),tag("dflt"),tag("latn")};
     Builder builder{layout,variations,all(hangul),independent,scratch,output,*result,work,{}};

@@ -15,18 +15,13 @@ constexpr u32 native_fallback_missing=0xffffffffu;
 // malformed font data, IO and capacity failures must remain errors, not misses.
 // The callback manages any lazily loaded font mapping/cache. No callback output is kept.
 using NativeFallbackCoverage=SfntStatus(*)(void* context,u32 token,u32 scalar,bool* covered) noexcept;
-// Validate once, then keep the input arrays alive and unchanged. firsts and lists
-// hold one entry for each range. Nonempty ranges start at zero and increase strictly
-// through Unicode scalar space; each extends to the next first (or 0x110000). Empty
-// ranges are an empty policy. List storage may be shared/overlapping. All tokens are
-// less than token_count (at most 65536). Output is disjoint from inputs. Failure
-// clears output; no allocation or OS call.
+// Validate once (the generated policies do it at compile time), then keep the input arrays alive and unchanged.
+// firsts and lists hold one entry for each range. Nonempty ranges start at zero and increase strictly
+// through Unicode scalar space; each extends to the next first (or 0x110000). List storage may be shared/overlapping.
+// All tokens are less than token_count (at most 65536). Output is disjoint from inputs. Failure clears output.
 constexpr SfntStatus native_fallback_cascade_open(ConstSlice<u32> firsts,ConstSlice<u16> lists,ConstSlice<u16> tokens,u32 token_count,
-    NativeFallbackCascade* output,u32 maximum_items=1000000) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
-    if(firsts.count!=lists.count||(firsts.count&&(!firsts.data||!lists.data))||(tokens.count&&!tokens.data)||token_count>65536)
-        return SfntStatus::invalid_input;
-    if(firsts.count>maximum_items||tokens.count>maximum_items-firsts.count)return SfntStatus::resource_limit;
+    NativeFallbackCascade* output) noexcept {
+    *output={};
     for(u32 i=0;i<tokens.count;++i)if(tokens[i]>=token_count)return SfntStatus::invalid_input;
     for(u32 i=0;i<firsts.count;++i){const u32 first=firsts[i],offset=native_fallback_list_offset(lists[i]);
         if((!i&&first)||(i&&first<=firsts[i-1])||first>0x10ffff||

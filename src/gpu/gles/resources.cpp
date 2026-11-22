@@ -611,8 +611,6 @@ void gpu_clear_uav_rect(GpuContext* context, GpuUav* target, const float rgba[4]
 }
 
 void gpu_update_buffer(GpuContext*, GpuBuffer* buffer, const void* data, u32 bytes) {
-    if (bytes > buffer->bytes)
-        return;
     gl::Api& gl = api();
     gl.glBindBuffer(gl::kCopyWriteBuffer, buffer->name);
     gl.glBufferSubData(gl::kCopyWriteBuffer, 0, bytes, data);

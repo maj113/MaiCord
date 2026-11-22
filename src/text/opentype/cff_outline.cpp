@@ -501,7 +501,6 @@ SfntStatus outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 wor
                    ,const VariationInstance* variation=nullptr
 #endif
                    ) noexcept {
-    if (!output) return SfntStatus::invalid_input;
     clear(output);
     if (!output->commands || !font.table.data || !font.charstrings.count) return SfntStatus::invalid_input;
 #if defined(_WIN32)
@@ -530,7 +529,7 @@ SfntStatus cff2_outline(const CffFont& font, u16 glyph, GlyphOutline* output, Co
     const auto status=font.variations.region_count>64?SfntStatus::unsupported:
         variation_instance_prepare(font.variations,coordinates,{scalars,64},&instance,work_limit);
     if (status!=SfntStatus::ok) {
-        if (output) {clear(output); output->rejected=1;}
+        clear(output); output->rejected=1;
         return status;
     }
     return outline(font,glyph,output,work_limit,oblique,&instance);

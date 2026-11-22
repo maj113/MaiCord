@@ -477,7 +477,7 @@ bool emoji_catalog_name_contains(Utf8View name, Utf8View query) noexcept {
 }
 
 bool emoji_search_key(Utf8View query, Slice<char> output, u32* bytes) noexcept {
-    if (!bytes || (query.bytes && !query.data))
+    if (query.bytes && !query.data)
         return false;
     u32 used = 0;
     for (u32 i = 0; i < query.bytes; ++i) {

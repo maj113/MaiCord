@@ -12,7 +12,7 @@ GpuStatus video_frame_gpu_present(VideoFrameGpu* gpu, GpuDevice* device,
     GpuContext1* context, const GpuVideoFrame& frame,
     GpuUav* destination, u32 x, u32 y, u32 step) noexcept {
     // The plane views are the decoder's one-slice array views of frame.subresource.
-    if (!gpu || !device || !context || !frame.texture || !frame.luma || !frame.chroma || !destination ||
+    if (!frame.texture || !frame.luma || !frame.chroma || !destination ||
         frame.rotation > 3 ||
         frame.width == 0 || frame.height == 0 || step == 0 || step > kGpuVideoReductionMaximum) return E_INVALIDARG;
     // Reduced source extent; the written (rotated) extent swaps it for odd turns.
@@ -69,7 +69,6 @@ GpuStatus video_frame_gpu_present(VideoFrameGpu* gpu, GpuDevice* device,
 }
 
 void video_frame_gpu_release(VideoFrameGpu* gpu) noexcept {
-    if (!gpu) return;
     gpu_release(gpu->shader); gpu_release(gpu->constants);
     auto* multithread = static_cast<ID3D11Multithread*>(gpu->context_lock);
     com_release(multithread);

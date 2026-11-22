@@ -73,10 +73,9 @@ MediaAtlasGpuResult media_atlas_gpu_begin_apng(MediaAtlasGpu* gpu, MediaAtlas* a
                                                u16 canvas_width, u16 canvas_height, const ApngFrame& frame,
                                                const PngImage& frame_image,
                                                ConstSlice<u8> reconstructed_scanlines) noexcept {
-    if (!animation_target_ready(gpu, atlas, device, context, key) ||
+    if (!surface_ready(gpu, *atlas, false) ||
         !animation_canvas_fits(*atlas, canvas_width, canvas_height) ||
-        !apng_frame_valid(frame, canvas_width, canvas_height, frame_image) ||
-        !png_scanlines_reconstructed(frame_image, reconstructed_scanlines)) {
+        !apng_frame_valid(frame, canvas_width, canvas_height, frame_image)) {
         return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
     const GpuStatus result = upload_png_inputs(gpu, device, context, frame_image, reconstructed_scanlines);
@@ -98,11 +97,10 @@ MediaAtlasGpuResult media_atlas_gpu_advance_apng(MediaAtlasGpu* gpu, MediaAtlas*
                                                  MediaAssetKey key, const ApngFrame& previous_frame,
                                                  const ApngFrame& frame, const PngImage& frame_image,
                                                  ConstSlice<u8> reconstructed_scanlines) noexcept {
-    const MediaAtlasResult allocation = atlas ? media_atlas_find(atlas, key) : MediaAtlasResult{};
-    if (!animation_target_ready(gpu, atlas, device, context, key) || !allocation.ok() ||
+    const MediaAtlasResult allocation = media_atlas_find(atlas, key);
+    if (!surface_ready(gpu, *atlas, false) || !allocation.ok() ||
         !apng_control_valid(previous_frame, allocation.width, allocation.height) ||
-        !apng_frame_valid(frame, allocation.width, allocation.height, frame_image) ||
-        !png_scanlines_reconstructed(frame_image, reconstructed_scanlines)) {
+        !apng_frame_valid(frame, allocation.width, allocation.height, frame_image)) {
         return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG, allocation);
     }
     MediaAtlasResult local{};
@@ -123,7 +121,7 @@ MediaAtlasGpuResult media_atlas_gpu_begin_gif(MediaAtlasGpu* gpu, MediaAtlas* at
                                               GpuContext1* context, MediaAssetKey key,
                                               u16 canvas_width, u16 canvas_height, const GifFrame& frame,
                                               const GifPalette& palette, ConstSlice<u8> indices) noexcept {
-    if (!animation_target_ready(gpu, atlas, device, context, key) ||
+    if (!surface_ready(gpu, *atlas, false) ||
         !animation_canvas_fits(*atlas, canvas_width, canvas_height) ||
         !gif_frame_valid(frame, canvas_width, canvas_height, palette, indices)) {
         return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
@@ -147,8 +145,8 @@ MediaAtlasGpuResult media_atlas_gpu_advance_gif(MediaAtlasGpu* gpu, MediaAtlas* 
                                                 const GifFrame& previous_frame, const GifFrame& frame,
                                                 const GifPalette& palette,
                                                 ConstSlice<u8> indices) noexcept {
-    const MediaAtlasResult allocation = atlas ? media_atlas_find(atlas, key) : MediaAtlasResult{};
-    if (!animation_target_ready(gpu, atlas, device, context, key) || !allocation.ok() ||
+    const MediaAtlasResult allocation = media_atlas_find(atlas, key);
+    if (!surface_ready(gpu, *atlas, false) || !allocation.ok() ||
         !gif_control_valid(previous_frame, allocation.width, allocation.height) ||
         !gif_frame_valid(frame, allocation.width, allocation.height, palette, indices)) {
         return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG, allocation);
@@ -173,7 +171,7 @@ MediaAtlasGpuResult media_atlas_gpu_begin_animated_webp(MediaAtlasGpu* gpu, Medi
                                                         u16 canvas_height, u32 background_rgba,
                                                         const AnimatedWebpFrame& frame,
                                                         ConstSlice<u8> straight_rgba8) noexcept {
-    if (!animation_target_ready(gpu, atlas, device, context, key) ||
+    if (!surface_ready(gpu, *atlas, false) ||
         !animation_canvas_fits(*atlas, canvas_width, canvas_height) ||
         !animated_webp_frame_valid(frame, canvas_width, canvas_height, straight_rgba8)) {
         return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
@@ -197,8 +195,8 @@ MediaAtlasGpuResult media_atlas_gpu_advance_animated_webp(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device, GpuContext1* context,
     MediaAssetKey key, u32 background_rgba, const AnimatedWebpFrame& previous_frame,
     const AnimatedWebpFrame& frame, ConstSlice<u8> straight_rgba8) noexcept {
-    const MediaAtlasResult allocation = atlas ? media_atlas_find(atlas, key) : MediaAtlasResult{};
-    if (!animation_target_ready(gpu, atlas, device, context, key) || !allocation.ok() ||
+    const MediaAtlasResult allocation = media_atlas_find(atlas, key);
+    if (!surface_ready(gpu, *atlas, false) || !allocation.ok() ||
         !animated_webp_control_valid(previous_frame, allocation.width, allocation.height) ||
         !animated_webp_frame_valid(frame, allocation.width, allocation.height, straight_rgba8)) {
         return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG, allocation);

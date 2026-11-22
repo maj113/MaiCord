@@ -162,8 +162,6 @@ static_assert(sizeof(ShapedText) == 104);
 static_assert(sizeof(TextHitSpan) == 12);
 static_assert(sizeof(TextHitRegion) == 20);
 
-// Converts byte-addressed hit spans into UTF-16 ranges; false for an invalid span.
-bool resolve_text_hits(Utf8View input, ConstSlice<TextHitSpan> hits, TextHitRange* resolved) noexcept;
 // Binds caller-owned output storage. Decorations and hit regions are optional;
 // a shape that needs storage it lacks fails.
 bool shaped_text_initialize(ShapedText* text, Slice<TextGlyph> glyphs, Slice<TextRun> runs, Slice<u16> clusters,
@@ -196,10 +194,6 @@ private:
     char* heap_{};
     char local_[512];
 };
-
-// Checks the view's text for shaping and reports the UTF-16 units it occupies.
-// The bytes the view knows as ASCII are not read again.
-TextShapeResult validate_text_input(const TextShapingView& view) noexcept;
 
 // Under the client presentation policy (text_browser_invisibles) the text
 // system shapes a same-length substitute instead of failing an item it cannot

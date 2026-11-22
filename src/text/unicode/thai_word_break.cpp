@@ -107,14 +107,12 @@ inline void divide(ConstSlice<u32> run,u8* breaks) noexcept {
     }
 }
 }
-bool native_thai_word_breaks(ConstSlice<u32> text,Slice<u8> breaks) noexcept {
-    if((text.count&&!text.data)||!breaks.data||breaks.count<=text.count)return false;
+void native_thai_word_breaks(ConstSlice<u32> text,Slice<u8> breaks) noexcept {
     for(u32 at=0;at<text.count;){
         if(!thai_context(text[at])){++at;continue;}
         const u32 first=at;
         while(at<text.count&&thai_context(text[at]))++at;
         divide({text.data+first,at-first},breaks.data+first);
     }
-    return true;
 }
 }

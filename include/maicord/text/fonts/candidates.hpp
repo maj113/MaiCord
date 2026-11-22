@@ -14,11 +14,12 @@ struct NativeFontCandidate {NativeFontProperties properties;};
 // Integral weights and canonical OS/2 width percentages are required for the
 // variable profile; no rounding or family repair is applied.
 SfntStatus native_font_candidates_open(const SfntFace&,NativeFontCandidates*,u32 work_limit=1000000) noexcept;
+// The index is below the source's count.
 SfntStatus native_font_candidate(const NativeFontCandidates&,u32 index,NativeFontCandidate*) noexcept;
 // Decode selected user-space settings only when acquiring an instance. Static
 // faces return zero settings; coordinates are clamped to fvar ranges. The
 // settings feed NativeFontInstance directly.
-// Output is disjoint from the view, mapping and count pointer. Errors clear count.
+// Output is disjoint from the view, mapping and count pointer.
 SfntStatus native_font_candidate_settings(const NativeFontCandidates&,u32 index,Slice<FontAxisSetting>,u32* count) noexcept;
 static_assert(sizeof(NativeFontCandidates)==48);
 static_assert(sizeof(NativeFontCandidate)==4);

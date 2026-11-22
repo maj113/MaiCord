@@ -272,7 +272,7 @@ bool colr_paint_rasterize(ColrPaintGpu* g, GpuContext* context, const ColrPaintP
 bool colr_paint_upload_pixels(ColrPaintGpu* g, GpuContext* context, const GlyphAtlasAllocation& a, u16 atlas_width,
                               u16 atlas_height, u16 padding, const u32* pixels, Arena* scratch,
                               ColrPaintBatch* batch) noexcept {
-    if (!g || !context || !pixels || !scratch || !scratch->base || !a.ok() || a.x < padding || a.y < padding ||
+    if (!context || !pixels || !scratch->base || !a.ok() || a.x < padding || a.y < padding ||
         a.x + a.width + padding > atlas_width || a.y + a.height + padding > atlas_height ||
         (batch && batch->context != context))
         return false;
@@ -317,7 +317,7 @@ bool colr_paint_rasterize_target(ColrPaintGpu* g, GpuContext* context,
     return rasterize_colr(g,context,p,bounds,allocation,scale,target_width,target_height,padding,nullptr,target);
 }
 bool colr_paint_attach_surface(ColrPaintGpu* g, GpuDevice* device, const GlyphAtlasAllocator& atlas) noexcept {
-    if (!g || !device)
+    if (!device)
         return false;
     if (!g->surface) {
         if (FAILED(gpu_paged_texture_create(
@@ -331,8 +331,6 @@ bool colr_paint_attach_surface(ColrPaintGpu* g, GpuDevice* device, const GlyphAt
     return true;
 }
 void colr_paint_gpu_release(ColrPaintGpu* g) noexcept {
-    if (!g)
-        return;
     gpu_release(g->wide_shader);
     gpu_release(g->layers_shader);
     gpu_release(g->shader);

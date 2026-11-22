@@ -941,8 +941,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
         // Shaper output always satisfies the preparation limits: its glyph and
         // cluster counts are bounded by the renderer's storage capacities,
         // which stay below the 16-bit ordinal range.
-        if (!glyph_effect_prepare(*request.text, request.source, colored, &effect))
-            return append_fail(15);
+        glyph_effect_prepare(*request.text, request.source, colored, &effect);
         for (u32 i = first_quad; i < *request.count; ++i) {
             auto& quad = request.output[i];
             // Decorations have negative u; color atlas tiles start at u=2.

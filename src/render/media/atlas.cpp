@@ -168,9 +168,7 @@ void media_atlas_reset(MediaAtlas* atlas) noexcept {
 #pragma clang attribute pop
 
 void media_atlas_begin_visibility(MediaAtlas* atlas) noexcept {
-    if (atlas) {
-        glyph_atlas_clear_pins(&atlas->allocations);
-    }
+    glyph_atlas_clear_pins(&atlas->allocations);
 }
 
 MediaAtlasResult media_atlas_peek(MediaAtlas* atlas, const MediaAssetKey& key) noexcept {
@@ -291,9 +289,7 @@ MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
 }
 
 void media_atlas_observe_time(MediaAtlas* atlas, u64 now_ms) noexcept {
-    if (atlas) {
-        glyph_atlas_observe_time(&atlas->allocations, now_ms);
-    }
+    glyph_atlas_observe_time(&atlas->allocations, now_ms);
 }
 
 u64 media_atlas_trim_deadline(const MediaAtlas& atlas) noexcept {
@@ -316,8 +312,7 @@ u32 media_atlas_trim(MediaAtlas* atlas) noexcept {
 
 bool media_atlas_validate(const MediaAtlas& atlas, MediaAtlasHandle handle,
                           MediaAtlasResult* result) noexcept {
-    if (!atlas.entries || handle.generation == 0 ||
-        handle.slot >= atlas.entry_capacity) {
+    if (handle.generation == 0 || handle.slot >= atlas.entry_capacity) {
         return false;
     }
     const MediaAtlasEntry& entry = atlas.entries[handle.slot];
@@ -335,10 +330,8 @@ bool media_atlas_validate(const MediaAtlas& atlas, MediaAtlasHandle handle,
 
 bool media_atlas_resolve_visible(MediaAtlas* atlas, MediaAtlasHandle handle,
                                  MediaAtlasResult* result) noexcept {
-    if (result) {
-        reset_value<MediaAtlasResult>(result);
-    }
-    if (!atlas || !result || !media_atlas_validate(*atlas, handle, result)) {
+    reset_value<MediaAtlasResult>(result);
+    if (!atlas || !media_atlas_validate(*atlas, handle, result)) {
         return false;
     }
     const MediaAtlasEntry& entry = atlas->entries[handle.slot];

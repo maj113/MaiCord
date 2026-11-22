@@ -94,7 +94,7 @@ struct Builder {
 }
 SfntStatus sfnt_arabic_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,
     Slice<u8> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
+    reset_value(result);
     if(!layout.table.data || static_cast<u8>(layout.kind)>1 || (scratch.count && !scratch.data) || (output.count && !output.data))return SfntStatus::invalid_input;
     Builder builder{layout,variations,scratch,output,*result,work};const auto s=builder.run(independent);result->operations=work-builder.work;return s;
 }

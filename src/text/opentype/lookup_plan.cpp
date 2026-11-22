@@ -76,11 +76,11 @@ SfntStatus build(const SfntLayout& layout,const SfntFeatureSubstitutions& variat
 }
 }
 SfntStatus sfnt_latin_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,Slice<u64> scratch,Slice<u16> indices,SfntLookupPlanResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);if(unusable(layout,scratch,indices))return SfntStatus::invalid_input;
+    reset_value(result);if(unusable(layout,scratch,indices))return SfntStatus::invalid_input;
     return build(layout,variations,scratch,indices,*result,work,independent,false,0);
 }
 SfntStatus sfnt_common_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,Slice<u64> scratch,Slice<u16> indices,SfntLookupPlanResult* result,u64 work,bool independent) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);if(unusable(layout,scratch,indices))return SfntStatus::invalid_input;
+    reset_value(result);if(unusable(layout,scratch,indices))return SfntStatus::invalid_input;
     return build(layout,variations,scratch,indices,*result,work,independent,true,0);
 }
 bool sfnt_alphabetic_script_supported(u32 script) noexcept {
@@ -95,14 +95,14 @@ bool sfnt_alphabetic_script_supported(u32 script) noexcept {
     }
 }
 SfntStatus sfnt_alphabetic_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,u32 script,bool independent,Slice<u64> scratch,Slice<u16> indices,SfntLookupPlanResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
+    reset_value(result);
     if(script==sfnt_tag('l','a','t','n'))return sfnt_latin_lookup_plan(layout,variations,independent,scratch,indices,result,work);
     if(!sfnt_alphabetic_script_supported(script)||unusable(layout,scratch,indices))return SfntStatus::invalid_input;
     return build(layout,variations,scratch,indices,*result,work,independent,false,script);
 }
 __attribute__((minsize)) SfntStatus sfnt_manual_joiner_lookups(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,ConstSlice<SfntJoinerFeature> features,
     Slice<u64> bits,bool* any,u64 work) noexcept {
-    if(!any||!layout.table.data||(features.count&&!features.data))return SfntStatus::invalid_input;
+    if(!layout.table.data||(features.count&&!features.data))return SfntStatus::invalid_input;
     const u32 words=(2u*layout.lookup_count+63u)/64u;if(bits.count<words||(words&&!bits.data))return SfntStatus::invalid_input;
     for(u32 f=0;f<layout.feature_count;++f){if(!spend(&work,1+features.count))return SfntStatus::resource_limit;
         const u32 tag=byte_load_be32(layout.features.data+2+f*6);u8 manual=0;

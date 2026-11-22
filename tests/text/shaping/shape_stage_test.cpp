@@ -143,9 +143,7 @@ bool run() noexcept {
         if(status!=SfntStatus::ok)CHECK(!result.glyph_count&&!result.source_units);}
     policy={};policy.mode=1;CHECK(shape()==SfntStatus::unsupported_sequence&&!result.glyph_count&&!result.source_units&&policy.calls==2);
     policy={};policy.mode=2;CHECK(shape()==SfntStatus::invalid_input&&!result.glyph_count&&!result.source_units);
-    policy={};stages.count=0;CHECK(shape()==SfntStatus::invalid_input&&!policy.calls);
-    stages.count=4;CHECK(shape()==SfntStatus::invalid_input&&!policy.calls);
-    stages.count=257;CHECK(shape()==SfntStatus::invalid_input&&!policy.calls);stages.count=6;
+    policy={};stages.count=4;CHECK(shape()==SfntStatus::invalid_input&&!policy.calls);stages.count=6;
     const SfntLookupStep backwards[]{{0,0,4},{1,0,0}};
     CHECK(sfnt_shape_run(plan,{input,3},3,{boundaries,1},false,1000,storage(),&result,{}, {backwards,2},{},{},nullptr,&stages)==SfntStatus::invalid_input);
     CHECK(sfnt_shape_run(plan,{input,3},3,{boundaries,1},false,1000,storage(),&result,{}, {steps,2})==SfntStatus::invalid_input);

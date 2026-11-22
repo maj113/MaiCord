@@ -21,7 +21,7 @@ SfntStatus inspect(const SfntLookup& lookup,ConstSlice<u8> bytes,SfntContextRequ
 }
 }
 SfntStatus sfnt_gpos_program_requirements(const SfntLayout& layout,SfntGposProgramRequirements* output,u32 budget,ConstSlice<u64> selected,const SfntGposProgram* inherited) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(layout.kind!=SfntLayoutKind::positioning)return SfntStatus::invalid_input;
+    reset_value(output);if(layout.kind!=SfntLayoutKind::positioning)return SfntStatus::invalid_input;
     if(inherited&&(inherited->lookups.count!=layout.lookup_count||(layout.lookup_count&&!inherited->lookups.data&&!inherited->entries)))return SfntStatus::invalid_input;
     const auto valid_selection=selection_valid(layout,selected);if(valid_selection!=SfntStatus::ok)return valid_selection;
     SfntGposProgramRequirements req{layout.lookup_count};u64 work=budget;

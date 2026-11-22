@@ -108,15 +108,9 @@ bool run() noexcept {
         glyph[27] = 'A';
         CHECK(!regional_flag_sequence({glyph, sizeof(glyph)}));
     }
-    CHECK(!regional_flag_sequence({nullptr, 8}));
     CHECK(!regional_flag_sequence(utf8_literal("abcdefgh")));
     CHECK(!regional_flag_svg_target(0, {target, sizeof(target)}));
     CHECK(!regional_flag_svg_target(680, {target, sizeof(target)}));
-    for (char& byte : target)
-        byte = '!';
-    CHECK(!regional_flag_svg_target(504, {target, kRegionalFlagSvgTargetPrefixBytes + 14}));
-    for (char byte : target)
-        CHECK(byte == '!');
     CHECK(regional_flag_svg_target(504, {target, sizeof(target)}) ==
           kRegionalFlagSvgTargetPrefixBytes + 15);
     CHECK(

@@ -405,9 +405,8 @@ __attribute__((minsize))
 bool glyph_atlas_initialize(GlyphAtlasAllocator* atlas, u16 width, u16 height, u16 padding,
                             Slice<GlyphAtlasEntry> entries,
                             Slice<GlyphAtlasRow> rows, bool zeroed) noexcept {
-    if (!atlas || width == 0 || height == 0 || !entries.data || entries.count == 0 ||
-        entries.count > 65'535 || !rows.data || rows.count == 0 || rows.count > 256 ||
-        padding > width / 2 || padding > height / 2) {
+    if (width == 0 || height == 0 || !entries.data || entries.count == 0 || entries.count > 65'535 || !rows.data ||
+        rows.count == 0 || rows.count > 256 || padding > width / 2 || padding > height / 2) {
         return false;
     }
     reset_value<GlyphAtlasAllocator>(atlas);
@@ -438,7 +437,7 @@ bool glyph_atlas_initialize(GlyphAtlasAllocator* atlas, u16 width, u16 height, u
 bool glyph_atlas_configure_paging(GlyphAtlasAllocator* atlas, const GlyphAtlasPaging& paging,
                                   ConstSlice<GlyphAtlasPool> pools) noexcept {
     const u32 height = static_cast<u32>(paging.page_rows) * paging.page_count;
-    if (!atlas->entries || atlas->row_count != 0 || atlas->entry_count != 0 || paging.page_count == 0 ||
+    if (atlas->row_count != 0 || atlas->entry_count != 0 || paging.page_count == 0 ||
         paging.page_count > kGlyphAtlasMaximumPages || height == 0 || height > 0xFFFFu ||
         atlas->padding * 2u >= paging.page_rows || (!paging.whole_pages && paging.commit_rows == 0) ||
         pools.count > 15 || (pools.count && !pools.data)) {
@@ -469,9 +468,6 @@ bool glyph_atlas_configure_paging(GlyphAtlasAllocator* atlas, const GlyphAtlasPa
 }
 
 void glyph_atlas_reset(GlyphAtlasAllocator* atlas) noexcept {
-    if (!atlas->entries || !atlas->rows) {
-        return;
-    }
     invalidate_all(atlas);
     // The owner released (or will recreate) its surface: nothing stays backed.
     for (u32 index = 0; index < atlas->page_count; ++index) {
@@ -481,9 +477,6 @@ void glyph_atlas_reset(GlyphAtlasAllocator* atlas) noexcept {
 }
 
 u32 glyph_atlas_trim(GlyphAtlasAllocator* atlas) noexcept {
-    if (!atlas->entries || !atlas->rows) {
-        return 0;
-    }
     atlas->trim_pending = false;
     const u32 evicted_before = atlas->evicted_entries;
     evict_rows(atlas, 0, atlas->row_count, true);
@@ -539,9 +532,6 @@ u32 glyph_atlas_visible_rows(const GlyphAtlasAllocator& atlas) noexcept {
 #pragma clang attribute pop
 
 void glyph_atlas_clear_pins(GlyphAtlasAllocator* atlas) noexcept {
-    if (!atlas->entries || !atlas->rows) {
-        return;
-    }
     ++atlas->visibility_epoch;
     if (atlas->visibility_epoch == 0) {
         // Epochs are 16-bit: on wrap, clear every stored epoch so stale
@@ -562,8 +552,7 @@ void glyph_atlas_clear_pins(GlyphAtlasAllocator* atlas) noexcept {
 
 bool glyph_atlas_pin(GlyphAtlasAllocator* atlas,
                      GlyphAtlasHandle handle) noexcept {
-    if (!atlas->entries || handle.generation == 0 ||
-        handle.slot >= atlas->entry_capacity) {
+    if (handle.generation == 0 || handle.slot >= atlas->entry_capacity) {
         return false;
     }
     GlyphAtlasEntry& entry = atlas->entries[handle.slot];
@@ -595,9 +584,7 @@ bool glyph_atlas_unpin(GlyphAtlasAllocator* atlas, GlyphAtlasHandle handle) noex
 }
 
 GlyphAtlasAllocation glyph_atlas_find(GlyphAtlasAllocator* atlas, u64 key) noexcept {
-    if (!atlas->entries || !atlas->rows) {
-        return rejected(0, 0, 0, GlyphAtlasError::invalid_input);
-    }
+    // An allocator never initialized holds no entry: the scan ends at once.
     // Stop once every live entry has been seen; capacity usually exceeds the
     // working set.
     u32 remaining = atlas->entry_count;
@@ -618,7 +605,7 @@ GlyphAtlasAllocation glyph_atlas_find(GlyphAtlasAllocator* atlas, u64 key) noexc
 
 GlyphAtlasAllocation glyph_atlas_allocate_unique(GlyphAtlasAllocator* atlas, u64 key, u16 width, u16 height,
                                                  u8 pool) noexcept {
-    if (!atlas->entries || !atlas->rows || width == 0 || height == 0 || pool > atlas->pool_count) {
+    if (width == 0 || height == 0 || pool > atlas->pool_count) {
         return rejected(width, height, 0, GlyphAtlasError::invalid_input);
     }
 
@@ -805,7 +792,7 @@ inline void index_insert(GlyphAtlasIndex* index, const GlyphAtlasAllocator& atla
 } // namespace
 
 bool glyph_atlas_index_initialize(GlyphAtlasIndex* index, Slice<u16> buckets) noexcept {
-    if (!index || !buckets.data || buckets.count < 2 || buckets.count > 0x10000u ||
+    if (!buckets.data || buckets.count < 2 || buckets.count > 0x10000u ||
         (buckets.count & (buckets.count - 1)) != 0) {
         return false;
     }
@@ -818,7 +805,7 @@ bool glyph_atlas_index_initialize(GlyphAtlasIndex* index, Slice<u16> buckets) no
 
 GlyphAtlasAllocation glyph_atlas_find_indexed(GlyphAtlasAllocator* atlas, GlyphAtlasIndex* index,
                                               u64 key) noexcept {
-    if (!index_usable(*atlas, index) || !atlas->rows) {
+    if (!index_usable(*atlas, index)) {
         return glyph_atlas_find(atlas, key);
     }
     u32 probe = index_home(*index, key);
@@ -851,7 +838,7 @@ GlyphAtlasAllocation glyph_atlas_allocate_unique_indexed(GlyphAtlasAllocator* at
 
 bool glyph_atlas_validate(const GlyphAtlasAllocator& atlas, GlyphAtlasHandle handle,
                           GlyphAtlasAllocation* allocation) noexcept {
-    if (!atlas.entries || handle.generation == 0 || handle.slot >= atlas.entry_capacity) {
+    if (handle.generation == 0 || handle.slot >= atlas.entry_capacity) {
         return false;
     }
     const GlyphAtlasEntry& entry = atlas.entries[handle.slot];

@@ -1,5 +1,4 @@
 #include "maicord/text/scripts/arabic_marks.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/text/unicode/unicode.hpp"
 
 namespace maicord {namespace {
@@ -25,9 +24,6 @@ SfntStatus sfnt_arabic_mark_order(ConstSlice<u32> scalars,Slice<u32> order,u64 w
     if((scalars.count && !scalars.data) || (order.count && !order.data))return SfntStatus::invalid_input;
     if(order.count<scalars.count)return SfntStatus::output_too_small;
     if(static_cast<u64>(scalars.count)*16u>work)return SfntStatus::resource_limit;
-    const u64 size=static_cast<u64>(scalars.count)*4;
-    if(byte_ranges_overlap_or_wrap(scalars.data,size,order.data,size))return SfntStatus::invalid_input;
-    for(u32 i=0;i<scalars.count;++i)if(!unicode_is_scalar(scalars[i]))return SfntStatus::invalid_input;
     for(u32 i=0;i<scalars.count;++i)order[i]=i;
     // HarfBuzz's normalization sorts each run of marks of nonzero class (at most 32,
     // HB_OT_SHAPE_MAX_COMBINING_MARKS) by modified class, then reorder_marks_arabic moves the

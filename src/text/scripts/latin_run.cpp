@@ -209,7 +209,7 @@ template<class Has,class Zero> SfntStatus hangul_preprocess(u32* scalars,SfntClu
     count=written;return SfntStatus::ok;
 }
 SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle handle,Utf8View text,bool independent,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,SfntShapeLimits limits,bool require_source_coverage,const NativeAlphabeticPlan* profile,bool force_shaping,bool rtl=false,SfntShapeRunResult* raw_output=nullptr,bool paragraph_start=true,bool hangul_pass=false) noexcept {
-    if(!out)return SfntStatus::invalid_input;reset_value(out);u32 em_bits=0;copy_bytes(&em_bits,&em,4);
+    reset_value(out);u32 em_bits=0;copy_bytes(&em_bits,&em,4);
     const auto* plan=native_run_plan_get(store,handle,independent);
     if(!plan||(text.bytes&&!text.data)||!em_bits||em_bits>=0x7f800000u||em>65536||
        (s.mapped.count&&!s.mapped.data)||(s.shaping.components.count&&!s.shaping.components.data)||(s.shaping.targets.count&&!s.shaping.targets.data)||
@@ -399,7 +399,7 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
 }
 }
 SfntStatus native_latin_shape_run(const NativeRunPlanStore& store,NativeRunPlanHandle handle,Utf8View text,bool independent,bool rtl,float em,const SfntShapeStorage& storage,SfntShapeRunResult* out,SfntShapeLimits limits) noexcept {
-    if(!out)return SfntStatus::invalid_input;reset_value(out);
+    reset_value(out);
     const u64 capacity=static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(SfntClusterGlyph);
     NativeAsciiStorage s{{reinterpret_cast<SfntClusterGlyph*>(storage.positions.data),static_cast<u32>(minimum(capacity,u64{0xffffffffu}))},storage,{},storage.placements,storage.character_glyphs};
     // Arabic's generic fallback is not told its paragraph position; it inserts no paragraph-initial circle.
@@ -410,7 +410,7 @@ SfntStatus native_latin_run(const NativeRunPlanStore& store,NativeRunPlanHandle 
 }
 SfntStatus native_alphabetic_run(const NativeRunPlanStore& store,const NativeAlphabeticPlan& profile,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,SfntShapeLimits limits,bool coverage,bool force_shaping,bool rtl,bool paragraph_start) noexcept {
     if(!profile.script_tag){
-        if(out)reset_value(out);const auto* plan=native_run_plan_get(store,profile.run,profile.independent);if(!plan)return SfntStatus::invalid_input;
+        reset_value(out);const auto* plan=native_run_plan_get(store,profile.run,profile.independent);if(!plan)return SfntStatus::invalid_input;
         const auto* instance=native_font_instance_get(*store.instances,store.slots[profile.run.slot-1].instance);
         const auto* font=instance?native_font_get(*store.instances->fonts,instance->face):nullptr;if(!font)return SfntStatus::invalid_input;
         NativeEmojiPlan common{profile.run,&font->cmap,profile.substitution_roots,profile.positioning_roots,0,profile.positioning_program};
@@ -418,11 +418,11 @@ SfntStatus native_alphabetic_run(const NativeRunPlanStore& store,const NativeAlp
         const auto result=native_emoji_run(store,common,text,em,s,out,limits,coverage,rtl,false,paragraph_start);
         // Proved-inert glyphs can bypass lookup execution while source/script
         // policy still requires shaped (sequential) paragraph accumulation.
-        if(result==SfntStatus::ok&&out&&force_shaping&&out->nominal_ranges){out->nominal_ranges=0;out->shaped_ranges=1;}
+        if(result==SfntStatus::ok&&force_shaping&&out->nominal_ranges){out->nominal_ranges=0;out->shaped_ranges=1;}
         return result;
     }
     if((profile.script_tag!=sfnt_tag('l','a','t','n')&&!sfnt_alphabetic_script_supported(profile.script_tag))||
-        (profile.substitution_roots.count&&!profile.substitution_roots.data)||(profile.positioning_roots.count&&!profile.positioning_roots.data)){if(out)reset_value(out);return SfntStatus::invalid_input;}
+        (profile.substitution_roots.count&&!profile.substitution_roots.data)||(profile.positioning_roots.count&&!profile.positioning_roots.data)){reset_value(out);return SfntStatus::invalid_input;}
     return alphabetic_run(store,profile.run,text,profile.independent,em,s,out,limits,coverage,&profile,force_shaping,rtl,nullptr,paragraph_start);
 }
 }

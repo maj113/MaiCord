@@ -28,7 +28,7 @@ bool boundaries() noexcept {
     ok=ok && sfnt_nominal_participation_add(layout,65535,{bitmap,1024},{scratch,2},&result)==SfntStatus::malformed;
     ok=ok && sfnt_nominal_participation_add(layout,65536,{bitmap,1023},{scratch,2},&result)==SfntStatus::output_too_small;
     ok=ok && sfnt_nominal_participation_add(layout,0,{bitmap,1024},{scratch,2},&result)==SfntStatus::invalid_input && sfnt_nominal_participation_add(layout,65537,{bitmap,1024},{scratch,2},&result)==SfntStatus::invalid_input;
-    ok=ok && sfnt_nominal_participation_add({},10,{bitmap,1024},{scratch,2},&result)==SfntStatus::invalid_input && sfnt_nominal_participation_add(layout,10,{nullptr,1},{scratch,2},&result)==SfntStatus::invalid_input && sfnt_nominal_participation_add(layout,10,{bitmap,1024},{nullptr,1},&result)==SfntStatus::invalid_input && sfnt_nominal_participation_add(layout,10,{bitmap,1024},{scratch,2},nullptr)==SfntStatus::invalid_input;
+    ok=ok && sfnt_nominal_participation_add({},10,{bitmap,1024},{scratch,2},&result)==SfntStatus::invalid_input && sfnt_nominal_participation_add(layout,10,{nullptr,1},{scratch,2},&result)==SfntStatus::invalid_input && sfnt_nominal_participation_add(layout,10,{bitmap,1024},{nullptr,1},&result)==SfntStatus::invalid_input;
     const u64 no_sources=0;ok=ok && sfnt_nominal_participation_add(layout,65536,{bitmap,1024},{scratch,2},&result,1000000,{&no_sources,1})==SfntStatus::output_too_small && sfnt_nominal_participation_add(layout,65536,{bitmap,1024},{scratch,2},&result,1000000,{nullptr,1024})==SfntStatus::invalid_input;
     // A version-1.1 table retains base participation. The nominal gate does not
     // read feature replacements; the full-shaping plan selects them separately.

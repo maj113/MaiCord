@@ -145,8 +145,6 @@ SfntStatus locate(const CbdtFont& font, u32 subtable, u16 first, u16 last, u16 g
 } // namespace
 
 SfntStatus cbdt_open(const SfntFace& face, CbdtFont* output) noexcept {
-    if (!output)
-        return SfntStatus::invalid_input;
     reset_value(output);
     CbdtFont font{};
     SfntStatus status = sfnt_table(face, sfnt_tag('C', 'B', 'L', 'C'), &font.locations);
@@ -169,8 +167,6 @@ SfntStatus cbdt_open(const SfntFace& face, CbdtFont* output) noexcept {
 }
 
 SfntStatus cbdt_strike(const CbdtFont& font, u32 index, CbdtStrike* output) noexcept {
-    if (!output)
-        return SfntStatus::invalid_input;
     reset_value(output);
     if (!font.locations.data || index >= font.strike_count)
         return SfntStatus::invalid_input;
@@ -192,8 +188,6 @@ SfntStatus cbdt_strike(const CbdtFont& font, u32 index, CbdtStrike* output) noex
 }
 
 SfntStatus cbdt_glyph(const CbdtFont& font, u32 strike_index, u16 glyph, CbdtGlyph* output) noexcept {
-    if (!output)
-        return SfntStatus::invalid_input;
     reset_value(output);
     CbdtStrike strike;
     SfntStatus status = cbdt_strike(font, strike_index, &strike);
@@ -262,7 +256,7 @@ SfntStatus cbdt_glyph(const CbdtFont& font, u32 strike_index, u16 glyph, CbdtGly
 
 SfntStatus cbdt_select_strike(const CbdtFont& font, float pixels_per_em, u16 glyph, u32* output,
                               CbdtGlyph* image) noexcept {
-    if (!output || !image || !(pixels_per_em > 0.0f) || !font.locations.data)
+    if (!(pixels_per_em > 0.0f) || !font.locations.data)
         return SfntStatus::invalid_input;
     // Strikes ordered by preference: a strike at least as large as the target comes first, the smallest of those
     // first; the ones that would be scaled up follow, the largest first.

@@ -16,6 +16,6 @@ bool native_font_run_retain(NativeFontRunStore*,NativeFontRunHandle) noexcept;
 bool native_font_run_release(NativeFontRunStore*,NativeFontRunHandle) noexcept;
 // Prepare an outline instance directly from a native run record.
 // Scratch resets. Simulation permissions match native_font_prepare.
-NativeFontResult native_font_run_prepare(NativeFontRunStore*,NativeFontRunHandle,Arena*,NativeFontInstanceHandle*,bool* oblique=nullptr,bool* bold=nullptr,bool instructions=true) noexcept;
+NativeFontResult native_font_run_prepare(NativeFontRunStore*,NativeFontRunHandle,Arena*,NativeFontInstanceHandle*,bool* oblique,bool* bold,bool instructions=true) noexcept;
 static_assert(sizeof(NativeFontRunHandle)==8);
 }

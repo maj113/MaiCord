@@ -65,15 +65,6 @@ bool cluster_corpus(const Corpus& c) noexcept {
     test_write_text("PASS ");test_write_text(c.name);test_write_text(" HarfBuzz cluster starts, ");test_write_u64(done);
     test_write_text(" vectors, ");test_write_u64(pinned);test_write_text(" pinned divergent\n");return true;
 }
-bool boundary_units() noexcept {
-    const u32 ka[]{0x1780,0x17d2,0x179a,0x17bb};u8 starts[4]{};
-    CHECK(sfnt_syllabic_boundaries(static_cast<SfntSyllabicScript>(4),{ka,4},{starts,4})==SfntStatus::invalid_input);
-    CHECK(sfnt_syllabic_boundaries(SfntSyllabicScript::khmer,{ka,4},{starts,3})==SfntStatus::output_too_small);
-    CHECK(sfnt_syllabic_boundaries(SfntSyllabicScript::khmer,{ka,4},{starts,4},63)==SfntStatus::resource_limit);
-    const u32 surrogate[]{0xd800};CHECK(sfnt_syllabic_boundaries(SfntSyllabicScript::khmer,{surrogate,1},{starts,1})==SfntStatus::invalid_input);
-    CHECK(sfnt_syllabic_boundaries(SfntSyllabicScript::khmer,{ka,4},{starts,4})==SfntStatus::ok&&starts[0]==1&&!starts[1]&&!starts[2]&&!starts[3]);
-    test_write_text("PASS syllabic boundary argument units\n");return true;
-}
 // A consonant and 65,535 joiners. The Indic scanner reads such a run once, not once for each joiner. Before, the time
 // grew with the square of the run length, and the test did not end in its time limit. Each case: the profile, the
 // scalars (a zero is none), the syllables, the Indic syllables, the broken clusters and the longest syllable.
@@ -242,7 +233,7 @@ template<u32 A,u32 B> bool owned_script(NativeClusterScript script,const char* n
 }
 bool run() noexcept {
     wchar_t mode[16]{};const DWORD n=GetEnvironmentVariableW(L"MAICORD_SYLLABIC_OWNED",mode,16);
-    if(!n){bool ok=boundary_units()&&indic_joiner_runs()&&khmer_joiner_runs()&&hangul_plan_units();for(const auto& c:corpora)ok=cluster_corpus(c)&&ok;return ok;}
+    if(!n){bool ok=indic_joiner_runs()&&khmer_joiner_runs()&&hangul_plan_units();for(const auto& c:corpora)ok=cluster_corpus(c)&&ok;return ok;}
     CHECK(n<16);
     const auto is=[&](const wchar_t* option) noexcept {u32 i=0;while(option[i]&&option[i]==mode[i])++i;return !option[i]&&!mode[i];};
     if(is(L"sinhala"))return owned_script(NativeClusterScript::sinhala,"Sinhala",L"Nirmala.ttc",L"segoeui.ttf",sinhala_samples,sinhala_samples_checksum,

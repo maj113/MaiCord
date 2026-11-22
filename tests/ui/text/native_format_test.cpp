@@ -329,8 +329,7 @@ bool run() noexcept {
         const u16 bio_family[]{'M','a','i','C','o','r','d',' ','B','i','o','R','h','y','m','e'};auto bundled=system;
         CHECK(native_text_format_create(system.native_text,{{bio_family,16},bio_scope,{400,5,0},16,64,true},&bundled.native_format));
         CHECK(emergency_cut(bundled,0));}
-    auto invalid=system;invalid.native_format=0xffffffffu;TextMeasureResult measured{};CHECK(!native_text_candidate_line(invalid,{utf8_literal("AV"),{},95,1000},nullptr,&measured));
-    CHECK(!native_text_format_identity(invalid));
+    TextMeasureResult measured{};
     // Published runs and copied editor geometry outlive all format metadata.
     auto retained=output();const auto text=utf8_literal("A \xce\xb1\xf0\x9f\x98\x80\xd0\x91 To");
     CHECK(native_text_candidate_line(system,{text,{},1000000,1000},&retained,nullptr));
@@ -343,8 +342,8 @@ bool run() noexcept {
     CHECK(native_paragraph_hit_position(geometry,3,false,&after,&after_x)==SfntStatus::ok&&bytes_equal(&before,&after,sizeof(before))&&before_x==after_x);
     auto* session=retained.native_fonts();CHECK(session&&native_font_run_get(*native_font_session_runs(session),retained.runs[0].native_face));
     Arena scratch{};CHECK(arena_initialize(&scratch,4*1024*1024,0,4096));
-    for(u32 i=0;i<retained.run_count;++i){NativeFontInstanceHandle instance{};
-        CHECK(native_font_run_prepare(native_font_session_runs(session),retained.runs[i].native_face,&scratch,&instance).ok()&&instance.slot);
+    for(u32 i=0;i<retained.run_count;++i){NativeFontInstanceHandle instance{};bool oblique=false,bold=false;
+        CHECK(native_font_run_prepare(native_font_session_runs(session),retained.runs[i].native_face,&scratch,&instance,&oblique,&bold).ok()&&instance.slot);
         CHECK(native_font_instance_release(native_font_session_instances(session),instance));}
     arena_release(&scratch);
     CHECK(native_font_session_stats(session).references==1);release_output(retained);CHECK(released);

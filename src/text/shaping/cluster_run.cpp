@@ -18,7 +18,7 @@ inline bool default_shaper(NativeClusterScript script,u32 selected) noexcept {
 }
 SfntStatus native_cluster_plan_prepare(NativeClusterScript script,const NativeRunPlanStore& store,NativeRunPlanHandle run,bool independent,
     Arena* state,Arena* scratch,NativeClusterPlan* output,u32 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    reset_value(output);
     if(static_cast<u8>(script)>3)return SfntStatus::invalid_input;
     NativePlanSource source{};auto status=native_plan_source(store,run,independent,state,scratch,source);if(status!=SfntStatus::ok)return status;
     const auto& font=*source.font;
@@ -50,7 +50,7 @@ SfntStatus native_cluster_plan_prepare(NativeClusterScript script,const NativeRu
 }
 SfntStatus native_cluster_run(NativeClusterScript script,const NativeRunPlanStore& store,const NativeClusterPlan& prepared,const Utf8View& text,float em,
     const SfntShapeStorage& storage,SfntShapeRunResult* result,const SfntShapeLimits& limits,bool rtl,float spacing) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
+    reset_value(result);
     const auto* parent=native_run_plan_get(store,prepared.run,prepared.independent_letters);if(!parent||!prepared.cmap)return SfntStatus::invalid_input;
     if(prepared.fallback)return SfntStatus::unsupported_sequence;
     const auto begun=script_run_begin(text,storage,limits,spacing,nullptr);if(begun!=SfntStatus::ok)return begun;
@@ -66,7 +66,7 @@ SfntStatus native_cluster_run(NativeClusterScript script,const NativeRunPlanStor
     if(prepared.fallback){
         // HarfBuzz's default shaper; tracking applies as in the alphabetic frontend's callers. A character the font
         // lacks rejects the run so the caller can fall back to another font.
-        if(!result)return SfntStatus::invalid_input;reset_value(result);
+        reset_value(result);
         if(!native_run_plan_get(store,prepared.run,prepared.independent_letters))return SfntStatus::invalid_input;
         auto status=native_alphabetic_run(store,*prepared.fallback,text,em,storage,result,limits,true,false,rtl,false);
         if(status==SfntStatus::ok&&spacing)status=sfnt_trailing_spacing({storage.placements.data,result->glyph_count},

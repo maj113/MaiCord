@@ -150,12 +150,10 @@ bool project_toast_text(const D3D11Renderer* renderer, u32 shown, const Theme& t
     return ui_toast_text_output(*renderer->toast_scene, theme, output);
 }
 
-bool search_message_command(const D3D11Renderer& renderer, u32 shown, u32 index, MessageTextCommand* native,
+// Both callers walk index below command_count of an active presentation while Search shows.
+bool search_message_command(const D3D11Renderer& renderer, u32 index, MessageTextCommand* native,
                             UiTextCommand* neutral) noexcept {
     const auto* presentation = renderer.search_message_text;
-    if (!presentation || !presentation->active || !(shown & d3d11_surface_search) ||
-        index >= presentation->command_count)
-        return false;
     *native = presentation->commands[index];
     native->clip = ui_search_scene_content_clip(*renderer.search_scene, native->clip);
     if (!native->text.bytes || !ui_rect_has_area(native->rectangle) || !ui_rect_has_area(native->clip))
@@ -183,7 +181,7 @@ bool project_search_message_text(D3D11Renderer* renderer, u32 shown, UiTextEmitt
     for (u32 i = 0; i < presentation->command_count; ++i) {
         MessageTextCommand native{};
         UiTextCommand neutral{};
-        if (search_message_command(*renderer, shown, i, &native, &neutral) &&
+        if (search_message_command(*renderer, i, &native, &neutral) &&
             !ui_text_output_push(&output, neutral))
             return false;
     }
@@ -581,7 +579,7 @@ bool raster_text_command(void* context, const UiTextCommand& command, u32 ordina
         bool found = false;
         while (presentation && raster.search_command_cursor < presentation->command_count) {
             const u32 index = raster.search_command_cursor++;
-            if (!search_message_command(*renderer, raster.shown, index, &native, &neutral))
+            if (!search_message_command(*renderer, index, &native, &neutral))
                 continue;
             // The emitter validates every command but omits fully clipped labels.
             // Advance this source cursor over the same omitted commands.

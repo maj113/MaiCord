@@ -1345,13 +1345,6 @@ bool initialize_fixture(bool focused_text = false) noexcept {
         g_probe.failure_stage = 64;
         return false;
     }
-    JpegImage invalid_jpeg_image = jpeg_image;
-    ++invalid_jpeg_image.components[0].block_columns;
-    if (renderer_upload_jpeg(&g_probe.renderer, media_asset_attachment(110), invalid_jpeg_image,
-                             g_probe.jpeg_workspace.coefficients)
-            .ok()) {
-        return false;
-    }
     g_probe.failure_stage = 35;
     for (u8 orientation_value = 1; orientation_value <= 8; ++orientation_value) {
         u32 oriented_bytes = 0;

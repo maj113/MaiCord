@@ -54,7 +54,7 @@ SfntStatus gvar_advance(void* context,u16 glyph,double* output) noexcept {
 // advance. TrueType reads the ink box from glyf. CFF and CFF2 read it once for each glyph from the first path commands
 // (cff_glyph_ink) and add their parent's advance, which follows the variation instance.
 SfntStatus bold_advance(void* context,u16 glyph,double* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output=0;
+    *output=0;
     const auto& p=*static_cast<const PlanData*>(context);double value=0;bool inked=false;
     if(p.bold->font->kind==FontGeometryKind::truetype){SfntGlyphMetrics metrics{};
         auto status=sfnt_horizontal_metrics(p.metrics,glyph,&metrics);if(status!=SfntStatus::ok)return status;
@@ -212,7 +212,7 @@ SfntStatus prepare(const NativeFontInstance& instance,const NativeFontFace& nati
 }
 NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontInstanceHandle instance,
     Arena* scratch,NativeRunPlanHandle* output,u32 work,usize limit,u32 simulations,NativeRunPlanKind kind) noexcept {
-    if(output)reset_value(output);if(!store||!store->instances||!store->slots.data||!store->slots.count||!scratch||!scratch->base||!output||simulations>3||static_cast<u8>(kind)>1)
+    reset_value(output);if(!store->instances||!store->slots.data||!store->slots.count||!scratch->base)
         return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     const auto* font=native_font_instance_get(*store->instances,instance);if(!font)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     const auto* face=native_font_get(*store->instances->fonts,font->face);if(!face)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
@@ -267,13 +267,13 @@ NativeNominalPlan native_run_plan_nominal(const NativeRunPlanStore& store,Native
     auto* p=slot(store,h);return p?reinterpret_cast<const PlanData*>(p->state.base)->nominal:NativeNominalPlan{};
 }
 bool native_run_plan_retain(NativeRunPlanStore* store,NativeRunPlanHandle h) noexcept {
-    if(!store)return false;auto* p=slot(*store,h);if(!p||p->references==0xffffffffu)return false;++p->references;return true;
+    auto* p=slot(*store,h);if(!p||p->references==0xffffffffu)return false;++p->references;return true;
 }
 const SfntFontLayoutMetrics* native_run_plan_metrics(const NativeRunPlanStore& store,NativeRunPlanHandle h) noexcept {
     auto* p=slot(store,h);return p?&reinterpret_cast<const PlanData*>(p->state.base)->layout_metrics:nullptr;
 }
 bool native_run_plan_release(NativeRunPlanStore* store,NativeRunPlanHandle h) noexcept {
-    if(!store)return false;auto* p=slot(*store,h);if(!p)return false;if(--p->references)return true;
+    auto* p=slot(*store,h);if(!p)return false;if(--p->references)return true;
     const auto instance=p->instance;const auto parent=reinterpret_cast<const PlanData*>(p->state.base)->parent;const u32 generation=p->generation;arena_release(&p->state);reset_value(p);p->generation=generation;
     const bool released=parent.slot?native_run_plan_release(store,parent):native_font_instance_release(store->instances,instance);
     bool live=false;for(u32 i=0;i<store->slots.count;++i)live=live||store->slots[i].references!=0;

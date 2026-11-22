@@ -267,25 +267,24 @@ void gpu_set_shader(GpuContext* context, GpuComputeShader* shader) {
 }
 
 void gpu_set_constants(GpuContext* context, GpuStage stage, u32 first, u32 count, GpuBuffer* const* buffers) {
-    for (u32 index = 0; index < count && first + index < kGlesConstantSlots; ++index) {
+    for (u32 index = 0; index < count; ++index)
         context->constants[stage_index(stage)][first + index] = buffers[index];
-    }
 }
 
 void gpu_set_strip_topology(GpuContext*) {}
 
 void gpu_set_srvs(GpuContext* context, GpuStage stage, u32 first, u32 count, GpuSrv* const* views) {
-    for (u32 index = 0; index < count && first + index < kGlesResourceSlots; ++index)
+    for (u32 index = 0; index < count; ++index)
         context->srvs[stage_index(stage)][first + index] = views[index];
 }
 
 void gpu_set_samplers(GpuContext* context, GpuStage stage, u32 first, u32 count, GpuSampler* const* samplers) {
-    for (u32 index = 0; index < count && first + index < kGlesResourceSlots; ++index)
+    for (u32 index = 0; index < count; ++index)
         context->samplers[stage_index(stage)][first + index] = samplers[index];
 }
 
 void gpu_set_uavs(GpuContext* context, u32 first, u32 count, GpuUav* const* views) {
-    for (u32 index = 0; index < count && first + index < kGlesUavSlots; ++index)
+    for (u32 index = 0; index < count; ++index)
         context->uavs[first + index] = views[index];
 }
 

@@ -6,7 +6,6 @@ struct FallbackOverride {u32 first,last_flags;};
 #include "../unicode/generated/fallback_compat_data.inc"
 }
 u8 native_font_fallback_class(u32 cp) noexcept {
-    if(!unicode_is_scalar(cp))return native_fallback_invalid;
     if(cp<0x300)return 0;
     const auto* properties=unicode_properties(cp);
     if(properties->has(UnicodeFlag::variation_selector))return native_fallback_extending|native_fallback_selector;

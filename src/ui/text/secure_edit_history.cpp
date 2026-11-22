@@ -20,7 +20,7 @@ bool secure_edit_enable_history(SecureEdit* edit, u32 budget) noexcept {
     auto state = project(*edit); const bool result = text_edit_enable_history(&state, budget); edit->history = state.history; return result;
 }
 void secure_edit_reset_history(SecureEdit* edit) noexcept {
-    if (!edit) return; auto state = project(*edit); text_edit_reset_history(&state);
+    auto state = project(*edit); text_edit_reset_history(&state);
 }
 void secure_edit_history_release(SecureEdit* edit) noexcept {
     auto state = project(*edit); text_edit_history_release(&state); edit->history = nullptr;
@@ -32,7 +32,7 @@ void secure_edit_end_history_group(SecureEdit* edit) noexcept {
     if (!edit || !edit->history) return; auto state = project(*edit); text_edit_end_history_group(&state);
 }
 void secure_edit_break_history_run(SecureEdit* edit) noexcept {
-    if (!edit || !edit->history) return; auto state = project(*edit); text_edit_break_history_run(&state);
+    if (!edit->history) return; auto state = project(*edit); text_edit_break_history_run(&state);
 }
 SecureEditResult secure_edit_undo(SecureEdit* edit) noexcept { return replay(edit, false); }
 SecureEditResult secure_edit_redo(SecureEdit* edit) noexcept { return replay(edit, true); }

@@ -22,7 +22,7 @@ bool vectors() noexcept {
                     const auto cp=c.scalars[i];if(cp!=0x628 && cp!=0x64e)return false;
                     glyphs[i]={static_cast<u16>(cp==0x628?2:6),cp==0x64e?SfntGlyphClass::mark:SfntGlyphClass::base,0};
                 }
-                if(arabic_joining_forms(c.scalars,{&glyphs[0].reserved,sizeof(glyphs)-3},sizeof(glyphs[0]))!=ArabicJoiningStatus::ok)return false;
+                if(arabic_joining_forms(c.scalars,&glyphs[0].reserved,sizeof(glyphs[0]))!=ArabicJoiningStatus::ok)return false;
                 SfntGlyphBuffer buffer{};if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),sizeof(glyphs)},sizeof(glyphs[0]),c.scalars.count,&buffer)!=SfntStatus::ok || sfnt_glyph_buffer_seek(&buffer,split)!=SfntStatus::ok)return false;
                 SfntGsubExecutionResult result{};const auto status=sfnt_gsub_execute_lookup(program,0,&buffer,0,c.scalars.count,0,
                     {{frames,16},{positions,128},{rebased,128},{consumed,32},{reinterpret_cast<u8*>(replacements),sizeof(replacements)}},

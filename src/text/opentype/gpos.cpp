@@ -93,7 +93,7 @@ SfntStatus gpos_subtable_match(const SfntGposSubtable& sub,const SfntGdef& gdef,
 }
 u16 sfnt_position_value_size(u16 format) noexcept {return format&0xff00?0xffff:static_cast<u16>(population_count(format)*2);}
 SfntStatus sfnt_value_record_read(const SfntValueRecord& record,SfntPositionValue* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);SfntPositionValue result{};u32 at=record.offset;
+    reset_value(output);SfntPositionValue result{};u32 at=record.offset;
     for(u32 i=0;i<8;++i)if(record.format&(1u<<i)){const u16 v=r16(record.parent,at);at+=2;if(i<4)result.design[i]=static_cast<i16>(v);else if(v){const auto s=sfnt_device_open({record.parent.data+v,record.parent.count-v},&result.devices[i-4]);if(s!=SfntStatus::ok)return s;}}
     *output=result;return SfntStatus::ok;
 }
@@ -104,7 +104,7 @@ SfntStatus sfnt_anchor_open(ConstSlice<u8> bytes,SfntAnchor* output,u32 work,u32
     *output={bytes};return SfntStatus::ok;
 }
 SfntStatus sfnt_anchor_read(const SfntAnchor& anchor,SfntAnchorValue* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);SfntAnchorValue result{};result.format=r16(anchor.table,0);result.x=static_cast<i16>(r16(anchor.table,2));result.y=static_cast<i16>(r16(anchor.table,4));
+    reset_value(output);SfntAnchorValue result{};result.format=r16(anchor.table,0);result.x=static_cast<i16>(r16(anchor.table,2));result.y=static_cast<i16>(r16(anchor.table,4));
     if(result.format==2)result.point=r16(anchor.table,6);
     if(result.format==3)for(u32 i=0;i<2;++i){const u16 at=r16(anchor.table,6+i*2);if(at){const auto s=sfnt_device_open({anchor.table.data+at,anchor.table.count-at},&result.devices[i]);if(s!=SfntStatus::ok)return s;}}
     *output=result;return SfntStatus::ok;

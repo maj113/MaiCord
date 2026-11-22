@@ -96,7 +96,7 @@ struct Collector {
 };
 }
 SfntStatus sfnt_nominal_participation_add(const SfntLayout& layout,u32 limit,Slice<u64> bitmap,Slice<u64> scratch,SfntNominalParticipationResult* result,u64 work,ConstSlice<u64> sources,SfntNominalSourceCache* lazy,const SfntFeatureSubstitutions& variations) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);if(!layout.table.data || static_cast<u8>(layout.kind)>1 || !limit || limit>65536 || (bitmap.count && !bitmap.data) || (scratch.count && !scratch.data) || (sources.count && !sources.data))return SfntStatus::invalid_input;
+    reset_value(result);if(!layout.table.data || static_cast<u8>(layout.kind)>1 || !limit || limit>65536 || (bitmap.count && !bitmap.data) || (scratch.count && !scratch.data) || (sources.count && !sources.data))return SfntStatus::invalid_input;
     if(lazy&&(sources.count||!lazy->cmap||!lazy->cmap->base.data||lazy->cmap->glyph_count!=limit||!lazy->bitmap.data))return SfntStatus::invalid_input;
     if(lazy&&lazy->bitmap.count<(limit+63)/64)return SfntStatus::output_too_small;
     const u32 f=(static_cast<u32>(layout.feature_count)+63)/64,l=(static_cast<u32>(layout.lookup_count)+63)/64;

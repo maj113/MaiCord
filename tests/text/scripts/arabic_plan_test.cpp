@@ -180,7 +180,7 @@ bool corpus(ConstSlice<u8> corpus_bytes,u32 corpus_index) noexcept {
             if(!i||!(scalars[i]==0x200d||category==UnicodeGeneralCategory::mn||category==UnicodeGeneralCategory::mc||category==UnicodeGeneralCategory::me))starts[start_count++]=i;}
         char utf8[512];u32 utf8_count=0;
         if(run_mode)for(u32 i=0;i<n;++i){const u8 encoded=utf8_encode(scalars[i],utf8+utf8_count);if(!encoded || utf8_count+encoded>sizeof(utf8))return fail(c,18);utf8_count+=encoded;}
-        if(arabic_joining_forms({scalars,n},{&input[0].glyph.reserved,sizeof(input)-3},sizeof(input[0]))!=ArabicJoiningStatus::ok)return fail(c,9);
+        if(arabic_joining_forms({scalars,n},&input[0].glyph.reserved,sizeof(input[0]))!=ArabicJoiningStatus::ok)return fail(c,9);
         for(u32 i=0;i<n;++i)if(rtlm[i])input[i].glyph.reserved|=sfnt_arabic_rtlm_mask;
         SfntShapePlan plan{};plan.substitutions=&gs;plan.positioning=&gp;plan.positioning_roots={gp_roots,gp_count};plan.gdef=gdef;plan.units_per_em=metrics.units_per_em;
         plan.metric_context=&metrics;plan.advance=+[](void* context,u16 glyph,double* value) noexcept {SfntGlyphMetrics m{};const auto s=sfnt_horizontal_metrics(*static_cast<SfntHorizontalMetrics*>(context),glyph,&m);*value=m.advance;return s;};

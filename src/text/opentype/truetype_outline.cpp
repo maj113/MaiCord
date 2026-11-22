@@ -385,7 +385,6 @@ u32 sfnt_truetype_outline_capacity(const SfntTrueType& font,u16 glyph) noexcept 
 // Once per face: compiled for size.
 __attribute__((minsize))
 SfntStatus sfnt_truetype_open(const SfntFace& face, SfntTrueType* font,bool allow_variations) noexcept {
-    if (!font) return SfntStatus::invalid_input;
     reset_value(font);
     if (face.version == sfnt_tag('O','T','T','O')) return SfntStatus::unsupported;
     ConstSlice<u8> gvar{};
@@ -432,9 +431,8 @@ SfntStatus sfnt_truetype_has_instructions(const SfntTrueType& font,bool* present
 }
 SfntStatus sfnt_truetype_outline(const SfntTrueType& font, u16 glyph,
                                   SfntOutlineScratch* scratch, GlyphOutline* output,SfntOutlineMode mode,const SfntOutlineVariation* variation,TtOutlineContext* instructions,bool oblique,bool bold) noexcept {
-    if (!output) return SfntStatus::invalid_input;
     reset(output);
-    if (!scratch || !scratch->points.data || !scratch->contour_ends.data || !scratch->active_glyphs.data ||
+    if (!scratch->points.data || !scratch->contour_ends.data || !scratch->active_glyphs.data ||
         !output->commands || !font.loca.data || !font.glyf.data || !font.metrics.units_per_em)
         return SfntStatus::invalid_input;
     scratch->point_count = scratch->contour_count = 0;

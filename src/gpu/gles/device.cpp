@@ -481,7 +481,7 @@ void gpu_device_prestart_finish() {
 }
 
 bool gpu_device_prestarted(const GpuDevice* device) {
-    return device && device == &gles::device() && gles::g_prestarted_device;
+    return device == &gles::device() && gles::g_prestarted_device;
 }
 
 void gpu_device_destroy(GpuDevice** out_device, GpuContext** out_context) {

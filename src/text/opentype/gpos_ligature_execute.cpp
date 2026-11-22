@@ -14,7 +14,7 @@ SfntStatus sfnt_position_execute_ligature_lookup(const SfntGposAttachmentLookup&
                                                   u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,
                                                   SfntComponentAnchorPolicy component_policy,Slice<double> prefix,SfntLigatureExecution* out,
                                                   u64 work,SfntPositionApplication application) noexcept {
-    if(!out)return SfntStatus::invalid_input;reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
+    reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
     if(!sfnt_glyph_view_valid(glyphs) || start>end || end>count || associations.count<count || positions.count<count || (count && (!associations.data || !positions.data)) || (targets.count && !targets.data) || (prefix.count && !prefix.data) || static_cast<u8>(component_policy)>1 || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(static_cast<u8>(application)>1)return SfntStatus::invalid_input;const bool selected=application==SfntPositionApplication::selected;
     if(selected && start<end)end=start+1;

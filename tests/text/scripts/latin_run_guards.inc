@@ -55,7 +55,6 @@ bool guards() noexcept {
     const Utf8View bad_text[]{{nullptr,1},utf8_literal("\x80"),utf8_literal("\xc0\xaf"),utf8_literal("\xe0\x80\xaf"),utf8_literal("\xed\xa0\x80"),utf8_literal("\xf4\x90\x80\x80"),utf8_literal("\xe2\x80")};
     for(auto text:bad_text)CHECK(failed(text,16,alias,SfntStatus::invalid_input));
     CHECK(native_latin_run(store,{},input,false,16,alias,&result)==SfntStatus::invalid_input&&!result.glyph_count);
-    CHECK(native_latin_run(store,plan,input,false,16,alias,nullptr)==SfntStatus::invalid_input);
     CHECK(failed(input,16,alias,SfntStatus::resource_limit,{1000000,100000,0}));
     for(u32 field=0;field<9;++field){auto short_buffer=alias;
         switch(field){case 0:short_buffer.mapped.count=0;break;case 1:short_buffer.shaping.components.count=0;break;case 2:short_buffer.shaping.targets.count=0;break;

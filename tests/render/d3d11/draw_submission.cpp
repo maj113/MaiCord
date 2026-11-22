@@ -20,8 +20,6 @@ void test_runs() noexcept {
     check(!draw_run_extend(&run, a, 16, 5) && run.end == 15, "run: a gap in the instances starts a new draw");
     DrawRun empty{};
     check(!draw_run_extend(&empty, {}, 0, 3), "run: an empty run never extends");
-    DrawRun top{a, 1, ~0u - 1};
-    check(!draw_run_extend(&top, a, ~0u - 1, 4) && top.end == ~0u - 1, "run: an extension never wraps");
 }
 
 void test_state() noexcept {

@@ -11,8 +11,7 @@ using namespace media_atlas_gpu_detail;
 MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
     MediaAtlasGpu* gpu, GpuDevice* device, GpuContext1* context, const Vp8Keyframe& frame,
     const Vp8ModeWorkspace& modes, const Vp8CoefficientWorkspace& coefficients) noexcept {
-    if (!gpu || !device || !context || !gpu->surface ||
-        !vp8_reconstruction_valid(frame, modes, coefficients)) {
+    if (!gpu->surface || !vp8_reconstruction_valid(frame, modes, coefficients)) {
         return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
 
@@ -98,7 +97,7 @@ MediaAtlasGpuResult media_atlas_gpu_filter_vp8_keyframe(
     const Vp8CoefficientWorkspace& coefficients) noexcept {
     const u32 expected_luma_stride = ((static_cast<u32>(frame.width) + 15u) / 16u) * 16u;
     const u32 expected_luma_rows = ((static_cast<u32>(frame.height) + 15u) / 16u) * 16u;
-    if (!gpu || !device || !context || !gpu->vp8_mode_view || !gpu->vp8_coefficient_view ||
+    if (!gpu->vp8_mode_view || !gpu->vp8_coefficient_view ||
         !gpu->vp8_yuv_uav || !vp8_reconstruction_valid(frame, modes, coefficients) ||
         !vp8_filter_header_valid(header) || gpu->vp8_width != frame.width ||
         gpu->vp8_height != frame.height || gpu->vp8_luma_stride != expected_luma_stride ||
@@ -158,8 +157,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_vp8_keyframe(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device,
     GpuContext1* context, MediaAssetKey key, const Vp8Keyframe& frame,
     ConstSlice<u8> alpha, bool preview) noexcept {
-    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context ||
-        !surface_ready(gpu, *atlas, preview) || !vp8_atlas_frame_ready(gpu, frame, alpha) ||
+    if (!surface_ready(gpu, *atlas, preview) || !vp8_atlas_frame_ready(gpu, frame, alpha) ||
         !image_fits(*atlas, frame.width, frame.height)) {
         return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
@@ -183,7 +181,7 @@ MediaAtlasGpuResult media_atlas_gpu_begin_animated_webp_vp8(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device, GpuContext1* context,
     MediaAssetKey key, u16 canvas_width, u16 canvas_height, u32 background_rgba,
     const AnimatedWebpFrame& animation_frame, const Vp8Keyframe& vp8_frame, ConstSlice<u8> alpha) noexcept {
-    if (!animation_target_ready(gpu, atlas, device, context, key) ||
+    if (!surface_ready(gpu, *atlas, false) ||
         !animation_canvas_fits(*atlas, canvas_width, canvas_height) ||
         !animated_webp_control_valid(animation_frame, canvas_width, canvas_height) ||
         animation_frame.codec != AnimatedWebpCodec::vp8_lossy || animation_frame.width != vp8_frame.width ||
@@ -212,8 +210,8 @@ MediaAtlasGpuResult media_atlas_gpu_advance_animated_webp_vp8(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, GpuDevice* device, GpuContext1* context,
     MediaAssetKey key, u32 background_rgba, const AnimatedWebpFrame& previous_frame,
     const AnimatedWebpFrame& animation_frame, const Vp8Keyframe& vp8_frame, ConstSlice<u8> alpha) noexcept {
-    const MediaAtlasResult allocation = atlas ? media_atlas_find(atlas, key) : MediaAtlasResult{};
-    if (!animation_target_ready(gpu, atlas, device, context, key) || !allocation.ok() ||
+    const MediaAtlasResult allocation = media_atlas_find(atlas, key);
+    if (!surface_ready(gpu, *atlas, false) || !allocation.ok() ||
         !animated_webp_control_valid(previous_frame, allocation.width, allocation.height) ||
         !animated_webp_control_valid(animation_frame, allocation.width, allocation.height) ||
         animation_frame.codec != AnimatedWebpCodec::vp8_lossy || animation_frame.width != vp8_frame.width ||
@@ -240,9 +238,6 @@ MediaAtlasGpuResult media_atlas_gpu_advance_animated_webp_vp8(
 }
 
 void media_atlas_gpu_release(MediaAtlasGpu* gpu) noexcept {
-    if (!gpu) {
-        return;
-    }
     video_frame_gpu_release(&gpu->video);
     gpu_release(gpu->jpeg_atlas_shader);
     gpu_release(gpu->jpeg_atlas_constants);

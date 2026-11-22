@@ -4,7 +4,7 @@
 #include "../layout/unicode_line_geometry.hpp"
 namespace maicord {
 SfntStatus native_latin_line(const NativeRunPlanStore& store,NativeRunPlanHandle handle,Utf8View text,bool independent,float em,const NativeAsciiLineStorage& s,NativeAsciiLineResult* out,SfntShapeLimits limits,float trailing_spacing,const NativeAlphabeticPlan* profile,bool force_shaping,bool rtl,bool paragraph_only,bool paragraph_start) noexcept {
-    if(!out)return SfntStatus::invalid_input;reset_value(out);
+    reset_value(out);
     if(profile&&(profile->run.slot!=handle.slot||profile->run.generation!=handle.generation||profile->independent!=independent))return SfntStatus::invalid_input;
     if(rtl&&!profile)return SfntStatus::unsupported_sequence;
     const bool common=profile&&!profile->script_tag;

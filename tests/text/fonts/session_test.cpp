@@ -86,17 +86,11 @@ bool run() noexcept {
     auto* prefix=arena_allocate<u32>(&arena);CHECK(prefix);*prefix=0x12345678;NativeFontInstanceHandle prepared{};bool oblique=true,bold=true;
     CHECK(native_font_prepare(session,faces[0],{},0,false,&arena,&prepared,&oblique,&bold).ok()&&same(prepared,instances[0])&&!oblique&&!bold&&*prefix==0x12345678);
     CHECK(native_font_instance_release(native_font_session_instances(session),prepared));
-    CHECK(native_font_prepare(session,faces[0],{},0,true,&arena,&prepared).ok()&&same(prepared,instructed)&&*prefix==0x12345678);
+    CHECK(native_font_prepare(session,faces[0],{},0,true,&arena,&prepared,&oblique,&bold).ok()&&same(prepared,instructed)&&*prefix==0x12345678);
     CHECK(native_font_instance_release(native_font_session_instances(session),prepared));
     CHECK(native_font_prepare(session,faces[0],{},3,true,&arena,&prepared,&oblique,&bold).ok()&&same(prepared,instructed)&&oblique&&bold);
     CHECK(native_font_instance_release(native_font_session_instances(session),prepared));
-    CHECK(native_font_prepare(session,faces[0],{},1,true,&arena,&prepared).font_status==SfntStatus::unsupported&&!prepared.slot);
-    CHECK(native_font_prepare(session,faces[0],{},2,true,&arena,&prepared).font_status==SfntStatus::unsupported);
-    CHECK(native_font_prepare(session,faces[0],{},4,true,&arena,&prepared,&oblique,&bold).font_status==SfntStatus::unsupported&&!oblique&&!bold);
-    CHECK(native_font_prepare(session,{}, {},0,true,&arena,&prepared).error==NativeFontError::invalid_input);
-    CHECK(native_font_prepare(session,faces[0],{nullptr,1},0,true,&arena,&prepared).error==NativeFontError::invalid_input);
-    CHECK(native_font_prepare(session,faces[0],{},0,true,nullptr,&prepared).error==NativeFontError::invalid_input);
-    CHECK(native_font_prepare(session,faces[0],{},0,true,&arena,nullptr).error==NativeFontError::invalid_input);
+    CHECK(native_font_prepare(session,{}, {},0,true,&arena,&prepared,&oblique,&bold).error==NativeFontError::invalid_input);
     return true;
 }
 }}
