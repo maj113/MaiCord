@@ -434,7 +434,7 @@ UiCallGridLayout ui_call_grid_measure(float width, float height, u32 count, floa
 
 bool ui_call_grid_place(UiRect area, u32 count, float gap, float scroll, Slice<UiRect> tiles,
                         UiCallGridLayout* output) noexcept {
-    if (!count || tiles.count < count || !tiles.data || !ui_rect_has_area(area))
+    if (!count || tiles.count < count || !ui_rect_has_area(area))
         return false;
     const auto layout = ui_call_grid_measure(ui_rect_width(area), ui_rect_height(area), count, gap);
     if (!layout.columns)
@@ -486,10 +486,9 @@ UiRect ui_call_video_fit(const UiRect& tile, u32 width, u32 height, bool cover) 
 
 bool ui_call_scene_update(UiCallScene* s, const UiCallContent& content, const UiRect& viewport, u64 now_ms,
                           bool reduced_motion) noexcept {
-    if (!s || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 320 || ui_rect_height(viewport) < 240 ||
+    if (!ui_rect_valid(viewport) || ui_rect_width(viewport) < 320 || ui_rect_height(viewport) < 240 ||
         !initialize(*s)) {
-        if (s)
-            s->active = false;
+        s->active = false;
         return false;
     }
     UiRect previous[kUiCallMaximumTiles], previous_from[kUiCallMaximumTiles];
@@ -649,8 +648,6 @@ UiCallHit ui_call_scene_hit_test(const UiCallScene& s, float x, float y) noexcep
 }
 
 bool ui_call_scene_set_hover(UiCallScene* s, float x, float y) noexcept {
-    if (!s)
-        return false;
     UiCallControl control = UiCallControl::none;
     u64 user = 0, request = 0;
     if (s->active && ui_rect_contains(s->viewport, x, y)) {
@@ -929,7 +926,7 @@ const UiCallTile* ui_call_scene_find_tile(const UiCallScene& s, u64 user_id) noe
 }
 
 bool ui_call_scene_tile_media(const UiCallScene& s, u32 index, UiCallTileMedia* output) noexcept {
-    if (!output || !s.active || index >= s.tile_count)
+    if (!s.active || index >= s.tile_count)
         return false;
     const auto& tile = s.tiles[index];
     const auto* p = participant_of(s, tile);

@@ -19,12 +19,10 @@ u32 fixture(u8* frame, u32 body, ConstSlice<u8> metadata) noexcept {
     return body + metadata.count + 11;
 }
 void vectors(Check check) noexcept {
-    u8 frame[768], original[768], aad[768], cipher[768], expected_aad[768], expected_cipher[768],
-        output[768], expected[768];
+    u8 frame[768], aad[768], cipher[768], expected_aad[768], expected_cipher[768], output[768], expected[768];
     DaveClearRange ranges[8];
     for (const auto& vector : dave_frames) {
         const u32 bytes = test_unhex(vector.wire, frame);
-        copy_bytes(original, frame, bytes);
         const auto clear_bytes = test_unhex(vector.aad, expected_aad);
         const auto encrypted = test_unhex(vector.cipher, expected_cipher);
         const auto body = test_unhex(vector.reconstructed, expected);
@@ -58,9 +56,6 @@ void vectors(Check check) noexcept {
         dave_frame_reconstruct(view, cipher, output);
         check(bytes_equal(output, expected, body) && filled(output + body, sizeof(output) - body, 0xCC),
               "DAVE reconstructed frame matches independent mixed clear/plaintext fixture");
-        dave_frame_reconstruct(view, cipher, frame);
-        check(bytes_equal(frame, expected, body) && bytes_equal(frame + body, original + body, bytes - body),
-              "DAVE reassembly can reuse original body while preserving tag and supplemental data");
     }
 }
 void invalid(Check check) noexcept {

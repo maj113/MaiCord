@@ -1,6 +1,6 @@
 #include "maicord/app/gateway/go_live_devices.hpp"
 #include "maicord/core/interlocked.hpp"
-#include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/wait.hpp"
 #include "maicord/gpu/api.hpp"
@@ -15,10 +15,9 @@ GoLiveDevices& of(void* context) noexcept {
 void frame(void* context, const CaptureFrame& picture) noexcept {
     auto& d = of(context);
     // The first picture shows that the capture runs, before any viewer can say so.
-    if (!d.frames++) {
-        log_u64(LogLevel::info, "go_live", "first_capture_width", picture.width);
-        log_u64(LogLevel::info, "go_live", "first_capture_height", picture.height);
-    }
+    if (!d.frames++)
+        LogEvent("first_capture").field("width", picture.width).field("height", picture.height)
+            .write(LogLevel::info, "go_live");
     if (picture.width != d.width || picture.height != d.height) {
         d.width = picture.width;
         d.height = picture.height;
@@ -55,10 +54,9 @@ void minimized(void* context, bool value) noexcept {
 void unit(void* context, const GpuStreamAccessUnit& encoded) noexcept {
     auto& d = of(context);
     // The first unit shows that the encoder makes output. Its bytes, not its content.
-    if (!d.units++) {
-        log_u64(LogLevel::info, "go_live", "first_unit_bytes", encoded.data.count);
-        log_u64(LogLevel::info, "go_live", "first_unit_keyframe", encoded.keyframe);
-    }
+    if (!d.units++)
+        LogEvent("first_unit").field("bytes", encoded.data.count).field("keyframe", encoded.keyframe)
+            .write(LogLevel::info, "go_live");
     go_live_media_unit(d.media, encoded);
 }
 void encoder_ended(void* context, GpuStreamEncoderEnd) noexcept {
@@ -125,7 +123,7 @@ void go_live_producer_capture_stop(void* context) noexcept {
     capture_stop(d.capture);
     d.capture = nullptr;
     // Counts only, to see where pictures stop between capture, encoder and the wire.
-    log_u64(LogLevel::info, "go_live", "capture_frames", d.frames);
+    LogEvent("capture_stopped").field("frames", d.frames).write(LogLevel::info, "go_live");
 }
 bool go_live_producer_sound(void* context, GoLiveMedia* media, u32 process_id) noexcept {
     auto& d = of(context);
@@ -197,10 +195,8 @@ void go_live_producer_encoder_stop(void* context) noexcept {
     ReleaseSRWLockExclusive(d.lock.native());
     if (encoder) {
         const auto stats = gpu_stream_encoder_stats(encoder);
-        log_u64(LogLevel::info, "go_live", "encoder_submitted", stats.submitted);
-        log_u64(LogLevel::info, "go_live", "encoder_dropped", stats.dropped);
-        log_u64(LogLevel::info, "go_live", "encoder_units", stats.encoded);
-        log_u64(LogLevel::info, "go_live", "encoder_keyframes", stats.keyframes);
+        LogEvent("encoder_stopped").field("submitted", stats.submitted).field("dropped", stats.dropped)
+            .field("units", stats.encoded).field("keyframes", stats.keyframes).write(LogLevel::info, "go_live");
     }
     gpu_stream_encoder_destroy(encoder);
     d.units = 0; // The encoder thread is joined: the next encoder logs its first unit again.

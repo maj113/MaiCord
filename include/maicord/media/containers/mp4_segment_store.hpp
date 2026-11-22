@@ -47,7 +47,8 @@ const Mp4SegmentSlot* mp4_segment_store_find(const Mp4SegmentStore&, u32 number)
 // A missing lookup publishes demand. Repeating the same demand preserves its
 // serial; retarget/cancel makes prior responses stale. No active bytes change.
 Mp4DemuxError mp4_segment_store_request(Mp4SegmentStore*, u32 number) noexcept;
-Mp4DemuxError mp4_segment_store_accept(Mp4SegmentStore*, u32 number, u64 request_serial, ConstSlice<u8>) noexcept;
+// The one caller (segmented_video_accept) gives only the body of the pending demand and its serial.
+Mp4DemuxError mp4_segment_store_accept(Mp4SegmentStore*, u32 number, ConstSlice<u8>) noexcept;
 bool mp4_segment_store_retain(Mp4SegmentStore*, u32 number) noexcept;
 void mp4_segment_store_cancel(Mp4SegmentStore*) noexcept;
 void mp4_segment_store_release(Mp4SegmentStore*) noexcept;

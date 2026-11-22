@@ -85,7 +85,7 @@ bool voice_setup_begin(VoiceConnectionSetup* setup, u64 guild_id, u64 channel_id
 VoiceSetupResult voice_setup_bind_utf8(VoiceConnectionSetup* setup, u64 user_id,
                                        const Utf8View& session) noexcept {
     voice_setup_release(setup);
-    if (!user_id || !session.bytes || !session.data || !utf8_validate(session).valid)
+    if (!user_id || !session.bytes || !utf8_validate(session).valid)
         return VoiceSetupResult::invalid_input;
     if (!reserve(&setup->login_session, session.bytes)) return VoiceSetupResult::storage_failed;
     if (!secure_buffer_assign(&setup->login_session,

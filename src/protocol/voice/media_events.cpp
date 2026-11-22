@@ -192,14 +192,6 @@ GatewayEventDecodeResult voice_decode_session_description(JsonValue data, Slice<
                                                           u32 maximum_depth,
                                                           VoiceSessionDescription* output,
                                                           Slice<u8> key_output) noexcept {
-    if (key_output.count && (!key_output.data || key_output.count != 32))
-        return {data.source_offset, GatewayEventDecodeError::invalid_input};
-    if (key_output.count) {
-        const usize source = reinterpret_cast<usize>(data.source.data),
-                    target = reinterpret_cast<usize>(key_output.data);
-        if (source <= target ? target - source < data.source.bytes : source - target < key_output.count)
-            return {data.source_offset, GatewayEventDecodeError::invalid_input};
-    }
     Read read{};
     auto result = decode(data, scratch, maximum_depth, description_field, read);
     if (result.ok()) {

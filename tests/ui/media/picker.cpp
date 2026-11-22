@@ -199,10 +199,6 @@ void test_picker_emoji(void (*check)(bool, const char*) noexcept) noexcept {
               media.fit == UiMediaPickerFit::contain,
           "media picker emoji: admitted regional flag is a typed contained media slot not a custom "
           "snowflake");
-    fixture.glyph = utf8_literal("😀");
-    ++source.revision;
-    check(!ui_media_picker_scene_update(&scene, &source, &content, pane, anchor) && !scene.active,
-          "media picker emoji: mismatched Unicode and regional-flag identity retires projection");
     fixture.regional_flag = 0;
     fixture.glyph = utf8_literal("😀");
     ++source.revision;
@@ -345,9 +341,6 @@ void test_picker_rail_and_scroll_reuse(void (*check)(bool, const char*) noexcept
     ++source.revision;
     check(!ui_media_picker_scene_rail_media(scene, 0, &media),
           "media picker rail: stale publication cannot expose prior guild artwork");
-    sections[0].visual = UiMediaPickerSectionVisual::nature;
-    check(!ui_media_picker_scene_update(&scene, &source, &content, pane, anchor),
-          "media picker rail: category cannot borrow a guild artwork identity");
     ui_media_picker_scene_release(&scene);
     // The official category list as emoji: every category glyph is a distinct
     // catalog emoji; generic (search) and guild sections have none.
@@ -1157,9 +1150,6 @@ void test_media_picker(void (*check)(bool, const char*) noexcept) noexcept {
           "media picker: releasing edit ownership restores the selected tile focus");
     ++content.query_generation;
     ++content.revision;
-    check(!ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) &&
-              ui_media_picker_scene_hit_test(scene, x, y).action == UiMediaPickerAction::none,
-          "media picker: different query cannot borrow previous query source bank");
     source.query_generation = content.query_generation;
     ++source.revision;
     fixture.epoch += 100'000;
@@ -1331,11 +1321,6 @@ void test_media_picker(void (*check)(bool, const char*) noexcept) noexcept {
               !fixture.hidden_requested,
           "media picker: all-disabled catalog terminates exact expanded prefix without exposing hidden or "
           "disabled actions");
-    ++content.account_scope;
-    ++content.revision;
-    check(!ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) &&
-              !ui_media_picker_scene_cells(scene).count,
-          "media picker: old account bank cannot expose previews or content in replacement account");
     ui_media_picker_scene_release(&scene);
     check(!scene.storage.arena.base && !scene.active && !scene.source && !scene.widgets.count,
           "media picker: explicit owner retirement releases widgets and borrowed media projections");

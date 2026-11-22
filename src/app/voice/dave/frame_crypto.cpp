@@ -7,17 +7,13 @@ namespace maicord {
 AeadError dave_frame_open(const DaveFrameView& view, const AesGcmKey& key, DaveReplay& replay, u64 counter,
                           u8* scratch, u8* output) noexcept {
     const u32 body = view.body_bytes, clear = view.clear_bytes;
-    // In-place output and clear headers authenticate in scratch; the frame is
-    // only rewritten once the tag has verified.
-    const bool staged = clear || output == view.frame.data;
+    // Clear headers authenticate in scratch; the output is only written once
+    // the tag has verified.
     const u8* cipher = view.frame.data;
     u8* plaintext = output;
-    if (staged) {
-        plaintext = scratch;
-        if (clear) {
-            cipher = plaintext = scratch + clear;
-            dave_frame_gather(view, scratch, scratch + clear);
-        }
+    if (clear) {
+        cipher = plaintext = scratch + clear;
+        dave_frame_gather(view, scratch, scratch + clear);
     }
     u8 nonce[12]{};
     for (u32 i = 0; i != 4; ++i)
@@ -26,7 +22,7 @@ AeadError dave_frame_open(const DaveFrameView& view, const AesGcmKey& key, DaveR
         aes_gcm_decrypt(key, {nonce, 12}, {scratch, clear}, {cipher, body - clear},
                         {view.frame.data + body, kDaveFrameTagBytes}, {plaintext, body - clear});
     if (!crypto.ok()) {
-        if (staged)
+        if (clear)
             secure_clear_bytes(scratch, body);
         return crypto.error;
     }
@@ -34,7 +30,7 @@ AeadError dave_frame_open(const DaveFrameView& view, const AesGcmKey& key, DaveR
     // this same state and nothing between wrote the replay (every output span
     // is disjoint from it), so the commit cannot refuse.
     dave_replay_commit(&replay, counter);
-    if (staged) {
+    if (clear) {
         dave_frame_reconstruct(view, plaintext, output);
         secure_clear_bytes(scratch, body);
     }
@@ -81,8 +77,8 @@ __declspec(noinline) DaveSealError rotate_key(DaveFrameSealer& sealer, KdfSha256
     secure_clear_bytes(secret, sizeof(secret));
     return imported.ok() ? DaveSealError::none : DaveSealError::crypto_failure;
 }
-// Without ranges the whole frame is encrypted (output may equal it exactly);
-// with ranges the clear bytes are the AAD and scratch stages the gather.
+// Without ranges the whole frame is encrypted into output; with ranges the
+// clear bytes are the AAD and scratch stages the gather.
 DaveSealResult seal(DaveFrameSealer& sealer, KdfSha256Workspace& workspace, ConstSlice<u8> frame,
                     ConstSlice<DaveClearRange> ranges, u8* scratch, Slice<u8> output) noexcept {
     if (sealer.truncated_nonce == ~u32{0})
@@ -143,15 +139,6 @@ DaveSealResult dave_frame_seal(DaveFrameSealer& sealer, KdfSha256Workspace& work
 DaveSealResult dave_frame_seal_ranges(DaveFrameSealer& sealer, KdfSha256Workspace& workspace, ConstSlice<u8> frame,
                                       ConstSlice<DaveClearRange> ranges, Slice<u8> scratch,
                                       Slice<u8> output) noexcept {
-    u32 end = 0;
-    for (u32 i = 0; i != ranges.count; ++i) {
-        if (!ranges[i].bytes || ranges[i].offset < end || ranges[i].offset > frame.count ||
-            ranges[i].bytes > frame.count - ranges[i].offset)
-            return {0, 0, 0, DaveSealError::invalid_input};
-        end = ranges[i].offset + ranges[i].bytes;
-    }
-    if (!frame.data || !frame.count || scratch.count < frame.count || output.data == frame.data)
-        return {0, 0, 0, DaveSealError::invalid_input};
     return seal(sealer, workspace, frame, ranges, scratch.data, output);
 }
 } // namespace maicord

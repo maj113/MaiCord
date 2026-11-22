@@ -1926,7 +1926,7 @@ void run() noexcept {
                 const auto epoch = account.status.playback.identity.session_epoch;
                 const auto before_seek = account.commands;
                 char label[64]{};
-                const auto label_bytes = controls ? ui_video_format_time(controls->projection.playback, label, sizeof(label)) : 0;
+                const auto label_bytes = controls ? ui_video_format_time(controls->projection.playback, label) : 0;
                 check(controls && controls->projection.playback.live && !controls->projection.playback.can_seek &&
                     !controls->projection.playback.duration_ms && utf8_equal({label, label_bytes}, utf8_literal("LIVE")),
                     "maximized live controls identify the stream without a finite duration");

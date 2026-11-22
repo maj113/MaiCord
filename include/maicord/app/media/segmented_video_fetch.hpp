@@ -25,7 +25,6 @@ ProgressiveVideoNext segmented_video_next(ProgressiveVideoFetch*, bool read_ahea
 ProgressiveVideoAccept segmented_video_accept(ProgressiveVideoFetch*, const CdnResponseResult&, ConstSlice<u8>, u64 initial_clock_90k) noexcept;
 void segmented_video_retire(ProgressiveVideoFetch*) noexcept;
 void segmented_video_release(ProgressiveVideoFetch*) noexcept;
-u32 segmented_video_buffered(ProgressiveVideoFetch*, u64 duration_us, u16* begin, u16* end, u32 capacity) noexcept;
 bool progressive_video_fetch_begin_hls(ProgressiveVideoFetch*, Utf8View manifest, Utf8View playlist, bool audio,
     bool live = false, u64 now_seconds = 0) noexcept;
 // Active playback only: caller merges this deadline with the existing lane

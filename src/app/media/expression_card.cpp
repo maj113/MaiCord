@@ -108,8 +108,9 @@ const MediaCatalogItem* bank_sticker(const Bank* bank, u64 id) noexcept {
             return &bank->items[i];
     return nullptr;
 }
+// `pack_id` is nonzero: sticker_view returns before a sticker without a pack reaches here.
 const MediaCatalogItem* bank_pack(const Bank* bank, u64 pack_id) noexcept {
-    for (u32 i = 0; bank && pack_id && i < bank->count; ++i)
+    for (u32 i = 0; bank && i < bank->count; ++i)
         if (bank->items[i].pack_id == pack_id)
             return &bank->items[i];
     return nullptr;
@@ -254,10 +255,10 @@ bool emoji_content(UiExpressionCardContent* content) noexcept {
     return true;
 }
 
-// Up to three of the pack's first four stickers, without this one.
+// Up to three of the pack's first four stickers, without this one. `bank` holds the pack (bank_pack found it).
 void pack_previews(const Bank* bank, u64 pack_id, u64 sticker_id, UiExpressionCardContent* out) noexcept {
     u32 seen = 0;
-    for (u32 i = 0; bank && i < bank->count && seen < kPackPreviewWindow &&
+    for (u32 i = 0; i < bank->count && seen < kPackPreviewWindow &&
                     out->preview_count < kUiExpressionCardPreviews;
          ++i) {
         const auto& item = bank->items[i];
@@ -659,7 +660,7 @@ bool application_expression_card_response(const RestClientResponse& response, Ut
 }
 
 u32 application_expression_card_media(MediaAssetKey* output, u32 capacity) noexcept {
-    if (!output || !open_now())
+    if (!open_now())
         return 0;
     const auto& s = g_card->scene;
     u32 count = 0;

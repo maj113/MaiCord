@@ -42,9 +42,8 @@ DaveFrameParseResult dave_frame_parse(ConstSlice<u8> frame, Slice<DaveClearRange
 // Copy the clear ranges to aad and every other body byte to cipher, in order.
 void dave_frame_gather(const DaveFrameView& view, u8* aad, u8* cipher) noexcept;
 // Interleave authenticated plaintext back between the clear ranges, which are
-// copied from the frame unless output is the frame itself (the original body is
-// then overwritten in place from a separate plaintext span). output holds
-// body_bytes; plaintext may equal output exactly only without clear ranges.
+// copied from the frame. output holds body_bytes and overlaps neither the frame
+// nor plaintext.
 // This does not authenticate.
 void dave_frame_reconstruct(const DaveFrameView& view, const u8* plaintext, u8* output) noexcept;
 } // namespace maicord

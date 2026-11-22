@@ -5,9 +5,9 @@ namespace maicord {
 // The vector loops give the same samples as the scalar tails beside them. Each handles 16-bit values, so a
 // multiplication by ceil(2^21 / 100) and a shift divide by 100 exactly (for values below 43,690).
 MAICORD_HASWELL void voice_mixer_accumulate(Slice<i32> mix, ConstSlice<i16> pcm, u32 gain_percent) noexcept {
-    const i32 gain = static_cast<i32>(minimum(gain_percent, kVoiceGainMaximumPercent));
-    const u32 count = minimum(mix.count, pcm.count);
-    if (!gain || !mix.data || !pcm.data)
+    const i32 gain = static_cast<i32>(gain_percent);
+    const u32 count = pcm.count;
+    if (!gain)
         return;
     i32* out = mix.data;
     const i16* in = pcm.data;
@@ -95,8 +95,6 @@ MAICORD_HASWELL void voice_mixer_finish(ConstSlice<i32> mix, Slice<i16> output) 
 }
 
 MAICORD_HASWELL u32 voice_pcm_level(ConstSlice<i16> pcm) noexcept {
-    if (!pcm.data || !pcm.count)
-        return 0;
     // The magnitudes are 16-bit unsigned values. All their bytes add up in 64-bit lanes, and so do the high bytes.
     const __m256i zero = _mm256_setzero_si256();
     __m256i bytes = zero, high = zero;

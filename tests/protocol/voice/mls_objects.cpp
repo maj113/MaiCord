@@ -83,8 +83,6 @@ void write_failures(Check check) noexcept {
         check(encoded.error == error && !encoded.bytes && filled(output, sizeof(output)),
               "MLS invalid serialization fields rejected atomically");
     };
-    leaf.encryption_key = {nullptr, 1};
-    reject(MlsWireError::invalid_input);
     leaf.encryption_key = {nullptr, 0x40000000};
     reject(MlsWireError::size_overflow);
     leaf.encryption_key = {};

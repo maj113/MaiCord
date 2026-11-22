@@ -22,10 +22,8 @@ ApplicationMediaPicker* ensure_owner() noexcept {
         commit_pages(sizeof(ApplicationMediaPicker)));
     if (!p)
         return nullptr;
-    if (!message_composer_initialize(&p->edit, {p->query, sizeof(p->query)})) {
-        pages_release(p);
-        return nullptr;
-    }
+    // A zeroed owner and its own 256-byte field: initialization cannot fail.
+    message_composer_initialize(&p->edit, {p->query, sizeof(p->query)});
     p->scope = ++g_app.media_picker_scope_serial;
     p->account_id = g_app.account_ui->chat_state.self_user_id;
     p->channel_id = g_app.account_ui->active_channel_id;
@@ -92,7 +90,7 @@ UiMediaPickerTarget inline_enter_target(const ApplicationMediaPicker& p) noexcep
         if (item && item->available)
             index = i;
     }
-    if (!item_at(p, index, &bank, &local, &temporary) || !bank)
+    if (!item_at(p, index, &bank, &local, &temporary))
         return {};
     return {p.scope,  p.generation,        bank->first_id + local, p.source.revision,
             index,    p.scene.generation,  UiMediaPickerAction::item, p.kind};
@@ -172,8 +170,6 @@ bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiR
         return false;
     auto& p = *owner;
     rebind(p);
-    if (p.generation == ~u32{0})
-        return false;
     const bool fresh = !p.active || !p.inline_mode || p.kind != kind || p.inline_autocomplete != autocomplete;
     if (fresh) {
         if (p.active)
@@ -284,8 +280,6 @@ static bool open_popout(UiRect anchor, u64 message_id, const ChannelRecord* chan
     if (p.active)
         application_media_picker_close();
     rebind(p);
-    if (p.generation == ~u32{0})
-        return false;
     replace_composer_view(p, UiMediaPickerKind::emoji);
     p.reaction_anchor = anchor;
     if (message_id) {
@@ -714,17 +708,13 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
                                                           format(candidate->items[i]))
                                     .ok())
                                 candidate->preview_mask[i >> 3] |= static_cast<u8>(1u << (i & 7));
-                        if (stickers &&
-                            !sticker_previews(candidate, candidate->text + measured.text_bytes, preview_bytes)) {
-                            pages_release(candidate);
-                            candidate = nullptr;
-                        } else {
-                            candidate->text_bytes = decoded.text_bytes + preview_bytes;
-                            candidate->generation = p->generation;
-                            candidate->operation = operation;
-                            candidate->first_id = g_app.media_picker_item_serial + 1;
-                            g_app.media_picker_item_serial += decoded.item_count;
-                        }
+                        if (stickers)
+                            sticker_previews(candidate, candidate->text + measured.text_bytes);
+                        candidate->text_bytes = decoded.text_bytes + preview_bytes;
+                        candidate->generation = p->generation;
+                        candidate->operation = operation;
+                        candidate->first_id = g_app.media_picker_item_serial + 1;
+                        g_app.media_picker_item_serial += decoded.item_count;
                     }
                 }
             }

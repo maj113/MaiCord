@@ -264,7 +264,6 @@ void test_waveform() noexcept {
     check(bytes == 344 && round.ok() && round.bytes == 256 && bytes_equal(decoded, waveform, 256) &&
               bytes_equal(encoded, "AAECAwQF", 8) && gateway_message_waveform_valid({encoded, bytes}),
           "waveform: base64 of u8 samples");
-    check(voice_message_frame_level({}) == 0, "waveform: empty frame level");
     i16 full[960];
     for (u32 i = 0; i < 960; ++i)
         full[i] = i % 2 ? 32767 : -32767;

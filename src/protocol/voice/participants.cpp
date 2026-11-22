@@ -1,6 +1,5 @@
 #include "maicord/protocol/voice/participants.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "../encoding/json_field_lists.hpp"
 
 namespace maicord {
@@ -194,15 +193,7 @@ GatewayEventDecodeResult voice_decode_participant(u8 opcode, JsonValue data, Sli
     default:
         return {data.source_offset, GatewayEventDecodeError::invalid_input};
     }
-    if (!output || !maximum_depth || data.kind != JsonValueKind::object || !data.source.bytes ||
-        scratch.count > ~u32{0} / sizeof(u32))
-        return {data.source_offset, GatewayEventDecodeError::invalid_input};
-    const ConstSlice<u8> input{reinterpret_cast<const u8*>(data.source.data), data.source.bytes};
-    const ConstSlice<u8> indices{reinterpret_cast<const u8*>(scratch.data),
-                                 scratch.count * static_cast<u32>(sizeof(u32))};
-    const ConstSlice<u8> destination{reinterpret_cast<const u8*>(output), sizeof(*output)};
-    if (!byte_range_valid(input) || !byte_range_valid(indices) || byte_ranges_overlap(input, indices) ||
-        byte_ranges_overlap(input, destination) || byte_ranges_overlap(indices, destination))
+    if (!maximum_depth || data.kind != JsonValueKind::object || !data.source.bytes)
         return {data.source_offset, GatewayEventDecodeError::invalid_input};
     const auto scan = json_scan_structurals_avx1(data.source, scratch);
     if (!scan.ok())

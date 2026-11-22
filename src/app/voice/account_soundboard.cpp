@@ -230,7 +230,7 @@ void account_soundboard_output(AccountSoundboard* s, const VoiceAudioSettings& s
 
 bool account_soundboard_command(AccountSoundboard* s, GatewayClient* gateway, const SoundboardAudioCommand* command,
                                 u64 now_ms) noexcept {
-    if (!s->initialized || !command)
+    if (!s->initialized)
         return false;
     s->call_audio = gateway_client_attach_soundboard(gateway, &s->mixer);
     switch (command->operation) {

@@ -204,7 +204,7 @@ bool dave_trip(Check check, DaveVideoCodec codec, ConstSlice<u8> frame, bool key
             break;
     }
     const Trip trip = round_trip(static_cast<RtpVideoPacketCodec>(codec), {g_sealed, sealed.bytes}, keyframe);
-    const auto opened = dave_receive_sender_open(opener, {77, 4242}, kdf, {g_received, trip.bytes}, 1,
+    const auto opened = dave_receive_sender_open(opener, kdf, {g_received, trip.bytes}, 1,
                                                  {g_open_scratch, sizeof(g_open_scratch)}, {g_opened, sizeof(g_opened)});
     // Clear ranges (NAL headers, start codes, OBU headers) stay readable; nothing else does.
     bool clear_kept = true;
@@ -233,8 +233,8 @@ void dave_video(Check check) noexcept {
         seed[i] = static_cast<u8>(0x31 + i * 7);
     dave_frame_sealer_initialize(&sealer, seed);
     const bool ready = kdf_sha256_initialize(&kdf).ok() &&
-                       dave_receive_sender_initialize(&opener, {77, 4242}, 0) == DaveSenderError::none &&
-                       dave_receive_sender_transition(opener, {77, 4242}, 1, {seed, 16}, 0, 1000).ok();
+                       dave_receive_sender_initialize(&opener, 4242, 0) == DaveSenderError::none &&
+                       dave_receive_sender_transition(opener, 1, {seed, 16}, 0, 1000).ok();
     check(ready, "Go Live DAVE: the sender ratchet and the receiving member share a seed");
     if (ready) {
         dave_trip(check, DaveVideoCodec::h264, h264_idr(), true,

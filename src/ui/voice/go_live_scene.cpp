@@ -138,7 +138,7 @@ bool focus_tile(UiGoLiveScene& s, u32 index) noexcept {
 } // namespace
 
 bool ui_go_live_scene_update(UiGoLiveScene* s, const UiGoLiveContent& c, const UiRect& viewport) noexcept {
-    if (!s || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 360 || ui_rect_height(viewport) < 320 ||
+    if (!ui_rect_valid(viewport) || ui_rect_width(viewport) < 360 || ui_rect_height(viewport) < 320 ||
         c.mode > UiGoLiveMode::unavailable || c.tab > UiGoLiveTab::screens || c.kind > UiGoLiveSystemKind::window ||
         c.sources.count > kUiGoLiveMaximumSources || !initialize(*s))
         return false;
@@ -265,7 +265,7 @@ bool ui_go_live_scene_focus_next(UiGoLiveScene* s, bool reverse) noexcept {
 }
 
 bool ui_go_live_scene_focus_arrow(UiGoLiveScene* s, i32 dx, i32 dy) noexcept {
-    if (!s || !s->active)
+    if (!s->active)
         return false;
     const auto focused = s->widgets.focused;
     for (u32 i = 0; i < 2; ++i) {

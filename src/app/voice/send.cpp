@@ -186,8 +186,6 @@ VoiceAudioStatus voice_send_status(VoiceSend* send) noexcept {
 }
 
 void voice_send_flush(VoiceSend* send, const VoiceSendTransport& t) noexcept {
-    if (!t.ready || !t.seal || !t.send || !t.speaking)
-        return;
     if (t.session != send->session) {
         u8 random[6]{};
         secure_random_fill({random, sizeof(random)});
@@ -216,10 +214,9 @@ void voice_send_flush(VoiceSend* send, const VoiceSendTransport& t) noexcept {
                 }
             }
             if (announce_ok) {
-                const u32 header = voice_rtp_header({send->datagram, sizeof(send->datagram)}, send->sequence,
-                                                    send->timestamp_base + static_cast<u32>(packet.frame) *
-                                                                               kVoiceFrameSamples,
-                                                    t.ssrc);
+                constexpr u32 header = kVoiceRtpHeaderBytes;
+                voice_rtp_header(send->datagram, send->sequence,
+                                 send->timestamp_base + static_cast<u32>(packet.frame) * kVoiceFrameSamples, t.ssrc);
                 const auto sealed = t.seal(t.context, {packet.opus, packet.bytes},
                                            {send->datagram + header, static_cast<u32>(sizeof(send->datagram) - header)});
                 const auto sent = sealed.ok() ? t.send(t.context, {send->datagram, header + sealed.bytes})

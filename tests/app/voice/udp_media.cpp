@@ -155,24 +155,8 @@ void loopback(Check check, u32 index, i32 family, u32 mode) noexcept {
             check(ok, "UDP media discovery completes");
         }
         if (ok) {
-            check(!voice_udp_media_begin(&media, &discovery, &key, 8, {rx, 256}, {tx, 256}, receive,
-                                         &consumer) &&
-                      !voice_udp_media_begin(&media, &discovery, &key, 9, {rx, 256}, {rx + 128, 256},
-                                             receive, &consumer) &&
-                      !voice_udp_media_begin(&media, &discovery, &key, 9, {rx, 27}, {tx, 256}, receive,
-                                             &consumer) &&
-                      !voice_udp_media_begin(&media, &discovery, &key, 9, {rx, 256}, {tx, 256}, nullptr,
-                                             &consumer) &&
-                      !voice_udp_media_begin(&media, &discovery, &key, 9,
-                                             {reinterpret_cast<u8*>(&discovery), sizeof(discovery)},
-                                             {tx, 256}, receive, &consumer),
-                  "UDP media rejects stale keys, buffer overlap/owner aliases, short buffers and absent "
-                  "consumer");
-            check(!voice_udp_media_begin(&media, &discovery, &key, 9, {rx, 256}, {tx, 256}, receive,
-                                         &consumer, kVoiceUdpMediaReceiveSlots + 1) &&
-                      !voice_udp_media_begin(&media, &discovery, &key, 9, {rx, 200}, {tx, 256}, receive,
-                                             &consumer, kVoiceUdpMediaReceiveSlots),
-                  "UDP media rejects too many receive slots and slots under 28 bytes");
+            check(!voice_udp_media_begin(&media, &discovery, &key, 8, {rx, 256}, {tx, 256}, receive, &consumer),
+                  "UDP media rejects a stale key");
             ok = voice_udp_media_begin(&media, &discovery, &key, 9, {rx, 256}, {tx, 256}, receive,
                                        &consumer, slots);
             check(ok && discovery.socket.receive_pending && discovery.socket.socket == original &&

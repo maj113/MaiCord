@@ -222,7 +222,7 @@ bool picker_edit_ready(const TextInputTarget& target) noexcept {
 }
 using PickerEditInput = ForwardedInput<picker_edit_ready, text_input_single_line_forbidden>;
 bool scroll_read(void* opaque, u64 scope, UiScrollRange* output, bool rail) noexcept {
-    if (!output || opaque != g_app.media_picker || !application_media_picker_active())
+    if (opaque != g_app.media_picker || !application_media_picker_active())
         return false;
     const auto& p = *g_app.media_picker;
     if (p.scope != scope || !ui_media_picker_scene_current(p.scene))
@@ -250,7 +250,7 @@ bool rail_scroll_read(void* opaque, u64 scope, UiScrollRange* out) noexcept {
 }
 bool scroll_write(void* opaque, u64 scope, double offset, bool* changed, bool rail) noexcept {
     UiScrollRange range{};
-    if (!changed || !scroll_read(opaque, scope, &range, rail))
+    if (!scroll_read(opaque, scope, &range, rail))
         return false;
     auto& p = *g_app.media_picker;
     *changed = ui_media_picker_scene_scroll(&p.scene, static_cast<float>(offset - range.offset), rail);

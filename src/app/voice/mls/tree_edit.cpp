@@ -5,8 +5,6 @@
 namespace maicord {
 MlsStatus mls_hpke_ciphertext_next(ConstSlice<u8> ciphertexts, u32* offset, MlsHpkeCiphertext* ciphertext,
                                    bool* has_ciphertext) noexcept {
-    if (*offset > ciphertexts.count)
-        return MlsStatus::invalid_argument;
     *has_ciphertext = false;
     reset_value(ciphertext);
     if (*offset == ciphertexts.count)
@@ -24,8 +22,6 @@ MlsStatus mls_hpke_ciphertext_next(ConstSlice<u8> ciphertexts, u32* offset, MlsH
 MlsStatus mls_update_path_node_next(const ConstSlice<u8>& nodes_view, u32* offset, MlsUpdatePathNode* node,
                                     bool* has_node) noexcept {
     const ConstSlice<u8> nodes = nodes_view; // *node and *offset are written below
-    if (*offset > nodes.count)
-        return MlsStatus::invalid_argument;
     *has_node = false;
     reset_value(node);
     if (*offset == nodes.count)
@@ -54,8 +50,7 @@ MlsStatus mls_update_path_node_next(const ConstSlice<u8>& nodes_view, u32* offse
 }
 MlsStatus mls_update_path_parse(KdfSha256Workspace* kdf, ConstSlice<u8> input, const u8* group_id,
                                 u32 committer_leaf, MlsUpdatePath* path, u32* consumed) noexcept {
-    if (!input.data || !group_id || !path || !consumed || !input.count ||
-        input.count > kMlsMaxUpdatePathBytes)
+    if (!group_id || !input.count || input.count > kMlsMaxUpdatePathBytes)
         return MlsStatus::invalid_argument;
     reset_value(path);
     *consumed = 0;
@@ -91,7 +86,7 @@ namespace {
 MlsStatus edit_shape(const MlsRatchetTree& tree, ConstSlice<MlsProposal> proposals, u32* leaf_count,
                      u32* node_count, u32* additions) noexcept {
     if (!tree.leaf_count || !tree.node_count || tree.leaf_count > 0x40000000u || !tree.group_id ||
-        !tree.nodes.data || !tree.nodes.count || (!proposals.data && proposals.count))
+        !tree.nodes.data || !tree.nodes.count)
         return MlsStatus::invalid_argument;
     u32 adds = 0;
     for (u32 i = 0; i != proposals.count; ++i) {
@@ -207,12 +202,9 @@ MlsStatus mls_tree_apply_proposals(const MlsRatchetTree& tree, ConstSlice<MlsPro
     if (const auto status = edit_shape(tree, proposals, &maximum_leaves, &maximum_nodes, &additions);
         status != MlsStatus::ok)
         return status;
-    if ((additions && !joiners.data) || joiners.count < additions)
+    // The callers' scratch holds scratch_bytes (commit.cpp), at least this edit's bytes.
+    if (joiners.count < additions)
         return MlsStatus::buffer_too_small;
-    if (!scratch.data || scratch.count < maximum_leaves + maximum_nodes)
-        return MlsStatus::buffer_too_small;
-    if (!output.data && output.count)
-        return MlsStatus::invalid_argument;
     u8* occupancy = scratch.data;
     u8* blanked = occupancy + maximum_leaves;
     clear_bytes(occupancy, maximum_leaves + maximum_nodes);
@@ -334,16 +326,11 @@ MlsStatus mls_tree_merge_update_path(KdfSha256Workspace& kdf, const MlsRatchetTr
                                      u32 committer_leaf, const MlsUpdatePath& path,
                                      const Slice<u8>& scratch, const Slice<u8>& output, u32* written,
                                      MlsRatchetTree* merged, u8* tree_hash) noexcept {
-    if (!written || !merged)
-        return MlsStatus::invalid_argument;
     *written = 0;
     reset_value(merged);
     if (!tree.group_id || !tree.nodes.data || !tree.leaf_count || committer_leaf >= tree.leaf_count ||
-        !path.leaf_node.data || !path.leaf_node.count || path.leaf_node.count > kMlsMaxLeafNodeBytes ||
-        (!output.data && output.count))
+        !path.leaf_node.data || !path.leaf_node.count || path.leaf_node.count > kMlsMaxLeafNodeBytes)
         return MlsStatus::invalid_argument;
-    if (scratch.count < mls_tree_validation_bytes(tree.leaf_count, tree.node_count))
-        return MlsStatus::buffer_too_small;
     u32 direct[kMlsTreeMaxDepth], filtered[kMlsTreeMaxDepth], direct_count = 0, filtered_count = 0;
     u8 keys[kMlsTreeMaxDepth][kMlsPointBytes], hashes[kMlsTreeMaxDepth][kMlsHashBytes];
     auto status =

@@ -98,7 +98,7 @@ void account_video_session_source_failed(AccountVideoSession* s) noexcept {
 AccountVideoService account_video_session_service(AccountVideoSession* s, bool (*cancelled)(void*) noexcept,
                                                   void* context) noexcept {
     AccountVideoService out{};
-    if (!s || !thread(*s))
+    if (!thread(*s))
         return out;
     if (s->status.error == AccountVideoError::none && !s->status.release_pending && !live_window(*s))
         terminal(*s, AccountVideoError::timestamp);
@@ -247,10 +247,6 @@ AccountVideoService account_video_session_service(AccountVideoSession* s, bool (
         if (s->status.has_audio &&
             (!s->audio_epoch_ready || (s->desired_play && !s->status.clock_valid && !s->seeking)))
             break;
-        if (s->frame_counter == ~u64{0}) {
-            terminal(*s, AccountVideoError::clock);
-            return out;
-        }
         s->published = true;
         s->status.frame_pending = true;
         s->status.frame_serial = ++s->frame_counter;

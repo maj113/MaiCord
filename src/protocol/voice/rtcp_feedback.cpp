@@ -1,7 +1,6 @@
 #include "maicord/protocol/voice/rtcp_feedback.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/byte_range.hpp"
 
 namespace maicord {
 namespace {
@@ -12,8 +11,7 @@ void store16(u8* output, u32 value) noexcept {
 // Validates space for `bytes` (a multiple of four) at offset and writes the
 // common header: V=2, no padding, count/FMT, packet type and word length - 1.
 u8* header(const Slice<u8>& output, u32 offset, u32 bytes, u8 count, u8 type) noexcept {
-    if (!output.data || !byte_range_valid({output.data, output.count}) || offset > output.count ||
-        bytes > output.count - offset || bytes < 4 || (bytes & 3) || count > 31)
+    if (offset > output.count || bytes > output.count - offset || bytes < 4 || (bytes & 3) || count > 31)
         return nullptr;
     u8* packet = output.data + offset;
     packet[0] = static_cast<u8>(0x80 | count);
@@ -100,8 +98,6 @@ u32 rtcp_nack_pack(ConstSlice<u16> sequences, Slice<RtcpNackItem> items, u32* co
 }
 
 u32 rtcp_read_sender_reports(ConstSlice<u8> compound, Slice<RtcpSenderInfo> output) noexcept {
-    if (!byte_range_valid(compound) || (compound.count && !compound.data))
-        return 0;
     u32 offset = 0, count = 0;
     while (compound.count - offset >= 4) {
         const u8* part = compound.data + offset;
@@ -109,7 +105,7 @@ u32 rtcp_read_sender_reports(ConstSlice<u8> compound, Slice<RtcpSenderInfo> outp
         if ((part[0] >> 6) != 2 || bytes > compound.count - offset)
             break;
         // SR: header, sender SSRC, 20-byte sender info, then report blocks.
-        if (part[1] == kRtcpSenderReport && bytes >= 28 && count != output.count && output.data) {
+        if (part[1] == kRtcpSenderReport && bytes >= 28 && count != output.count) {
             auto& info = output[count++];
             info.ssrc = byte_load_be32(part + 4);
             info.ntp_seconds = byte_load_be32(part + 8);
@@ -122,8 +118,8 @@ u32 rtcp_read_sender_reports(ConstSlice<u8> compound, Slice<RtcpSenderInfo> outp
 
 RtpHeaderExtensions rtp_header_extensions(ConstSlice<u8> packet, const MediaPacketLayout& layout, u8 id) noexcept {
     RtpHeaderExtensions result{};
-    if (layout.kind != MediaPacketKind::rtp || !layout.extension_bytes || !byte_range_valid(packet) ||
-        !packet.data || layout.clear_bytes > packet.count || layout.extension_bytes > packet.count - layout.clear_bytes)
+    // The layout is media_packet_payload's for these bytes: an RTP packet whose extension fits.
+    if (!layout.extension_bytes)
         return result;
     const bool one_byte = layout.extension_profile == 0xBEDE;
     if (!one_byte && (layout.extension_profile & 0xfff0) != 0x1000)
@@ -183,8 +179,7 @@ struct Chunk {
 RtcpTransportFeedbackWrite rtcp_write_transport_feedback(Slice<u8> output, u32 offset, u32 sender_ssrc,
                                                          u32 media_ssrc, u16 base_sequence, u8 feedback_count,
                                                          ConstSlice<u64> arrivals) noexcept {
-    if (!output.data || !byte_range_valid({output.data, output.count}) || offset > output.count ||
-        !arrivals.count || !arrivals.data || arrivals.count > kRtcpTransportFeedbackMaxPackets)
+    if (offset > output.count || !arrivals.count || arrivals.count > kRtcpTransportFeedbackMaxPackets)
         return {0, 0};
     u32 first = 0;
     while (first != arrivals.count && !arrivals[first])

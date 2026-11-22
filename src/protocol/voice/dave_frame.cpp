@@ -72,14 +72,12 @@ void dave_frame_gather(const DaveFrameView& view, u8* aad, u8* cipher) noexcept 
     copy_bytes(cipher, view.frame.data + read, view.body_bytes - read);
 }
 void dave_frame_reconstruct(const DaveFrameView& view, const u8* plaintext, u8* output) noexcept {
-    const bool in_place = output == view.frame.data;
     u32 written = 0;
     for (u32 i = 0; i != view.clear_ranges.count; ++i) {
         const auto& range = view.clear_ranges[i];
         const u32 gap = range.offset - written;
         copy_bytes(output + written, plaintext, gap);
-        if (!in_place)
-            copy_bytes(output + range.offset, view.frame.data + range.offset, range.bytes);
+        copy_bytes(output + range.offset, view.frame.data + range.offset, range.bytes);
         plaintext += gap;
         written = range.offset + range.bytes;
     }

@@ -92,7 +92,7 @@ const StreamPreviewEntry* stream_preview_complete(StreamPreviewCache* cache, u64
         return nullptr;
     entry->request_id = 0;
     entry->status = status;
-    if (status == 200 && url.data && url.bytes && url.bytes <= sizeof(entry->url)) {
+    if (status == 200 && url.bytes && url.bytes <= sizeof(entry->url)) {
         // A new URL is a new picture; an unchanged one keeps its identity.
         const bool same = entry->serial && entry->url_bytes == url.bytes && bytes_equal(entry->url, url.data, url.bytes);
         if (!same) {

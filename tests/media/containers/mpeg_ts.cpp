@@ -264,7 +264,7 @@ void packed_audio_tests() noexcept {
     const auto first=source.index.first_time;
     auto following=packed_audio(2840);
     check(mp4_segment_store_request(&store,1)==D::data_pending &&
-        mpeg_ts_segment_store_accept(&store,1,store.request_serial,following.view(),42667)==D::none &&
+        mpeg_ts_segment_store_accept(&store,1,following.view(),42667)==D::none &&
         store.available_end==first+4096 && store.received_count==2,
         "adjacent packed audio spans 33-bit rollover on the exact rational AAC sample grid");
     const auto* retained=mp4_segment_store_find(store,0);
@@ -273,7 +273,7 @@ void packed_audio_tests() noexcept {
     check(mp4_segment_store_extend(&store,0,3,false)==D::none && mp4_segment_store_request(&store,2)==D::data_pending,
         "packed audio demand advances within the same live store");
     auto gap=packed_audio(2840+3840+90000);
-    check(mpeg_ts_segment_store_accept(&store,2,store.request_serial,gap.view(),42667)==D::malformed &&
+    check(mpeg_ts_segment_store_accept(&store,2,gap.view(),42667)==D::malformed &&
         store.available_end==end && mp4_segment_store_find(store,0) && active_payload[0]==11,
         "a real packed-audio timestamp gap cannot be rounded away or overwrite active audio");
     mp4_fragment_source_release(&source);mp4_segment_store_release(&store);
@@ -350,20 +350,18 @@ void store_lifetimes() noexcept {
         "transport compaction exposes the exact borrowed AAC bytes through the existing sample cursor");
     const auto* borrowed=packet.bytes.data; const u64 initial=source.index.first_time;
     check(mp4_segment_store_request(&store,1)==D::data_pending &&
-        mpeg_ts_segment_store_accept(&store,1,store.request_serial,second.view(),21333)==D::none &&
+        mpeg_ts_segment_store_accept(&store,1,second.view(),21333)==D::none &&
         store.available_end==initial+2048 && borrowed[0]==11,"next transport file preserves the pinned payload and exact audio sample grid");
     Mp4FragmentPosition position{};
     check(mp4_fragment_source_prepare(&source,1,0,&position)==D::none && mp4_segment_store_request(&store,2)==D::data_pending,
         "transport candidate can be borrowed as a normal seek proposal");
     const auto generation=store.generation;
-    check(mpeg_ts_segment_store_accept(&store,2,store.request_serial,broken.view(),21333)==D::malformed &&
+    check(mpeg_ts_segment_store_accept(&store,2,broken.view(),21333)==D::malformed &&
         store.generation!=generation && !mp4_fragment_source_adopt(&source,position) && borrowed[0]==11 &&
         !mp4_segment_store_find(store,1) && mp4_segment_store_find(store,0),
         "failed candidate replacement invalidates stale proposals without changing active bytes");
-    const auto serial=store.request_serial;
-    check(mpeg_ts_segment_store_accept(&store,2,serial-1,third.view(),21333)==D::invalid_input &&
-        mpeg_ts_segment_store_accept(&store,2,serial,third.view(),21333)==D::none && borrowed[0]==11,
-        "transport receipt fences stale serials and reuses its bounded candidate storage");
+    check(mpeg_ts_segment_store_accept(&store,2,third.view(),21333)==D::none && borrowed[0]==11,
+        "transport receipt reuses its bounded candidate storage");
     check(store.initialization.committed==65536 && store.slots[0].storage.committed==65536 &&
         store.slots[1].storage.committed==65536,"small transport files retain only three bounded committed regions");
     mp4_fragment_source_release(&source); mp4_segment_store_release(&store);

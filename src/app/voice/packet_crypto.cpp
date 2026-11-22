@@ -37,12 +37,10 @@ AeadResult crypt(VoicePacketCrypto& crypto, ConstSlice<u8> nonce, ConstSlice<u8>
 }
 } // namespace
 
+// The one caller (voice_media_description) installs a key once: an empty crypto (packets.generation is zero), a
+// nonzero ready generation, a 32-byte secret and one of the two recognized modes (voice_transport_mode).
 AeadResult voice_packet_initialize(VoicePacketCrypto* crypto, u64 generation, u32 mode,
                                    ConstSlice<u8> secret) noexcept {
-    if (!crypto || crypto->generation || crypto->mode || crypto->aes.storage.data || crypto->xchacha.storage.data ||
-        !generation || secret.count != 32 ||
-        (mode != voice_transport_aes256_gcm_rtpsize && mode != voice_transport_xchacha20_poly1305_rtpsize))
-        return {0, 0, AeadError::invalid_input};
     const auto result = mode == voice_transport_aes256_gcm_rtpsize
                             ? aes_gcm_initialize(&crypto->aes, secret)
                             : xchacha_initialize(&crypto->xchacha, secret);

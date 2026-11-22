@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/protocol/voice/mls_objects.hpp"
-#include "maicord/core/byte_range.hpp"
 
 namespace maicord {
 // Internal composition cursor: borrowed immutable input, sticky first error.
@@ -10,10 +9,7 @@ struct MlsReader {
     ConstSlice<u8> input;
     u32 used{}, error_offset{};
     MlsWireError error{};
-    explicit MlsReader(ConstSlice<u8> data) noexcept : input(data) {
-        if (!byte_range_valid(data))
-            fail(MlsWireError::invalid_input, 0);
-    }
+    explicit MlsReader(ConstSlice<u8> data) noexcept : input(data) {}
     void fail(MlsWireError value, u32 offset) noexcept {
         if (error == MlsWireError::none) {
             error = value;

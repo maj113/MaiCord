@@ -74,7 +74,7 @@ AttachmentDownloadRequestResult write_get(ConstSlice<u8> target, CdnHost cdn_hos
 
 AttachmentDownloadRequestResult attachment_download_write_request(Utf8View url, u64 channel,
     u64 attachment, u64 now_seconds, Slice<u8> output) noexcept {
-    if (!channel || !attachment || !url.data || !url.bytes || !output.data)
+    if (!channel || !attachment || !url.bytes)
         return {0, CdnHost::none, AttachmentDownloadRequestError::invalid_input};
     u8 target[kCdnMaximumTargetBytes], prefix[80];
     const auto parsed = parse_signed_attachment_url(url, attachment, {target, sizeof(target)});
@@ -91,7 +91,7 @@ AttachmentDownloadRequestResult attachment_download_write_request(Utf8View url, 
 
 AttachmentDownloadRequestResult attachment_download_write_media_request(const Utf8View& url,
                                                                         const Slice<u8>& output) noexcept {
-    if (!url.data || !url.bytes || !output.data)
+    if (!url.bytes)
         return {0, CdnHost::none, AttachmentDownloadRequestError::invalid_input};
     u8 target[kCdnMaximumTargetBytes];
     const auto parsed = parse_media_url(url, {target, sizeof(target)});
@@ -129,7 +129,7 @@ HttpHeadResult attachment_download_parse_response_head(void* context, ConstSlice
 }
 
 bool attachment_download_risk_extension(Utf8View name) noexcept {
-    if (!name.data || !name.bytes || name.bytes > kAttachmentDownloadMaximumFilenameBytes + 1) return false;
+    if (!name.bytes || name.bytes > kAttachmentDownloadMaximumFilenameBytes + 1) return false;
     u32 end = name.bytes;
     while (end && (name.data[end - 1] == '.' || name.data[end - 1] == ' ')) --end;
     u32 dot = end;
@@ -151,8 +151,7 @@ bool attachment_download_risk_extension(Utf8View name) noexcept {
 
 AttachmentDownloadFilenameResult attachment_download_safe_filename(Utf8View name,
                                                                    const Slice<char>& output) noexcept {
-    if ((!name.data && name.bytes) || name.bytes > kAttachmentDownloadMaximumFilenameBytes ||
-        !utf8_validate(name).valid || !output.data)
+    if (name.bytes > kAttachmentDownloadMaximumFilenameBytes || !utf8_validate(name).valid)
         return {0, AttachmentDownloadFilenameError::invalid_input, false};
     char safe[kAttachmentDownloadMaximumFilenameBytes + 2];
     u32 used = 0;

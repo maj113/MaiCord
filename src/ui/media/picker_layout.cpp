@@ -5,7 +5,6 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/text/emoji_catalog.hpp"
-#include "maicord/ui/text/regional_flag.hpp"
 
 namespace maicord {
 namespace ui_media_picker_detail {
@@ -18,14 +17,6 @@ constexpr float kRailSeparator = 25;
 // Masonry columns are capped at 8; extreme GIF aspect ratios are clamped.
 constexpr u32 kMasonryColumns = 8;
 constexpr float kGifMinimumAspect = .25f, kGifMaximumAspect = 4, kGifDefaultAspect = .5625f;
-} // namespace
-bool finite_rectangle(const UiRect& r) noexcept {
-    return bounded(r.left, -kMaximumUiCoordinate, kMaximumUiCoordinate) &&
-           bounded(r.top, -kMaximumUiCoordinate, kMaximumUiCoordinate) &&
-           bounded(r.right, -kMaximumUiCoordinate, kMaximumUiCoordinate) &&
-           bounded(r.bottom, -kMaximumUiCoordinate, kMaximumUiCoordinate);
-}
-namespace {
 inline bool unicode_category(UiMediaPickerSectionVisual visual) noexcept {
     return visual >= UiMediaPickerSectionVisual::people && visual <= UiMediaPickerSectionVisual::flags;
 }
@@ -226,23 +217,19 @@ bool inline_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* s
 bool label_valid(const Utf8View& text) noexcept {
     return text.bytes <= 256 && (!text.bytes || text.data) && utf8_validate(text).valid;
 }
-// The descriptor bounds (resolve, item and section counts) were admitted by
-// ui_media_picker_scene_update before this runs.
-bool source_valid(const UiMediaPickerSource* source, const UiMediaPickerContent& content) noexcept {
+// The descriptor bounds (resolve and item count) were admitted by ui_media_picker_scene_update before this runs.
+// The one producer (the app's picker projection) fills each section from zero and sets a visual up to flags, a
+// guild id and icon only on a guild section and an asset only on a media one; ids, ranges and labels come from
+// the network.
+bool source_valid(const UiMediaPickerSource* source) noexcept {
     if (!source)
         return true;
-    if (source->account_scope != content.account_scope || source->query_generation != content.query_generation)
-        return false;
     u32 first = 0;
     for (u32 i = 0; i < source->sections.count; ++i) {
         const auto& section = source->sections[i];
-        const bool guild = section.visual == UiMediaPickerSectionVisual::guild;
-        const bool media = section.visual == UiMediaPickerSectionVisual::media;
         if (!section.id || section.first != first || section.count > source->count - first ||
-            !label_valid(section.label) || section.visual > UiMediaPickerSectionVisual::media ||
-            (!guild && (section.guild_id || section.icon_animated)) || (guild && !section.guild_id) ||
-            (!guild && !media && section.icon_variant) || (!media && (section.asset_id || section.asset_flags)) ||
-            (media && section.asset_id && !section.icon_variant))
+            !label_valid(section.label) ||
+            (section.visual == UiMediaPickerSectionVisual::media && section.asset_id && !section.icon_variant))
             return false;
         first += section.count;
         for (u32 j = 0; j < i; ++j)
@@ -287,17 +274,9 @@ float content_extent(const UiMediaPickerScene& scene) noexcept {
     return height + m.list_inset;
 }
 } // namespace
+// The one producer (the app's picker resolve) gives each item a unique id and sets glyph and regional_flag only
+// from a Unicode emoji (regional_flag_sequence of the glyph); labels and sizes come from the network.
 bool item_valid(const UiMediaPickerItem& item) noexcept {
-    if (item.glyph.bytes && (item.kind != UiMediaPickerItemKind::emoji || item.asset_id ||
-                             item.glyph.bytes > 64 || !utf8_validate(item.glyph).valid))
-        return false;
-    if (item.regional_flag) {
-        char target[kRegionalFlagSvgTargetBytes];
-        if (item.kind != UiMediaPickerItemKind::emoji || item.asset_id || item.regional_flag > 0xffffu ||
-            !regional_flag_svg_target(static_cast<u16>(item.regional_flag), {target, sizeof(target)}) ||
-            (item.glyph.bytes && regional_flag_sequence(item.glyph) != item.regional_flag))
-            return false;
-    }
     return item.id && item.kind <= UiMediaPickerItemKind::emoji && label_valid(item.label) &&
            label_valid(item.detail) && label_valid(item.note) && item.width <= 65536 && item.height <= 65536 &&
            ((!item.width && !item.height) || (item.width && item.height));
@@ -470,9 +449,6 @@ bool cell(UiMediaPickerScene& scene, u32 index, const UiRect& rectangle, const U
         (item.kind != expected &&
          !(scene.kind == UiMediaPickerKind::gif && item.kind == UiMediaPickerItemKind::category)))
         return false;
-    for (u32 i = 0; i < scene.cell_count; ++i)
-        if (scene.projection->cells[i].item.id == item.id)
-            return false;
     const auto action = item.kind == UiMediaPickerItemKind::category ? UiMediaPickerAction::category
                                                                      : UiMediaPickerAction::item;
     const auto widget = add(scene, area, {index, 0, action, scene.content->kind}, item.label, item.enabled);

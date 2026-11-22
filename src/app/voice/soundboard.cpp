@@ -363,10 +363,9 @@ bool query_matches(const SoundboardSound& sound) noexcept {
     const auto& p = *g_picker;
     return ascii_contains_ignore_case({sound.name, sound.name_bytes}, {p.query, p.query_bytes});
 }
-// An error footer holds until its notice expires (default_footer leaves it alone).
+// An error footer holds until its notice expires (default_footer leaves it alone). Only sends set one, and a
+// sound is sent from the open picker, so g_picker exists.
 void set_footer(const Utf8View& text) noexcept {
-    if (!g_picker)
-        return;
     auto& p = *g_picker;
     p.footer_bytes = utf8_copy_truncated(p.footer, sizeof(p.footer), text);
     p.error_until_ms = now_ms() + kNoticeMs;

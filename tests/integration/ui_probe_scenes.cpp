@@ -6646,7 +6646,7 @@ bool probe_media_page() noexcept {
         copy_bytes(lines[i], origins[i].data, bytes);
         copy_bytes(lines[i] + bytes, " \xC2\xB7 ", 4);
         bytes += 4;
-        bytes += ui_image_viewer_quality_text(pick, lines[i] + bytes, kUiImageViewerQualityBytes);
+        bytes += ui_image_viewer_quality_text(pick, lines[i] + bytes);
         with_pick[i] = {lines[i], bytes};
     }
     if (with_pick[0].bytes <= origins[0].bytes + 4 || !capture_player(1000, false, L"media-player-video-1000.bmp"))
@@ -6684,7 +6684,7 @@ bool probe_media_page() noexcept {
     // seek and volume of the player, and a source line whose pick has no video part. Captured for review.
     const MediaPlaybackQuality sound{0, 129610, 0, 0, 0, 2, MediaQualityProvider::youtube_music};
     u32 sound_bytes = origins[0].bytes + 4;
-    sound_bytes += ui_image_viewer_quality_text(sound, lines[0] + sound_bytes, kUiImageViewerQualityBytes);
+    sound_bytes += ui_image_viewer_quality_text(sound, lines[0] + sound_bytes);
     source_line = {lines[0], sound_bytes};
     sound_only = true;
     constexpr auto sound_text = utf8_literal("YouTube Music \xC2\xB7 AAC 130 kbps");

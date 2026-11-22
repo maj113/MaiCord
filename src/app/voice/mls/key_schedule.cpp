@@ -68,8 +68,7 @@ KdfResult derive(KdfSha256Workspace& workspace, const ConstSlice<u8>& initial, c
 }
 } // namespace
 void mls_epoch_clear(MlsEpochSecrets* epoch) noexcept {
-    if (epoch)
-        secure_clear_bytes(epoch, sizeof(*epoch));
+    secure_clear_bytes(epoch, sizeof(*epoch));
 }
 KdfResult mls_epoch_initial(KdfSha256Workspace& workspace, ConstSlice<u8> init_secret,
                             ConstSlice<u8> context, MlsEpochSecrets* output) noexcept {

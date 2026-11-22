@@ -1,5 +1,4 @@
 #include "maicord/app/voice/participants.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -93,15 +92,6 @@ bool stage_source(void* context, const VoiceVideoSource& source) noexcept {
 bool same_source(const VoiceSsrcBinding& a, const VoiceSsrcBinding& b) noexcept {
     return a.user_id == b.user_id && a.ssrc == b.ssrc && a.kind == b.kind &&
            a.primary_ssrc == b.primary_ssrc;
-}
-bool touches(const VoiceParticipants& participants, const ConstSlice<u8>& bytes) noexcept {
-    return byte_ranges_overlap(bytes, {reinterpret_cast<const u8*>(&participants), sizeof(participants)}) ||
-           byte_ranges_overlap(bytes,
-                               {reinterpret_cast<const u8*>(participants.users),
-                                participants.user_capacity * static_cast<u32>(sizeof(VoiceParticipant))}) ||
-           byte_ranges_overlap(bytes,
-                               {reinterpret_cast<const u8*>(participants.sources),
-                                participants.source_capacity * static_cast<u32>(sizeof(VoiceSsrcBinding))});
 }
 VoiceParticipantsError update_sources(VoiceParticipants& participants,
                                       const VoiceParticipantEvent& event) noexcept {
@@ -201,14 +191,10 @@ VoiceSsrcBinding voice_participants_source(const VoiceParticipants& participants
 VoiceParticipantsResult voice_participants_event(VoiceParticipants* participants, u64 generation, u8 opcode,
                                                  JsonValue data, Slice<u32> scratch,
                                                  u32 maximum_depth) noexcept {
-    if (!generation || scratch.count > ~u32{0} / sizeof(u32))
+    if (!generation)
         return {VoiceParticipantsError::invalid_input};
     if (participants->generation && participants->generation != generation)
         return {VoiceParticipantsError::stale_generation};
-    if (touches(*participants, {reinterpret_cast<const u8*>(data.source.data), data.source.bytes}) ||
-        touches(*participants,
-                {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))}))
-        return {VoiceParticipantsError::invalid_input};
     VoiceParticipantEvent event{};
     const auto decoded = voice_decode_participant(opcode, data, scratch, maximum_depth, &event);
     if (!decoded.ok())

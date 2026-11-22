@@ -5,7 +5,7 @@
 namespace maicord {
 namespace {
 void append(char* line, u32 capacity, u32* used, const char* text) noexcept {
-    while (text && *text && *used + 1 < capacity)
+    while (*text && *used + 1 < capacity)
         line[(*used)++] = *text++;
 }
 inline void append_number(char* line, u32 capacity, u32* used, u64 value) noexcept {
@@ -16,8 +16,6 @@ inline void append_number(char* line, u32 capacity, u32* used, u64 value) noexce
 } // namespace
 
 void voice_log_fields(VoiceLogLevel level, const char* event, ConstSlice<VoiceLogField> fields) noexcept {
-    if (!event)
-        return;
     char line[256];
     u32 used = 0;
     constexpr u32 capacity = sizeof(line) - 8; // Cut where the "voice:<I|W|E> " record was (the prefix is 8 bytes).

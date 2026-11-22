@@ -78,8 +78,6 @@ DavePackageResult produce(KdfSha256Workspace& workspace, const P256Key& signing,
 }
 } // namespace
 void dave_key_package_release(DaveKeyPackage* package) noexcept {
-    if (!package)
-        return;
     p256_release(&package->init_key);
     p256_release(&package->leaf_key);
     secure_clear_bytes(package, sizeof(*package));

@@ -7,9 +7,9 @@ enum class TextEmojiNext:u8 {end,range,invalid_input};
 // Font-override policy for emoji. Start with a zero cursor and pass the same
 // UTF-8 input on every call. Success returns the next maximal run of adjacent
 // emoji in both byte and UTF-16 coordinates; at end the cursor holds the complete
-// input lengths. Errors clear this call's output and leave the cursor unchanged,
+// input lengths. Malformed UTF-8 is the only error: it clears this call's output and leaves the cursor unchanged,
 // while ranges from earlier calls stay valid, so callers needing all-or-nothing
-// output validate the input first. Input, cursor and output are disjoint.
+// output validate the input first. Input, cursor and output are disjoint and not null.
 // Emoji-property bases keep selectors, modifiers, tags and joined emoji bases;
 // any VS15 in that sequence suppresses its override. ASCII digits/#/* need a
 // keycap; adjacent regional indicators coalesce without pairing. These are font

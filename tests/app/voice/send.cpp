@@ -49,8 +49,8 @@ void feed(VoiceSend& send, Tone& t, u64* now, u32 frames, i32 amplitude) noexcep
 void test_blocks(Check check) noexcept {
     u8 header[12];
     const u8 expected[]{0x80, 0x78, 0x12, 0x34, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x02, 0x03, 0x04};
-    check(voice_rtp_header({header, 12}, 0x1234, 0x89abcdef, 0x01020304) == 12 && bytes_equal(header, expected, 12) &&
-              !voice_rtp_header({header, 11}, 0, 0, 0),
+    voice_rtp_header(header, 0x1234, 0x89abcdef, 0x01020304);
+    check(bytes_equal(header, expected, 12),
           "Voice send RTP: version 2, Opus payload type 120, big-endian sequence/timestamp/SSRC");
 
     static i16 pcm[960];
@@ -304,7 +304,7 @@ DaveMediaResult loop_open(void* c, const VoiceReceivedPacket&, ConstSlice<u8> fr
     DaveMediaResult result{};
     if (!v.synthetic_group)
         return dave_session_decrypt(&v.passthrough, kUser, frame, 1, scratch, output);
-    const auto opened = dave_receive_sender_open(v.opener, {77, kUser}, v.kdf, frame, 1, scratch, output);
+    const auto opened = dave_receive_sender_open(v.opener, v.kdf, frame, 1, scratch, output);
     result.bytes = opened.bytes;
     if (!opened.ok())
         result.error = DaveMediaError::not_ready;
@@ -360,9 +360,9 @@ void loopback_case(Check check, bool synthetic_group) noexcept {
               voice_packet_initialize(&v->sender, 1, voice_transport_aes256_gcm_rtpsize, {secret, 32}).ok() &&
               voice_packet_initialize(&v->receiver, 9, voice_transport_aes256_gcm_rtpsize, {secret, 32}).ok() &&
               kdf_sha256_initialize(&v->kdf).ok() &&
-              dave_session_initialize(&v->passthrough, 1, kUser, 1, 0) == MlsStatus::ok &&
-              dave_receive_sender_initialize(&v->opener, {77, kUser}, 0) == DaveSenderError::none &&
-              dave_receive_sender_transition(v->opener, {77, kUser}, 1, {seed, 16}, 0, 1000).ok() &&
+              dave_session_initialize(&v->passthrough, 1, kUser, 0) == MlsStatus::ok &&
+              dave_receive_sender_initialize(&v->opener, kUser, 0) == DaveSenderError::none &&
+              dave_receive_sender_transition(v->opener, 1, {seed, 16}, 0, 1000).ok() &&
               voice_playback_initialize(&v->receive.playback) && voice_send_open(&v->send) &&
               voice_udp_begin(&v->discovery, &v->loop, test_network_address(&address, address_bytes), kSsrc,
                               GetTickCount64()) &&
@@ -413,7 +413,6 @@ void loopback_case(Check check, bool synthetic_group) noexcept {
             packet.transport = opened;
             packet.source = {kUser, 1, kSsrc, kSsrc, VoiceSourceKind::audio, true};
             packet.member = {kUser, 1, true};
-            packet.setup_generation = packet.ready_revision = 1;
             ok = voice_receive_packet(&v->receive, packet, {plain, opened.bytes}, loop_open, v,
                                       kStart + u64{received} * 20'000) == VoiceReceiveResult::queued;
             ++received;

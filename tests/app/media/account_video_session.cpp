@@ -526,16 +526,10 @@ void test_account_video_session(void (*check)(bool, const char*) noexcept) noexc
           "selected video clock: regressions, missing frequency and overflow refuse without replacing the "
           "last position");
     AccountVideoSession empty{};
-    Mp4Decoder video{};
     const auto no_audio = account_video_session_audio_progress(&empty);
     check(!no_audio.epoch && !no_audio.written_frames && !no_audio.submitted_frames &&
               !no_audio.consumed_frames,
           "selected video progress: inactive owner reports no invented native PCM consumption");
-    check(account_video_session_initialize(&empty, &video, id, nullptr).error ==
-                  AccountVideoError::invalid_input &&
-              !empty.initialized && !empty.workspace && !account_video_session_owned_bytes(&empty),
-          "selected video init: absent ready decoder/event cannot allocate PCM, initialize MF or open an "
-          "endpoint");
     // Offline controller scaffolding contains only caller-owned metadata, with
     // no decoder/source/native allocation. Exercise guards and configuration;
     // never call Play, Seek, a video read, native AAC submit or audio rendering.

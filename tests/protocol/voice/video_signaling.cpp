@@ -100,34 +100,25 @@ void test_select_protocol(Check check) noexcept {
     ok &= rejected(invalid);
     invalid.video = {unnamed, 1};
     ok &= rejected(invalid);
-    invalid.video = {nullptr, 1};
-    ok &= rejected(invalid);
     invalid = selection;
     invalid.transport.mode = 3;
     ok &= rejected(invalid);
     invalid = selection;
     invalid.transport.port = 0;
     ok &= rejected(invalid);
-    const Utf8View invalid_addresses[]{{}, {nullptr, 1}, {"\xff", 1}, {reinterpret_cast<const char*>(~usize{0} - 1), 4}};
+    const Utf8View invalid_addresses[]{{}, {"\xff", 1}};
     for (auto address : invalid_addresses) {
         invalid = selection;
         invalid.transport.address = address;
         ok &= rejected(invalid);
     }
     check(ok, "Select Protocol: duplicate, unusable or unnamed codecs and bad transport fields are rejected");
-    copy_bytes(output, kId, 36);
-    invalid = selection;
-    invalid.rtc_connection_id = {reinterpret_cast<const char*>(output), 36};
-    check(!voice_gateway_write_select_protocol_media(invalid, {output, sizeof(output)}).ok() &&
-              bytes_equal(output, kId, 36),
-          "Select Protocol: an RTC connection id aliasing the output is rejected");
 
     const u8 random[16]{0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00};
     char id[40];
     memset(id, '#', sizeof(id));
-    check(voice_rtc_connection_id({random, 16}, {id, 40}) &&
-              bytes_equal(id, "ffeeddcc-bbaa-4988-b766-554433221100", 36) && id[36] == '#' &&
-              !voice_rtc_connection_id({random, 15}, {id, 40}) && !voice_rtc_connection_id({random, 16}, {id, 35}),
+    voice_rtc_connection_id(random, id);
+    check(bytes_equal(id, "ffeeddcc-bbaa-4988-b766-554433221100", 36) && id[36] == '#',
           "RTC connection id: 16 random bytes format as a lowercase RFC 4122 version-4 UUID");
 }
 
@@ -146,8 +137,7 @@ void test_sink_wants(Check check) noexcept {
               !voice_gateway_write_media_sink_wants(100, {duplicate, 2}, {output, 128}).ok() &&
               !voice_gateway_write_media_sink_wants(100, {zero, 1}, {output, 128}).ok() &&
               !voice_gateway_write_media_sink_wants(100, {high, 1}, {output, 128}).ok() &&
-              !voice_gateway_write_media_sink_wants(100, {top, 1}, {output, 128}).ok() &&
-              !voice_gateway_write_media_sink_wants(100, {nullptr, 1}, {output, 128}).ok() && output[0] == 0xAA,
+              !voice_gateway_write_media_sink_wants(100, {top, 1}, {output, 128}).ok() && output[0] == 0xAA,
           "Media sink wants: quality above 100, duplicate, zero or non-index SSRCs are rejected unwritten");
 }
 

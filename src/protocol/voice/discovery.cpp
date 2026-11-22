@@ -2,14 +2,11 @@
 #include "maicord/core/byte_order.hpp"
 
 namespace maicord {
-bool voice_discovery_request(u32 ssrc, Slice<u8> output) noexcept {
-    if (!ssrc || output.count < kVoiceDiscoveryBytes)
-        return false;
-    clear_bytes(output.data, kVoiceDiscoveryBytes);
+void voice_discovery_request(u32 ssrc, u8* output) noexcept {
+    clear_bytes(output, kVoiceDiscoveryBytes);
     output[1] = 1;
     output[3] = 70;
-    byte_store_be32(output.data + 4, ssrc);
-    return true;
+    byte_store_be32(output + 4, ssrc);
 }
 bool voice_discovery_response(ConstSlice<u8> packet, u32 ssrc, VoiceDiscoveryAddress* output) noexcept {
     if (packet.count != kVoiceDiscoveryBytes || !ssrc || byte_load_be16(packet.data) != 2 ||

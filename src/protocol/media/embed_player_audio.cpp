@@ -8,7 +8,7 @@ u32 apple_music_track_target(const Utf8View& id_view, const Utf8View& country_vi
     const Slice<u8> output = output_view;
     constexpr auto prefix = utf8_literal("/lookup?id="), suffix = utf8_literal("&country=");
     const u32 bytes = prefix.bytes + id.bytes + suffix.bytes + 2;
-    if (!apple_music_track_id(id) || !country.data || country.bytes != 2 || !output.data || output.count < bytes) return 0;
+    if (!apple_music_track_id(id) || country.bytes != 2) return 0;
     for (u32 i = 0; i < 2; ++i) if (ascii_lower(country.data[i]) < 'a' || ascii_lower(country.data[i]) > 'z') return 0;
     copy_bytes(output.data, prefix.data, prefix.bytes); copy_bytes(output.data + prefix.bytes, id.data, id.bytes);
     copy_bytes(output.data + prefix.bytes + id.bytes, suffix.data, suffix.bytes);
@@ -18,9 +18,7 @@ u32 apple_music_track_target(const Utf8View& id_view, const Utf8View& country_vi
 EmbedPlayerError apple_music_track_preview(Utf8View json, Utf8View id, Utf8View country,
     Slice<u32> scratch, EmbedStream* output, bool video) noexcept {
     using E = EmbedPlayerError;
-    u8 target[64];
-    if (!output || !apple_music_track_target(id, country, {target, sizeof(target)}) ||
-        !json.data || !json.bytes || json.bytes > kAppleMusicMetadataMaximumBytes) return E::invalid_input;
+    if (!json.data || !json.bytes || json.bytes > kAppleMusicMetadataMaximumBytes) return E::invalid_input;
     JsonIndexedDocument doc;
     if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
     FieldSet<"resultCount", "results"> root;
@@ -56,8 +54,7 @@ EmbedPlayerError apple_music_track_preview(Utf8View json, Utf8View id, Utf8View 
 EmbedPlayerError apple_music_album(Utf8View json, Utf8View id, Utf8View country,
     Slice<u32> scratch, u16* output, AppleMusicCollectionSink sink) noexcept {
     using E=EmbedPlayerError;
-    u8 target[64];
-    if (!output || !sink.write || !apple_music_track_target(id,country,{target,sizeof(target)}) || !json.bytes || json.bytes>512*1024) return E::invalid_input;
+    if (!json.bytes || json.bytes>512*1024) return E::invalid_input;
     JsonIndexedDocument doc;
     if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
     FieldSet<"resultCount", "results"> root;
@@ -120,7 +117,7 @@ u32 spotify_audio_target(Utf8View id, Slice<u8> output, bool episode) noexcept {
 }
 EmbedPlayerError spotify_audio_preview(Utf8View html, Utf8View id, Slice<u32> scratch, EmbedStream* output, bool episode) noexcept {
     using E = EmbedPlayerError;
-    if (!output || !spotify_audio_id(id) || !html.data || !html.bytes || html.bytes > kSpotifyEmbedMaximumBytes)
+    if (!html.data || !html.bytes || html.bytes > kSpotifyEmbedMaximumBytes)
         return E::invalid_input;
     constexpr auto begin = utf8_literal("<script id=\"__NEXT_DATA__\" type=\"application/json\">");
     constexpr auto end = utf8_literal("</script>");
@@ -197,7 +194,7 @@ bool soundcloud_location(Utf8View url, bool playlist, EmbedStreamLocation* out) 
 }
 static EmbedPlayerError track_title(Utf8View json, u64 track, Utf8View video, Slice<u32> scratch, MediaTrackTitle* out) noexcept {
     using E = EmbedPlayerError;
-    if (!out || (!track && !video_id(video)) || !json.data || !json.bytes || json.bytes > 32768) return E::invalid_input;
+    if ((!track && !video_id(video)) || !json.data || !json.bytes || json.bytes > 32768) return E::invalid_input;
     JsonIndexedDocument doc;
     if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
     FieldSet<"type", "provider_name", "provider_url", "title", "html", "author_name"> f;
@@ -298,7 +295,7 @@ void soundcloud_detail(const JsonIndexedDocument& doc, const Field& user, const 
 }
 EmbedPlayerError youtube_collection_page(Utf8View json, Utf8View list, Slice<u32> scratch, YoutubeCollectionPage* out, MediaTrackTitleSink sink) noexcept {
     using E = EmbedPlayerError;
-    if (!out || !list.bytes || !json.bytes || json.bytes > 2 * 1024 * 1024) return E::invalid_input;
+    if (!json.bytes || json.bytes > 2 * 1024 * 1024) return E::invalid_input;
     JsonIndexedDocument doc;
     if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
     JsonValue panel{};
@@ -416,7 +413,7 @@ bool playlist_identity(const JsonIndexedDocument& doc,const JsonValue& descripto
 EmbedPlayerError apple_music_playlist(Utf8View html,Utf8View id,Utf8View country,Slice<u32> scratch,
     AppleMusicPlaylist* output,AppleMusicCollectionSink sink) noexcept {
     using E=EmbedPlayerError;
-    if (!output || !sink.write || !html.bytes || html.bytes>2*1024*1024) return E::invalid_input;
+    if (!html.bytes || html.bytes>2*1024*1024) return E::invalid_input;
     Utf8View json{}; const auto extracted=playlist_json(html,&json); if (extracted!=E::none) return extracted;
     JsonIndexedDocument doc;
     if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
@@ -501,7 +498,7 @@ EmbedPlayerError youtube_track_title(Utf8View json, Utf8View video, Slice<u32> s
 }
 EmbedPlayerError soundcloud_manifest(Utf8View json, Slice<u32> scratch, EmbedStream* out) noexcept {
     using E = EmbedPlayerError;
-    if (!out || !json.data || !json.bytes || json.bytes > 8192) return E::invalid_input;
+    if (!json.data || !json.bytes || json.bytes > 8192) return E::invalid_input;
     JsonIndexedDocument doc;
     if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
     FieldSet<"url"> f; JsonString value{}; EmbedStream staged{};
@@ -511,7 +508,7 @@ EmbedPlayerError soundcloud_manifest(Utf8View json, Slice<u32> scratch, EmbedStr
 }
 EmbedPlayerError soundcloud_widget_page(Utf8View html, EmbedStream* out, bool collection) noexcept {
     using E = EmbedPlayerError;
-    if (!out || !html.data || !html.bytes || html.bytes > 65536) return E::invalid_input;
+    if (!html.data || !html.bytes || html.bytes > 65536) return E::invalid_input;
     constexpr auto marker = utf8_literal("<link rel=\"canonical\" href=\"");
     Utf8View canonical{};
     for (u32 i = 0; i + marker.bytes < html.bytes; ++i) {
@@ -564,7 +561,7 @@ u32 soundcloud_permalink(const Utf8View& path, bool collection, char (&out)[544]
 } // namespace
 EmbedPlayerError soundcloud_track_request(Utf8View html, Utf8View path, Slice<u32> scratch, EmbedStream* out, u64 expected_id) noexcept {
     using E = EmbedPlayerError;
-    if (!out || !html.data || !html.bytes || html.bytes > 512 * 1024 || !path.data || path.bytes > 512) return E::invalid_input;
+    if (!html.data || !html.bytes || html.bytes > 512 * 1024 || !path.data || path.bytes > 512) return E::invalid_input;
     char permalink[544]; const u32 permalink_bytes = soundcloud_permalink(path, false, permalink);
     if (!permalink_bytes) return E::invalid_input;
     SoundcloudHydration h{};
@@ -621,8 +618,7 @@ EmbedPlayerError soundcloud_track_request(Utf8View html, Utf8View path, Slice<u3
 EmbedPlayerError soundcloud_collection(Utf8View html, Utf8View path, u64 expected_id,
     u32 selected, Slice<u32> scratch, Slice<u64> tracks, SoundcloudCollection* out, MediaTrackTitleSink sink) noexcept {
     using E = EmbedPlayerError;
-    if (!out || !tracks.data || !tracks.count || !html.data || !html.bytes || html.bytes > 512 * 1024 ||
-        !path.data || path.bytes > 512) return E::invalid_input;
+    if (!html.data || !html.bytes || html.bytes > 512 * 1024 || !path.data || path.bytes > 512) return E::invalid_input;
     char permalink[544]; const u32 permalink_bytes = soundcloud_permalink(path, true, permalink);
     if (!permalink_bytes) return E::invalid_input;
     SoundcloudHydration h{};
@@ -699,7 +695,7 @@ EmbedPlayerError soundcloud_collection(Utf8View html, Utf8View path, u64 expecte
 EmbedPlayerError soundcloud_batch_titles(Utf8View json, const SoundcloudTitleBatch& batch, u16 preferred,
     Slice<u32> scratch, MediaTrackTitleSink sink) noexcept {
     using E = EmbedPlayerError;
-    if (!batch.count || batch.count > 50 || !sink.write || !json.bytes || json.bytes > 512 * 1024) return E::invalid_input;
+    if (!json.bytes || json.bytes > 512 * 1024) return E::invalid_input;
     struct Names { JsonIndexedDocument doc; const SoundcloudTitleBatch* batch; MediaTrackTitleSink sink; u64 seen; u16 preferred; bool first; } names{{},&batch,sink,0,preferred,true};
     if (const auto indexed = index_json(json, scratch, &names.doc); indexed != E::none) return indexed;
     const auto visit = [](void* opaque, u32, JsonValue value) noexcept {

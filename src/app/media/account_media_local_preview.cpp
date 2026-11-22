@@ -244,7 +244,6 @@ AccountMediaRequestResult account_media_decode_local_preview(AccountMedia* media
                                                              const AccountMediaLocalPreviewRequest& request,
                                                              const ConstSlice<u8>& encoded) noexcept {
     if (!media->started || media->active || media->frame_ready ||
-        !local_draft_preview_request_valid(request) ||
         ((encoded.data || encoded.count) && (!encoded.data || encoded.count != request.snapshot.bytes)))
         return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     if (local_draft_preview_thumbnail(request.key)) {
@@ -335,8 +334,7 @@ AccountMediaRequestResult account_media_decode_local_video_preview(AccountMedia*
                                                                    const AccountMediaLocalPreviewRequest& request,
                                                                    AttachmentProbeRead read,
                                                                    void* context) noexcept {
-    if (!media->started || media->active || media->frame_ready || !read ||
-        !local_draft_preview_request_valid(request) || !local_draft_preview_thumbnail(request.key) ||
+    if (!media->started || media->active || media->frame_ready || !local_draft_preview_thumbnail(request.key) ||
         media_asset_catalog_format(request.key) != MediaAttachmentFormat::mp4 ||
         request.snapshot.bytes > kMediaMaximumProgressiveVideoBytes)
         return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);

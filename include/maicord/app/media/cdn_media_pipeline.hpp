@@ -306,6 +306,7 @@ bool cdn_media_pipeline_ensure_scanlines(CdnMediaPipeline* pipeline, u64 require
 // parsed, inflated and filtered. Admission consumes only metadata produced by
 // validate_static_image_response: a 200 body is decoded before it is published
 // into the encoded cache, and a 304 must correlate to an existing ETag-bearing entry.
+// The audio pair takes an initialized pipeline (its encoded cache is set; account media starts it first).
 void cdn_media_pipeline_lookup_audio(CdnEncodedAudioResult* out, CdnMediaPipeline*, const MediaAssetKey&,
                                      u64 now_seconds, OggOpusCancelled cancelled = nullptr,
                                      void* context = nullptr) noexcept;

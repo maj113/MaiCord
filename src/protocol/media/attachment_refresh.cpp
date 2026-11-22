@@ -95,7 +95,7 @@ u32 attachment_refresh_body(Utf8View url, Slice<u8> output) noexcept {
 
 u32 attachment_refresh_response(Utf8View body, Utf8View original,
                                 u64 now_seconds, Slice<char> output) noexcept {
-    if (body.bytes > 16 * 1024 || !output.data) return 0;
+    if (body.bytes > 16 * 1024) return 0;
     u32 structural[128];
     const auto scan = json_scan_structurals_avx1(body, {structural, 128});
     RefreshJson pair{};

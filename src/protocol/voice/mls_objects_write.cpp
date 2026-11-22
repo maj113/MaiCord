@@ -18,10 +18,6 @@ struct Writer {
         if (error != MlsWireError::none)
             return;
         if (!emit) {
-            if (!byte_range_valid(data) || byte_ranges_overlap(data, {output.data, output.count})) {
-                fail(MlsWireError::invalid_input);
-                return;
-            }
             if (data.count > ~u32{0} - used) {
                 fail(MlsWireError::size_overflow);
                 return;
@@ -111,9 +107,6 @@ void write_tbs(Writer& w, const MlsKeyPackageView& v) noexcept {
     w.list(v.extensions, true);
 }
 template <typename T> MlsEncodeResult encode_tbs(const T& input, Slice<u8> output) noexcept {
-    if (!byte_range_valid({output.data, output.count}) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(&input), sizeof(T)}, {output.data, output.count}))
-        return {0, MlsWireError::invalid_input};
     Writer check{output};
     write_tbs(check, input);
     if (check.error != MlsWireError::none)

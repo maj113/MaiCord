@@ -79,7 +79,7 @@ AttachmentUrlResult parse_signed_attachment_url(const Utf8View& url_view, u64 at
     // Value copies: the target stores below must not force reloads of the caller's views.
     const Utf8View url = url_view;
     const Slice<u8> target_output = output_view;
-    if (!url.data || url.bytes == 0 || attachment_id == 0 || (!target_output.data && target_output.count != 0))
+    if (url.bytes == 0 || attachment_id == 0)
         return attachment_url_failure(AttachmentUrlError::invalid_input);
     static constexpr char scheme[] = "https://";
     constexpr u32 scheme_bytes = sizeof(scheme) - 1;
@@ -286,7 +286,7 @@ AttachmentUrlResult parse_signed_attachment_url(const Utf8View& url_view, u64 at
 MediaUrlResult parse_media_url(const Utf8View& url_view, const Slice<u8>& output_view) noexcept {
     const Utf8View url = url_view;
     const Slice<u8> target_output = output_view;
-    if (!url.data || url.bytes == 0 || (!target_output.data && target_output.count != 0)) {
+    if (url.bytes == 0) {
         return media_url_failure(MediaUrlError::invalid_input);
     }
     static constexpr char scheme[] = "https://";
@@ -340,7 +340,7 @@ namespace {
 // Klipy asset path: [a-zA-Z0-9/_-]+ plus the given extension, with no empty
 // segments, other dots or escapes.
 bool klipy_asset_valid(ConstSlice<u8> target, const char* suffix, u32 suffix_bytes) noexcept {
-    if (!target.data || target.count <= 1 + suffix_bytes || target.count > kCdnMaximumTargetBytes ||
+    if (target.count <= 1 + suffix_bytes || target.count > kCdnMaximumTargetBytes ||
         target[0] != '/' ||
         !ascii_equal(reinterpret_cast<const char*>(target.data + target.count - suffix_bytes), suffix_bytes,
                      suffix))
@@ -470,7 +470,7 @@ bool catalog_proxy_target_valid(ConstSlice<u8> target) noexcept {
 } // namespace
 
 bool sticker_json_target_valid(const ConstSlice<u8>& target) noexcept {
-    if (!target.data || target.count <= 15 || target.count > kCdnMaximumTargetBytes ||
+    if (target.count <= 15 || target.count > kCdnMaximumTargetBytes ||
         !bytes_begin_with(target, target.count, "/stickers/") ||
         !ascii_equal(reinterpret_cast<const char*>(target.data + target.count - 5), 5, ".json"))
         return false;
@@ -480,7 +480,7 @@ bool sticker_json_target_valid(const ConstSlice<u8>& target) noexcept {
 }
 bool soundboard_target_valid(const ConstSlice<u8>& target) noexcept {
     constexpr u32 prefix = sizeof("/soundboard-sounds/") - 1;
-    if (!target.data || target.count <= prefix || target.count > prefix + 20 ||
+    if (target.count <= prefix || target.count > prefix + 20 ||
         !bytes_begin_with(target, target.count, "/soundboard-sounds/"))
         return false;
     u64 sound = 0;
@@ -492,7 +492,7 @@ namespace {
 bool slug_byte(u8 c) noexcept { return ascii_is_alnum(c) || c == '-' || c == '_'; }
 // /<11-byte id>AAAA1/<slug>.webp
 bool tenor_target_valid(ConstSlice<u8> target) noexcept {
-    if (!target.data || target.count < 1 + 16 + 1 + 1 + 5 || target.count > 1 + 16 + 1 + 128 + 5 || target[0] != '/' ||
+    if (target.count < 1 + 16 + 1 + 1 + 5 || target.count > 1 + 16 + 1 + 128 + 5 || target[0] != '/' ||
         target[17] != '/' || !bytes_equal(target.data + 12, "AAAA1", 5) ||
         !bytes_equal(target.data + target.count - 5, ".webp", 5))
         return false;
@@ -505,7 +505,7 @@ bool tenor_target_valid(ConstSlice<u8> target) noexcept {
 // /media/<id>/200w.webp
 bool giphy_target_valid(ConstSlice<u8> target) noexcept {
     constexpr u32 prefix = 7, suffix = 10;
-    if (!target.data || target.count <= prefix + suffix || target.count > prefix + 64 + suffix ||
+    if (target.count <= prefix + suffix || target.count > prefix + 64 + suffix ||
         !bytes_equal(target.data, "/media/", prefix) || !bytes_equal(target.data + target.count - suffix, "/200w.webp", suffix))
         return false;
     for (u32 i = prefix; i < target.count - suffix; ++i)
@@ -643,7 +643,7 @@ struct ExternalProxyTarget {
 };
 bool external_proxy_target(ConstSlice<u8> target, ExternalProxyTarget* out) noexcept {
     constexpr u32 prefix = sizeof("/external/") - 1;
-    if (!target.data || !bytes_begin_with(target, target.count, "/external/"))
+    if (!bytes_begin_with(target, target.count, "/external/"))
         return false;
     const auto text = reinterpret_cast<const char*>(target.data);
     u32 cursor = prefix;
@@ -796,7 +796,7 @@ MediaUrlResult parse_catalog_preview_url(const Utf8View& url_view, const Slice<u
     const Utf8View url = url_view;
     const Slice<u8> target_output = output_view;
     const KlipyOrigin klipy = klipy_origin(url);
-    if (!url.data || !url.bytes || (!target_output.data && target_output.count))
+    if (!url.bytes)
         return media_url_failure(MediaUrlError::invalid_input);
     if (format == MediaAttachmentFormat::lottie) {
         auto parsed = parse_media_url(url, target_output);
@@ -907,7 +907,7 @@ MediaUrlResult parse_catalog_preview_url(const Utf8View& url_view, const Slice<u
 }
 
 MediaAttachmentFormat catalog_favorite_format(Utf8View src) noexcept {
-    if (!src.data || !src.bytes)
+    if (!src.bytes)
         return MediaAttachmentFormat::webp;
     const KlipyOrigin klipy = klipy_origin(src);
     if (klipy.bytes &&
@@ -977,11 +977,10 @@ CdnTargetResult write_media_proxy_target(ConstSlice<u8> source_target,
                                          CdnHost source_host, u32 target_width,
                                          u32 target_height, CdnMediaFormat format,
                                          Slice<u8> output, bool animated) noexcept {
-    if (!source_target.data || source_target.count == 0 || source_target[0] != '/' ||
+    if (source_target.count == 0 || source_target[0] != '/' ||
         (source_host != CdnHost::cdn && source_host != CdnHost::media &&
          source_host != CdnHost::images_ext_1 && source_host != CdnHost::images_ext_2) ||
-        target_width == 0 || target_height == 0 || target_width > 4'096 || target_height > 4'096 ||
-        (!output.data && output.count != 0)) {
+        target_width == 0 || target_height == 0 || target_width > 4'096 || target_height > 4'096) {
         return failure(CdnTargetError::invalid_input);
     }
     u32 query = 0;
@@ -1042,7 +1041,7 @@ CdnTargetResult write_media_proxy_target(ConstSlice<u8> source_target,
 
 CdnTargetResult write_custom_emoji_cdn_target(u64 emoji_id, bool animated, u32 size,
                                               Slice<u8> output) noexcept {
-    if (emoji_id == 0 || !image_size_valid(size) || (!output.data && output.count != 0)) {
+    if (emoji_id == 0 || !image_size_valid(size)) {
         return failure(CdnTargetError::invalid_input);
     }
     ProtocolWriter writer{output, 0};
@@ -1059,8 +1058,7 @@ namespace {
 // "<prefix><id>/<hash>.webp?size=<size>", animated when allowed and the hash is.
 CdnTargetResult write_hashed_asset_target(const char* prefix, u64 id, Utf8View hash, u32 size,
                                           bool animate, Slice<u8> output) noexcept {
-    if (id == 0 || !asset_hash_hex_valid(hash) || !image_size_valid(size) ||
-        (!output.data && output.count != 0)) {
+    if (id == 0 || !asset_hash_hex_valid(hash) || !image_size_valid(size)) {
         return failure(CdnTargetError::invalid_input);
     }
     ProtocolWriter writer{output, 0};
@@ -1089,7 +1087,7 @@ CdnTargetResult write_channel_icon_cdn_target(u64 channel_id, Utf8View icon_hash
 
 CdnTargetResult write_sticker_cdn_target(u64 sticker_id, u32 format_type,
                                          Slice<u8> output) noexcept {
-    if (sticker_id == 0 || (!output.data && output.count != 0)) {
+    if (sticker_id == 0) {
         return failure(CdnTargetError::invalid_input);
     }
     const char* extension = nullptr;

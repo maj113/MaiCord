@@ -14,18 +14,15 @@ static_assert(sizeof(OpusWorkspace) <= 220 * 1024); // the decoder is part of it
 static_assert(sizeof(PcmWorkspace) <= 84 * 1024);
 static_assert(sizeof(Mp3Workspace) <= 96 * 1024);
 
+// An Ogg Opus session holds ready metadata (account_video_session_initialize_audio).
 inline const OggOpusDemuxer* opus_source(const AccountVideoSession& s) noexcept {
-    return s.encoded_metadata ? &s.encoded_metadata->opus : nullptr;
+    return &s.encoded_metadata->opus;
 }
 inline u32 source_rate(const AccountVideoSession& s) noexcept {
     return encoded_audio_rate(*s.encoded_metadata);
 }
 inline u64 source_total_frames(const AccountVideoSession& s) noexcept {
     return encoded_audio_total_frames(*s.encoded_metadata);
-}
-bool identity_valid(const AccountVideoIdentity& id) noexcept {
-    return id.account_serial && id.message_id && id.content_identity && id.session_epoch &&
-           id.cache_generation && !id.reserved;
 }
 
 } // namespace
@@ -64,7 +61,7 @@ void terminal(AccountVideoSession& s, AccountVideoError error, u32 native) noexc
 namespace {
 
 bool frame_count(i64 duration, u32 rate, u64* frames) noexcept {
-    if (duration < 0 || !rate || !frames)
+    if (duration < 0 || !rate)
         return false;
     const u64 time = static_cast<u64>(duration), seconds = time / 10000000, remainder = time % 10000000;
     if (seconds > ~u64{0} / rate)
@@ -194,10 +191,7 @@ bool live_window(AccountVideoSession& s) noexcept {
 namespace {
 
 bool opus_window(AccountVideoSession& s, OpusWorkspace& w) noexcept {
-    const auto* source = opus_source(s);
-    if (!source || !source->ready)
-        return false;
-    w.demux = *source;
+    w.demux = *opus_source(s);
     u64 frame{};
     if (!frame_count(s.seek_target, kOggOpusSampleRate, &frame))
         return false;
@@ -286,10 +280,6 @@ bool pcm_workspace(AccountVideoSession& s) noexcept {
                           ~(kMp3DecoderStateAlignment - 1);
     const bool mp3 = s.status.kind == AccountPlaybackKind::mp3;
     const u32 state_bytes = mp3 ? mp3_decoder_storage_bytes() : 0;
-    if (mp3 && (!state_bytes || state_bytes > 32 * 1024)) {
-        terminal(s, AccountVideoError::decoder);
-        return false;
-    }
     const u32 allocation = mp3 ? offset + state_bytes : sizeof(PcmWorkspace);
     auto* w = static_cast<PcmWorkspace*>(commit_pages(allocation));
     if (!w) {
@@ -1090,8 +1080,7 @@ static AccountVideoResult begin_session(AccountVideoSession* s, const AccountVid
 AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4Decoder* video,
                                                     const AccountVideoIdentity& id, HANDLE event,
                                                     Mp4SourceAvailability audio_availability, Mp4FragmentAudio* fragmented_audio) noexcept {
-    if (s->initialized || s->workspace || !video || !video->ready || !identity_valid(id) || !event)
-        return result(AccountVideoError::invalid_input);
+    // The caller acknowledged a frame of this decoder, so it is present and ready.
     const auto source = mp4_decoder_source(*video);
     const auto movie = mp4_decoder_movie(*video);
     if (!source.data || !source.count || !movie.duration_us || !movie.first_presentation_valid ||
@@ -1131,7 +1120,7 @@ AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4D
 AccountVideoResult account_video_session_initialize_fragment_audio(AccountVideoSession* s, Mp4FragmentAudio* audio,
     const AccountVideoIdentity& id, HANDLE event) noexcept {
     Mp4FragmentAudioFormat format{};
-    if (s->initialized || s->workspace || !identity_valid(id) || !event || !mp4_fragment_audio_format(*audio, &format) ||
+    if (!mp4_fragment_audio_format(*audio, &format) ||
         (audio->source && audio->source->segments && audio->source->segments->live) || !audio->packet_count ||
         audio->packet_index > audio->packet_count)
         return result(AccountVideoError::invalid_input);
@@ -1151,11 +1140,10 @@ AccountVideoResult account_video_session_initialize_audio(AccountVideoSession* s
                                                           const AccountVideoIdentity& id,
                                                           HANDLE event) noexcept {
     u64 duration{};
-    if (s->initialized || s->workspace || !encoded_audio_ready(*metadata) ||
+    if (!encoded_audio_ready(*metadata) ||
         !encoded_audio_bytes(*metadata).data || !encoded_audio_bytes(*metadata).count ||
         (encoded_audio_channels(*metadata) != 1 && encoded_audio_channels(*metadata) != 2) ||
         encoded_audio_rate(*metadata) < 8000 || encoded_audio_rate(*metadata) > 192000 ||
-        !identity_valid(id) || !event ||
         !media_audio_clock_time(encoded_audio_total_frames(*metadata), encoded_audio_rate(*metadata),
                                 &duration) || duration > static_cast<u64>(kLimit))
         return result(AccountVideoError::invalid_input);

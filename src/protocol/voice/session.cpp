@@ -1,5 +1,4 @@
 #include "maicord/protocol/voice/session.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
@@ -17,15 +16,6 @@ VoiceSessionEvent fail(VoiceSession* session, VoiceSessionError error) noexcept 
 bool voice_session_initialize(VoiceSession* session, Slice<u8> input, Slice<u8> fragments,
                               Slice<u32> scratch, ConstSlice<u8> client_key, u32 maximum_frame_bytes,
                               u32 maximum_message_bytes, u64 now_ms, bool resume) noexcept {
-    if (!input.data || input.count < 14 || !fragments.data || !scratch.data || !scratch.count ||
-        scratch.count > ~u32{0} / sizeof(u32) || !client_key.data ||
-        client_key.count != kWebSocketClientKeyBytes || !maximum_frame_bytes ||
-        maximum_frame_bytes > input.count - 14 || !maximum_message_bytes ||
-        maximum_message_bytes > fragments.count ||
-        byte_ranges_overlap(input.data, input.count, fragments.data, fragments.count) ||
-        byte_ranges_overlap(input.data, input.count, scratch.data, scratch.count * sizeof(u32)) ||
-        byte_ranges_overlap(fragments.data, fragments.count, scratch.data, scratch.count * sizeof(u32)))
-        return false;
     if (!voice_heartbeat_start(&session->heartbeat, now_ms, resume))
         return false;
     u8 key[kWebSocketClientKeyBytes];
@@ -118,11 +108,7 @@ VoiceSessionEvent voice_session_next(VoiceSession* session, u64 now_ms) noexcept
         const u32 required = session->scratch.count > packet.payload.count / 2 ? packet.payload.count
                                                                                : session->scratch.count * 2;
         const auto grown = session->grow_scratch(session->scratch_context, required);
-        if (!grown.data || grown.count < required || grown.count <= session->scratch.count ||
-            grown.count > ~u32{0} / sizeof(u32) ||
-            byte_ranges_overlap(grown.data, grown.count * sizeof(u32), session->input.data, session->input.capacity) ||
-            byte_ranges_overlap(grown.data, grown.count * sizeof(u32), session->fragments.data,
-                                session->fragments.count))
+        if (!grown.data || grown.count < required) // the owner's storage, outside the packet buffers
             return fail(session, VoiceSessionError::json);
         session->scratch = grown;
     }

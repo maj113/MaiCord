@@ -144,7 +144,6 @@ RestClientSubmitResult module_lane(void* instance, const decltype(lane_request(S
 }
 
 AccountModuleStatus module_failure(AccountModuleError error) noexcept;
-__declspec(noinline) AccountMediaRequestResult rejected_media_request() noexcept;
 bool save_snapshot(AccountModuleRuntime* runtime, const GatewayUserSessionSnapshot& snapshot,
                    bool include_sequence) noexcept;
 // Takes a token READY refreshed into REST and saves it with the profile (account_profile_save's

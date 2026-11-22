@@ -186,6 +186,12 @@ bool query(Utf8View text) noexcept {
 bool send_pending(u64 id) noexcept {
     return application_media_picker_submit(id, g_app.media_picker->due_at);
 }
+const MediaCatalogItem* sticker_at(const ApplicationMediaPicker& p, u32 index) noexcept {
+    const CatalogBank* bank = nullptr;
+    u32 local = 0;
+    static MediaCatalogItem temporary;
+    return item_at(p, index, &bank, &local, &temporary);
+}
 constexpr auto gif_body = utf8_literal(
     R"([{"id":"fixture-provider","title":"Fixture GIF","width":640,"height":128,"src":"https://static.klipy.com/ii/00000000000000000000000000000000/00/00/preview.webp","gif_src":"https://static.klipy.com/ii/00000000000000000000000000000000/00/00/animated.webp","url":"https://klipy.com/gifs/fixture-send"}])");
 
@@ -353,8 +359,8 @@ void test_server_stickers(ApplicationMediaPicker& p) noexcept {
     }
     check(setup && query({}) && sticker_view(p) && p.guild && p.guild->count == 1 && p.section_count == 2 &&
               p.sections[0].visual == UiMediaPickerSectionVisual::guild && p.sections[0].guild_id == 7 &&
-              utf8_equal(p.sections[0].label, utf8_literal("Fixture guild")) && item_at(p, 0)->sticker_id == 71 &&
-              item_at(p, 0)->available,
+              utf8_equal(p.sections[0].label, utf8_literal("Fixture guild")) && sticker_at(p, 0)->sticker_id == 71 &&
+              sticker_at(p, 0)->available,
           "picker stickers: this server's stickers lead under its name; other servers' stay hidden without "
           "Use External Stickers");
     ui.chat_state.self_premium_type = 3;
@@ -654,7 +660,7 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
         send_pending(504) && response(504, full_packs());
     check(listed && application_media_picker_synchronize() && p.phase == UiMediaPickerPhase::ready &&
               p.source.count == kUiInlineResultsStickerLimit && p.scene.cell_count == kUiInlineResultsStickerLimit &&
-              item_at(p, 0)->sticker_id == 71 && item_at(p, 1)->sticker_id == 72 && p.scene.selected_index == 0 &&
+              sticker_at(p, 0)->sticker_id == 71 && sticker_at(p, 1)->sticker_id == 72 && p.scene.selected_index == 0 &&
               inline_heading(p.scene, utf8_literal("Stickers matching wave"), 18) &&
               inline_row(p.scene, utf8_literal("Server wave"), {}, utf8_literal("Fixture guild")) &&
               inline_row(p.scene, utf8_literal("Pack wave"), {}, utf8_literal("Fixture pack")),
@@ -666,12 +672,12 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
           "inline results: a sticker found by its server or pack notes the match as the client does");
     // U+1F44B waving hand, the server sticker's tag "wave", then its medium skin tone.
     check(application_media_picker_inline(UiMediaPickerKind::sticker, utf8_literal("\xF0\x9F\x91\x8B"), anchor) &&
-              application_media_picker_synchronize() && p.source.count && item_at(p, 0)->sticker_id == 71 &&
+              application_media_picker_synchronize() && p.source.count && sticker_at(p, 0)->sticker_id == 71 &&
               inline_row(p.scene, utf8_literal("Server wave"), utf8_literal("Similar to: \xF0\x9F\x91\x8B"),
                          utf8_literal("Fixture guild")) &&
               application_media_picker_inline(UiMediaPickerKind::sticker,
                                               utf8_literal("\xF0\x9F\x91\x8B\xF0\x9F\x8F\xBD"), anchor) &&
-              application_media_picker_synchronize() && p.source.count && item_at(p, 0)->sticker_id == 71,
+              application_media_picker_synchronize() && p.source.count && sticker_at(p, 0)->sticker_id == 71,
           "inline results: a server sticker matches its tag's emoji and skin-tone variants");
     const u64 now_ms = clock_unix_milliseconds();
     sticker_frecency = sticker_frecency_group(utf8_literal("72"), 2, now_ms);
@@ -686,14 +692,14 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
     // Every "Pack wave" in the fixture shares ID 72, so its weight moves them all.
     check(application_media_picker_inline(UiMediaPickerKind::sticker, utf8_literal("wave"), anchor) &&
               application_media_picker_synchronize() && p.source.count == kUiInlineResultsStickerLimit &&
-              item_at(p, 0)->sticker_id == 72 && item_at(p, kUiInlineResultsStickerLimit - 1)->sticker_id == 72,
+              sticker_at(p, 0)->sticker_id == 72 && sticker_at(p, kUiInlineResultsStickerLimit - 1)->sticker_id == 72,
           "inline results: synced sticker frecency weighs matches by score / 100 (two uses today double it)");
     sticker_frecency = sticker_frecency_group(utf8_literal("71"), 1, now_ms - 100ull * 86'400'000ull);
     // Another spelling is a new search, scored again (case never changes a score).
     bool dropped = application_media_picker_inline(UiMediaPickerKind::sticker, utf8_literal("Wave"), anchor) &&
                    application_media_picker_synchronize() && p.source.count == kUiInlineResultsStickerLimit;
     for (u32 i = 0; dropped && i < kUiInlineResultsStickerLimit; ++i)
-        dropped = item_at(p, i)->sticker_id != 71;
+        dropped = sticker_at(p, i)->sticker_id != 71;
     check(dropped, "inline results: one use 100 days ago keeps a hundredth of a sticker's score");
     sticker_frecency = {};
     check(application_media_picker_inline(UiMediaPickerKind::sticker, utf8_literal("needle"), anchor) &&
@@ -981,13 +987,13 @@ void run() noexcept {
         return;
     }
     check(query(utf8_literal("huh")) && p.phase == UiMediaPickerPhase::ready && p.source.count == 1 &&
-              item_at(p, 0)->sticker_id == 72 &&
-              utf8_equal(item_at(p, 0)->tags, utf8_literal("curious, ?\thuh, wave")) && query({}),
+              sticker_at(p, 0)->sticker_id == 72 &&
+              utf8_equal(sticker_at(p, 0)->tags, utf8_literal("curious, ?\thuh, wave")) && query({}),
           "picker runtime: official tab-separated sticker metadata loads and remains searchable locally");
     const auto sticker_submissions = account.submissions;
     check(capture_body_thumb() && query(utf8_literal("needle")) && !p.captured && !p.scrollbar_dragging &&
               !window_pointer_captured(g_app.window) && p.source.count == 1 && p.section_count == 1 &&
-              p.sections[0].id == 42 && item_at(p, 0)->sticker_id == 99 &&
+              p.sections[0].id == 42 && sticker_at(p, 0)->sticker_id == 99 &&
               account.submissions == sticker_submissions,
           "picker runtime: local catalog filtering immediately retires real thumb capture and reaches "
           "final full-pack item without another request");
@@ -1030,7 +1036,7 @@ void run() noexcept {
               preview.format == MediaAttachmentFormat::lottie && activate(p, target(0)) &&
               controller.request_count == requests_before_vector + 1,
           "picker runtime: Lottie uses typed JSON artwork and queues its actual sticker ID");
-    check(!item_at(p, p.source.count) && !resolve(&p, p.source.count, &unsupported),
+    check(!sticker_at(p, p.source.count) && !resolve(&p, p.source.count, &unsupported),
           "picker runtime: filtered projection refuses indices outside authoritative source range");
     test_server_stickers(p);
     check(

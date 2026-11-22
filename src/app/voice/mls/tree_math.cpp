@@ -43,13 +43,13 @@ MlsStatus mls_tree_sibling(u32 node, u32 ancestor, u32* sibling) noexcept {
     return MlsStatus::ok;
 }
 MlsStatus mls_tree_node_count(u32 leaf_count, u32* node_count) noexcept {
-    if (!node_count || leaf_count > 0x80000000u)
+    if (leaf_count > 0x80000000u)
         return MlsStatus::invalid_argument;
     *node_count = leaf_count ? 2 * (leaf_count - 1) + 1 : 0;
     return MlsStatus::ok;
 }
 MlsStatus mls_tree_full_leaf_count(u32 leaf_count, u32* full_leaf_count) noexcept {
-    if (!full_leaf_count || leaf_count > 0x80000000u)
+    if (leaf_count > 0x80000000u)
         return MlsStatus::invalid_argument;
     *full_leaf_count = full_leaves(leaf_count);
     return MlsStatus::ok;
@@ -76,8 +76,6 @@ MlsStatus mls_tree_leaf_ancestor(u32 left_leaf, u32 right_leaf, u32* ancestor) n
 }
 namespace {
 MlsStatus walk(u32 node, u32 leaf_count, Slice<u32> path, u32* count, bool copath) noexcept {
-    if (!count || (!path.data && path.count))
-        return MlsStatus::invalid_argument;
     *count = 0;
     u32 nodes = 0, root = 0;
     if (mls_tree_node_count(leaf_count, &nodes) != MlsStatus::ok || !leaf_count || node >= nodes ||

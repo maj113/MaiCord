@@ -192,7 +192,6 @@ bool soundcloud_collection_tests(EmbedResolver* resolver) noexcept {
         collection.id == 59880230 && collection.count == 2 && collection.selected == 1 && tracks[0] == 285103732 && tracks[1] == 770110162,
         "public artist station validates its exact identity and derives the complete queue count");
     constexpr auto track_widget=utf8_literal("https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fdiscover%2Fsets%2Ftrack-stations%3A59880230&start_track=1");
-    check(!soundcloud_station_locator({nullptr,40}).seed,"station locator rejects missing path storage before inspecting a prefix");
     const auto track_station=soundcloud_collection_locator(track_widget,{decoded,sizeof(decoded)});
     check(utf8_equal(track_station.path,track_station_path) && track_station.start_track==1 && !track_station.id &&
         soundcloud_station_locator(track_station_path).track && !soundcloud_station_locator(station_path).track,

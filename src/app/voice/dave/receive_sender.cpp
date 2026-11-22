@@ -16,14 +16,6 @@ constexpr u64 never = ~u64{0};
 inline u64 deadline(u64 now, u64 duration) noexcept {
     return duration > never - now ? never : now + duration;
 }
-DaveSenderError validate(const DaveReceiveSender& sender, DaveReceiveIdentity identity, u64 now) noexcept {
-    if (!sender.initialized)
-        return DaveSenderError::not_initialized;
-    if (identity.call_generation != sender.identity.call_generation ||
-        identity.user_id != sender.identity.user_id)
-        return DaveSenderError::identity_mismatch;
-    return now < sender.last_now_ms ? DaveSenderError::invalid_time : DaveSenderError::none;
-}
 void destroy(DaveReceiveNode* node) noexcept {
     dave_receive_epoch_release(&node->epoch);
     secure_clear_bytes(node, sizeof(*node));
@@ -60,14 +52,12 @@ DaveSenderOpenResult fail(DaveSenderError error) noexcept {
     return result;
 }
 } // namespace
-DaveSenderError dave_receive_sender_initialize(DaveReceiveSender* sender, DaveReceiveIdentity identity,
-                                               u64 now) noexcept {
-    if (!sender || sender->initialized || sender->newest || !identity.call_generation || !identity.user_id)
+DaveSenderError dave_receive_sender_initialize(DaveReceiveSender* sender, u64 user_id, u64 now) noexcept {
+    if (!user_id)
         return DaveSenderError::invalid_input;
-    sender->identity = identity;
+    sender->user_id = user_id;
     sender->last_now_ms = now;
     sender->next_expiry_ms = never;
-    sender->initialized = true;
     return DaveSenderError::none;
 }
 void dave_receive_sender_release(DaveReceiveSender* sender) noexcept {
@@ -78,16 +68,12 @@ void dave_receive_sender_release(DaveReceiveSender* sender) noexcept {
     }
     reset_value(sender);
 }
-DaveSenderTransitionResult dave_receive_sender_transition(DaveReceiveSender& sender,
-                                                          DaveReceiveIdentity identity, u64 revision,
+DaveSenderTransitionResult dave_receive_sender_transition(DaveReceiveSender& sender, u64 revision,
                                                           ConstSlice<u8> seed, u64 now, u64 grace) noexcept {
-    const auto valid = validate(sender, identity, now);
-    if (valid != DaveSenderError::none)
-        return {{}, 0, valid};
+    if (now < sender.last_now_ms)
+        return {{}, 0, DaveSenderError::invalid_time};
     if (!revision || revision <= sender.latest_revision)
         return {{}, 0, DaveSenderError::stale_transition};
-    if (seed.count != 16)
-        return {{}, 0, DaveSenderError::invalid_input};
     auto* node = static_cast<DaveReceiveNode*>(
         commit_pages(sizeof(DaveReceiveNode)));
     if (!node)
@@ -108,26 +94,23 @@ DaveSenderTransitionResult dave_receive_sender_transition(DaveReceiveSender& sen
     return {};
 }
 DaveSenderTransitionResult dave_receive_sender_transition_exporter(
-    DaveReceiveSender& sender, DaveReceiveIdentity identity, u64 revision, KdfSha256Workspace& workspace,
-    ConstSlice<u8> exporter_secret, u64 now, u64 grace) noexcept {
-    const auto valid = validate(sender, identity, now);
-    if (valid != DaveSenderError::none)
-        return {{}, 0, valid};
+    DaveReceiveSender& sender, u64 revision, KdfSha256Workspace& workspace, ConstSlice<u8> exporter_secret,
+    u64 now, u64 grace) noexcept {
+    if (now < sender.last_now_ms)
+        return {{}, 0, DaveSenderError::invalid_time};
     if (!revision || revision <= sender.latest_revision)
         return {{}, 0, DaveSenderError::stale_transition};
     u8 seed[16];
-    const auto exported = dave_export_media_seed(workspace, exporter_secret, identity.user_id, {seed, 16});
-    auto result = exported.ok() ? dave_receive_sender_transition(sender, identity, revision, {seed, 16},
-                                                                 now, grace)
+    const auto exported = dave_export_media_seed(workspace, exporter_secret, sender.user_id, {seed, 16});
+    auto result = exported.ok() ? dave_receive_sender_transition(sender, revision, {seed, 16}, now, grace)
                                 : DaveSenderTransitionResult{exported, 0, DaveSenderError::epoch_export};
     secure_clear_bytes(seed, sizeof(seed));
     return result;
 }
-DaveSenderError dave_receive_sender_retire(DaveReceiveSender& sender, DaveReceiveIdentity identity,
-                                           u64 revision, u64 now, u64 grace) noexcept {
-    const auto valid = validate(sender, identity, now);
-    if (valid != DaveSenderError::none)
-        return valid;
+DaveSenderError dave_receive_sender_retire(DaveReceiveSender& sender, u64 revision, u64 now,
+                                           u64 grace) noexcept {
+    if (now < sender.last_now_ms)
+        return DaveSenderError::invalid_time;
     if (!revision || revision <= sender.latest_revision)
         return DaveSenderError::stale_transition;
     collect(sender, now);
@@ -135,34 +118,21 @@ DaveSenderError dave_receive_sender_retire(DaveReceiveSender& sender, DaveReceiv
     sender.latest_revision = revision;
     return DaveSenderError::none;
 }
-DaveSenderError dave_receive_sender_collect(DaveReceiveSender& sender, DaveReceiveIdentity identity,
-                                            u64 now) noexcept {
-    const auto valid = validate(sender, identity, now);
-    if (valid == DaveSenderError::none)
-        collect(sender, now);
-    return valid;
+DaveSenderError dave_receive_sender_collect(DaveReceiveSender& sender, u64 now) noexcept {
+    if (now < sender.last_now_ms)
+        return DaveSenderError::invalid_time;
+    collect(sender, now);
+    return DaveSenderError::none;
 }
-DaveSenderOpenResult dave_receive_sender_open(DaveReceiveSender& sender, DaveReceiveIdentity identity,
-                                              KdfSha256Workspace& workspace, ConstSlice<u8> frame, u64 now,
-                                              Slice<u8> scratch, Slice<u8> output) noexcept {
-    const auto valid = validate(sender, identity, now);
-    if (valid != DaveSenderError::none)
-        return fail(valid);
-    if (!workspace.storage.data || !workspace.storage.locked)
-        return fail(DaveSenderError::not_initialized);
+DaveSenderOpenResult dave_receive_sender_open(DaveReceiveSender& sender, KdfSha256Workspace& workspace,
+                                              ConstSlice<u8> frame, u64 now, Slice<u8> scratch,
+                                              Slice<u8> output) noexcept {
+    if (now < sender.last_now_ms)
+        return fail(DaveSenderError::invalid_time);
     DaveClearRange ranges[kDaveMaximumClearRanges];
     DaveFrameView view{};
-    const auto parsed = dave_frame_parse(frame, {ranges, kDaveMaximumClearRanges}, &view);
-    if (!parsed.ok()) {
-        auto result = fail(DaveSenderError::invalid_frame);
-        result.parse_error = parsed.error;
-        return result;
-    }
-    if (output.count < view.body_bytes)
-        return fail(DaveSenderError::output_capacity);
-    const u32 needed = view.clear_bytes || frame.data == output.data ? view.body_bytes : 0;
-    if (scratch.count < needed)
-        return fail(DaveSenderError::scratch_capacity);
+    if (!dave_frame_parse(frame, {ranges, kDaveMaximumClearRanges}, &view).ok())
+        return fail(DaveSenderError::invalid_frame);
     collect(sender, now);
     auto result = fail(sender.newest ? DaveSenderError::rejected : DaveSenderError::no_epoch);
     for (auto* node = sender.newest; node; node = node->older) {

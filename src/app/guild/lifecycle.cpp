@@ -1004,8 +1004,7 @@ bool application_guild_lifecycle_leave(u64 guild_id) noexcept {
 }
 
 bool application_guild_lifecycle_reorder_channels(u64 guild_id, ConstSlice<GuildAdminPosition> positions) noexcept {
-    if (!application_account_available() || !background_scope() || !guild_id || !positions.data || !positions.count ||
-        positions.count > kGuildAdminMaximumPositions)
+    if (!application_account_available() || !background_scope() || !guild_id)
         return false;
     auto& b = g_background;
     if (b.reorder_queued || b.reorder_request)

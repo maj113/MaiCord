@@ -39,8 +39,6 @@ u32 voice_level_from_energy(u64 mean_square) noexcept {
 }
 
 MAICORD_HASWELL u32 voice_level(ConstSlice<i16> pcm) noexcept {
-    if (!pcm.data || !pcm.count)
-        return 0;
     // The sum of two squares fits an unsigned 32-bit lane. The even and the odd lanes add up in 64-bit lanes.
     const __m256i even = _mm256_srli_epi64(_mm256_set1_epi32(-1), 32);
     __m256i squares = _mm256_setzero_si256();
@@ -60,7 +58,7 @@ MAICORD_HASWELL u32 voice_level(ConstSlice<i16> pcm) noexcept {
 }
 
 MAICORD_HASWELL void voice_apply_gain(Slice<i16> pcm, u32 gain_percent) noexcept {
-    if (!pcm.data || gain_percent == 100)
+    if (gain_percent == 100)
         return;
     const i32 gain = static_cast<i32>(minimum(gain_percent, 200u));
     i16* samples = pcm.data;
@@ -89,8 +87,6 @@ MAICORD_HASWELL void voice_apply_gain(Slice<i16> pcm, u32 gain_percent) noexcept
 }
 
 void voice_framer_push(VoiceFramer* framer, ConstSlice<i16> mono) noexcept {
-    if (!mono.data)
-        return;
     for (u32 at = 0; at < mono.count;) {
         if (framer->count == kFramerSamples) {
             // Stalled consumer: drop the oldest frame and keep time moving.
@@ -196,15 +192,12 @@ void voice_transmit_reset(VoiceTransmitter* transmitter) noexcept {
     reset_value(transmitter);
 }
 
-u32 voice_rtp_header(Slice<u8> output, u16 sequence, u32 timestamp, u32 ssrc) noexcept {
-    if (!output.data || output.count < kVoiceRtpHeaderBytes)
-        return 0;
+void voice_rtp_header(u8* output, u16 sequence, u32 timestamp, u32 ssrc) noexcept {
     output[0] = 0x80;
     output[1] = kVoiceOpusPayloadType;
     output[2] = static_cast<u8>(sequence >> 8);
     output[3] = static_cast<u8>(sequence);
-    byte_store_be32(output.data + 4, timestamp);
-    byte_store_be32(output.data + 8, ssrc);
-    return kVoiceRtpHeaderBytes;
+    byte_store_be32(output + 4, timestamp);
+    byte_store_be32(output + 8, ssrc);
 }
 } // namespace maicord

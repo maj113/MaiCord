@@ -56,7 +56,7 @@ struct VoiceSelectProtocolMedia {
 GatewayCommandWriteResult voice_gateway_write_select_protocol_media(const VoiceSelectProtocolMedia& selection,
                                                                     Slice<u8> output) noexcept;
 // Formats 16 random bytes as a version-4 RFC 4122 UUID (36 characters).
-bool voice_rtc_connection_id(ConstSlice<u8> random, Slice<char> output) noexcept;
+void voice_rtc_connection_id(const u8* random, char* output) noexcept;
 
 // Media sink wants (op 15): the quality (0-100) this client wants per remote
 // SSRC, with "any" for unlisted SSRCs. 100 is full quality, 0 stops the stream.

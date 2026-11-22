@@ -112,10 +112,6 @@ void test_voice_session(void (*check)(bool, const char*) noexcept) noexcept {
         return voice_session_initialize(&session, {input, sizeof(input)}, {fragments, sizeof(fragments)},
                                         {scratch, 256}, bytes(key), 1024, 1024, 0, false);
     };
-    check(!voice_session_initialize(&session, {input, sizeof(input)}, {input, 1024}, {scratch, 256},
-                                    bytes(key), 1024, 1024, 0, false) &&
-              !session.input.data,
-          "voice session rejects overlapping packet buffers without changing ownership");
     initialize();
     u8 bad_opening[256]{};
     copy_bytes(bad_opening, opening.data, opening.bytes);

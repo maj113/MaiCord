@@ -19,6 +19,26 @@ void add_buffered(u64 first, u64 last, u64 duration, u16* begin, u16* end, u32 c
     if (*count && b <= end[*count - 1] + 1u) end[*count - 1] = maximum(end[*count - 1], e);
     else if (*count < capacity) { begin[*count] = b; end[(*count)++] = e; }
 }
+// The resident segment slots of a segmented source, in presentation order.
+u32 segmented_buffered(const ProgressiveVideoFetch& f, u64 duration, u16* begin, u16* end, u32 capacity) noexcept {
+    if (!mp4_fragment_source_valid(f.fragment)) return 0;
+    const auto& slots = f.segmented->store.slots;
+    const u32 first = slots[0].number > slots[1].number ? 1 : 0;
+    u32 count = 0;
+    for (u32 i = 0; i < 2; ++i) {
+        const auto& slot = slots[(first + i) % 2];
+        if (!slot.bytes) continue;
+        const auto& range = slot.media.range;
+        const u64 endpoint = range.index + 1 == f.fragment.index.count && f.fragment.presentation_end
+            ? f.fragment.presentation_end : range.time + range.duration;
+        i64 start{}, finish{};
+        if (mp4_fragment_source_time(f.fragment, static_cast<i64>(range.time), &start) &&
+            mp4_fragment_source_time(f.fragment, static_cast<i64>(endpoint), &finish))
+            add_buffered(start < 0 ? 0 : static_cast<u64>(start), finish < 0 ? 0 : static_cast<u64>(finish), duration,
+                         begin, end, capacity, &count);
+    }
+    return count;
+}
 // The client cannot read the WebM file of the Opus format. It starts again with the AAC format of the same list,
 // so the track still plays.
 void fall_back(ProgressiveVideoFetch* f) noexcept {
@@ -268,11 +288,11 @@ bool progressive_video_fetch_refresh(ProgressiveVideoFetch* f, ConstSlice<u8> ta
 u32 progressive_video_fetch_buffered(ProgressiveVideoFetch* f, u64 duration_us, u16* begin, u16* end,
                                      u32 capacity) noexcept {
     if (f && f->segmented && f->state == ProgressiveVideoFetchState::ready)
-        return segmented_video_buffered(f, duration_us, begin, end, capacity);
+        return duration_us ? segmented_buffered(*f, duration_us, begin, end, capacity) : 0;
     if (!f || !f->source.base || f->state == ProgressiveVideoFetchState::probing)
         return 0;
     if (f->kind != ProgressiveVideoKind::movie) {
-        if (!duration_us || !capacity || !begin || !end) return 0;
+        if (!duration_us) return 0;
         if (f->audio.webm) {
             // One range for each Cluster the source holds in full.
             u32 count = 0;

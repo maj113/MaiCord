@@ -425,8 +425,6 @@ __declspec(noinline) bool ApplicationMediaPump::embed_media_dimensions_supported
 __declspec(noinline) bool ApplicationMediaPump::update_media_display_dimensions(
     const AccountMediaFrame& frame, bool* changed) noexcept {
     if (media_asset_search(frame.key)) {
-        if (!changed)
-            return false;
         *changed = false;
         if (!message_image_frame_is_current(frame))
             return true;

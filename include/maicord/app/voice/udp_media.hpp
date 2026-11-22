@@ -40,10 +40,12 @@ struct VoiceUdpMedia {
     VoicePacketError packet_error;
     bool stopping, dispatching;
 };
-// Worker-owned, no allocation/queue/thread/timer. Borrows two disjoint buffers
-// and the retained discovery socket/key. receive_slots reads (each owning an
-// equal slice of receive_buffer, at least 28 bytes) and one write run
-// concurrently; completions are dispatched one datagram at a time.
+// Worker-owned, no allocation/queue/thread/timer. Borrows two disjoint buffers of
+// the caller (never the owners or the key) and the retained discovery socket/key.
+// receive_slots (1..kVoiceUdpMediaReceiveSlots) reads, each owning an equal slice
+// of receive_buffer of at least 28 bytes, and one write run concurrently;
+// completions are dispatched one datagram at a time. False when the media is not
+// drained, the key is not of this generation or discovery is not ready and idle.
 // Busy sends leave caller data and the nonce untouched; accepted sends have
 // already encrypted/copied into the retained send buffer so input may be reused.
 // Buffers/owners stay alive until drained, including after stop/cancellation.

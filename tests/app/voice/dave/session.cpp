@@ -79,7 +79,7 @@ void tree_math(Check check) noexcept {
 // The outbound sealer must reproduce the independent receive-epoch oracle
 // byte for byte: same ratchet, nonce, tag truncation and frame suffix.
 void sealer(Check check, KdfSha256Workspace& kdf) noexcept {
-    u8 seed[16], body[32], wire[96], expected[96], output[96];
+    u8 seed[16], body[32], expected[96], output[96];
     for (u32 i = 0; i != 16; ++i)
         seed[i] = static_cast<u8>(i);
     for (u32 i = 0; i != 32; ++i)
@@ -102,15 +102,13 @@ void sealer(Check check, KdfSha256Workspace& kdf) noexcept {
     check(matched && checked >= 10, "DAVE sealer reproduces oracle frames across ratchet generations");
     DaveFrameSealer frames{};
     dave_frame_sealer_initialize(&frames, seed);
-    copy_bytes(wire, body, 32);
-    const auto first = dave_frame_seal(frames, kdf, {wire, 32}, {wire, sizeof(wire)});
-    test_unhex(epoch_vectors[0].wire, expected);
+    const auto first = dave_frame_seal(frames, kdf, {body, 32}, {output, sizeof(output)});
     const auto small = dave_frame_seal(frames, kdf, {body, 32}, {output, 32 + kDaveFrameTagBytes + 2});
     const auto second = dave_frame_seal(frames, kdf, {body, 32}, {output, sizeof(output)});
     test_unhex(epoch_vectors[1].wire, expected);
     check(first.ok() && first.nonce == 1 && small.error == DaveSealError::output_capacity && second.ok() &&
               second.nonce == 2 && bytes_equal(output, expected, second.bytes),
-          "DAVE sealer works in place and a capacity failure does not consume a nonce");
+          "DAVE sealer capacity failure does not consume a nonce");
     frames.truncated_nonce = ~u32{0};
     check(dave_frame_seal(frames, kdf, {body, 32}, {output, sizeof(output)}).error ==
               DaveSealError::exhausted,
@@ -188,7 +186,7 @@ struct Fixture {
 bool join(Member& member, const u8* es, u32 es_bytes, u64 group_id) noexcept {
     ConstSlice<u8> package{};
     const bool ok =
-        dave_session_initialize(&member.session, group_id, member.user_id, 77, 1) == MlsStatus::ok &&
+        dave_session_initialize(&member.session, group_id, member.user_id, 1) == MlsStatus::ok &&
         dave_session_set_external_sender(&member.session, {es, es_bytes}) == MlsStatus::ok &&
         dave_session_key_package(&member.session, &package) == MlsStatus::ok;
     if (ok) {
@@ -1114,20 +1112,15 @@ void reference_interop(Check check, KdfSha256Workspace& kdf) noexcept {
 }
 
 void signaling(Check check) noexcept {
-    u8 text[64];
-    auto written =
-        voice_dave_write_transition(VoiceDaveOpcode::transition_ready, 65535, {text, sizeof(text)});
+    u8 text[40];
+    u32 written = voice_dave_write_transition(VoiceDaveOpcode::transition_ready, 65535, text);
     constexpr char ready[] = R"({"op":23,"d":{"transition_id":65535}})";
-    check(written.ok() && written.bytes == sizeof(ready) - 1 && bytes_equal(text, ready, written.bytes),
+    check(written == sizeof(ready) - 1 && bytes_equal(text, ready, written),
           "ready_for_transition (23) is encoded exactly");
-    written =
-        voice_dave_write_transition(VoiceDaveOpcode::mls_invalid_commit_welcome, 0, {text, sizeof(text)});
+    written = voice_dave_write_transition(VoiceDaveOpcode::mls_invalid_commit_welcome, 0, text);
     constexpr char invalid[] = R"({"op":31,"d":{"transition_id":0}})";
-    check(written.ok() && written.bytes == sizeof(invalid) - 1 &&
-              bytes_equal(text, invalid, written.bytes) &&
-              voice_dave_write_transition(VoiceDaveOpcode::transition_ready, 1, {text, 10}).error ==
-                  GatewayCommandError::output_too_small,
-          "invalid_commit_welcome (31) is encoded exactly and short output is refused");
+    check(written == sizeof(invalid) - 1 && bytes_equal(text, invalid, written),
+          "invalid_commit_welcome (31) is encoded exactly");
     u32 scratch[64];
     const auto decode = [&](u8 opcode, const char* json, u32 length, VoiceDaveCommand* command) noexcept {
         const JsonValue value{{json, length}, 0, JsonValueKind::object};

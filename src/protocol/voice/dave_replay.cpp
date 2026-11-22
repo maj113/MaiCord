@@ -19,10 +19,6 @@ u32 position(const DaveReplay& replay, u64 counter) noexcept {
     }
     return first;
 }
-bool valid(const DaveReplay& replay, u64 counter) noexcept {
-    return counter <= kDaveMaximumFrameCounter && replay.head < kDaveReplaySlots &&
-           replay.count <= kDaveMissingNonces;
-}
 } // namespace
 bool dave_frame_counter(u32 oldest_generation, u32 truncated_nonce, DaveFrameCounter* output) noexcept {
     const u32 low = truncated_nonce >> 24;
@@ -35,16 +31,12 @@ bool dave_frame_counter(u32 oldest_generation, u32 truncated_nonce, DaveFrameCou
     return true;
 }
 bool dave_replay_can_accept(const DaveReplay& replay, u64 counter) noexcept {
-    if (!valid(replay, counter))
-        return false;
     if (!replay.initialized || counter > replay.largest)
         return true;
     const u32 at = position(replay, counter);
     return at < replay.count && replay.missing[slot(replay, at)] == counter;
 }
 bool dave_replay_commit(DaveReplay* replay, u64 counter) noexcept {
-    if (!valid(*replay, counter))
-        return false;
     if (!replay->initialized) {
         replay->largest = counter;
         replay->initialized = true;

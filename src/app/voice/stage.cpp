@@ -183,7 +183,7 @@ void form_closed(TextFormOwnerKey key) noexcept {
 // Binds a fresh form owner to the channel.
 void begin_form(const ChannelRecord& channel) noexcept {
     reset_value(&stage.form);
-    stage.form.serial = ++stage.form_serial ? stage.form_serial : ++stage.form_serial;
+    stage.form.serial = ++stage.form_serial; // A u64 serial does not wrap in a session.
     stage.form.channel_id = channel.id;
     stage.form.guild_id = channel.guild_id;
     stage.form.account_scope = g_app.plugin_account_scope_serial;

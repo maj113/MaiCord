@@ -7,7 +7,7 @@ constexpr float kRing = 2;
 } // namespace
 bool ui_zoom_lens_view(const UiZoomLens& lens, const UiRect& picture, float square_radius,
                        UiZoomLensView* view) noexcept {
-    if (!view || !lens.active || !ui_rect_contains(picture, lens.pointer.x, lens.pointer.y))
+    if (!lens.active || !ui_rect_contains(picture, lens.pointer.x, lens.pointer.y))
         return false;
     const float half = lens.size * .5f, zoom = lens.zoom;
     const UiPoint p = lens.pointer;
@@ -21,7 +21,7 @@ bool ui_zoom_lens_view(const UiZoomLens& lens, const UiRect& picture, float squa
     return true;
 }
 bool ui_zoom_lens_wheel(UiZoomLens* lens, i32 delta, bool resize) noexcept {
-    if (!lens || !delta)
+    if (!delta)
         return false;
     const float notches = static_cast<float>(delta) / 120;
     const float before = resize ? lens->size : lens->zoom;

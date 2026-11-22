@@ -3,7 +3,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/http/rest_route.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "../encoding/json_field_lists.hpp"
 
 namespace maicord {
@@ -446,11 +445,6 @@ MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& quer
         ((query.operation == MediaCatalogOperation::guild_stickers) != (query.guild_id != 0)) ||
         (object_operation(query.operation) != (query.object_id != 0)))
         return {0, E::invalid_query};
-    const ConstSlice<u8> target{output.data, output.count},
-        q{reinterpret_cast<const u8*>(query.query.data), query.query.bytes},
-        locale{reinterpret_cast<const u8*>(query.locale.data), query.locale.bytes};
-    if (!byte_range_valid(target) || byte_ranges_overlap(target, q) || byte_ranges_overlap(target, locale))
-        return {0, E::invalid_input};
     u8 temporary[kMediaCatalogMaximumTargetBytes];
     RouteWriter w{};
     route_writer_initialize(&w, {temporary, sizeof(temporary)});
@@ -525,15 +519,10 @@ MediaCatalogDecodeResult media_catalog_measure(MediaCatalogOperation operation, 
     MediaCatalogDecodeResult invalid{};
     invalid.error = E::invalid_input;
     const bool stickers = sticker_operation(operation);
-    if (!input.data || !input.bytes ||
+    if (!input.bytes ||
         input.bytes >
             (stickers ? kMediaCatalogMaximumStickerResponseBytes : kMediaCatalogMaximumResponseBytes) ||
-        !scratch.data || !scratch.count || scratch.count > kMediaCatalogStructuralCapacity || !depth ||
-        depth > 32)
-        return invalid;
-    const ConstSlice<u8> source{reinterpret_cast<const u8*>(input.data), input.bytes},
-        index{reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))};
-    if (!byte_range_valid(source) || !byte_range_valid(index) || byte_ranges_overlap(source, index))
+        !scratch.count || scratch.count > kMediaCatalogStructuralCapacity || !depth || depth > 32)
         return invalid;
     const auto scanned = json_scan_structurals_avx1(input, scratch);
     if (!scanned.ok()) {
@@ -559,20 +548,13 @@ MediaCatalogDecodeResult media_catalog_decode(MediaCatalogOperation operation, U
     MediaCatalogDecodeResult invalid{};
     invalid.error = E::invalid_input;
     const bool stickers = sticker_operation(operation);
-    if (!input.data || !input.bytes ||
+    // The input, scratch, items and text are the caller's own disjoint buffers.
+    if (!input.bytes ||
         input.bytes >
             (stickers ? kMediaCatalogMaximumStickerResponseBytes : kMediaCatalogMaximumResponseBytes) ||
-        !scratch.data || !scratch.count || scratch.count > kMediaCatalogStructuralCapacity || !depth ||
-        depth > 32 || (!items.data && items.count) || items.count > item_limit(operation) ||
-        (!text.data && text.count) ||
+        !scratch.count || scratch.count > kMediaCatalogStructuralCapacity || !depth || depth > 32 ||
+        items.count > item_limit(operation) ||
         text.count > (stickers ? kMediaCatalogMaximumStickerTextBytes : kMediaCatalogMaximumTextBytes))
-        return invalid;
-    const ConstSlice<u8> ranges[]{
-        {reinterpret_cast<const u8*>(input.data), input.bytes},
-        {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))},
-        {reinterpret_cast<const u8*>(items.data), items.count * static_cast<u32>(sizeof(MediaCatalogItem))},
-        {reinterpret_cast<const u8*>(text.data), text.count}};
-    if (!byte_ranges_all_disjoint({ranges, 4}))
         return invalid;
     const auto scanned = json_scan_structurals_avx1(input, scratch);
     if (!scanned.ok()) {

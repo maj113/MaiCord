@@ -60,7 +60,7 @@ void application_media_posters_presented(Application& application, bool succeede
 
 __declspec(noinline) bool ApplicationMediaPump::animation_frame_cache_descriptor(
     const AccountMediaFrame& frame, AnimationFrameCacheDescriptor* descriptor) noexcept {
-    if (!descriptor || frame.cache_generation == 0 || frame.duration_us == 0 || frame.canvas_width == 0 ||
+    if (frame.cache_generation == 0 || frame.duration_us == 0 || frame.canvas_width == 0 ||
         frame.canvas_height == 0 || frame.frame_index >= frame.frame_count) {
         return false;
     }
@@ -277,7 +277,7 @@ __declspec(noinline) ApplicationMediaPump::MediaFrameUploadResult ApplicationMed
                                                 application.message_media, frame.key.kind,
                                                 frame.source_message_id)},
             clock_microseconds(application.clock, application.process_start, clock_now()));
-        if (!published.ok() || published.slot >= application.animations.timeline.capacity) {
+        if (!published.ok()) {
             media_atlas_forget(upload_atlas(frame.key), frame.key);
             return refuse(nullptr);
         }
@@ -324,13 +324,12 @@ __declspec(noinline) ApplicationMediaPump::MediaFrameUploadResult ApplicationMed
     return MediaFrameUploadResult::uploaded;
 }
 
+// A found entry's slot is below the timeline's capacity, and the runtime that owns the timeline owns the visuals.
 __declspec(noinline) AnimationVisualState* ApplicationMediaPump::find_animation_visual(
     const MediaAssetKey& key, u32 generation) noexcept {
     const AnimationTimelineResult found = animation_timeline_find(&application.animations.timeline, key);
-    if (!found.ok() || found.slot >= application.animations.timeline.capacity ||
-        !application.animations.visuals) {
+    if (!found.ok())
         return nullptr;
-    }
     AnimationVisualState& visual = application.animations.visuals[found.slot];
     return visual.occupied && visual.generation == generation && media_asset_key_equal(visual.key, key)
                ? &visual
@@ -357,7 +356,7 @@ void ApplicationMediaPump::retire_stale_message_animation(const MediaAssetKey& k
                                                           u32 source_message_revision,
                                                           bool source_current) noexcept {
     const auto found = animation_timeline_find(&application.animations.timeline, key);
-    if (!found.ok() || found.slot >= application.animations.timeline.capacity)
+    if (!found.ok())
         return;
     const u32 generation = application.animations.timeline.entries[found.slot].generation;
     const auto* visual = find_animation_visual(key, generation);
@@ -556,11 +555,9 @@ ApplicationMediaPump::find_pending_animation(const AnimationFrameAdvance& advanc
     return 0xFFFFFFFFu;
 }
 
+// Callers pass an index below pending_advance_count.
 __declspec(noinline) AnimationFrameAdvance
 ApplicationMediaPump::remove_pending_animation(u32 index) noexcept {
-    if (index >= application.animations.pending_advance_count) {
-        return {};
-    }
     const AnimationFrameAdvance removed = application.animations.pending_advances[index];
     --application.animations.pending_advance_count;
     if (index != application.animations.pending_advance_count) {

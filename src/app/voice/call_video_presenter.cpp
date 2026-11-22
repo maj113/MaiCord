@@ -31,8 +31,6 @@ u32 call_video_reduction_extent(u32 width, u32 height, u32 tile_pixels) noexcept
 CallVideoPumpResult call_video_presenter_pump(CallVideoPresenter* presenter, const CallVideoHost& host,
                                               ConstSlice<CallVideoTarget> targets, bool poll) noexcept {
     CallVideoPumpResult result{};
-    if (!targets.data && targets.count)
-        return result;
     // Streams whose camera ended are forgotten; the voice server keeps the sink
     // want for the call, so a returning camera starts from an unknown want.
     for (u32 i = 0; i < presenter->count;) {
@@ -80,8 +78,6 @@ CallVideoPumpResult call_video_presenter_pump(CallVideoPresenter* presenter, con
         }
         if (!pictured)
             continue;
-        if (frame.gpu.texture)
-            ++presenter->acquired;
         const u32 width = frame.display_width ? frame.display_width : frame.gpu.width;
         const u32 height = frame.display_height ? frame.display_height : frame.gpu.height;
         const u32 extent = call_video_reduction_extent(frame.gpu.width, frame.gpu.height, target.tile_pixels);
@@ -99,11 +95,8 @@ CallVideoPumpResult call_video_presenter_pump(CallVideoPresenter* presenter, con
             stream->display_width = static_cast<u16>(width);
             stream->display_height = static_cast<u16>(height);
         }
-        if (frame.gpu.texture) {
-            if (host.release)
-                host.release(host.context, &frame);
-            ++presenter->released;
-        }
+        if (frame.gpu.texture && host.release)
+            host.release(host.context, &frame);
     }
     return result;
 }

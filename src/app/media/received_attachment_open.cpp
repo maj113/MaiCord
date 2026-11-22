@@ -15,7 +15,7 @@ bool same(const ReceivedAttachmentOpenIdentity& a, const ReceivedAttachmentOpenI
 bool url_valid(const ReceivedAttachmentOpenIdentity& id, const Utf8View& url) noexcept {
     // Match the native URL opener's bounded UTF-16 conversion and accept only
     // a CDN HTTPS attachment path, never a file or executable path.
-    return identity_valid(id) && url.data && url.bytes && url.bytes <= 2047 &&
+    return identity_valid(id) && url.bytes && url.bytes <= 2047 &&
            received_attachment_url_current(url, id.source_channel_id ? id.source_channel_id : id.channel_id,
                                            id.attachment_id);
 }

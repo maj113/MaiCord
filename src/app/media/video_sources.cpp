@@ -440,7 +440,7 @@ bool resolve_message_video_url(const InlineMediaSource& source, Utf8View* out, u
         *height = media.media->height;
     }
     *out = url;
-    return url.data && url.bytes && url.bytes <= kCdnMaximumTargetBytes;
+    return url.bytes && url.bytes <= kCdnMaximumTargetBytes;
 }
 // *refresh requests a forced signed-URL refresh for an attachment and reports
 // whether the media lane asked for one (403/410 or an expired URL). A page's session plays from the page's copy.

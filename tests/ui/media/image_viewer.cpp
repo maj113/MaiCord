@@ -376,7 +376,7 @@ void test_zoom_lens(void (*check)(bool, const char*) noexcept) noexcept {
     check(ui_zoom_lens_wheel(&lens, 120, true) && lens.size == 350 && lens.zoom == kUiZoomLensMaximumZoom &&
               ui_zoom_lens_wheel(&lens, -120 * 100, true) && lens.size == kUiZoomLensMinimumSize &&
               ui_zoom_lens_wheel(&lens, 120 * 100, true) && lens.size == kUiZoomLensMaximumSize &&
-              !ui_zoom_lens_wheel(nullptr, 120, true) && !ui_zoom_lens_wheel(&lens, 0, true),
+              !ui_zoom_lens_wheel(&lens, 0, true),
           "zoom lens: Shift resizes by 20 DIPs within 50..1000 and leaves the zoom alone");
     PaintStream paint{};
     check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1200, 800) &&
@@ -631,7 +631,7 @@ void test_image_viewer_page(void (*check)(bool, const char*) noexcept) noexcept 
     // What a provider page plays, for the end of its source line. The picks are real YouTube formats.
     char text[kUiImageViewerQualityBytes];
     const auto shows = [&](const MediaPlaybackQuality& quality, Utf8View expected) noexcept {
-        return utf8_equal({text, ui_image_viewer_quality_text(quality, text, sizeof(text))}, expected);
+        return utf8_equal({text, ui_image_viewer_quality_text(quality, text)}, expected);
     };
     using P = MediaQualityProvider;
     check(shows({4230996, 129492, 1920, 1080, 60, 2, P::youtube},
@@ -658,9 +658,7 @@ void test_image_viewer_page(void (*check)(bool, const char*) noexcept) noexcept 
                     utf8_literal("YouTube \xC2\xB7 H.264 1080p60 4.2 Mbps \xC2\xB7 Opus 133 kbps")) &&
               shows({0, 0, 0, 0, 0, 2, P::youtube_music}, utf8_literal("YouTube Music \xC2\xB7 AAC")),
           "quality: an Opus pick shows as Opus, and the AAC format after a fallback shows without a bitrate");
-    check(!ui_image_viewer_quality_text({}, text, sizeof(text)) &&
-              !ui_image_viewer_quality_text({4230996, 129492, 1920, 1080, 60, 2, P::youtube}, text, sizeof(text) - 1),
-          "quality: no pick and a short buffer write nothing");
+    check(!ui_image_viewer_quality_text({}, text), "quality: no pick writes nothing");
 }
 } // namespace
 bool clipboard_system_open() noexcept {

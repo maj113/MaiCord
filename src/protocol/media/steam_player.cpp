@@ -2,7 +2,6 @@
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "../encoding/json_field_lists.hpp"
 
@@ -71,9 +70,8 @@ bool steam_manifest_location(Utf8View url, Utf8View app, EmbedStreamLocation* ou
 bool steam_media_location(Utf8View url, EmbedStreamLocation* out) noexcept { return location(url, false, {}, out); }
 EmbedPlayerError steam_video_manifest(Utf8View json, Utf8View app, Utf8View movie, Slice<u32> scratch, EmbedStream* output) noexcept {
     using E = EmbedPlayerError;
-    if (!output || !steam_id(app) || (movie.bytes && !steam_id(movie)) || !json.data || !json.bytes || json.bytes > 128 * 1024 ||
-        !byte_range_valid(json.data, json.bytes) || !byte_range_valid(output, sizeof(*output)) ||
-        byte_ranges_overlap(json.data, json.bytes, output, sizeof(*output))) return E::invalid_input;
+    if (!steam_id(app) || (movie.bytes && !steam_id(movie)) || !json.bytes || json.bytes > 128 * 1024)
+        return E::invalid_input;
     const auto scan = json_scan_structurals_avx1(json, scratch);
     if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
     const JsonIndexedDocument doc{json, {scratch.data, scan.count}};

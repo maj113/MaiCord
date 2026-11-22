@@ -31,12 +31,9 @@ bool udp_ready(const VoiceConnection& connection) noexcept {
     return connection.ready_revision && connection.udp_revision == connection.ready_revision &&
            connection.udp.phase == VoiceUdpPhase::ready && connection.udp.socket.open;
 }
-bool current_media_transport(const VoiceConnection& connection, u64 setup_generation,
-                             u64 ready_revision) noexcept {
-    return setup_generation && ready_revision == connection.ready_revision &&
-           setup_generation == connection.socket.setup_generation && socket_live(connection) &&
-           connection.media.has_description && udp_ready(connection) &&
-           connection.media.packets.generation == ready_revision;
+bool current_media_transport(const VoiceConnection& connection) noexcept {
+    return connection.socket.setup_generation && socket_live(connection) && connection.media.has_description &&
+           udp_ready(connection) && connection.media.packets.generation == connection.ready_revision;
 }
 void stop_media_io(VoiceConnection* connection) noexcept {
     connection->media_receive = nullptr;
@@ -60,11 +57,9 @@ void record_extensions(VoiceConnection& connection, ConstSlice<u8> bytes, const 
 }
 bool receive_media(void* context, ConstSlice<u8> bytes, const VoicePacketResult& packet) noexcept {
     auto& connection = *static_cast<VoiceConnection*>(context);
-    if (!connection.media_receive || !packet.ok() ||
-        !current_media_transport(connection, connection.socket.setup_generation, connection.ready_revision))
+    if (!connection.media_receive || !current_media_transport(connection)) // voice_udp_media passes opened packets
         return false;
-    VoiceReceivedPacket received{
-        packet, {}, {}, connection.socket.setup_generation, connection.ready_revision};
+    VoiceReceivedPacket received{packet, {}, {}};
     if (packet.layout.kind == MediaPacketKind::rtp) {
         record_extensions(connection, bytes, packet.layout);
         received.source = voice_participants_source(connection.participants, packet.layout.ssrc);
@@ -79,13 +74,11 @@ bool receive_media(void* context, ConstSlice<u8> bytes, const VoicePacketResult&
         received.member = voice_participants_user(connection.participants, received.source.user_id);
         // A membership/announcement race drops the packet, never the call.
         if (received.member.user_id != received.source.user_id ||
-            connection.participants.generation != received.setup_generation)
+            connection.participants.generation != connection.socket.setup_generation)
             return true;
-    } else if (packet.layout.kind != MediaPacketKind::rtcp)
-        return true;
-    // The worker cannot receive another signaling update between lookup and
-    // callback. Do not repeat the source lookup here; deferred work uses the
-    // public currency check when it is actually consumed.
+    }
+    // The worker cannot receive another signaling update between lookup and callback. Video frames assembled
+    // from these packets look their source up again when DAVE opens them (voice_connection_dave_decrypt_frame).
     return connection.media_receive(connection.media_context, bytes, received);
 }
 // A false DAVE step ends the socket: with a requested fresh session it
@@ -240,11 +233,11 @@ bool prepare(VoiceConnection* connection, const VoiceSetupCredentials& credentia
         ConstSlice<VoiceIdentifyStream>{credentials.stream ? screen : camera, 1}};
     if (connection->rtc_connection_generation != credentials.generation) {
         u8 random[16];
-        if (!secure_random_fill({random, sizeof(random)}).ok() ||
-            !voice_rtc_connection_id({random, 16}, {connection->rtc_connection_id, kVoiceRtcConnectionIdBytes})) {
+        if (!secure_random_fill({random, sizeof(random)}).ok()) {
             fail(connection, VoiceConnectionError::storage, "rtc_connection_id_failed");
             return false;
         }
+        voice_rtc_connection_id(random, connection->rtc_connection_id);
         connection->rtc_connection_generation = credentials.generation;
     }
     connection->sink_wants_sent = false;
@@ -414,7 +407,7 @@ VoiceParticipantsResult voice_connection_participant(VoiceConnection* connection
 bool voice_connection_media_start(VoiceConnection* connection, Slice<u8> receive_buffer,
                                   Slice<u8> send_buffer, VoiceMappedMediaReceive receive,
                                   void* context, u32 receive_slots) noexcept {
-    if (!receive || !socket_live(*connection) || !connection->media.has_description ||
+    if (!socket_live(*connection) || !connection->media.has_description ||
         connection->ready_revision != connection->udp_revision)
         return false;
     const bool started = voice_udp_media_begin(&connection->media_io, &connection->udp,
@@ -434,25 +427,9 @@ bool voice_connection_media_start(VoiceConnection* connection, Slice<u8> receive
                    static_cast<u64>(connection->media_io.error));
     return started;
 }
-bool voice_connection_media_current(const VoiceConnection& connection,
-                                    const VoiceReceivedPacket& packet) noexcept {
-    if (!packet.transport.ok() ||
-        !current_media_transport(connection, packet.setup_generation, packet.ready_revision))
-        return false;
-    if (packet.transport.layout.kind == MediaPacketKind::rtcp)
-        return !packet.source.user_id && !packet.member.user_id;
-    if (packet.transport.layout.kind != MediaPacketKind::rtp || !packet.source.user_id ||
-        packet.source.ssrc != packet.transport.layout.ssrc ||
-        packet.member.user_id != packet.source.user_id ||
-        connection.participants.generation != packet.setup_generation)
-        return false;
-    const auto current = voice_participants_source(connection.participants, packet.source.ssrc);
-    return current.user_id == packet.source.user_id && current.revision == packet.source.revision &&
-           current.primary_ssrc == packet.source.primary_ssrc && current.kind == packet.source.kind;
-}
 VoiceUdpMediaSend voice_connection_media_send(VoiceConnection* connection, u64 ready_revision,
                                               ConstSlice<u8> plaintext) noexcept {
-    if (!connection || !socket_live(*connection) || !connection->media.has_description ||
+    if (!socket_live(*connection) || !connection->media.has_description ||
         connection->ready_revision != ready_revision || connection->udp_revision != ready_revision)
         return VoiceUdpMediaSend::invalid;
     const auto result = voice_udp_media_send(&connection->media_io, ready_revision, plaintext);
@@ -555,7 +532,7 @@ u8 voice_connection_video_payload_type(const VoiceConnection& connection, VoiceV
 }
 bool voice_connection_set_sink_wants(VoiceConnection* connection, u8 any_quality,
                                      ConstSlice<VoiceSinkWant> wants) noexcept {
-    if (!connection || wants.count > kVoiceSinkWantsMaximum || (wants.count && !wants.data))
+    if (wants.count > kVoiceSinkWantsMaximum)
         return false;
     // The video sink builds the same wants, in the same order, on each drive. Stored wants passed the checks.
     bool same = connection->sink_wants_configured && connection->sink_any_quality == any_quality &&
@@ -623,8 +600,6 @@ void log_progress(VoiceConnection* connection, u64 now_ms) noexcept {
 } // namespace
 void voice_connection_drive(VoiceConnection* connection, const VoiceConnectionSetup& setup,
                             NetworkLoop* loop, u64 now_ms) noexcept {
-    if (!connection)
-        return;
     log_progress(connection, now_ms);
     VoiceSetupCredentials credentials{};
     if (!voice_setup_credentials(setup, &credentials)) {
@@ -790,7 +765,7 @@ void voice_connection_drive(VoiceConnection* connection, const VoiceConnectionSe
 void voice_connection_completion(VoiceConnection* connection, const VoiceConnectionSetup& setup,
                                  NetworkLoop* loop, const NetworkCompletion& completion,
                                  u64 now_ms) noexcept {
-    if (!connection || !voice_connection_owns(*connection, completion))
+    if (!voice_connection_owns(*connection, completion))
         return;
     // A queued late response must not install a key before the next drive sees
     // the expired negotiation deadline. Retire first, then drain completion.

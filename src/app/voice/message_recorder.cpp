@@ -95,8 +95,6 @@ VoiceMessageRecorderError voice_message_recorder_begin(VoiceMessageRecorder* r, 
 VoiceMessageRecorderError voice_message_recorder_push(VoiceMessageRecorder* r, ConstSlice<i16> mono) noexcept {
     if (!r->block || r->finished || r->error != VoiceMessageRecorderError::none)
         return VoiceMessageRecorderError::invalid_state;
-    if (!mono.data && mono.count)
-        return VoiceMessageRecorderError::invalid_input;
     for (u32 i = 0; i < mono.count && !r->limit_reached; ++i) {
         const i64 scaled = (static_cast<i64>(mono[i]) * r->gain_q16) >> 16;
         r->frame[r->frame_fill++] = static_cast<i16>(scaled > 32767 ? 32767 : scaled < -32768 ? -32768 : scaled);
@@ -149,8 +147,6 @@ VoiceMessageRecorderError voice_message_recorder_finish(VoiceMessageRecorder* r)
 }
 
 u32 voice_message_recorder_levels(const VoiceMessageRecorder& r, Slice<u8> output) noexcept {
-    if (!output.data)
-        return 0;
     const u32 available = minimum(r.live_count, kVoiceMessageLiveLevels);
     const u32 count = minimum(available, output.count);
     for (u32 i = 0; i < count; ++i)
@@ -161,7 +157,7 @@ u32 voice_message_recorder_levels(const VoiceMessageRecorder& r, Slice<u8> outpu
 void voice_message_recorder_waveform(const VoiceMessageRecorder& r,
                                      u8 (&waveform)[kVoiceMessageWaveformSamples]) noexcept {
     const u32 audible = static_cast<u32>((r.samples + kVoiceMessageFrameSamples - 1) / kVoiceMessageFrameSamples);
-    voice_message_waveform({r.frame_levels, r.frame_levels ? minimum(audible, r.frames) : 0}, waveform);
+    voice_message_waveform({r.frame_levels, minimum(audible, r.frames)}, waveform);
 }
 
 void voice_message_recorder_release(VoiceMessageRecorder* r) noexcept {

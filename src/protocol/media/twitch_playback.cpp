@@ -2,7 +2,6 @@
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "../encoding/json_field_lists.hpp"
 
 namespace maicord {
@@ -41,9 +40,8 @@ struct Scratch {
 }
 EmbedPlayerError twitch_playback_manifest(Utf8View json, Utf8View id, u64 now, Slice<u32> scratch, EmbedStream* output, bool live) noexcept {
     using E = EmbedPlayerError;
-    if (!(live ? twitch_channel_id(id) : twitch_vod_id(id)) || !now || !output || !json.data || !json.bytes || json.bytes > 64 * 1024 ||
-        !byte_range_valid(json.data, json.bytes) || !byte_range_valid(output, sizeof(*output)) ||
-        byte_ranges_overlap(json.data, json.bytes, output, sizeof(*output))) return E::invalid_input;
+    if (!(live ? twitch_channel_id(id) : twitch_vod_id(id)) || !now || !json.bytes || json.bytes > 64 * 1024)
+        return E::invalid_input;
     const auto scan = json_scan_structurals_avx1(json, scratch);
     if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
     const JsonIndexedDocument doc{json, {scratch.data, scan.count}};

@@ -158,7 +158,7 @@ void limit_cases(Check check) noexcept {
 void duration_cases(Check check) noexcept {
     const auto says = [](u64 seconds, const char* expected) noexcept {
         char text[kUiVoiceDurationBytes];
-        const u32 bytes = ui_voice_duration_text(seconds, text, sizeof(text));
+        const u32 bytes = ui_voice_duration_text(seconds, text);
         return bytes == c_string_length(expected) && bytes_equal(text, expected, bytes);
     };
     check(says(0, "0 seconds") && says(1, "1 second") && says(59, "59 seconds"), "a short call reads in seconds");
@@ -166,8 +166,6 @@ void duration_cases(Check check) noexcept {
           "minutes lose a zero seconds part");
     check(says(3'600, "1 hour") && says(3'723, "1 hour, 2 minutes, 3 seconds") && says(7'200 + 5, "2 hours, 5 seconds"),
           "hours read singular and plural, skipping zero parts");
-    char small[8];
-    check(ui_voice_duration_text(5, small, sizeof(small)) == 0, "a short buffer writes nothing");
 }
 } // namespace
 

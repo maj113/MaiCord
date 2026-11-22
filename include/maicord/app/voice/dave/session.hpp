@@ -8,7 +8,6 @@ namespace maicord {
 inline constexpr u16 kDaveProtocolVersion = 1;
 inline constexpr u32 kDaveMaxTransitions = 8;
 inline constexpr u32 kDaveMaxMembers = 1024;
-inline constexpr u32 kDaveMaxOpusFrame = 1275;
 inline constexpr u64 kDaveEpochGraceMs = 10'000;
 inline constexpr u64 kDavePassthroughForever = ~u64{0};
 
@@ -58,7 +57,7 @@ struct DaveSession {
     DaveTransition transitions[kDaveMaxTransitions];
     u8* arena;
     u32 committed[kDaveArenaBlocks];
-    u64 group_id, self_user_id, call_generation, receive_revision;
+    u64 group_id, self_user_id, receive_revision;
     // Keys are installed once per (group instance, epoch): re-executing a
     // transition into the keyed epoch must not restart the sealer's nonces.
     u64 group_serial, keyed_serial, keyed_epoch;
@@ -73,9 +72,8 @@ struct DaveSession {
     u8 active_state, active_context, pending_state_a, pending_state_b, pending_context;
     bool key_package_ready, external_sender_ready, sealer_ready, initialized;
 };
-// group_id is the voice channel snowflake; call_generation a nonzero token
-// stable for this call. Version zero starts in passthrough.
-MlsStatus dave_session_initialize(DaveSession* session, u64 group_id, u64 self_user_id, u64 call_generation,
+// group_id is the voice channel snowflake. Version zero starts in passthrough.
+MlsStatus dave_session_initialize(DaveSession* session, u64 group_id, u64 self_user_id,
                                   u16 protocol_version) noexcept;
 void dave_session_release(DaveSession* session) noexcept;
 // Drops the group and transitions for a fresh pending group (prepare_epoch
@@ -119,7 +117,6 @@ enum class DaveMediaError : u8 {
     invalid_input,
     not_ready,
     unknown_sender,
-    output_capacity,
     rejected
 };
 struct DaveMediaResult {

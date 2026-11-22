@@ -16,7 +16,7 @@ u32 media_url_find(const MediaUrlResolver& resolver, Utf8View source) noexcept {
     return slot;
 }
 MediaUrlState media_url_resolution_state(const MediaUrlResolver& resolver, Utf8View source) noexcept {
-    if (!source.data || !source.bytes || source.bytes > kCdnMaximumTargetBytes)
+    if (!source.bytes || source.bytes > kCdnMaximumTargetBytes)
         return MediaUrlState::empty;
     const u32 slot = media_url_find(resolver, source);
     return slot < 32 ? resolver.entries[slot].state : MediaUrlState::empty;
@@ -26,10 +26,10 @@ Utf8View media_url_resolve(MediaUrlResolver* resolver, Utf8View source, u64 now_
     if (force_refresh) {
         // Validate the same strict attachment rules used by the POST
         // encoder before accepting a far-future source into this cache.
-        if (!resolver || !source.data || !source.bytes || source.bytes > kCdnMaximumTargetBytes) return {};
+        if (!source.bytes || source.bytes > kCdnMaximumTargetBytes) return {};
         u8 admission[kCdnMaximumTargetBytes + 64];
         if (!attachment_refresh_body(source, {admission, sizeof(admission)})) return {};
-    } else if (!resolver || !attachment_refresh_needed(source, now_seconds))
+    } else if (!attachment_refresh_needed(source, now_seconds))
         return source;
     if (source.bytes > kCdnMaximumTargetBytes)
         return {};

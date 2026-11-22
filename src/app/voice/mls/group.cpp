@@ -33,7 +33,7 @@ MlsStatus group_install(MlsGroup* group, const MlsRatchetTree& tree, const MlsGr
 }
 // Sender leaf from a PublicMessage header bound to the active epoch.
 inline MlsStatus commit_sender(const MlsGroup& group, ConstSlice<u8> message, u32* sender) noexcept {
-    if (!message.data || !message.count || message.count > kMlsMaxCommitBytes)
+    if (message.count > kMlsMaxCommitBytes)
         return MlsStatus::invalid_argument;
     MlsReader reader{message};
     const auto version = reader.integer(2);
@@ -72,9 +72,7 @@ MlsStatus mls_group_create_initial(KdfSha256Workspace& kdf, MlsGroup* group, u64
                                    const u8* init_secret, ConstSlice<u8> external_sender,
                                    const MlsGroupArena& arena, Slice<u8> tree_output,
                                    Slice<u8> context_output) noexcept {
-    if (!group || !self.leaf_node.data || !self.leaf_node.count || leaf_key.kind != P256Kind::ecdh ||
-        !leaf_key.has_private || !init_secret || !external_sender.data || !tree_output.data ||
-        !context_output.data)
+    if (!self.leaf_node.count || leaf_key.kind != P256Kind::ecdh || !leaf_key.has_private)
         return MlsStatus::invalid_argument;
     MlsExternalSender sender{};
     MlsTreeKemPrivate tree_private{};
@@ -131,11 +129,7 @@ MlsStatus mls_group_join_welcome(KdfSha256Workspace& kdf, MlsGroup* group, Const
                                  const P256Key& leaf_key, ConstSlice<u8> external_sender,
                                  ConstSlice<u64> recognized, const MlsGroupArena& arena,
                                  Slice<u8> group_info_output, u32* group_info_bytes) noexcept {
-    if (!group_info_bytes)
-        return MlsStatus::invalid_argument;
     *group_info_bytes = 0;
-    if (!group || !welcome.data || !welcome.count || !external_sender.data || !group_info_output.data)
-        return MlsStatus::invalid_argument;
     // HPKE GroupSecrets and the GroupInfo AEAD are opened into a private locked
     // candidate; nothing is installed until every check below has passed.
     DaveWelcomeCandidate decrypted{};
@@ -236,8 +230,6 @@ MlsStatus mls_group_join_welcome(KdfSha256Workspace& kdf, MlsGroup* group, Const
 }
 MlsStatus mls_group_apply_proposals(KdfSha256Workspace& kdf, MlsGroup* group, ConstSlice<u8> input,
                                     ConstSlice<u64> recognized) noexcept {
-    if (!group->initialized || !input.data)
-        return MlsStatus::invalid_argument;
     if (group->pending != MlsPending::none)
         return MlsStatus::state_conflict;
     return mls_proposal_cache_apply(kdf, &group->proposals, input, group->external_sender, recognized);
@@ -282,7 +274,7 @@ MlsStatus mls_group_write_welcome(KdfSha256Workspace& kdf, const MlsGroup& group
 MlsStatus mls_group_stage_commit(KdfSha256Workspace& kdf, MlsGroup* group, u16 transition_id,
                                  ConstSlice<u8> message, Slice<MlsProposal> views,
                                  const MlsCommitBuffers& buffers) noexcept {
-    if (!group->initialized || !message.data || !message.count)
+    if (!group->initialized)
         return MlsStatus::invalid_argument;
     const bool had_local = group->pending == MlsPending::local;
     if (had_local && message.count == group->pending_message.count &&

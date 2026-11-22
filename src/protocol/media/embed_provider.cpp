@@ -12,7 +12,7 @@ using Url = EmbedUrl;
 // Writes the parts only for a valid URL, so a failed parse leaves them empty. One pass over the text: the host's
 // character test admits only printable bytes, and one loop tests the rest and finds its first '?' and '#'.
 bool parse(Utf8View text, Url* out) noexcept {
-    if (!text.data || text.bytes > 2048 || text.bytes < 9 ||
+    if (text.bytes > 2048 || text.bytes < 9 ||
         !ascii_equal_ignore_case({text.data, 8}, utf8_literal("https://"))) return false;
     u32 path = 8;
     while (path < text.bytes && text.data[path] != '/' && text.data[path] != '?' && text.data[path] != '#') {
@@ -167,7 +167,6 @@ EmbedProvider embed_provider(Utf8View url) noexcept {
     return EmbedUrl{url}.provider;
 }
 SoundcloudStation soundcloud_station_locator(const Utf8View& path) noexcept {
-    if (!path.data) return {};
     constexpr auto track = utf8_literal("/discover/sets/track-stations:"), artist = utf8_literal("/discover/sets/artist-stations:");
     const bool from_track = prefix(path, track);
     const auto station = from_track ? track : artist;

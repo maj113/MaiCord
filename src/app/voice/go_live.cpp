@@ -224,8 +224,7 @@ u32 worker_main(void* argument) noexcept {
         job->ok[i] = capture_thumbnail(job->device, job->sources[i], kThumbnailWidth, kThumbnailHeight, job->pixels[i],
                                        &job->width[i], &job->height[i]);
     InterlockedExchange(&job->done, 1);
-    if (job->window)
-        window_wake(job->window);
+    window_wake(job->window); // refresh_sources starts no pass without a window
     return 0;
 }
 inline bool tab_has(const CaptureSource& s) noexcept {
@@ -671,7 +670,7 @@ bool application_go_live_button(const UiRect& anchor) noexcept {
 }
 
 bool application_go_live_tile(u64 channel_id, UiCallParticipant* p) noexcept {
-    if (!p || !live() || !g_app.account_ui)
+    if (!live() || !g_app.account_ui)
         return false;
     const auto& s = ui.snapshot;
     if (s.key.channel_id != channel_id)

@@ -121,7 +121,7 @@ MlsStatus validate_joiners(ConstSlice<u32> joiners, u32 leaf_count, u32 receiver
 MlsStatus index_scratch(const MlsRatchetTree& tree, const Slice<u8>& scratch, MlsTreeIndex* index,
                         Slice<u32>* resolution) noexcept {
     const u32 index_bytes = mls_tree_index_bytes(tree);
-    if (scratch.count < mls_treekem_scratch_bytes(tree) || (reinterpret_cast<usize>(scratch.data) & 3))
+    if (scratch.count < mls_treekem_scratch_bytes(tree))
         return MlsStatus::buffer_too_small;
     *resolution = {reinterpret_cast<u32*>(scratch.data + index_bytes), tree.leaf_count + 1};
     return mls_tree_index_init(index, tree, {scratch.data, index_bytes});
@@ -141,7 +141,7 @@ u32 mls_treekem_scratch_bytes(const MlsRatchetTree& tree) noexcept {
 MlsStatus mls_treekem_joiner_init(KdfSha256Workspace& kdf, MlsTreeKemPrivate* state,
                                   const MlsRatchetTree& tree, const MlsKeyPackage& package,
                                   const P256Key& leaf_key, u32 signer, const u8* path_secret) noexcept {
-    if (!state || leaf_key.kind != P256Kind::ecdh || !leaf_key.has_private || !package.leaf_node.data ||
+    if (leaf_key.kind != P256Kind::ecdh || !leaf_key.has_private || !package.leaf_node.data ||
         !package.leaf_encryption_key || !tree.nodes.data || !tree.group_id || !tree.leaf_count ||
         signer >= tree.leaf_count)
         return MlsStatus::invalid_argument;
@@ -236,12 +236,6 @@ MlsStatus mls_treekem_joiner_init(KdfSha256Workspace& kdf, MlsTreeKemPrivate* st
 MlsStatus mls_treekem_carry_forward(KdfSha256Workspace& kdf, MlsTreeKemPrivate* next,
                                     const MlsTreeKemPrivate& current, const MlsRatchetTree& tree,
                                     const Slice<u8>& scratch) noexcept {
-    if (!next || next == &current || !current.initialized || current.path_count > kMaxPrivateNodes ||
-        current.leaf_index >= tree.leaf_count)
-        return MlsStatus::invalid_argument;
-    reset_value(next);
-    if (scratch.count < mls_tree_index_bytes(tree))
-        return MlsStatus::buffer_too_small;
     MlsTreeIndex index{};
     auto status = mls_tree_index_init(&index, tree, scratch);
     if (status == MlsStatus::ok) {
@@ -259,18 +253,11 @@ MlsStatus mls_treekem_update_prepare(KdfSha256Workspace& kdf, MlsTreeKemPrivate*
                                      Slice<u8> stub, u32* stub_bytes, MlsUpdatePath* stub_path,
                                      Slice<u8> tree_output, u32* tree_bytes, MlsRatchetTree* merged,
                                      u8* tree_hash) noexcept {
-    if (!next || next == &current || !leaf_secret || !stub_bytes || !stub_path || !tree_bytes || !merged ||
-        !current.initialized || current.path_count > kMaxPrivateNodes ||
-        current.leaf_index >= proposal_tree.leaf_count || !proposal_tree.group_id ||
-        !proposal_tree.nodes.data)
-        return MlsStatus::invalid_argument;
     reset_value(next);
     *stub_bytes = 0;
     *tree_bytes = 0;
     reset_value(stub_path);
     reset_value(merged);
-    if (scratch.count < mls_tree_validation_bytes(proposal_tree.leaf_count, proposal_tree.node_count))
-        return MlsStatus::buffer_too_small;
     MlsTreeKemPrivate candidate{};
     MlsWipe candidate_wipe{&candidate, sizeof(candidate)};
     MlsTreeNode current_leaf{};
@@ -368,11 +355,6 @@ MlsStatus mls_treekem_encap(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& pr
                             const MlsRatchetTree& merged, const MlsUpdatePath& stub,
                             ConstSlice<u32> joiners, ConstSlice<u8> group_context, Slice<u8> scratch,
                             Slice<u8> output, u32* written, MlsUpdatePath* path) noexcept {
-    if (!written || !path || !prepared.initialized || !prepared.has_update_secret ||
-        prepared.path_count > kMlsTreeMaxDepth || prepared.leaf_index >= merged.leaf_count ||
-        !stub.leaf_node.data || !stub.nodes.data || (!joiners.data && joiners.count) ||
-        (!output.data && output.count))
-        return MlsStatus::invalid_argument;
     *written = 0;
     reset_value(path);
     constexpr u32 one_ciphertext = 2 + kMlsPointBytes + 1 + kMlsPathSecretCiphertextBytes;
@@ -439,7 +421,7 @@ MlsStatus mls_treekem_encap(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& pr
     const u32 required = stub.leaf_node.count + mls_varint_size(nodes_bytes) + nodes_bytes;
     if (required > kMlsMaxUpdatePathBytes)
         return MlsStatus::malformed;
-    if (!output.data || output.count < required)
+    if (output.count < required)
         return MlsStatus::buffer_too_small;
     MlsWriter writer{output};
     writer.bytes(stub.leaf_node.data, stub.leaf_node.count);
@@ -507,9 +489,7 @@ MlsStatus mls_treekem_decap(KdfSha256Workspace& kdf, MlsTreeKemPrivate* next,
                             const MlsTreeKemPrivate& current, const MlsRatchetTree& merged,
                             const MlsUpdatePath& path, u32 committer, ConstSlice<u32> joiners,
                             ConstSlice<u8> group_context, Slice<u8> scratch) noexcept {
-    if (!next || next == &current || !current.initialized || current.path_count > kMaxPrivateNodes ||
-        current.leaf_index >= merged.leaf_count || committer >= merged.leaf_count ||
-        committer == current.leaf_index || (!joiners.data && joiners.count))
+    if (committer >= merged.leaf_count)
         return MlsStatus::invalid_argument;
     reset_value(next);
     MlsTreeKemPrivate candidate{};

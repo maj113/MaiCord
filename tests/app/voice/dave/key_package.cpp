@@ -129,6 +129,5 @@ void test_dave_key_package(Check check) noexcept {
     check(zero(workspace.storage.data, workspace.storage.capacity), "DAVE signing workspace erased");
     kdf_sha256_release(&workspace);
     p256_release(&signing);
-    dave_key_package_release(nullptr);
 }
 } // namespace maicord

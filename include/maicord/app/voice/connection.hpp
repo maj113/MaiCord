@@ -37,7 +37,6 @@ struct VoiceReceivedPacket {
     VoicePacketResult transport;
     VoiceSsrcBinding source;
     VoiceParticipant member;
-    u64 setup_generation, ready_revision;
 };
 // RTP carries the current signaling-announced source/member. RTCP is from the
 // authenticated UDP peer and deliberately carries no participant identity.
@@ -164,10 +163,6 @@ VoiceMediaSetupError voice_connection_description(VoiceConnection* connection, J
 bool voice_connection_media_start(VoiceConnection* connection, Slice<u8> receive_buffer,
                                   Slice<u8> send_buffer, VoiceMappedMediaReceive receive,
                                   void* context, u32 receive_slots = 1) noexcept;
-// Worker-only identity-currency check for previously delivered work. Activity,
-// flags and connected snapshots are not current authorization decisions.
-bool voice_connection_media_current(const VoiceConnection& connection,
-                                    const VoiceReceivedPacket& packet) noexcept;
 VoiceUdpMediaSend voice_connection_media_send(VoiceConnection* connection, u64 ready_revision,
                                               ConstSlice<u8> plaintext) noexcept;
 // Speaking (op 5) for the local audio SSRC announced by Ready.

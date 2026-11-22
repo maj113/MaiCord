@@ -147,32 +147,6 @@ void growth_and_retry(Check check, KdfSha256Workspace& workspace) noexcept {
     prepare(check, frame, 2, 1);
     correct(check, open(epoch, workspace, frame, age(250)), frame);
     dave_receive_epoch_release(&epoch);
-
-    DaveReceiveEpoch wrong{};
-    u8 wrong_seed[16]{};
-    check(dave_receive_epoch_initialize(&wrong, {wrong_seed, 16}, 0).ok(),
-          "DAVE alternate epoch initialization");
-    if (!initialize(check, epoch)) {
-        dave_receive_epoch_release(&wrong);
-        return;
-    }
-    prepare(check, frame, 0, 1);
-    u8 original[64];
-    copy_bytes(original, frame.wire, frame.view.frame.count);
-    const auto rejected = dave_receive_epoch_open(wrong, workspace, frame.view, 0, frame.scratch, frame.wire);
-    check(rejected == DaveEpochError::authentication_failed &&
-              bytes_equal(frame.wire, original, frame.view.frame.count) &&
-              test_filled(frame.scratch, 32, 0),
-          "DAVE wrong epoch preserves in-place ciphertext and does not consume nonce");
-    const auto accepted =
-        dave_receive_epoch_open(epoch, workspace, frame.view, 0, frame.scratch, frame.wire);
-    bool plaintext = accepted == DaveEpochError::none;
-    for (u32 i = 0; i != 32 && plaintext; ++i)
-        plaintext = frame.wire[i] == static_cast<u8>(i * 17 + 9);
-    check(plaintext && bytes_equal(frame.wire + 32, original + 32, frame.view.frame.count - 32),
-          "DAVE alternate epoch successfully retries the same borrowed in-place frame");
-    dave_receive_epoch_release(&wrong);
-    dave_receive_epoch_release(&epoch);
 }
 void failures(Check check, KdfSha256Workspace& workspace) noexcept {
     DaveReceiveEpoch epoch{};

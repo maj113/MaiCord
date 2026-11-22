@@ -265,16 +265,12 @@ MediaFitRegion media_fit_region(const MediaFit& fit, u32 x, u32 y, u32 width, u3
 
 bool media_fit_begin(MediaFitSink* sink, const MediaFit& fit, MediaFitRegion source, u8* output, u32 stride, u32 lead,
                      Slice<u8> scratch) noexcept {
-    if (!fit.width || !fit.height || fit.width > fit.source_width ||
-        fit.height > fit.source_height || !source.width || !source.height || source.x >= fit.source_width ||
+    // The fit comes from media_fit_plan (no side zero or above the canvas); the region comes from the decoder.
+    if (!source.width || !source.height || source.x >= fit.source_width ||
         source.width > fit.source_width - source.x || source.y >= fit.source_height ||
         source.height > fit.source_height - source.y)
         return false;
     const MediaFitRegion region = media_fit_region(fit, source.x, source.y, source.width, source.height);
-    if (u64{lead} + u64{region.width} * 4u > stride ||
-        (reinterpret_cast<usize>(scratch.data) & 7u) != 0 ||
-        media_fit_scratch_bytes(source.width, region.width) > scratch.count)
-        return false;
     auto* sums = reinterpret_cast<u64*>(scratch.data);
     auto* columns = reinterpret_cast<u32*>(sums + region.width * 8u);
     clear_bytes(sums, region.width * 8u * sizeof(u64));
@@ -288,12 +284,11 @@ bool media_fit_begin(MediaFitSink* sink, const MediaFit& fit, MediaFitRegion sou
     return true;
 }
 
-bool media_fit_push_row(MediaFitSink* s, const u8* rgba) noexcept {
-    if (s->row >= s->source.height)
-        return false;
+// Row y starts in cell_row: begin starts at the cell of the first row, and a row that reaches its cell's end
+// moves to the next cell, which starts within the next row (a cell is at least one texel: fit.height <=
+// source_height).
+void media_fit_push_row(MediaFitSink* s, const u8* rgba) noexcept {
     const u32 y = s->source.y + s->row;
-    if (fit_cell(y, s->fit.source_height, s->fit.height) != s->cell_row)
-        return false;
     const u64 top = u64{y} * 256u, end = fit_edge(s->cell_row + 1, s->fit.source_height, s->fit.height);
     // A source row splits between at most two fitted rows, a texel between at most two cells.
     const u32 upper = end >= top + 256u ? 256u : static_cast<u32>(end - top), lower = 256u - upper;
@@ -318,7 +313,6 @@ bool media_fit_push_row(MediaFitSink* s, const u8* rgba) noexcept {
     if (s->row == s->source.height)
         while (s->cell_row < s->region.y + s->region.height)
             fit_emit(s);
-    return true;
 }
 
 } // namespace maicord

@@ -243,8 +243,8 @@ Mp4DemuxError mpeg_ts_segment_store_initialize(Mp4SegmentStore* s,ConstSlice<u8>
     if(error!=E::none) {mp4_segment_store_release(&next);return error;}
     *s=next; return E::none;
 }
-Mp4DemuxError mpeg_ts_segment_store_accept(Mp4SegmentStore* s,u32 number,u64 serial,ConstSlice<u8> bytes,u64 duration) noexcept {
-    if(!s||!s->transport||!s->initialization.base||!s->pending||s->demand!=number||serial!=s->request_serial||number>=s->count) return E::invalid_input;
+Mp4DemuxError mpeg_ts_segment_store_accept(Mp4SegmentStore* s,u32 number,ConstSlice<u8> bytes,u64 duration) noexcept {
+    if(!s->transport||!s->initialization.base||number>=s->count) return E::invalid_input;
     return fill(*s,number,bytes,duration);
 }
 } // namespace maicord

@@ -2,7 +2,6 @@
 #include "text_match.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
@@ -91,7 +90,7 @@ u32 codecs(Utf8View s) noexcept {
     return flags;
 }
 bool reference_uri(Utf8View s, u32* origin = nullptr, u32* path_end = nullptr) noexcept {
-    if (!s.data || !s.bytes || s.bytes > 2048 || !byte_range_valid(s.data, s.bytes)) return false;
+    if (!s.bytes || s.bytes > 2048) return false;
     u32 start = 0;
     const bool absolute = prefix(s, utf8_literal("https://"));
     if (absolute) {
@@ -148,13 +147,11 @@ bool segment_uri(HlsPlaylistMode mode, Utf8View s) noexcept {
            : mode == HlsPlaylistMode::sliding    ? master_uri(s)
                                                  : local_path(s);
 }
-bool output_valid(const HlsMediaPlaylist& p, const void* output, u32 bytes) noexcept {
-    return output && byte_range_valid(output, bytes) && p.input.data && p.input.bytes &&
+bool playlist_valid(const HlsMediaPlaylist& p) noexcept {
+    return p.input.bytes &&
         (p.mode == HlsPlaylistMode::complete || p.mode == HlsPlaylistMode::sliding || p.mode == HlsPlaylistMode::complete_uri) &&
-        p.input.bytes <= (p.mode == HlsPlaylistMode::sliding ? 64u : 256u) * 1024 && byte_range_valid(p.input.data, p.input.bytes) &&
-        p.segments && p.segments <= (p.mode == HlsPlaylistMode::sliding ? 128u : 8192u) && p.duration_us && p.duration_us <= 86400000000ull &&
-        !byte_ranges_overlap(p.input.data, p.input.bytes, output, bytes) &&
-        !byte_ranges_overlap(&p, sizeof(p), output, bytes);
+        p.input.bytes <= (p.mode == HlsPlaylistMode::sliding ? 64u : 256u) * 1024 &&
+        p.segments && p.segments <= (p.mode == HlsPlaylistMode::sliding ? 128u : 8192u) && p.duration_us && p.duration_us <= 86400000000ull;
 }
 bool segment(const HlsMediaPlaylist& p, u32 offset, u32 index, u64 time, HlsMediaSegment* output) noexcept {
     Reader r{p.input, offset}; Utf8View line{}; u32 duration_us = 0;
@@ -172,8 +169,7 @@ bool segment(const HlsMediaPlaylist& p, u32 offset, u32 index, u64 time, HlsMedi
 }
 u32 hls_resolve_uri(Utf8View base, Utf8View reference, Slice<char> output) noexcept {
     u32 base_origin{}, base_end{}, origin{}, end{};
-    if (!output.data || !byte_range_valid(output.data, output.count) ||
-        !reference_uri(base, &base_origin, &base_end) || !base_origin ||
+    if (!reference_uri(base, &base_origin, &base_end) || !base_origin ||
         !reference_uri(reference, &origin, &end)) return 0;
     char staged[2048];
     u32 used{};
@@ -213,9 +209,7 @@ u32 hls_resolve_uri(Utf8View base, Utf8View reference, Slice<char> output) noexc
     return used;
 }
 HlsPlaylistError hls_master_playlist(Utf8View input, u16 maximum_height, HlsMasterPlaylist* output, u32 maximum_bandwidth, bool relative_uris) noexcept {
-    if (!input.data || !input.bytes || !output || !maximum_height || maximum_height > 2048 || !maximum_bandwidth ||
-        !byte_range_valid(input.data, input.bytes) || !byte_range_valid(output, sizeof(*output)) ||
-        byte_ranges_overlap(input.data, input.bytes, output, sizeof(*output))) return E::invalid_input;
+    if (!input.bytes || !maximum_height || maximum_height > 2048 || !maximum_bandwidth) return E::invalid_input;
     if (input.bytes > 64 * 1024) return E::capacity;
     if (!valid_text(input)) return E::malformed;
     Reader reader{input}; Utf8View line{};
@@ -311,9 +305,8 @@ HlsPlaylistError hls_master_playlist(Utf8View input, u16 maximum_height, HlsMast
     *output = value; return E::none;
 }
 HlsPlaylistError hls_media_playlist(Utf8View input, HlsMediaPlaylist* output, HlsPlaylistMode mode) noexcept {
-    if (!input.data || !input.bytes || !output || (mode != HlsPlaylistMode::complete && mode != HlsPlaylistMode::sliding && mode != HlsPlaylistMode::complete_uri) ||
-        !byte_range_valid(input.data, input.bytes) ||
-        !byte_range_valid(output, sizeof(*output)) || byte_ranges_overlap(input.data, input.bytes, output, sizeof(*output))) return E::invalid_input;
+    if (!input.bytes || (mode != HlsPlaylistMode::complete && mode != HlsPlaylistMode::sliding && mode != HlsPlaylistMode::complete_uri))
+        return E::invalid_input;
     const bool sliding = mode == HlsPlaylistMode::sliding;
     if (input.bytes > (sliding ? 64u : 256u) * 1024) return E::capacity;
     if (!valid_text(input)) return E::malformed;
@@ -386,7 +379,7 @@ HlsPlaylistError hls_media_playlist(Utf8View input, HlsMediaPlaylist* output, Hl
     *output = value; return E::none;
 }
 bool hls_media_segment(const HlsMediaPlaylist& p, u32 index, HlsMediaSegment* output) noexcept {
-    if (!output_valid(p, output, sizeof(*output)) || index >= p.segments) return false;
+    if (!playlist_valid(p) || index >= p.segments) return false;
     HlsMediaSegment value{}; u32 offset = p.first_offset; u64 time = 0;
     for (u32 i = 0; i <= index; ++i) {
         if (!segment(p, offset, i, time, &value)) return false;
@@ -395,12 +388,12 @@ bool hls_media_segment(const HlsMediaPlaylist& p, u32 index, HlsMediaSegment* ou
     *output = value; return true;
 }
 bool hls_media_follow(const HlsMediaPlaylist& p, const HlsMediaSegment& previous, HlsMediaSegment* output) noexcept {
-    if (!output_valid(p, output, sizeof(*output)) || previous.index >= p.segments - 1 || previous.next_offset > p.input.bytes ||
+    if (!playlist_valid(p) || previous.index >= p.segments - 1 || previous.next_offset > p.input.bytes ||
         previous.time_us > p.duration_us || previous.duration_us > p.duration_us - previous.time_us) return false;
     return segment(p, previous.next_offset, previous.index + 1, previous.time_us + previous.duration_us, output);
 }
 bool hls_media_find(const HlsMediaPlaylist& p, u64 time, HlsMediaSegment* output) noexcept {
-    if (!output_valid(p, output, sizeof(*output)) || time >= p.duration_us) return false;
+    if (!playlist_valid(p) || time >= p.duration_us) return false;
     HlsMediaSegment value{}; u32 offset = p.first_offset; u64 at = 0;
     for (u32 i = 0; i < p.segments; ++i) {
         if (!segment(p, offset, i, at, &value)) return false;
@@ -410,7 +403,7 @@ bool hls_media_find(const HlsMediaPlaylist& p, u64 time, HlsMediaSegment* output
     return false;
 }
 HlsPlaylistError hls_media_update(const HlsMediaPlaylist& previous, const HlsMediaPlaylist& next, HlsPlaylistAdvance* output) noexcept {
-    if (!output_valid(previous, output, sizeof(*output)) || !output_valid(next, output, sizeof(*output)) ||
+    if (!playlist_valid(previous) || !playlist_valid(next) ||
         previous.mode != HlsPlaylistMode::sliding || next.mode != HlsPlaylistMode::sliding ||
         previous.sequence > ~u64{0} - (previous.segments - 1) || next.sequence > ~u64{0} - (next.segments - 1)) return E::invalid_input;
     if (next.sequence < previous.sequence || next.sequence + (next.segments - 1) < previous.sequence + (previous.segments - 1) ||

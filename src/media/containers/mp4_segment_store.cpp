@@ -56,9 +56,8 @@ Mp4DemuxError mp4_segment_store_request(Mp4SegmentStore* s, u32 number) noexcept
     }
     return E::data_pending;
 }
-Mp4DemuxError mp4_segment_store_accept(Mp4SegmentStore* s, u32 number, u64 serial, ConstSlice<u8> bytes) noexcept {
-    if (s->transport || !s->initialization.base || !s->pending || s->demand != number || serial != s->request_serial ||
-        number >= s->count) return E::invalid_input;
+Mp4DemuxError mp4_segment_store_accept(Mp4SegmentStore* s, u32 number, ConstSlice<u8> bytes) noexcept {
+    if (s->transport || !s->initialization.base || number >= s->count) return E::invalid_input;
     // The caller bounds the body: 1 MiB for audio, 8 MiB for video (segmented_video_accept).
     const u32 capacity = s->track.audio ? 1024 * 1024 : 8 * 1024 * 1024;
     Mp4MediaSegment parsed{};

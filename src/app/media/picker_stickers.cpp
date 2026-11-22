@@ -67,7 +67,7 @@ bool build_server_stickers(ApplicationMediaPicker& p) noexcept {
         u32 used = 0, text_used = 0;
         const u8 premium = state.self_premium_type;
         for (u32 i = 0; i < servers; ++i) {
-            const auto* list = order[i] ? sticker_list(order[i]) : nullptr;
+            const auto* list = sticker_list(order[i]);
             if (!list)
                 continue;
             const auto decoded = media_catalog_decode(
@@ -107,17 +107,12 @@ bool build_server_stickers(ApplicationMediaPicker& p) noexcept {
             ++p.sticker_server_count;
         }
         bank->count = used;
-        if (!sticker_previews(bank, bank->text + text, items * 64)) {
-            pages_release(bank);
-            bank = nullptr;
-            p.sticker_server_count = 0;
-        } else {
-            bank->text_bytes = text + items * 64 + servers * kNameBytes;
-            bank->generation = p.generation;
-            bank->operation = MediaCatalogOperation::guild_stickers;
-            bank->first_id = g_app.media_picker_item_serial + 1;
-            g_app.media_picker_item_serial += used;
-        }
+        sticker_previews(bank, bank->text + text);
+        bank->text_bytes = text + items * 64 + servers * kNameBytes;
+        bank->generation = p.generation;
+        bank->operation = MediaCatalogOperation::guild_stickers;
+        bank->first_id = g_app.media_picker_item_serial + 1;
+        g_app.media_picker_item_serial += used;
     }
     if (scratch)
         pages_release(scratch);

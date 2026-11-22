@@ -152,7 +152,7 @@ void button(UiPaint& p, const UiDownloadScene& s, UiWidgetHandle handle, const U
 bool ui_download_scene_current(const UiDownloadScene& s) noexcept { return current(s); }
 bool ui_download_scene_update(UiDownloadScene* s, const UiDownloadSource* source,
     const UiDownloadContent* content, UiRect viewport) noexcept {
-    if (!s || !content || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 240 || ui_rect_height(viewport) < 300) return false;
+    if (!ui_rect_valid(viewport) || ui_rect_width(viewport) < 240 || ui_rect_height(viewport) < 300) return false;
     if (current(*s) && s->source == source && s->content == content && ui_rect_equal(s->viewport,viewport)) return true;
     if (content->mode > UiDownloadMode::confirmation || !valid_view(content->heading,128) ||
         !valid_view(content->status,512) || !valid_view(content->filename,1024) || !valid_view(content->warning,2048) ||
@@ -244,7 +244,7 @@ UiDownloadTarget ui_download_scene_hit_test(const UiDownloadScene& s, float x, f
     return ui_download_scene_target(s,ui_widget_manager_hit_test(s.widgets,x,y));
 }
 bool ui_download_scene_page(UiDownloadScene* s, u32 page) noexcept {
-    if (!s || !current(*s) || s->mode != UiDownloadMode::receipts || page >
+    if (!current(*s) || s->mode != UiDownloadMode::receipts || page >
         (s->accepted_count ? (s->accepted_count - 1) / s->page_size : 0)) return false;
     if (page == s->page) return true;
     ui_widget_manager_release_pointer(&s->widgets); s->page = page;

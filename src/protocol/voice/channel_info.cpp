@@ -102,7 +102,7 @@ GatewayCommandWriteResult gateway_write_channel_info_request(u64 guild_id, Slice
         return {0, GatewayCommandError::invalid_input};
     const u32 required =
         static_cast<u32>(sizeof(kRequestPrefix) + sizeof(kRequestSuffix) - 2) + decimal_digits(guild_id);
-    if (!output.data || output.count < required)
+    if (output.count < required)
         return {0, GatewayCommandError::output_too_small};
     u32 offset = sizeof(kRequestPrefix) - 1;
     copy_bytes(output.data, kRequestPrefix, offset);
@@ -114,8 +114,6 @@ GatewayCommandWriteResult gateway_write_channel_info_request(u64 guild_id, Slice
 VoiceChannelInfoResult voice_channel_info_decode(VoiceChannelInfoEvent event, Utf8View data,
                                                  Slice<u32> scratch, Slice<char> text,
                                                  VoiceChannelInfoVisitor visitor, void* context) noexcept {
-    if (!text.data && text.count)
-        return {0, VoiceChannelInfoError::input};
     const auto s = scan_json<VoiceChannelInfoError>(data, scratch);
     if (s.error != VoiceChannelInfoError::none)
         return {0, s.error};
@@ -146,8 +144,6 @@ VoiceChannelInfoResult voice_channel_info_decode(VoiceChannelInfoEvent event, Ut
 }
 
 u32 voice_channel_status_display(Utf8View status, Slice<char> output) noexcept {
-    if (!status.data || !output.data)
-        return 0;
     u32 used = 0;
     for (u32 i = 0; i < status.bytes && used < output.count;) {
         // <:name:id> or <a:name:id> -> :name:

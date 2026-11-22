@@ -127,7 +127,7 @@ void deliver(void* context, const VideoRtpFrame& frame) noexcept {
         const auto opened = sink.decrypt(sink.decrypt_context, frame.user_id, frame.ssrc, frame.annex_b,
                                          {sink.buffer + kVideoRtpFrameBytes, kVideoRtpFrameBytes},
                                          {sink.buffer, kVideoRtpFrameBytes});
-        if (!opened.ok() || !opened.bytes || opened.bytes > kVideoRtpFrameBytes) {
+        if (!opened.ok() || !opened.bytes) {
             // Without this frame the decoder lacks a reference: ask for a fresh
             // keyframe (throttled by the RTP core), e.g. once DAVE keys arrive.
             video_rtp_request_keyframe(&sink.rtp, frame.ssrc);
@@ -250,9 +250,7 @@ bool voice_video_source(const VoiceSsrcBinding& source) noexcept {
 bool voice_video_sink_packet(VoiceVideoSink* sink, const VoiceReceivedPacket& packet, ConstSlice<u8> plaintext,
                              u64 now_us) noexcept {
     const auto& layout = packet.transport.layout;
-    if (!packet.transport.ok() || layout.kind != MediaPacketKind::rtp || !voice_video_source(packet.source) ||
-        packet.member.user_id != packet.source.user_id || !packet.source.primary_ssrc ||
-        !ensure_rtp(*sink, sink->rtp.local_ssrc))
+    if (!packet.source.primary_ssrc || !ensure_rtp(*sink, sink->rtp.local_ssrc))
         return false;
     auto& summary = sink->summary;
     if (!summary.packets++)
@@ -395,8 +393,6 @@ u32 voice_video_sink_decodable(const VoiceVideoSink& sink) noexcept {
 
 u32 voice_video_users(const VoiceConnection& connection, const VoiceVideoSink* sink, u64 self_user_id,
                       Slice<VoiceVideoUser> output) noexcept {
-    if (!output.data && output.count)
-        return 0;
     u32 count = 0;
     const auto& participants = connection.participants;
     for (u32 i = 0; i != participants.source_count; ++i) {

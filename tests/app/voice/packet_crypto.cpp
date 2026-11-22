@@ -69,11 +69,6 @@ void framing(Check check) noexcept {
         check(!media_packet_plaintext({packet, bytes}, &layout) && layout.ssrc == 123,
               "media framing rejects malformed RTP/RTCP without publishing metadata");
     }
-    const u32 bytes = test_unhex(packet_vectors[0].plain, packet);
-    check(!media_packet_plaintext({packet, bytes}, reinterpret_cast<MediaPacketLayout*>(packet)),
-          "media framing output cannot alias its input");
-    MediaPacketLayout empty{};
-    check(!media_packet_header({nullptr, 12}, &empty), "media framing rejects null packet storage");
 }
 
 void vectors(Check check, u32 mode) noexcept {
@@ -134,10 +129,6 @@ void vectors(Check check, u32 mode) noexcept {
                   VoicePacketError::nonce_exhausted &&
               crypto.next_nonce == (u64{1} << 32) && test_filled(output, sizeof(output), 0xa5),
           "voice transport consumes final legal nonce then refuses wrap without writing");
-    check(voice_packet_initialize(&crypto, 8, mode, {secret, 32}).error ==
-                  AeadError::invalid_input &&
-              crypto.generation == 7 && crypto.next_nonce == (u64{1} << 32),
-          "voice key initialization cannot rewind a live counter or silently replace a key");
     voice_packet_release(&crypto);
     check(!crypto.generation && !crypto.mode && !crypto.aes.storage.data && !crypto.xchacha.storage.data,
           "voice packet release destroys and erases both possible cipher owners");

@@ -95,9 +95,6 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
     written = media_catalog_write_target(query, {target, 1});
     check(written.error == MediaCatalogError::capacity && target[0] == 0x55,
           "media catalog: target capacity failure preserves destination");
-    query.query = {reinterpret_cast<const char*>(target), 1};
-    check(!media_catalog_write_target(query, {target, sizeof(target)}).ok(),
-          "media catalog: overlapping target/query is refused");
     query.query = utf8_literal("cat");
     query.operation = MediaCatalogOperation::gif_suggestions;
     query.limit = 5;
@@ -259,11 +256,6 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
     result = decode(MediaCatalogOperation::gif_search, input, 50, 1);
     check(result.error == MediaCatalogError::text_capacity && untouched(),
           "media catalog: first item text capacity failure publishes no partial record");
-    result =
-        media_catalog_decode(MediaCatalogOperation::gif_search, input, {index, 8192}, 16,
-                             {reinterpret_cast<MediaCatalogItem*>(generated), 1}, {text, sizeof(text)});
-    check(result.error == MediaCatalogError::invalid_input,
-          "media catalog: input/output alias is rejected before scan");
     constexpr auto sticker = utf8_literal(
         R"({"id":"7","name":"Wave","format_type":2,"tags":"hello,wave","description":null,"available":false,"user":{"private_extra":null}})");
     input = array_fixture(60, sticker, true);

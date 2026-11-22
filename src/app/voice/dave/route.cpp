@@ -57,7 +57,7 @@ bool command_field(void* opaque, JsonString name, JsonValue value) noexcept {
 } // namespace
 GatewayEventDecodeResult voice_dave_decode_command(u8 opcode, JsonValue data, Slice<u32> scratch,
                                                    u32 maximum_depth, VoiceDaveCommand* output) noexcept {
-    if (!output || data.kind != JsonValueKind::object || !data.source.data || !maximum_depth)
+    if (data.kind != JsonValueKind::object)
         return {data.source_offset, GatewayEventDecodeError::invalid_input};
     const auto scan = json_scan_structurals_avx1(data.source, scratch);
     if (!scan.ok())
@@ -81,27 +81,17 @@ GatewayEventDecodeResult voice_dave_decode_command(u8 opcode, JsonValue data, Sl
     *output = command;
     return {};
 }
-GatewayCommandWriteResult voice_dave_write_transition(VoiceDaveOpcode opcode, u16 transition_id,
-                                                      Slice<u8> output) noexcept {
-    if (opcode != VoiceDaveOpcode::transition_ready &&
-        opcode != VoiceDaveOpcode::mls_invalid_commit_welcome)
-        return {0, GatewayCommandError::invalid_input};
-    char text[48];
+u32 voice_dave_write_transition(VoiceDaveOpcode opcode, u16 transition_id, u8* output) noexcept {
     u32 used = 0;
     const auto append = [&](const char* value) noexcept {
         while (*value)
-            text[used++] = *value++;
+            output[used++] = static_cast<u8>(*value++);
     };
     append(opcode == VoiceDaveOpcode::transition_ready ? "{\"op\":23,\"d\":{\"transition_id\":"
                                                        : "{\"op\":31,\"d\":{\"transition_id\":");
-    used += decimal_write(text + used, transition_id);
+    used += decimal_write(output + used, transition_id);
     append("}}");
-    if (!output.data && output.count)
-        return {0, GatewayCommandError::invalid_input};
-    if (output.count < used)
-        return {used, GatewayCommandError::output_too_small};
-    copy_bytes(output.data, text, used);
-    return {used, GatewayCommandError::none};
+    return used;
 }
 VoiceDaveRoute voice_dave_route_json(u8 opcode) noexcept {
     if (opcode < 21 || opcode > 31)

@@ -47,7 +47,7 @@ constexpr u32 voice_message_duration_ms(u64 samples) noexcept {
 // Encoder, framing, live levels and the Ogg stream of one recording, in one
 // fixed block sized for the maximum duration. Single producer: push and
 // finish never run concurrently (the module holds its lock).
-enum class VoiceMessageRecorderError : u8 { none, invalid_input, invalid_state, memory, encoder, capacity };
+enum class VoiceMessageRecorderError : u8 { none, invalid_state, memory, encoder, capacity };
 struct VoiceMessageRecorder {
     static constexpr bool kZeroDefault = true; // Every member defaults to zero: reset_value clears bytes.
     OpusEncoder* encoder; // At the start of the block.

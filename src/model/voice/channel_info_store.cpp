@@ -107,7 +107,7 @@ bool voice_channel_info_store_set_status(VoiceChannelInfoStore* s, u64 guild_id,
 }
 
 bool voice_channel_info_store_clear_guild(VoiceChannelInfoStore* s, u64 guild_id) noexcept {
-    if (!s || !guild_id)
+    if (!guild_id)
         return false;
     bool changed = false;
     for (u32 i = s->count; i-- > 0;)
@@ -120,7 +120,7 @@ bool voice_channel_info_store_clear_guild(VoiceChannelInfoStore* s, u64 guild_id
 }
 
 bool voice_channel_info_store_remove(VoiceChannelInfoStore* s, u64 channel_id) noexcept {
-    if (!s || !channel_id)
+    if (!channel_id)
         return false;
     const u32 index = lower_bound(*s, channel_id);
     if (index >= s->count || s->records[index].channel_id != channel_id)

@@ -2,7 +2,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/media/video/rtp_av1.hpp"
 #include "maicord/media/video/rtp_h264.hpp"
@@ -579,9 +578,8 @@ bool video_rtp_set_codecs(VideoRtpReceiver* receiver, ConstSlice<VideoRtpCodecBi
 #pragma clang attribute pop
 VideoRtpPush video_rtp_receive(VideoRtpReceiver* receiver, const VideoRtpSource& source,
                                const MediaPacketLayout& layout, ConstSlice<u8> plaintext, u64 now_us) noexcept {
-    if (!receiver->frame || layout.kind != MediaPacketKind::rtp || !source.media_ssrc ||
-        !byte_range_valid(plaintext) || layout.payload_offset > plaintext.count ||
-        layout.payload_bytes > plaintext.count - layout.payload_offset)
+    // The layout is voice_packet_open's for this plaintext and the source is a mapped stream (media_ssrc set).
+    if (!receiver->frame)
         return VideoRtpPush::invalid;
     ConstSlice<u8> payload{plaintext.data + layout.payload_offset, layout.payload_bytes};
     u16 sequence = layout.sequence;

@@ -135,10 +135,6 @@ void oracle_frames(Check check, const Buffers& b) noexcept {
         check(tampered == AeadError::authentication_failed && header == AeadError::authentication_failed &&
                   !fresh.initialized,
               "DAVE video: modified ciphertext or a modified NAL header fails without consuming replay");
-        // In place over the received frame with body-sized scratch.
-        const auto in_place = dave_frame_open(view, key, fresh, counter.value, b.scratch, b.frame);
-        check(in_place == AeadError::none && bytes_equal(b.frame, b.body, vector.size),
-              "DAVE video: in-place open over the assembled frame buffer reconstructs the body");
         aes_gcm_release(&key);
     }
 }
@@ -151,7 +147,6 @@ void interleaved(Check check, const Buffers& b) noexcept {
         check(false, "DAVE video interleave KDF workspace");
         return;
     }
-    constexpr DaveReceiveIdentity identity{7, 9001};
     u8 seed[16], key_bytes[16], next[32];
     for (u32 i = 0; i != 16; ++i)
         seed[i] = static_cast<u8>(0x30 + i * 5);
@@ -159,8 +154,8 @@ void interleaved(Check check, const Buffers& b) noexcept {
     AesGcmKey key{};
     bool ready = dave_ratchet_step(workspace, {seed, 16}, 0, key_bytes, next).ok() &&
                  aes_gcm_initialize(&key, {key_bytes, 16}).ok() &&
-                 dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none &&
-                 dave_receive_sender_transition(sender, identity, 1, {seed, 16}, 0, 10'000).ok();
+                 dave_receive_sender_initialize(&sender, 9001, 0) == DaveSenderError::none &&
+                 dave_receive_sender_transition(sender, 1, {seed, 16}, 0, 10'000).ok();
     secure_clear_bytes(key_bytes, sizeof(key_bytes));
     secure_clear_bytes(next, sizeof(next));
     check(ready, "DAVE video interleave: sender epoch and generation-0 key");
@@ -180,7 +175,7 @@ void interleaved(Check check, const Buffers& b) noexcept {
         const u32 size = seal(key, nonce, {b.body, bytes},
                               video ? ConstSlice<DaveClearRange>{video_ranges, 3} : ConstSlice<DaveClearRange>{},
                               b.frame, b.cipher, tag);
-        const auto result = dave_receive_sender_open(sender, identity, workspace, {b.frame, size}, 1,
+        const auto result = dave_receive_sender_open(sender, workspace, {b.frame, size}, 1,
                                                      {b.scratch, kLargest}, {b.output, kLargest});
         return result.ok() && result.bytes == bytes && bytes_equal(b.output, b.body, bytes);
     };

@@ -248,7 +248,7 @@ MlsStatus stage(DaveSession& session, u16 id, u16 version, bool allow_pending_gr
 DaveReceiveSender* find_receiver(const DaveSession& session, u64 user_id) noexcept {
     auto* list = receivers(session);
     for (u32 i = 0; i != session.receiver_count; ++i)
-        if (list[i].identity.user_id == user_id)
+        if (list[i].user_id == user_id)
             return &list[i];
     return nullptr;
 }
@@ -262,8 +262,7 @@ void retire_receivers(DaveSession& session, u64 now_ms) noexcept {
     ++session.receive_revision;
     auto* list = receivers(session);
     for (u32 i = 0; i != session.receiver_count; ++i)
-        dave_receive_sender_retire(list[i], list[i].identity, session.receive_revision, now_ms,
-                                   kDaveEpochGraceMs);
+        dave_receive_sender_retire(list[i], session.receive_revision, now_ms, kDaveEpochGraceMs);
 }
 // Re-keys every remote member of the newly active epoch from its exporter
 // secret; members that left keep their old keys only for the grace period.
@@ -281,7 +280,6 @@ inline MlsStatus refresh_receivers(DaveSession& session, u64 now_ms) noexcept {
         if (!node.present || node.type != kMlsNodeLeaf || node.leaf.user_id == session.self_user_id)
             continue;
         auto* receiver = find_receiver(session, node.leaf.user_id);
-        const DaveReceiveIdentity identity{session.call_generation, node.leaf.user_id};
         if (!receiver) {
             if (session.receiver_count == kDaveMaxMembers ||
                 !commit_block(session, DaveArenaBlock::receivers,
@@ -289,12 +287,12 @@ inline MlsStatus refresh_receivers(DaveSession& session, u64 now_ms) noexcept {
                 return MlsStatus::buffer_too_small;
             receiver = &list[session.receiver_count];
             reset_value(receiver);
-            if (dave_receive_sender_initialize(receiver, identity, now_ms) != DaveSenderError::none)
+            if (dave_receive_sender_initialize(receiver, node.leaf.user_id, now_ms) != DaveSenderError::none)
                 return MlsStatus::crypto_failure;
             ++session.receiver_count;
         }
         const auto transitioned = dave_receive_sender_transition_exporter(
-            *receiver, identity, revision, session.kdf,
+            *receiver, revision, session.kdf,
             {active.epoch.exporter_secret, kMlsHashBytes}, now_ms, kDaveEpochGraceMs);
         if (!transitioned.ok())
             return MlsStatus::crypto_failure;
@@ -305,8 +303,8 @@ inline MlsStatus refresh_receivers(DaveSession& session, u64 now_ms) noexcept {
         auto& receiver = list[--i];
         if (receiver.latest_revision == revision)
             continue;
-        dave_receive_sender_retire(receiver, receiver.identity, revision, now_ms, kDaveEpochGraceMs);
-        dave_receive_sender_collect(receiver, receiver.identity, now_ms);
+        dave_receive_sender_retire(receiver, revision, now_ms, kDaveEpochGraceMs);
+        dave_receive_sender_collect(receiver, now_ms);
         if (!receiver.count)
             remove_receiver(session, i);
     }
@@ -333,10 +331,10 @@ MlsStatus prepare_leaf(DaveSession& session) noexcept {
 }
 } // namespace
 
-MlsStatus dave_session_initialize(DaveSession* session, u64 group_id, u64 self_user_id, u64 call_generation,
+MlsStatus dave_session_initialize(DaveSession* session, u64 group_id, u64 self_user_id,
                                   u16 protocol_version) noexcept {
     if (session->initialized || session->arena || !group_id || !self_user_id ||
-        !call_generation || protocol_version > kDaveProtocolVersion)
+        protocol_version > kDaveProtocolVersion)
         return MlsStatus::invalid_argument;
     reset_value(session);
     session->arena = static_cast<u8*>(pages_reserve_no_access(kLayout.total));
@@ -353,7 +351,6 @@ MlsStatus dave_session_initialize(DaveSession* session, u64 group_id, u64 self_u
     }
     session->group_id = group_id;
     session->self_user_id = self_user_id;
-    session->call_generation = call_generation;
     session->protocol_version = protocol_version;
     session->passthrough_until_ms = protocol_version ? 0 : kDavePassthroughForever;
     session->active_state = session->active_context = kNoBuffer;
@@ -683,27 +680,22 @@ bool dave_session_can_encrypt(const DaveSession& session) noexcept {
            session.sealer_ready;
 }
 DaveSealResult dave_session_encrypt(DaveSession* session, ConstSlice<u8> opus, Slice<u8> output) noexcept {
-    if (!opus.data || !opus.count || opus.count > kDaveMaxOpusFrame)
+    // Encoder packets fit the callers' outputs (at most 1275 bytes, RFC 6716); a failed encode is empty.
+    if (!opus.count)
         return {0, 0, 0, DaveSealError::invalid_input};
     if (!dave_session_can_encrypt(*session))
         return {0, 0, 0, DaveSealError::not_initialized};
     if (session->passthrough_until_ms != kDavePassthroughForever)
         return dave_frame_seal(session->sealer, session->kdf, opus, output);
-    if (output.count < opus.count)
-        return {0, 0, 0, DaveSealError::output_capacity};
-    if (output.data != opus.data)
-        copy_bytes(output.data, opus.data, opus.count);
+    copy_bytes(output.data, opus.data, opus.count);
     return {opus.count, 0, 0, DaveSealError::none};
 }
 DaveSealResult dave_session_encrypt_video(DaveSession* session, DaveVideoCodec codec, ConstSlice<u8> frame,
                                           Slice<u8> prepared, Slice<u8> scratch, Slice<u8> output) noexcept {
-    if (!frame.data || !frame.count)
-        return {0, 0, 0, DaveSealError::invalid_input};
+    // The caller (go_live_stream.cpp) queues only nonempty units of at most kGoLiveFrameBytes, its output's size.
     if (!dave_session_can_encrypt(*session))
         return {0, 0, 0, DaveSealError::not_initialized};
     if (session->passthrough_until_ms == kDavePassthroughForever) {
-        if (output.count < frame.count)
-            return {0, 0, 0, DaveSealError::output_capacity};
         copy_bytes(output.data, frame.data, frame.count);
         return {frame.count, 0, 0, DaveSealError::none};
     }
@@ -726,10 +718,8 @@ DaveMediaResult dave_session_decrypt(DaveSession* session, u64 user_id, const Co
                                      u64 now_ms, const Slice<u8>& scratch,
                                      const Slice<u8>& output) noexcept {
     DaveMediaResult result{};
-    if (!session->initialized || !user_id || !frame.data || !frame.count) {
-        result.error = DaveMediaError::invalid_input;
-        return result;
-    }
+    // The callers checked the session and the user (voice_connection_dave_decrypt and _decrypt_frame), and pass a
+    // nonempty frame no larger than their output and scratch.
     // Unmarked frames pass through while the executed protocol is version 0
     // and for the grace period after an upgrade; the Opus silence frame is
     // never encrypted. Marked frames still open with retained keys after a
@@ -738,12 +728,7 @@ DaveMediaResult dave_session_decrypt(DaveSession* session, u64 user_id, const Co
         frame.count >= 2 && frame[frame.count - 1] == 0xfa && frame[frame.count - 2] == 0xfa;
     const bool silence = frame.count == 3 && frame[0] == 0xf8 && frame[1] == 0xff && frame[2] == 0xfe;
     if (silence || (!marked && now_ms < session->passthrough_until_ms)) {
-        if (output.count < frame.count) {
-            result.error = DaveMediaError::output_capacity;
-            return result;
-        }
-        if (output.data != frame.data)
-            copy_bytes(output.data, frame.data, frame.count);
+        copy_bytes(output.data, frame.data, frame.count);
         result.bytes = frame.count;
         result.passthrough = true;
         return result;
@@ -754,13 +739,9 @@ DaveMediaResult dave_session_decrypt(DaveSession* session, u64 user_id, const Co
                                                                            : DaveMediaError::not_ready;
         return result;
     }
-    result.sender = dave_receive_sender_open(*receiver, receiver->identity, session->kdf, frame, now_ms,
-                                             scratch, output);
+    result.sender = dave_receive_sender_open(*receiver, session->kdf, frame, now_ms, scratch, output);
     if (!result.sender.ok()) {
-        result.error = result.sender.error == DaveSenderError::output_capacity ||
-                               result.sender.error == DaveSenderError::scratch_capacity
-                           ? DaveMediaError::output_capacity
-                           : DaveMediaError::rejected;
+        result.error = DaveMediaError::rejected;
         return result;
     }
     result.bytes = result.sender.bytes;

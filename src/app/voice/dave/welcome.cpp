@@ -117,8 +117,6 @@ DaveWelcomeResult open_candidate(KdfSha256Workspace& workspace, const P256Key& k
 }
 } // namespace
 void dave_welcome_release(DaveWelcomeCandidate* candidate) noexcept {
-    if (!candidate)
-        return;
     secure_buffer_release(&candidate->storage);
     secure_clear_bytes(candidate, sizeof(*candidate));
 }

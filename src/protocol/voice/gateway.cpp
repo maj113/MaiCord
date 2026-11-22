@@ -7,7 +7,7 @@
 
 namespace maicord {
 GatewayEndpointError voice_gateway_endpoint(Utf8View authority, GatewayEndpoint* output) noexcept {
-    if (!authority.data || !authority.bytes)
+    if (!authority.bytes)
         return GatewayEndpointError::invalid_input;
     if (authority.bytes >= kGatewayEndpointAuthorityCapacity)
         return GatewayEndpointError::invalid_authority;
@@ -114,7 +114,7 @@ GatewayDecodeResult voice_gateway_decode_json(Utf8View input, Slice<u32> scratch
 }
 
 bool voice_gateway_decode_binary(ConstSlice<u8> input, VoiceGatewayBinary* output) noexcept {
-    if (!input.data || input.count < 3)
+    if (input.count < 3)
         return false;
     *output = {{input.data + 3, input.count - 3}, byte_load_be16(input.data), input[2]};
     return true;
@@ -145,10 +145,6 @@ GatewayEventDecodeResult voice_gateway_decode_heartbeat_ack(JsonValue data, Slic
 }
 GatewayCommandWriteResult voice_gateway_write_binary(u8 opcode, ConstSlice<u8> payload,
                                                      Slice<u8> output) noexcept {
-    if ((!payload.data && payload.count) || (!output.data && output.count))
-        return {0, GatewayCommandError::invalid_input};
-    if (payload.count == ~u32{0})
-        return {0, GatewayCommandError::value_too_large};
     const u32 required = payload.count + 1;
     if (output.count < required)
         return {required, GatewayCommandError::output_too_small};

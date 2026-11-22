@@ -11,13 +11,12 @@ struct Capture {
     VoiceConnection* connection;
     VoiceReceivedPacket packet;
     u32 calls;
-    bool current, borrowed;
+    bool borrowed;
 };
 bool capture(void* context, ConstSlice<u8> bytes, const VoiceReceivedPacket& packet) noexcept {
     auto& saved = *static_cast<Capture*>(context);
     ++saved.calls;
     saved.packet = packet;
-    saved.current = voice_connection_media_current(*saved.connection, packet);
     saved.borrowed = bytes.data == saved.connection->media_io.receive_buffer.data &&
                      bytes.count == packet.transport.bytes;
     return true;
@@ -157,8 +156,7 @@ void test_voice_media_dispatch(Check check) noexcept {
         }
     }
     if (ok) {
-        check(!voice_connection_media_start(&connection, {rx, 256}, {tx, 256}, nullptr, nullptr) &&
-                  !voice_connection_media_start(&connection, {rx, 256}, {rx, 256}, capture, nullptr) &&
+        check(!voice_connection_media_start(&connection, {rx, 256}, {tx, 256}, capture, nullptr) &&
                   connection.media_receive == capture && connection.media_context == &saved,
               "failed media attachment cannot replace the active consumer/context");
         check(deliver(connection, setup, loop, remote, peer, false, 10) && saved.calls == 0 &&
@@ -171,97 +169,50 @@ void test_voice_media_dispatch(Check check) noexcept {
               "transport-wide sequence numbers are recorded for every authenticated RTP packet, announced or not");
         check(announce(connection, 5, utf8_literal(R"({"user_id":"42","ssrc":10,"speaking":1})")) &&
                   deliver(connection, setup, loop, remote, peer, false, 10) && saved.calls == 1 &&
-                  saved.current && saved.borrowed && saved.packet.source.user_id == 42 &&
+                  saved.borrowed && saved.packet.source.user_id == 42 &&
                   saved.packet.source.ssrc == 10 && !saved.packet.member.connected,
               "announced RTP delivers borrowed bytes and source identity without fabricating recognized "
               "membership");
-        auto old = saved.packet;
         const auto accepted = saved.calls;
         check(deliver(connection, setup, loop, remote, peer, false, 10, true) && saved.calls == accepted &&
-                  connection.media_io.rejected_packets == 1 && connection.unannounced_rtp_packets == 2 &&
-                  voice_connection_media_current(connection, old),
-              "tampered packet is rejected before participant dispatch without changing source state");
+                  connection.media_io.rejected_packets == 1 && connection.unannounced_rtp_packets == 2,
+              "tampered packet is rejected before participant dispatch");
         check(announce(connection, 11, utf8_literal(R"({"user_ids":["42"]})")) &&
-                  voice_connection_media_current(connection, old) &&
                   deliver(connection, setup, loop, remote, peer, false, 10) &&
                   saved.packet.member.connected,
-              "identity currency is independent of changing membership snapshots");
-        old = saved.packet;
-        check(announce(connection, 5, utf8_literal(R"({"user_id":"42","ssrc":10,"speaking":0})")) &&
-                  announce(connection, 18, utf8_literal(R"({"user_id":"42","flags":7})")) &&
-                  voice_connection_media_current(connection, old),
-              "activity/flags changes preserve queued source identity");
-        auto substituted = old;
-        ++substituted.source.revision;
-        check(!voice_connection_media_current(connection, substituted),
-              "substituted source revision is not current");
-        substituted = old;
-        ++substituted.transport.layout.ssrc;
-        check(!voice_connection_media_current(connection, substituted),
-              "RTP header/source identity must match");
-        substituted = old;
-        ++substituted.setup_generation;
-        check(!voice_connection_media_current(connection, substituted),
-              "stale signaling generation is not current");
-        substituted = old;
-        substituted.transport.error = VoicePacketError::crypto;
-        check(!voice_connection_media_current(connection, substituted),
-              "failed transport cannot be treated as current media");
-        check(announce(connection, 5, utf8_literal(R"({"user_id":"42","ssrc":11,"speaking":1})")) &&
-                  !voice_connection_media_current(connection, old),
-              "audio SSRC replacement invalidates previously delivered work");
+              "a connected member's packets carry the membership snapshot");
         const auto calls = saved.calls;
-        check(deliver(connection, setup, loop, remote, peer, false, 10) && saved.calls == calls &&
+        check(announce(connection, 5, utf8_literal(R"({"user_id":"42","ssrc":11,"speaking":1})")) &&
+                  deliver(connection, setup, loop, remote, peer, false, 10) && saved.calls == calls &&
                   connection.unannounced_rtp_packets == 3 &&
                   deliver(connection, setup, loop, remote, peer, false, 11) &&
-                  saved.packet.source.ssrc == 11 && saved.current,
+                  saved.packet.source.ssrc == 11,
               "retired source is dropped and its replacement resolves normally");
-        old = saved.packet;
         check(announce(connection, 13, utf8_literal(R"({"user_id":"42"})")) &&
-                  !voice_connection_media_current(connection, old) &&
                   deliver(connection, setup, loop, remote, peer, false, 11) &&
                   connection.unannounced_rtp_packets == 4,
-              "disconnected member's queued and newly received source packets are rejected");
+              "disconnected member's newly received source packets are rejected");
+        const auto before_rejoin = saved.calls;
         check(announce(connection, 11, utf8_literal(R"({"user_ids":["42"]})")) &&
                   announce(connection, 5, utf8_literal(R"({"user_id":"42","ssrc":11,"speaking":1})")) &&
-                  !voice_connection_media_current(connection, old) &&
-                  deliver(connection, setup, loop, remote, peer, false, 11) &&
-                  saved.packet.source.revision != old.source.revision,
-              "same user/SSRC rejoin cannot revive pre-disconnect work");
-        old = saved.packet;
+                  deliver(connection, setup, loop, remote, peer, false, 11) && saved.calls == before_rejoin + 1,
+              "a rejoined member's source delivers again");
         check(announce(connection, 5, utf8_literal(R"({"user_id":"43","ssrc":11,"speaking":1})")) &&
-                  !voice_connection_media_current(connection, old) &&
                   deliver(connection, setup, loop, remote, peer, false, 11) &&
                   saved.packet.source.user_id == 43 && !saved.packet.member.connected,
-              "reassigned SSRC resolves only to the new signaling owner and invalidates old work");
+              "reassigned SSRC resolves only to the new signaling owner");
         check(announce(connection, 12, utf8_literal(R"({"user_id":"43","audio_ssrc":11,"video_ssrc":20,
             "streams":[{"type":"video","ssrc":20,"rtx_ssrc":21,"active":false}]})")) &&
                   deliver(connection, setup, loop, remote, peer, false, 21) &&
                   saved.packet.source.kind == VoiceSourceKind::rtx &&
-                  saved.packet.source.primary_ssrc == 20 && !saved.packet.source.active && saved.current,
+                  saved.packet.source.primary_ssrc == 20 && !saved.packet.source.active,
               "RTX retains announced primary and activity metadata for the future media pipeline");
-        const auto rtp = saved.packet;
-        check(deliver(connection, setup, loop, remote, peer, true, 0) && saved.current && saved.borrowed &&
+        check(deliver(connection, setup, loop, remote, peer, true, 0) && saved.borrowed &&
                   saved.packet.transport.layout.kind == MediaPacketKind::rtcp &&
                   !saved.packet.source.user_id && !saved.packet.member.user_id,
               "RTCP peer feedback is never mislabeled as a user media source");
-        const auto rtcp = saved.packet;
-        substituted = rtcp;
-        substituted.source.user_id = 43;
-        check(!voice_connection_media_current(connection, substituted),
-              "RTCP descriptor cannot claim participant identity");
-        VoiceReady replacement{};
-        replacement.ip = {utf8_literal("127.0.0.1"), 0, false};
-        replacement.port = ntohs(peer_address.sin_port);
-        replacement.ssrc = 8;
-        replacement.recognized_modes = 1;
-        check(voice_connection_ready(&connection, replacement) == VoiceMediaSetupError::none &&
-                  !voice_connection_media_current(connection, rtp) &&
-                  !voice_connection_media_current(connection, rtcp),
-              "transport Ready invalidates both queued RTP and RTCP work");
     }
-    check(finish(connection, setup, loop) && !connection.media_receive && !connection.media_context &&
-              !voice_connection_media_current(connection, saved.packet),
+    check(finish(connection, setup, loop) && !connection.media_receive && !connection.media_context,
           "mapped consumer detaches before cancellation completes");
     voice_packet_release(&remote);
     voice_setup_release(&setup);

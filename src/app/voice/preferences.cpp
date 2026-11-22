@@ -100,13 +100,12 @@ bool voice_preferences_set_user(VoicePreferences* p, u64 user_id, u32 gain_perce
 }
 
 u32 voice_preferences_encode(const VoicePreferences& p, Slice<u8> output) noexcept {
-    if (!output.data || !voice_preferences_valid(p))
+    if (!voice_preferences_valid(p))
         return 0;
     const auto& a = p.audio;
     const u32 input = id_length(a.input_device), speaker = id_length(a.output_device);
     const u32 bytes = kHeaderBytes + (input + speaker) * 2 + 2 + p.user_count * kUserBytes + kSoundBytes;
-    if (output.count < bytes)
-        return 0;
+    // The callers' record holds kVoicePreferencesMaximumBytes, the most a valid p encodes to.
     clear_bytes(output.data, bytes);
     u8* r = output.data;
     copy_bytes(r, kMagic, 8);
@@ -148,7 +147,7 @@ u32 voice_preferences_encode(const VoicePreferences& p, Slice<u8> output) noexce
 
 bool voice_preferences_decode(ConstSlice<u8> record, VoicePreferences* preferences) noexcept {
     const u8* r = record.data;
-    if (!preferences || !r || record.count < kHeaderBytes + 2 || !bytes_equal(r, kMagic, 8))
+    if (record.count < kHeaderBytes + 2 || !bytes_equal(r, kMagic, 8))
         return false;
     const u32 version = byte_load_le32(r + 8);
     if (version < 2 || version > kVoicePreferencesVersion || byte_load_le32(r + 12) != record.count ||

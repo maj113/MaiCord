@@ -182,7 +182,7 @@ void opening(VoiceSocket* socket) noexcept {
 bool voice_socket_begin(VoiceSocket* socket, NetworkLoop* loop, const GatewayEndpoint& endpoint,
                         u64 setup_generation, u32 maximum_message_bytes, VoiceSocketHandler handler,
                         void* context, u64 now_ms, bool resume) noexcept {
-    if (!socket || !loop || !network_loop_ready(*loop) || !setup_generation || !handler ||
+    if (!network_loop_ready(*loop) || !setup_generation ||
         (socket->phase != VoiceSocketPhase::empty && socket->phase != VoiceSocketPhase::closed) ||
         socket->storage.data || socket->json_storage.arena.base || !gateway_endpoint_validate(endpoint) ||
         endpoint.policy != GatewayEndpointPolicy::voice_v9_json || maximum_message_bytes < 4096)
@@ -336,17 +336,9 @@ u64 voice_socket_deadline(const VoiceSocket& socket) noexcept {
 }
 VoiceSocketSend voice_socket_send(VoiceSocket* socket, WebSocketOpcode opcode, ConstSlice<u8> payload,
                                   u64 now_ms) noexcept {
-    if (socket->phase != VoiceSocketPhase::open || socket->pending_close ||
-        socket->stop_requested || !payload.data || !payload.count ||
-        (opcode != WebSocketOpcode::text && opcode != WebSocketOpcode::binary) ||
-        payload.count > socket->session.maximum_message_bytes)
-        return VoiceSocketSend::invalid;
-    // Encoding writes its header before the payload. Reject aliases, including
-    // a caller trying to reuse the currently submitted output buffer.
-    const usize source = reinterpret_cast<usize>(payload.data);
-    const usize destination = reinterpret_cast<usize>(socket->output.data);
-    if (source <= destination ? destination - source < payload.count
-                              : source - destination < socket->output.count)
+    // Callers send text or binary from their own buffers: locals and secure buffers, never socket->output.
+    if (socket->phase != VoiceSocketPhase::open || socket->pending_close || socket->stop_requested ||
+        !payload.count || payload.count > socket->session.maximum_message_bytes)
         return VoiceSocketSend::invalid;
     voice_socket_tick(socket, now_ms);
     if (!active(*socket))

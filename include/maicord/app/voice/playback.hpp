@@ -54,7 +54,8 @@ bool voice_playback_initialize(VoicePlayback* playback) noexcept;
 void voice_playback_release(VoicePlayback* playback) noexcept;
 // Drops all streams (new transport or SSRC table).
 void voice_playback_clear(VoicePlayback* playback) noexcept;
-// Queues one DAVE-decrypted Opus packet. speaking_flags are the sender's op 5 flags.
+// Queues one DAVE-decrypted Opus packet of a mapped user (nonzero user_id). speaking_flags are the sender's op 5
+// flags. An empty packet is refused.
 bool voice_playback_push(VoicePlayback* playback, u32 ssrc, u64 user_id, u32 speaking_flags, u16 sequence,
                          u32 timestamp, ConstSlice<u8> opus, u64 arrival_us) noexcept;
 // Audio thread: fills interleaved 48 kHz stereo PCM16 (at most

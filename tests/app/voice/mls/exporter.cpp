@@ -66,9 +66,8 @@ void matrix(Check check, KdfSha256Workspace& workspace) noexcept {
 void receive(Check check, KdfSha256Workspace& workspace) noexcept {
     DaveReceiveSender sender{};
     for (const auto& vector : export_vectors) {
-        const DaveReceiveIdentity identity{101, vector.user};
         if (!vector.epoch)
-            check(dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none,
+            check(dave_receive_sender_initialize(&sender, vector.user, 0) == DaveSenderError::none,
                   "MLS exporter sender init");
         u8 secret[32], expected[16], seed[32];
         for (u32 i = 0; i != 32; ++i)
@@ -79,7 +78,7 @@ void receive(Check check, KdfSha256Workspace& workspace) noexcept {
                   bytes_equal(seed, expected, 16) && test_filled(seed + 16, 16, 0xa5),
               "DAVE export label/little-endian full-width user ID match independent seed");
         const u64 now = vector.epoch * 10;
-        check(dave_receive_sender_transition_exporter(sender, identity, vector.epoch + 1, workspace,
+        check(dave_receive_sender_transition_exporter(sender, vector.epoch + 1, workspace,
                                                       {secret, 32}, now, 100)
                   .ok(),
               "DAVE receive transition exports the checked sender identity's seed");
@@ -87,7 +86,7 @@ void receive(Check check, KdfSha256Workspace& workspace) noexcept {
         u32 size = test_unhex(vector.first, frame);
         memset(output, 0xa5, sizeof(output));
         const auto opened =
-            dave_receive_sender_open(sender, identity, workspace, {frame, size}, now, {}, {output, 48});
+            dave_receive_sender_open(sender, workspace, {frame, size}, now, {}, {output, 48});
         bool correct = opened.ok() && opened.revision == vector.epoch + 1 && opened.bytes == 32;
         for (u32 i = 0; i != 32 && correct; ++i)
             correct = output[i] == static_cast<u8>(i * 7 + vector.epoch * 9);
@@ -99,7 +98,7 @@ void receive(Check check, KdfSha256Workspace& workspace) noexcept {
             const auto& old = *(&vector - 1);
             size = test_unhex(old.second, frame);
             const auto reordered =
-                dave_receive_sender_open(sender, identity, workspace, {frame, size}, now, {}, {output, 48});
+                dave_receive_sender_open(sender, workspace, {frame, size}, now, {}, {output, 48});
             check(reordered.ok() && reordered.revision == 1,
                   "MLS exporter-derived old epoch remains usable during transition grace");
             dave_receive_sender_release(&sender);
@@ -119,26 +118,23 @@ void failures(Check check, KdfSha256Workspace& workspace) noexcept {
               test_filled(output + 16, 32, 0xa5),
           "MLS export provider failure erases only requested output");
     DaveReceiveSender sender{};
-    const DaveReceiveIdentity identity{10, 20};
-    check(dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none,
+    check(dave_receive_sender_initialize(&sender, 20, 0) == DaveSenderError::none,
           "MLS exporter failure sender init");
     check(
-        dave_receive_sender_transition_exporter(sender, identity, 1, workspace, {secret, 32}, 0, 100).ok(),
+        dave_receive_sender_transition_exporter(sender, 1, workspace, {secret, 32}, 0, 100).ok(),
         "MLS exporter failure baseline epoch");
     workspace.storage.capacity = 1;
-    check(dave_receive_sender_transition_exporter(sender, {10, 21}, 2, workspace, {nullptr, 32}, 1, 100)
-                      .error == DaveSenderError::identity_mismatch &&
-              dave_receive_sender_transition_exporter(sender, identity, 1, workspace, {nullptr, 32}, 1, 100)
-                      .error == DaveSenderError::stale_transition,
-          "DAVE exporter transition rejects wrong identity/stale command before hashing");
+    check(dave_receive_sender_transition_exporter(sender, 1, workspace, {nullptr, 32}, 1, 100).error ==
+              DaveSenderError::stale_transition,
+          "DAVE exporter transition rejects a stale command before hashing");
     const auto replacement =
-        dave_receive_sender_transition_exporter(sender, identity, 2, workspace, {secret, 32}, 10, 100);
+        dave_receive_sender_transition_exporter(sender, 2, workspace, {secret, 32}, 10, 100);
     workspace.storage.capacity = capacity;
     check(replacement.error == DaveSenderError::epoch_export && !replacement.epoch.bytes &&
               sender.count == 1 && sender.latest_revision == 1 && sender.next_expiry_ms == ~u64{0},
           "DAVE failed export preserves existing key epochs, replay lifetime and transition revision");
     check(
-        dave_receive_sender_transition_exporter(sender, identity, 2, workspace, {secret, 32}, 10, 100).ok(),
+        dave_receive_sender_transition_exporter(sender, 2, workspace, {secret, 32}, 10, 100).ok(),
         "DAVE exporter transition can retry after provider failure");
     dave_receive_sender_release(&sender);
 }

@@ -29,7 +29,8 @@ struct DaveReplay {
 // Zero-initialize for a NEW sender epoch; retain across transport/source changes
 // for the same sender epoch. Worker-only: check, authenticate, then commit.
 // Authentication failure must not commit. These helpers do not authenticate,
-// enforce key expiry or provide transport replay protection on their own.
+// enforce key expiry or provide transport replay protection on their own. A counter is dave_frame_counter's
+// value, at most kDaveMaximumFrameCounter.
 bool dave_replay_can_accept(const DaveReplay& replay, u64 counter) noexcept;
 bool dave_replay_commit(DaveReplay* replay, u64 counter) noexcept;
 } // namespace maicord

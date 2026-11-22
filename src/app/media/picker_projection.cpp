@@ -13,6 +13,7 @@
 #include "../shell/retained_projection.hpp"
 #include "catalog_preview_log.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
@@ -177,7 +178,7 @@ namespace picker_detail {
 
 // Keeps a query's results first, evicting the least recently used.
 void inline_cache_keep(ApplicationMediaPicker& p, Utf8View query, CatalogBank* bank) noexcept {
-    if (!bank || query.bytes > kMediaCatalogMaximumQueryBytes)
+    if (query.bytes > kMediaCatalogMaximumQueryBytes)
         return;
     u32 at = inline_cache_index(p, query);
     if (at < kInlineGifCacheCapacity && p.inline_cache[at] == bank)
@@ -351,7 +352,7 @@ bool favorites_refresh(ApplicationMediaPicker& p) noexcept {
         revoke_capture(p);
     const bool data_changed = p.favorites_data_revision != view.data_revision;
     if (data_changed) {
-        if (view.records.count > kUiMediaPickerMaximumItems || p.favorite_generation == ~u32{0})
+        if (view.records.count > kUiMediaPickerMaximumItems)
             return false;
         const u32 mask_bytes = (view.records.count + 7) / 8;
         auto* mask = mask_bytes ? static_cast<u8*>(commit_pages(mask_bytes))
@@ -538,26 +539,22 @@ const MediaCatalogItem* item_at(const ApplicationMediaPicker& p, u32 index,
         return nullptr;
     if (landing(p) && p.favorites_enabled) {
         if (!index) {
-            if (bank)
-                *bank = &p.favorites_tile;
-            if (local)
-                *local = 0;
+            *bank = &p.favorites_tile;
+            *local = 0;
             return &p.tile_item;
         }
         --index;
     }
     if (p.kind == UiMediaPickerKind::gif && p.favorites_view) {
         const auto view = application_gif_favorites_view();
-        if (!temporary || index >= p.filtered_count || !p.filtered)
+        if (index >= p.filtered_count || !p.filtered)
             return nullptr;
         const u32 at = p.filtered[index];
         if (at >= p.saved.count || at >= view.records.count)
             return nullptr;
         favorite_item(view.records[at], temporary);
-        if (bank)
-            *bank = &p.saved;
-        if (local)
-            *local = at;
+        *bank = &p.saved;
+        *local = at;
         return temporary;
     }
     const CatalogBank* owner = p.kind == UiMediaPickerKind::gif ? gif_bank(p) : p.guild;
@@ -570,38 +567,39 @@ const MediaCatalogItem* item_at(const ApplicationMediaPicker& p, u32 index,
     }
     if (!owner || at >= owner->count)
         return nullptr;
-    if (bank)
-        *bank = owner;
-    if (local)
-        *local = at;
+    *bank = owner;
+    *local = at;
     return &owner->items[at];
 }
-// Writes each sticker's CDN preview URL into `urls` and admits it.
-bool sticker_previews(CatalogBank* bank, char* urls, u32 capacity) noexcept {
-    ProtocolWriter writer{{reinterpret_cast<u8*>(urls), capacity}, 0};
+// Writes each sticker's CDN preview URL into `urls` and admits it. A URL takes at most 63 bytes (38 of host and
+// path, 20 digits, ".json"); callers reserve 64 per item.
+void sticker_previews(CatalogBank* bank, char* urls) noexcept {
     u8 target[kCdnMaximumTargetBytes];
+    u32 used = 0;
     for (u32 i = 0; i < bank->count; ++i) {
         auto& item = bank->items[i];
-        const u32 first = writer.used;
         const bool animated = item.sticker_format == 4;
-        if (!protocol_writer_append_c_string(&writer, animated ? "https://media.discordapp.net/stickers/"
-                                                               : "https://cdn.discordapp.com/stickers/") ||
-            !protocol_writer_append_u64(&writer, item.sticker_id) ||
-            !protocol_writer_append_c_string(&writer, animated                  ? ".gif"
-                                                      : item.sticker_format == 3 ? ".json"
-                                                                                 : ".png"))
-            return false;
-        item.preview_url = {urls + first, writer.used - first};
+        const Utf8View host = animated ? utf8_literal("https://media.discordapp.net/stickers/")
+                                       : utf8_literal("https://cdn.discordapp.com/stickers/");
+        const Utf8View suffix = animated                   ? utf8_literal(".gif")
+                                : item.sticker_format == 3 ? utf8_literal(".json")
+                                                           : utf8_literal(".png");
+        char* const url = urls + used;
+        copy_bytes(url, host.data, host.bytes);
+        u32 bytes = host.bytes + decimal_write(url + host.bytes, item.sticker_id);
+        copy_bytes(url + bytes, suffix.data, suffix.bytes);
+        bytes += suffix.bytes;
+        used += bytes;
+        item.preview_url = {url, bytes};
         if (item.available &&
             parse_catalog_preview_url(item.preview_url, {target, sizeof(target)}, format(item)).ok())
             bank->preview_mask[i >> 3] |= static_cast<u8>(1u << (i & 7));
     }
-    return true;
 }
 
 bool resolve(void* context, u32 index, UiMediaPickerItem* out) noexcept {
     const auto& p = *static_cast<ApplicationMediaPicker*>(context);
-    if (!out || index >= p.source.count)
+    if (index >= p.source.count)
         return false;
     if (p.kind == UiMediaPickerKind::emoji) {
         ReactionPickerSelection selection{};
@@ -764,11 +762,6 @@ void request(ApplicationMediaPicker& p, MediaCatalogOperation operation, bool de
     cancel(p);
     if (p.kind == UiMediaPickerKind::gif)
         p.favorites_view = p.gif_favorites_view = false;
-    if (p.generation == ~u32{0}) {
-        p.wanted = false;
-        p.phase = UiMediaPickerPhase::failed;
-        return;
-    }
     ++p.generation;
     p.operation = operation;
     p.retries = 0;
@@ -797,8 +790,6 @@ void request(ApplicationMediaPicker& p, MediaCatalogOperation operation, bool de
 bool inline_sticker_search(ApplicationMediaPicker& p) noexcept {
     revoke_capture(p);
     cancel(p);
-    if (p.generation == ~u32{0})
-        return false;
     ++p.generation;
     if ((!p.guild || p.sticker_store_revision != g_sticker_store.revision) && !build_server_stickers(p))
         return false;
@@ -844,15 +835,11 @@ bool switch_tab(ApplicationMediaPicker& p, UiMediaPickerKind kind) noexcept {
         p.favorites_view = false;
         p.wanted = false;
         p.due_at = 0;
-        if (p.generation == ~u32{0})
-            return false;
         ++p.generation;
         application_emoji_preferences_open();
         if (!open_emoji_model(p))
             emoji_unavailable(p);
     } else if (kind == UiMediaPickerKind::gif && p.gif_favorites_view) {
-        if (p.generation == ~u32{0})
-            return false;
         ++p.generation;
         p.favorites_view = true;
         p.wanted = false;
@@ -867,8 +854,6 @@ bool switch_tab(ApplicationMediaPicker& p, UiMediaPickerKind kind) noexcept {
     } else {
         p.favorites_view = false;
         application_gif_favorites_set_visible(false);
-        if (p.generation == ~u32{0})
-            return false;
         ++p.generation;
         const bool server_unknown = p.guild_id && !sticker_list(p.guild_id) && !p.sticker_guild_done;
         if (!build_server_stickers(p))
@@ -1016,8 +1001,6 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target, bool
     if (target.action == UiMediaPickerAction::category && landing(p) && p.favorites_enabled &&
         target.item_id == p.favorites_tile.first_id && target.source_index == 0) {
         cancel(p);
-        if (p.generation == ~u32{0})
-            return false;
         ++p.generation;
         p.favorites_view = p.gif_favorites_view = true;
         p.wanted = false;
@@ -1070,8 +1053,7 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target, bool
     // independent and is never cleared by a catalog selection.
     char text[kMediaCatalogMaximumUrlBytes];
     MessageComposer temporary{};
-    if (!message_composer_initialize(&temporary, {text, sizeof(text)}))
-        return false;
+    message_composer_initialize(&temporary, {text, sizeof(text)});
     message_composer_restore(&temporary, p.channel_id,
                              p.kind == UiMediaPickerKind::gif ? item->send_url : Utf8View{}, 0, 0);
     const u64 sticker = item->sticker_id;

@@ -58,7 +58,7 @@ MessageMediaObscure viewer_obscure(const ApplicationSearchSourceView& source, bo
                                    MessageMediaSource kind, u32 index, bool spoiler,
                                    bool explicit_media) noexcept {
     auto* scene = viewer_media_scene(g_app.image_viewer.search_result);
-    if (!scene || !source.message || !source.rich_store)
+    if (!scene)
         return MessageMediaObscure::blocked;
     return message_scene_media_obscure(
         *scene,
@@ -70,8 +70,7 @@ MessageMediaObscure viewer_obscure(const ApplicationSearchSourceView& source, bo
 bool viewer_item_visible(const ApplicationSearchSourceView& source,
                          const ApplicationMediaViewerItem& item) noexcept {
     const bool attachment = item.kind == MessageSceneRichItemKind::attachment;
-    if (!source.rich || !source.rich_store ||
-        (attachment ? item.index >= source.rich->attachment_count : item.index >= source.rich->embed_count))
+    if (attachment ? item.index >= source.rich->attachment_count : item.index >= source.rich->embed_count)
         return false;
     return viewer_obscure(
                source, g_app.image_viewer.attachment_snapshot,
@@ -201,17 +200,16 @@ u32 collect_items(const MessageRichStore& store, const MessageRichRecord& rich, 
     }
     return count;
 }
-// Alt text when the author wrote one, otherwise the file name.
+// Alt text when the author wrote one, otherwise the file name. `item` is visible (viewer_item_visible).
 Utf8View item_caption(const ApplicationSearchSourceView& source, const ApplicationMediaViewerItem& item) noexcept {
     const auto& store = *source.rich_store;
-    if (item.kind == MessageSceneRichItemKind::attachment && item.index < source.rich->attachment_count) {
+    if (item.kind == MessageSceneRichItemKind::attachment) {
         const auto& attachment = source.rich->attachments[item.index];
         const Utf8View description = message_rich_store_string(store, attachment.description);
         return description.bytes ? description : message_rich_store_string(store, attachment.filename);
     }
     MessageRichEmbedMediaSelection selected{};
-    if (item.kind == MessageSceneRichItemKind::embed && item.index < source.rich->embed_count &&
-        message_rich_embed_resource_select(store, source.rich->embeds[item.index], item.resource, &selected))
+    if (message_rich_embed_resource_select(store, source.rich->embeds[item.index], item.resource, &selected))
         return message_rich_store_string(store, selected.media->description);
     return {};
 }
@@ -260,10 +258,9 @@ Utf8View current_url() noexcept {
         return {};
     Utf8View url{};
     if (item->kind == MessageSceneRichItemKind::attachment) {
-        if (item->index < source.rich->attachment_count &&
-            source.rich->attachments[item->index].id == item->attachment_id)
+        if (source.rich->attachments[item->index].id == item->attachment_id)
             url = message_rich_store_string(*source.rich_store, source.rich->attachments[item->index].url);
-    } else if (item->index < source.rich->embed_count) {
+    } else {
         MessageRichEmbedMediaSelection selected{};
         if (message_rich_embed_resource_select(*source.rich_store, source.rich->embeds[item->index], item->resource,
                                                &selected))
@@ -517,14 +514,13 @@ bool application_image_viewer_page_source(MediaPageSource* out) noexcept {
     Utf8View url{}, title{};
     bool provider = false;
     if (item->kind == MessageSceneRichItemKind::attachment) {
-        if (item->index >= rich.attachment_count || rich.attachments[item->index].id != item->attachment_id)
+        if (rich.attachments[item->index].id != item->attachment_id)
             return false;
         url = message_rich_store_string(store, rich.attachments[item->index].url);
         title = message_rich_store_string(store, rich.attachments[item->index].filename);
     } else {
         MessageRichEmbedMediaSelection selected{};
-        if (item->index >= rich.embed_count ||
-            !message_rich_embed_resource_select(store, rich.embeds[item->index], item->resource, &selected) ||
+        if (!message_rich_embed_resource_select(store, rich.embeds[item->index], item->resource, &selected) ||
             (item->video && !application_video_viewer_url(&url, &provider)))
             return false;
         if (!item->video)
@@ -697,8 +693,8 @@ bool application_image_viewer_source(ApplicationSearchSourceView* out) noexcept 
                                                : message_rich_store_find(*out->rich_store, message->id);
         out->snapshot = viewer.attachment_snapshot;
     }
-    return out->message && application_channel_readable(g_app, out->message->channel_id) &&
-        out->rich_store && out->rich && out->message->id == viewer.message_id &&
+    return application_channel_readable(g_app, out->message->channel_id) && out->rich &&
+        out->message->id == viewer.message_id &&
         out->message->channel_id == viewer.channel_id && out->message->revision == viewer.message_revision &&
         out->rich->message_revision == viewer.message_revision && out->handle.slot == viewer.source_slot &&
         out->handle.generation == viewer.source_generation;
@@ -823,8 +819,8 @@ bool application_image_viewer_synchronize() noexcept {
         }
     } else if (item && item->kind == MessageSceneRichItemKind::embed) {
         MessageRichEmbedMediaSelection media{};
-        if (item->index < source.rich->embed_count && message_rich_embed_resource_select(*source.rich_store,
-            source.rich->embeds[item->index], item->resource, &media) && media.media->width && media.media->height)
+        if (message_rich_embed_resource_select(*source.rich_store, source.rich->embeds[item->index], item->resource,
+                                               &media) && media.media->width && media.media->height)
             pixels = {static_cast<float>(media.media->width), static_cast<float>(media.media->height)};
     }
     // A sound-only track has no frames. The viewer draws the track's picture in their place.
@@ -1020,8 +1016,9 @@ bool application_image_viewer_open_search(const ApplicationSearchSourceTicket& t
         g_app.reaction_viewer.active || !ui_rect_has_area(painted_preview) ||
         (g_app.renderer.text_form && g_app.renderer.text_form->scene && g_app.renderer.text_form->scene->active)) return false;
     ApplicationSearchSourceView source{};
-    if (!application_search_source_resolve(ticket, snapshot, &source) || !source.message || !source.rich_store || !source.rich ||
-        source.message->delivery != MessageDeliveryState::authoritative || source.rich->message_revision != source.message->revision) return false;
+    // A resolved source holds its message and rich store, both at the ticket's revision.
+    if (!application_search_source_resolve(ticket, snapshot, &source) || !source.rich ||
+        source.message->delivery != MessageDeliveryState::authoritative) return false;
     const auto& store = *source.rich_store;
     const auto& rich = *source.rich;
     auto* policy_scene = viewer_media_scene(true);
@@ -1104,7 +1101,7 @@ bool application_image_viewer_open_video(u64 message_id, u32 revision, bool embe
     MessageHandle handle{};
     const MessageRecord* message = nullptr;
     if (search) {
-        if (!application_search_source_resolve(*search, snapshot, &source) || !source.message)
+        if (!application_search_source_resolve(*search, snapshot, &source))
             return false;
         message = source.message;
         handle = source.handle;
@@ -1117,8 +1114,8 @@ bool application_image_viewer_open_video(u64 message_id, u32 revision, bool embe
         !application_channel_readable(g_app, message->channel_id))
         return false;
     const auto* store = search ? source.rich_store : &g_app.account_ui->message_rich_store;
-    const auto* outer = store ? message_rich_store_find(*store, message_id) : nullptr;
-    const auto* rich = snapshot && store ? message_rich_store_snapshot(*store, message_id) : outer;
+    const auto* outer = message_rich_store_find(*store, message_id);
+    const auto* rich = snapshot ? message_rich_store_snapshot(*store, message_id) : outer;
     auto* policy_scene = viewer_media_scene(search != nullptr);
     if (!policy_scene || !rich || rich->message_revision != revision ||
         (embed ? index >= rich->embed_count : index >= rich->attachment_count))

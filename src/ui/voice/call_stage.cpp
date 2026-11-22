@@ -383,7 +383,7 @@ void text(UiTextPen<UiTextClip::label>& pen, const UiCallScene& s, const Theme& 
 }
 
 bool avatar(const UiCallScene& s, u32 index, UiCallTileMedia* output) noexcept {
-    if (!output || !s.active || !s.stage_active)
+    if (!s.active || !s.stage_active)
         return false;
     const u32 audience = audience_drawn(s);
     UiRect circle{}, clip{};

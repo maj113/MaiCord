@@ -68,13 +68,5 @@ AccountModuleStatus module_failure(AccountModuleError error) noexcept {
     return status;
 }
 
-// A media request that never reached the worker.
-__declspec(noinline) AccountMediaRequestResult rejected_media_request() noexcept {
-    AccountMediaRequestResult value{};
-    value.state = AccountMediaRequestState::invalid;
-    value.error = AccountMediaError::invalid_input;
-    return value;
-}
-
 } // namespace account_module_detail
 } // namespace maicord

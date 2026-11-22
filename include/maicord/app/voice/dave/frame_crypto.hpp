@@ -10,24 +10,23 @@ namespace maicord {
 // verified and the plaintext is in output. The caller (dave_receive_epoch_open)
 // owns everything else and re-checking none of it is done here:
 // - the view came from dave_frame_parse for a live frame, and output (at least
-//   body_bytes) and scratch (body_bytes when staged) are in bounds;
+//   body_bytes) and scratch (body_bytes with clear ranges) are in bounds;
 // - the key is the one for counter's generation, and
 //   dave_replay_can_accept(replay, counter) held; this commits the counter
 //   after authentication;
-// - every span is disjoint from the key, the replay state and the view.
+// - every span is disjoint from the key, the replay state, the view and the
+//   other spans.
 // There is no parsing, key lookup, epoch expiry or passthrough policy here. A
 // successful parse alone never permits plaintext playback.
 //
-// Only the body-sized output prefix is written; frame and output may alias
-// completely. The input frame is preserved on every failure, so older-epoch
-// retries work. Mixed clear/cipher bodies and in-place output need body_bytes
-// of scratch; wholly encrypted disjoint output needs none (scratch may then be
+// Only the body-sized output prefix is written. Mixed clear/cipher bodies need
+// body_bytes of scratch; wholly encrypted bodies need none (scratch may then be
 // null). Used scratch is wiped after every authentication attempt, including
 // on success.
 //
 // Failed authentication does not commit replay and, for wholly encrypted
-// disjoint output, wipes the attempted output prefix. Successful AEAD commits
-// replay before reconstruction, matching the native receive ordering.
+// bodies, wipes the attempted output prefix. Successful AEAD commits replay
+// before reconstruction, matching the native receive ordering.
 AeadError dave_frame_open(const DaveFrameView& view, const AesGcmKey& key, DaveReplay& replay, u64 counter,
                           u8* scratch, u8* output) noexcept;
 
@@ -66,13 +65,12 @@ struct DaveSealResult {
     }
 };
 // Encrypts a whole Opus packet (no clear ranges): ciphertext, 8-byte tag,
-// ULEB128 nonce, supplemental size byte, 0xFAFA. Output may equal the input
-// span exactly (in place) and otherwise must not overlap it; the caller
-// passes valid spans and a sealer initialized by dave_frame_sealer_initialize.
-// Failure leaves the counter unchanged.
+// ULEB128 nonce, supplemental size byte, 0xFAFA. Output does not overlap the
+// input; the caller passes valid spans and a sealer initialized by
+// dave_frame_sealer_initialize. Failure leaves the counter unchanged.
 DaveSealResult dave_frame_seal(DaveFrameSealer& sealer, KdfSha256Workspace& workspace,
                                ConstSlice<u8> plaintext, Slice<u8> output) noexcept;
-// A video frame from dave_frame_prepare: the clear ranges stay in place and
+// A non-empty video frame and its ranges from dave_frame_prepare: the clear ranges stay in place and
 // are the AAD, every other byte is encrypted where it stood, and the trailer
 // lists the ranges after the nonce (at most 255 supplemental bytes, else
 // invalid_input). scratch holds frame.count bytes: after a seal only the clear

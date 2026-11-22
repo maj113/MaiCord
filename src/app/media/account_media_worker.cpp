@@ -54,7 +54,7 @@ void account_media_worker_set_vp8_cpu(AccountMediaWorker* worker, bool on_cpu) n
 
 AccountMediaRequestResult account_media_worker_collection_title(AccountMediaWorker* worker,
     const AccountMediaCollectionTitleRequest& request, MediaTrackTitle* out) noexcept {
-    if (!worker->initialized || !out || !request.track || !media_asset_key_valid(request.key) ||
+    if (!worker->initialized || !request.track || !media_asset_key_valid(request.key) ||
         account_media_worker_stop_requested(worker))
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     collect_collection_titles(worker);
@@ -150,8 +150,7 @@ AccountMediaRequestResult account_media_worker_request_static_asset(AccountMedia
 AccountMediaRequestResult account_media_worker_request_guild_icon(
     AccountMediaWorker* worker, const AccountMediaGuildIconRequest& request, u64 monotonic_now_ms,
     u64 unix_now_seconds) noexcept {
-    if (request.icon_hash.bytes > kAccountMediaWorkerTextCapacity ||
-        (!request.icon_hash.data && request.icon_hash.bytes != 0) || request.reserved[0] > 4'096) {
+    if (request.icon_hash.bytes > kAccountMediaWorkerTextCapacity) {
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     }
     AccountMediaWorkItem work{};
@@ -161,9 +160,7 @@ AccountMediaRequestResult account_media_worker_request_guild_icon(
     work.unix_now_seconds = unix_now_seconds;
     work.text_bytes = static_cast<u16>(request.icon_hash.bytes);
     work.kind = AccountMediaWorkKind::guild_icon;
-    if (!copy_bytes(work.text, sizeof(work.text), request.icon_hash.data, request.icon_hash.bytes)) {
-        return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
-    }
+    copy_bytes(work.text, request.icon_hash.data, request.icon_hash.bytes);
     return queue(worker, work);
 }
 
@@ -176,8 +173,7 @@ AccountMediaRequestResult account_media_worker_request_attachment(
         (request.options.collection_track && (!collection || !request.options.progressive || (request.image_type != CdnImageType::m4a && request.image_type != CdnImageType::mp4))) ||
         (request.options.progressive &&
          (request.key.kind != MediaAssetKind::embed || (request.image_type != CdnImageType::mp4 && request.image_type != CdnImageType::m4a))) ||
-        request.signed_url.bytes > kAccountMediaWorkerTextCapacity ||
-        (!request.signed_url.data && request.signed_url.bytes != 0)) {
+        request.signed_url.bytes > kAccountMediaWorkerTextCapacity) {
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     }
     AccountMediaWorkItem work{};
@@ -196,9 +192,7 @@ AccountMediaRequestResult account_media_worker_request_attachment(
     work.collection = collection;
     work.collection_track = request.options.collection_track;
     work.list_formats = request.options.list_formats;
-    if (!copy_bytes(work.text, sizeof(work.text), request.signed_url.data, request.signed_url.bytes)) {
-        return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
-    }
+    copy_bytes(work.text, request.signed_url.data, request.signed_url.bytes);
     // A playing progressive source takes a refreshed URL in place.
     if (account_media_video_offer_url(worker, request.key, request.signed_url))
         return request_result(AccountMediaRequestState::pending);
@@ -233,8 +227,7 @@ AccountMediaRequestResult account_media_worker_request_catalog_preview(
     work.video_device = request.video_device;
     work.text_bytes = static_cast<u16>(request.url.bytes);
     work.kind = AccountMediaWorkKind::catalog_preview;
-    if (!copy_bytes(work.text, sizeof(work.text), request.url.data, request.url.bytes))
-        return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
+    copy_bytes(work.text, request.url.data, request.url.bytes);
     return queue(worker, work);
 }
 
@@ -440,7 +433,7 @@ AccountMediaRequestResult account_media_worker_local_previews_presented(AccountM
 }
 
 bool account_media_worker_take_frame(AccountMediaWorker* worker, AccountMediaFrame* frame) noexcept {
-    if (!worker || !worker->initialized || !frame) {
+    if (!worker->initialized) {
         return false;
     }
     const LONG preferred = worker->preferred_lane;

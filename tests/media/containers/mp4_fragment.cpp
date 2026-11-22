@@ -241,7 +241,7 @@ void multipart_segment_tests() noexcept {
     Mp4SegmentStore store{}; Mp4FragmentSource source{};
     check(mp4_segment_store_initialize(&store, init.w.view(), false, 1, 1000, track.timescale) == E::none &&
         mp4_segment_store_request(&store, 0) == E::data_pending &&
-        mp4_segment_store_accept(&store, 0, store.request_serial, file.view()) == E::none &&
+        mp4_segment_store_accept(&store, 0, file.view()) == E::none &&
         mp4_fragment_source_initialize_segments(&store, &source) == E::none, "multipart file enters the bounded source store");
     const u64 clock[]{1000, 1100, 1210, 1300, 1400, 1500, 1600, 1710, 1800, 1900};
     for (u32 i = 0; i < 10; ++i) {
@@ -272,7 +272,7 @@ void multipart_segment_tests() noexcept {
     const auto audio_init = initialization(true); Mp4FragmentAudio audio{};
     check(mp4_segment_store_initialize(&store, audio_init.w.view(), true, 1, 6144, 44100) == E::none &&
         mp4_segment_store_request(&store, 0) == E::data_pending &&
-        mp4_segment_store_accept(&store, 0, store.request_serial, file.view()) == E::none &&
+        mp4_segment_store_accept(&store, 0, file.view()) == E::none &&
         mp4_fragment_source_initialize_segments(&store, &source) == E::none &&
         mp4_fragment_audio_initialize(&source, &audio) == E::none && audio.packet_count == 6,
         "AAC packet count covers every inner fragment");
@@ -342,7 +342,7 @@ void live_segment_tests() noexcept {
     const auto init = initialization(false); Mp4SegmentStore store{}; Mp4FragmentSource source{};
     const auto feed = [&]() noexcept {
         const auto bytes = stored_segment(store.demand);
-        return mp4_segment_store_accept(&store, store.demand, store.request_serial, bytes.view()) == E::none;
+        return mp4_segment_store_accept(&store, store.demand, bytes.view()) == E::none;
     };
     check(mp4_segment_store_initialize(&store, init.w.view(), false, 2, 500, 15360, true) == E::none &&
         mp4_fragment_source_initialize_segments(&store, &source) == E::data_pending && store.demand == 0 && feed() &&
@@ -355,7 +355,7 @@ void live_segment_tests() noexcept {
     check(mp4_fragment_source_peek(&source, &packet) == E::data_pending && store.pending && store.demand == 1 && !store.refresh_pending,
         "an advertised live file requests media rather than another playlist");
     const auto gapped = stored_segment(1, 1); const auto generation = store.generation;
-    check(mp4_segment_store_accept(&store, 1, store.request_serial, gapped.view()) == E::malformed && store.generation == generation &&
+    check(mp4_segment_store_accept(&store, 1, gapped.view()) == E::malformed && store.generation == generation &&
         store.received_count == 1 && feed() && store.received_count == 2,
         "a live timestamp gap cannot overwrite the active media slot");
     for (u32 i = 0; i < 5; ++i) check(mp4_fragment_source_peek(&source, &packet) == E::none &&
@@ -403,7 +403,7 @@ void live_audio_tests() noexcept {
     const auto first = live_audio_file(0);
     check(mp4_segment_store_initialize(&store, init.w.view(), true, 1, 3072, 44100, true) == E::none &&
         mp4_segment_store_request(&store, 0) == E::data_pending &&
-        mp4_segment_store_accept(&store, 0, store.request_serial, first.view()) == E::none &&
+        mp4_segment_store_accept(&store, 0, first.view()) == E::none &&
         mp4_fragment_source_initialize_segments(&store, &source) == E::none &&
         mp4_fragment_audio_initialize(&source, &audio) == E::none, "live AAC starts with one bounded source file");
     const HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -424,7 +424,7 @@ void live_audio_tests() noexcept {
             mp4_fragment_audio_peek(&audio, &packet) == E::data_pending && store.demand == file + 1,
             "live AAC waits through refresh and media delivery without treating a temporary edge as final audio");
         const auto next = live_audio_file(file + 1);
-        check(mp4_segment_store_accept(&store, store.demand, store.request_serial, next.view()) == E::none &&
+        check(mp4_segment_store_accept(&store, store.demand, next.view()) == E::none &&
             mp4_fragment_audio_refresh(&audio) == E::none && audio.packet_count == (file + 2) * 3 && audio.packet_index == (file + 1) * 3,
             "received audio extends the packet bound without rewinding the accepted cursor");
     }
@@ -442,7 +442,7 @@ void segment_store_tests() noexcept {
           "separate media storage commits only initialization until media arrives");
     const auto feed = [&]() noexcept {
         const auto f = stored_segment(store.demand);
-        return mp4_segment_store_accept(&store, store.demand, store.request_serial, f.view()) == E::none;
+        return mp4_segment_store_accept(&store, store.demand, f.view()) == E::none;
     };
     check(mp4_fragment_source_initialize_segments(&store, &source) == E::data_pending && store.demand == 0 && feed() &&
           mp4_fragment_source_initialize_segments(&store, &source) == E::data_pending && store.demand == 2 &&
@@ -464,13 +464,10 @@ void segment_store_tests() noexcept {
           mp4_segment_store_find(store, 0)->storage.base <= old_bytes,
           "repeated pending seek preserves the current cursor, bytes, and in-flight request serial");
     auto malformed = stored_segment(1); malformed.data[0] = 255;
-    check(mp4_segment_store_accept(&store, 1, serial, malformed.view()) != E::none && store.generation == generation &&
+    check(mp4_segment_store_accept(&store, 1, malformed.view()) != E::none && store.generation == generation &&
           bytes_equal(&old_cursor, &source.fragment, sizeof(old_cursor)), "malformed candidate cannot overwrite active media");
     check(mp4_fragment_source_prepare(&source, 2, 0, &proposal) == E::none && mp4_fragment_source_adopt(&source, proposal) &&
           !store.pending && source.segment.index == 2, "cached seek adopts immediately and cancels older pending demand");
-    const auto stale = stored_segment(1);
-    check(mp4_segment_store_accept(&store, 1, serial, stale.view()) == E::invalid_input,
-          "late cancelled segment response cannot enter the current source");
     check(mp4_fragment_source_prepare(&source, 2, 0, &proposal) == E::none &&
           mp4_segment_store_request(&store, 1) == E::data_pending && feed() && !mp4_fragment_source_adopt(&source, proposal),
           "replacing candidate bytes invalidates old seek proposals by generation");
@@ -507,11 +504,6 @@ void segment_store_tests() noexcept {
     mp4_segment_store_release(&store);
     check(!store.initialization.base && !store.slots[0].storage.base && !store.slots[1].storage.base &&
           store.request_serial != prior_serial, "joined segment release frees pages and invalidates old response serials");
-    check(mp4_segment_store_initialize(&store, init.w.view(), false, 3, 560, 15360) == E::none &&
-          mp4_segment_store_request(&store, 1) == E::data_pending &&
-          mp4_segment_store_accept(&store, 1, serial, stale.view()) == E::invalid_input && feed(),
-          "reusing a retired store cannot admit a response from its previous playback lifetime");
-    mp4_segment_store_release(&store);
 }
 void live_alignment_tests() noexcept {
     auto* pair = static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr, 2 * sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -524,7 +516,7 @@ void live_alignment_tests() noexcept {
         auto& store = owners[i].store;
         ready = ready && mp4_segment_store_initialize(&store, init.w.view(), i != 0, 3, 2, 1, true) == Mp4DemuxError::none &&
             mp4_segment_store_request(&store, 0) == Mp4DemuxError::data_pending &&
-            mp4_segment_store_accept(&store, 0, store.request_serial, file.view()) == Mp4DemuxError::none &&
+            mp4_segment_store_accept(&store, 0, file.view()) == Mp4DemuxError::none &&
             mp4_fragment_source_initialize_segments(&store, &pair[i].fragment) == Mp4DemuxError::none;
         auto& track = pair[i].fragment.track;
         track.edited = false; track.edit_duration = track.empty_edit = 0; track.media_start = 0;
@@ -554,7 +546,7 @@ void live_alignment_tests() noexcept {
             !owners[0].synchronized && !owners[1].synchronized,
             "a later audio snapshot requests missing video without publishing a half-updated origin");
         const auto next = stored_segment(1);
-        check(mp4_segment_store_accept(&owners[0].store, 1, owners[0].store.request_serial, next.view()) == Mp4DemuxError::none &&
+        check(mp4_segment_store_accept(&owners[0].store, 1, next.view()) == Mp4DemuxError::none &&
             segmented_video_synchronize(pair, pair + 1) == Mp4DemuxError::none && owners[0].synchronized && owners[1].synchronized,
             "received overlap completes live startup through the same asynchronous media owner");
         Mp4AudioSampleWindow window{}; i64 video_start{}, audio_start{};
@@ -720,10 +712,9 @@ void segmented_fetch_tests(bool hls = false, bool vimeo = false) noexcept {
           mp4_fragment_source_adopt(&f->fragment, position) &&
           progressive_video_fetch_next(f, false, 1).step == ProgressiveVideoStep::cancel,
           "retargeted cached seek cancels the old transport request");
-    progressive_video_fetch_cancelling(f);
     const auto late = stored_segment(1);
     check(reply(late.view()) == ProgressiveVideoAccept::ignored && f->fragment.segment.index == 2 &&
-          !mp4_segment_store_find(f->segmented->store, 1), "late successful cancelled response cannot replace cached playback");
+          !mp4_segment_store_find(f->segmented->store, 1), "a late response to a retargeted demand cannot replace cached playback");
     progressive_video_fetch_retire(f);
     if (hls) check(f->segmented->playlist.input.data == reinterpret_cast<const char*>(f->segmented + 1) &&
         f->segmented->playlist.duration_us == 93750,
@@ -799,8 +790,6 @@ void audio_tests() noexcept {
           session.status.duration_100ns == window.duration_100ns && session.status.has_audio &&
           session.video_eof && !session.video && !session.workspace && !session.encoded_metadata,
           "fragmented AAC starts an audio-only session without a picture decoder or PCM allocation");
-    check(account_video_session_initialize_fragment_audio(&session, &audio, identity, event).error == AccountVideoError::invalid_input,
-          "fragmented AAC cannot overwrite a retained session");
     check(account_video_session_release(&session, 1000).ok(), "fragmented AAC metadata-only release");
     const u32 count = audio.packet_count;
     audio.packet_count = 0;

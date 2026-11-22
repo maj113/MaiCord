@@ -26,7 +26,7 @@ DaveMediaResult capture(void* context, const VoiceReceivedPacket&, ConstSlice<u8
     ++value.calls;
     DaveMediaResult result{};
     if (value.fail || frame.count > sizeof(value.frame)) {
-        result.error = value.fail ? DaveMediaError::not_ready : DaveMediaError::output_capacity;
+        result.error = DaveMediaError::not_ready;
         return result;
     }
     copy_bytes(value.frame, frame.data, frame.count);
@@ -71,7 +71,6 @@ VoiceReceivedPacket received(ConstSlice<u8> plain, VoiceSourceKind kind = VoiceS
     packet.transport.bytes = plain.count;
     packet.source = {kUser, 1, kSsrc, kSsrc, kind, true};
     packet.member = {kUser, 1, true};
-    packet.setup_generation = packet.ready_revision = 1;
     return packet;
 }
 u32 opus_noise(u32 seed, u8* out) noexcept {
@@ -194,7 +193,7 @@ void test_loopback(Check check) noexcept {
                   0 &&
               voice_packet_initialize(&value.receiver, 9, voice_transport_aes256_gcm_rtpsize, {secret, 32}).ok() &&
               voice_packet_initialize(&value.sender, 1, voice_transport_aes256_gcm_rtpsize, {secret, 32}).ok() &&
-              dave_session_initialize(&value.dave, 1, 7, 1, 0) == MlsStatus::ok &&
+              dave_session_initialize(&value.dave, 1, 7, 0) == MlsStatus::ok &&
               voice_playback_initialize(&value.receive.playback) && voice_playback_initialize(&value.reference) &&
               voice_udp_begin(&value.discovery, &value.loop, test_network_address(&address, address_bytes), kSsrc,
                               GetTickCount64()) &&

@@ -124,18 +124,14 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
                                                              : CdnImageType::png});
 }
 
+// The pump asks for a hash-addressed key (server icon, avatar, group icon) with no size or a cdn_image_size power
+// of two (requests_message.cpp).
 AccountMediaRequestResult account_media_request_guild_icon(AccountMedia* media,
                                                            const AccountMediaGuildIconRequest& request,
                                                            u64 monotonic_now_ms,
                                                            u64 unix_now_seconds) noexcept {
-    const u32 size = request.reserved[0];
-    if ((size != 0 && (size < 16 || size > 4'096 || (size & (size - 1)) != 0)) || request.reserved[1] != 0 ||
-        (request.key.kind != MediaAssetKind::guild_icon && request.key.kind != MediaAssetKind::user_avatar &&
-         request.key.kind != MediaAssetKind::channel_icon)) {
-        return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
-    }
     return account_media_request_static_asset(media, request.key, monotonic_now_ms, unix_now_seconds,
-                                              request.icon_hash, size);
+                                              request.icon_hash, request.reserved[0]);
 }
 
 static bool collection_matches(const AccountMediaCollection* collection, const AccountMediaUrlRequest& request) noexcept {

@@ -743,8 +743,6 @@ void test_invalid() noexcept {
         const ProfileImageInfo info = profile_image_crop(input, crop, &out);
         return info.error == error && !out.data && !out.bytes && !info.bytes;
     };
-    check(profile_image_crop(source, crop_rect(0, 0, 4, 4, 0), nullptr).error == ProfileImageError::input,
-          "a missing output buffer is rejected");
     check(rejects({nullptr, 0}, crop_rect(0, 0, 1, 1, 0), ProfileImageError::input), "an empty source is rejected");
     const u8 text[] = "not an image at all";
     check(rejects({text, sizeof(text)}, crop_rect(0, 0, 1, 1, 0), ProfileImageError::format) &&

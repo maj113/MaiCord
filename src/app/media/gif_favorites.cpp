@@ -28,7 +28,7 @@ struct FavoriteAction {
     bool desired;
 };
 bool usable_text(const Utf8View& text) noexcept {
-    return text.data && text.bytes && text.bytes <= kUrlBytes && utf8_validate(text).valid;
+    return text.bytes && text.bytes <= kUrlBytes && utf8_validate(text).valid;
 }
 void release_bank(FavoriteBank* bank) noexcept {
     if (bank)
@@ -362,7 +362,7 @@ ApplicationGifFavoriteState application_gif_favorites_state(Utf8View key) noexce
 }
 bool application_gif_favorites_toggle(Utf8View key, Utf8View src, u32 width, u32 height,
                                       GifFavoriteFormat format) noexcept {
-    if (!usable_text(key) || !account_online() || src.bytes > kUrlBytes || (!src.data && src.bytes) ||
+    if (!usable_text(key) || !account_online() || src.bytes > kUrlBytes ||
         (src.bytes && !utf8_validate(src).valid))
         return false;
     const bool was_visible = g_app.gif_favorites && g_app.gif_favorites->visible;

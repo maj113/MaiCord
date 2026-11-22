@@ -69,10 +69,6 @@ void run() noexcept {
         Text text; text.add(utf8_literal("#EXTINF:1,\n")); text.add(path); text.add(utf8_literal("\n#EXT-X-ENDLIST\n"));
         reject(text.view(), E::unsupported, false);
     }
-    Text aliased; aliased.add(header); aliased.add(tail);
-    const auto original = aliased;
-    check(hls_media_playlist(aliased.view(), reinterpret_cast<HlsMediaPlaylist*>(aliased.data)) == E::invalid_input &&
-        bytes_equal(&aliased, &original, sizeof(aliased)), "HLS output cannot overwrite its borrowed input");
     static char large[256 * 1024 + 1]{};
     check(hls_media_playlist({large, sizeof(large)}, &playlist) == E::capacity, "HLS rejects oversized playlists before scanning");
     copy_bytes(large, header.data, header.bytes); u32 used = header.bytes;

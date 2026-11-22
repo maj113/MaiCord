@@ -122,7 +122,7 @@ bool capture_payload(const MessageRecord& message, MessageHandle handle, const M
         if (a.id != attachment_id)
             continue;
         const auto url = message_rich_store_string(store, a.url);
-        if (!url.data || !url.bytes || url.bytes >= sizeof(out->url) ||
+        if (!url.bytes || url.bytes >= sizeof(out->url) ||
             !received_attachment_url_current(url, origin, attachment_id))
             return false;
         char filename[sizeof(out->filename)];

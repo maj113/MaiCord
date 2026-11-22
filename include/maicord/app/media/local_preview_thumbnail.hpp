@@ -74,11 +74,13 @@ struct MediaFitSink {
 constexpr u64 media_fit_scratch_bytes(u32 width, u32 cells) noexcept {
     return u64{cells} * 8u * sizeof(u64) + u64{width} * sizeof(u32);
 }
-// output: region.height rows of `stride` bytes, each written as straight RGBA8 from byte `lead` (1 leaves a
-// PNG filter byte, which the caller clears). The source region must lie in the canvas.
+// output: region.height rows of `stride` (at least lead + region.width * 4) bytes, each written as straight RGBA8
+// from byte `lead` (1 leaves a PNG filter byte, which the caller clears). scratch: 8-byte aligned,
+// media_fit_scratch_bytes(source.width, region.width) bytes. The source region must lie in the canvas.
 bool media_fit_begin(MediaFitSink* sink, const MediaFit& fit, MediaFitRegion source, u8* output, u32 stride,
                      u32 lead, Slice<u8> scratch) noexcept;
-// The next source row of the region: source.width straight RGBA8 texels. The last one writes every cell left.
-bool media_fit_push_row(MediaFitSink* sink, const u8* rgba) noexcept;
+// The next of the region's source.height rows: source.width straight RGBA8 texels. The last one writes every cell
+// left.
+void media_fit_push_row(MediaFitSink* sink, const u8* rgba) noexcept;
 
 } // namespace maicord

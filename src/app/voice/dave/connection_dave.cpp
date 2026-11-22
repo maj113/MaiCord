@@ -40,9 +40,8 @@ bool enqueue(VoiceConnection& connection, bool binary, u8 opcode, const ConstSli
     return true;
 }
 bool enqueue_transition(VoiceConnection& connection, VoiceDaveOpcode opcode, u16 transition_id) noexcept {
-    u8 text[64];
-    const auto written = voice_dave_write_transition(opcode, transition_id, {text, sizeof(text)});
-    return written.ok() && enqueue(connection, false, 0, {text, written.bytes});
+    u8 text[40];
+    return enqueue(connection, false, 0, {text, voice_dave_write_transition(opcode, transition_id, text)});
 }
 // DAVE accepts only members the voice gateway announced (opcode 11) plus us.
 u32 recognized_users(const VoiceConnection& connection, u64* users) noexcept {
@@ -205,8 +204,7 @@ bool voice_connection_dave_description(VoiceConnection* connection) noexcept {
     connection->dave_recovering = false;
     connection->dave_invalid_streak = 0;
     if (const auto status = dave_session_initialize(&connection->dave_session, connection->dave_group_id,
-                                                    connection->dave_user_id, connection->socket.setup_generation,
-                                                    version);
+                                                    connection->dave_user_id, version);
         status != MlsStatus::ok) {
         voice_log(kError, "dave_initialize_failed", "status", status_value(status));
         return false;
@@ -361,7 +359,7 @@ bool voice_connection_dave_flush(VoiceConnection* connection, u64 now_ms) noexce
 namespace {
 void log_decrypt_failure(VoiceConnection& connection, const DaveMediaResult& result, bool video,
                          u64 now_ms) noexcept {
-    if (result.ok() || result.error == DaveMediaError::output_capacity)
+    if (result.ok())
         return;
     u64 suppressed = 0;
     if (voice_log_limit(&connection.decrypt_log, now_ms, &suppressed)) {
@@ -382,12 +380,8 @@ void log_decrypt_failure(VoiceConnection& connection, const DaveMediaResult& res
 DaveMediaResult voice_connection_dave_decrypt(VoiceConnection* connection,
                                               const VoiceReceivedPacket& packet, ConstSlice<u8> frame,
                                               Slice<u8> scratch, Slice<u8> output, u64 now_ms) noexcept {
+    // The packet comes straight from receive_media, which mapped its SSRC to the current source and member.
     DaveMediaResult result{};
-    if (packet.transport.layout.kind != MediaPacketKind::rtp ||
-        !voice_connection_media_current(*connection, packet)) {
-        result.error = DaveMediaError::invalid_input;
-        return result;
-    }
     if (!connection->dave_session.initialized) {
         result.error = DaveMediaError::not_ready;
         return result;
@@ -416,15 +410,11 @@ DaveMediaResult voice_connection_dave_decrypt_frame(VoiceConnection* connection,
 }
 DaveSealResult voice_connection_dave_encrypt(VoiceConnection* connection, ConstSlice<u8> opus,
                                              Slice<u8> output) noexcept {
-    if (!connection->dave_session.initialized)
-        return {0, 0, 0, DaveSealError::not_initialized};
     return dave_session_encrypt(&connection->dave_session, opus, output);
 }
 DaveSealResult voice_connection_dave_encrypt_video(VoiceConnection* connection, DaveVideoCodec codec,
                                                    ConstSlice<u8> frame, Slice<u8> prepared, Slice<u8> scratch,
                                                    Slice<u8> output) noexcept {
-    if (!connection->dave_session.initialized)
-        return {0, 0, 0, DaveSealError::not_initialized};
     return dave_session_encrypt_video(&connection->dave_session, codec, frame, prepared, scratch, output);
 }
 bool voice_connection_dave_ready(const VoiceConnection& connection) noexcept {

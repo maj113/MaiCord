@@ -190,8 +190,7 @@ void describe_channel(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
         const u64 now_s = clock_unix_milliseconds() / 1'000;
         char duration[kUiVoiceDurationBytes];
         if (const u32 bytes = info && info->start_s
-                                  ? ui_voice_duration_text(now_s > info->start_s ? now_s - info->start_s : 0, duration,
-                                                           sizeof(duration))
+                                  ? ui_voice_duration_text(now_s > info->start_s ? now_s - info->start_s : 0, duration)
                                   : 0)
             g_name.add(", call duration ").add(Utf8View{duration, bytes});
     }

@@ -51,9 +51,9 @@ UiRect channel_line(const UiStreamCardScene& s) noexcept {
 
 bool ui_stream_card_show(UiStreamCardScene* s, u64 identity, const UiStreamCardContent& content, UiRect anchor,
                          UiRect viewport, u64 now_ms, bool reduced_motion) noexcept {
-    if (!s || !identity || !ui_rect_valid(viewport) || !ui_rect_has_area(anchor) ||
+    if (!identity || !ui_rect_valid(viewport) || !ui_rect_has_area(anchor) ||
         !ui_hover_card_initialize(*s, utf8_literal("Stream preview"))) {
-        if (s && s->active)
+        if (s->active)
             ui_stream_card_close(s);
         return false;
     }
@@ -122,7 +122,7 @@ bool ui_stream_card_spinner_visible(const UiStreamCardScene& s) noexcept {
 }
 
 bool ui_stream_card_media(const UiStreamCardScene& s, const Theme& theme, UiStreamCardMedia* output) noexcept {
-    if (!output || !s.active || s.preview_state != UiStreamCardPreview::ready || !media_asset_key_valid(s.preview))
+    if (!s.active || s.preview_state != UiStreamCardPreview::ready || !media_asset_key_valid(s.preview))
         return false;
     *output = {s.preview, s.thumbnail, s.thumbnail, theme.scale.radius_sm, clamp_unit(s.progress)};
     return true;

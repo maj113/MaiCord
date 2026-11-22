@@ -16,7 +16,7 @@ struct MediaPacketLayout {
 };
 // RTP/RTCP-mux classification, version and clear-header bounds. Values are
 // untrusted until transport authentication. Extension elements stay encrypted.
-// Failures preserve output; output cannot overlap the input packet.
+// Failures preserve output. The packet is the caller's own buffer and output is outside it.
 bool media_packet_header(ConstSlice<u8> packet, MediaPacketLayout* output) noexcept;
 // Additionally validate RTP extension/padding bounds or compound RTCP packet
 // lengths/padding. RTP payload excludes extension contents and trailing padding.

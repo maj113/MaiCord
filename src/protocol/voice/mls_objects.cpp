@@ -165,9 +165,6 @@ void group_secrets(MlsReader& reader, MlsGroupSecretsView& view) noexcept {
 }
 template <typename T, void (*Decode)(MlsReader&, T&) noexcept>
 MlsDecodeResult decode(ConstSlice<u8> input, T* output, bool exact) noexcept {
-    if (!output || !byte_range_valid(input) ||
-        byte_ranges_overlap(input, {reinterpret_cast<const u8*>(output), sizeof(T)}))
-        return {0, 0, MlsWireError::invalid_input};
     T candidate{};
     MlsReader reader{input};
     Decode(reader, candidate);

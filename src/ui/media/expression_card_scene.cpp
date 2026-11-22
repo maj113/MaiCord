@@ -158,10 +158,10 @@ void slide(UiExpressionCardScene& s) noexcept {
 bool ui_expression_card_show(UiExpressionCardScene* s, u64 identity, const UiExpressionCardContent& content,
                              UiRect anchor, UiRect viewport, u64 now_ms, bool reduced_motion,
                              UiTextMeasureCache* measure_cache) noexcept {
-    if (!s || !identity || !ui_rect_valid(viewport) || !ui_rect_has_area(anchor) ||
+    if (!identity || !ui_rect_valid(viewport) || !ui_rect_has_area(anchor) ||
         content.layout > UiExpressionCardLayout::pack || content.preview_count > kUiExpressionCardPreviews ||
         !ui_hover_card_initialize(*s, utf8_literal("Expression popout"))) {
-        if (s && s->active)
+        if (s->active)
             ui_hover_card_close(s);
         return false;
     }
@@ -248,7 +248,7 @@ bool ui_expression_card_set_hover(UiExpressionCardScene* s, float x, float y) no
 }
 
 bool ui_expression_card_media(const UiExpressionCardScene& s, u32 index, UiExpressionCardMedia* output) noexcept {
-    if (!output || !s.active || index >= kUiExpressionCardMediaCount)
+    if (!s.active || index >= kUiExpressionCardMediaCount)
         return false;
     const auto f = frame(s);
     const float a = clamp_unit(s.progress);

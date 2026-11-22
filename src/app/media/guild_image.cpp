@@ -1,6 +1,5 @@
 #include "maicord/app/media/guild_image.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/utf.hpp"
@@ -298,7 +297,7 @@ GuildImageInfo fail(GuildImageInfo info, GuildImageError error) noexcept {
 } // namespace
 
 GuildImageKind guild_image_sniff(const ConstSlice<u8>& s) noexcept {
-    if (!byte_range_valid(s) || !s.count)
+    if (!s.count)
         return GuildImageKind::none;
     if (s.count >= 8 && bytes_equal(s.data, kPngSignature, 8)) {
         bool apng = false;
@@ -315,8 +314,6 @@ GuildImageKind guild_image_sniff(const ConstSlice<u8>& s) noexcept {
 }
 
 void guild_image_release(GuildImageBuffer* buffer) noexcept {
-    if (!buffer)
-        return;
     if (buffer->data) {
         secure_clear_bytes(buffer->data, buffer->capacity);
         release(buffer->data);
@@ -327,8 +324,7 @@ void guild_image_release(GuildImageBuffer* buffer) noexcept {
 GuildImageInfo guild_image_prepare(GuildImageProfile profile, ConstSlice<u8> source, GuildImageBuffer* buffer,
                                    GuildPreparedImage* prepared) noexcept {
     GuildImageInfo info{};
-    if (!buffer || !prepared || profile >= GuildImageProfile::count || !byte_range_valid(source) || !source.count ||
-        source.count > kGuildImageSourceMaximumBytes)
+    if (profile >= GuildImageProfile::count || !source.count || source.count > kGuildImageSourceMaximumBytes)
         return fail(info, GuildImageError::input);
     reset_value(buffer);
     reset_value(prepared);

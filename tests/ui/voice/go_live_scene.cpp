@@ -193,7 +193,7 @@ void unavailable_cases(Check check) noexcept {
                   UiGoLiveAction::none &&
               drawn.collect(s) && drawn.has(c.title) && drawn.has(c.body),
           "go live dialog (unavailable): only the reason and Close, no settings or HD line");
-    check(!ui_go_live_scene_update(&s, c, {0, 0, 200, 200}) && !ui_go_live_scene_update(nullptr, c, {0, 0, 900, 700}),
+    check(!ui_go_live_scene_update(&s, c, {0, 0, 200, 200}),
           "go live dialog: refuses a viewport too small for it");
     ui_go_live_scene_release(&s);
 }

@@ -34,7 +34,7 @@ MlsStatus mls_node_key(KdfSha256Workspace& kdf, const u8* path_secret, P256Key* 
 
 MlsStatus mls_leaf_parse(KdfSha256Workspace* kdf, ConstSlice<u8> input, u8 expected_source,
                          const u8* group_id, u32 leaf_index, MlsLeafNode* leaf, u32* consumed) noexcept {
-    if (!leaf || !input.data || !input.count || expected_source > 3 || (kdf && !group_id))
+    if (!input.count || expected_source > 3 || (kdf && !group_id))
         return MlsStatus::invalid_argument;
     *consumed = 0;
     reset_value(leaf);
@@ -124,7 +124,7 @@ MlsStatus mls_leaf_write(KdfSha256Workspace& kdf, const P256Key& signing, const 
 
 MlsStatus mls_parent_node_parse(ConstSlice<u8> input, u32 leaf_count, MlsParentNode* parent,
                                 u32* consumed) noexcept {
-    if (!parent || !input.data || !input.count)
+    if (!input.count)
         return MlsStatus::invalid_argument;
     reset_value(parent);
     *consumed = 0;
@@ -155,8 +155,6 @@ MlsTreeIterator mls_tree_iterate(const MlsRatchetTree& tree) noexcept {
     return {tree.nodes, 0, 0, tree.encoded_node_count, tree.leaf_count};
 }
 MlsStatus mls_tree_next(MlsTreeIterator& iterator, MlsTreeNode* node, bool* has_node) noexcept {
-    if (!node)
-        return MlsStatus::invalid_argument;
     *has_node = false;
     reset_value(node);
     if (iterator.offset == iterator.nodes.count)
@@ -204,7 +202,7 @@ MlsStatus mls_tree_next(MlsTreeIterator& iterator, MlsTreeNode* node, bool* has_
 
 MlsStatus mls_ratchet_tree_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, const u8* group_id,
                                  bool verify, MlsRatchetTree* tree) noexcept {
-    if (!input.data || !group_id || !tree || !input.count || input.count > kMlsMaxRatchetTreeBytes)
+    if (!group_id || !input.count || input.count > kMlsMaxRatchetTreeBytes)
         return MlsStatus::invalid_argument;
     reset_value(tree);
     MlsReader reader{input};
@@ -271,7 +269,7 @@ u32 mls_tree_index_bytes(const MlsRatchetTree& tree) noexcept {
     return tree.node_count * 4;
 }
 MlsStatus mls_tree_index_init(MlsTreeIndex* index, const MlsRatchetTree& tree, Slice<u8> scratch) noexcept {
-    if (!index || !tree.node_count || tree.node_count > 0x3fffffffu || !scratch.data ||
+    if (!tree.node_count || tree.node_count > 0x3fffffffu ||
         scratch.count < mls_tree_index_bytes(tree) || (reinterpret_cast<usize>(scratch.data) & 3))
         return MlsStatus::invalid_argument;
     reset_value(index);

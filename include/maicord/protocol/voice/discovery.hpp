@@ -8,7 +8,8 @@ struct VoiceDiscoveryAddress {
     u32 address_bytes;
     u16 port;
 };
-bool voice_discovery_request(u32 ssrc, Slice<u8> output) noexcept;
+// Writes the kVoiceDiscoveryBytes request for a nonzero SSRC.
+void voice_discovery_request(u32 ssrc, u8* output) noexcept;
 // Validate exact packet size/type/length, matching SSRC, a bounded terminated
 // address and nonzero port. Numeric IP validation belongs to the socket layer.
 // The response owns its text; failure preserves output.

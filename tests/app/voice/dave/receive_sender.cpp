@@ -7,7 +7,7 @@ namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
 #include "../../../data/dave_sender_vectors.hpp"
-constexpr DaveReceiveIdentity identity{101, 202};
+constexpr u64 user = 202;
 void seed(u32 epoch, u8* output) noexcept {
     for (u32 i = 0; i != 16; ++i)
         output[i] = static_cast<u8>(i + epoch * 31);
@@ -28,7 +28,7 @@ void correct(Check check, const DaveSenderOpenResult& result, u32 epoch, const u
 void transition(Check check, DaveReceiveSender& sender, u32 epoch, u64 revision, u64 now, u64 grace) noexcept {
     u8 material[16];
     seed(epoch, material);
-    check(dave_receive_sender_transition(sender, identity, revision, {material, 16}, now, grace).ok(),
+    check(dave_receive_sender_transition(sender, revision, {material, 16}, now, grace).ok(),
           "DAVE sender transition initializes replacement before publishing");
 }
 DaveSenderOpenResult open(Check check, DaveReceiveSender& sender, KdfSha256Workspace& workspace, u32 epoch,
@@ -37,8 +37,7 @@ DaveSenderOpenResult open(Check check, DaveReceiveSender& sender, KdfSha256Works
     const u32 size = wire(check, epoch, counter, frame);
     memset(output, 0xa5, sizeof(output));
     memset(scratch, 0xa5, sizeof(scratch));
-    const auto result = dave_receive_sender_open(sender, identity, workspace, {frame, size}, now,
-                                                 {scratch, 64}, {output, 64});
+    const auto result = dave_receive_sender_open(sender, workspace, {frame, size}, now, {scratch, 64}, {output, 64});
     if (result.ok())
         correct(check, result, epoch, output);
     check(test_filled(output + 48, 16, 0xa5) && test_filled(scratch + 48, 16, 0xa5),
@@ -47,7 +46,7 @@ DaveSenderOpenResult open(Check check, DaveReceiveSender& sender, KdfSha256Works
 }
 void transitions(Check check, KdfSha256Workspace& workspace) noexcept {
     DaveReceiveSender sender{};
-    check(dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none,
+    check(dave_receive_sender_initialize(&sender, user, 0) == DaveSenderError::none,
           "DAVE sender identity initialization");
     transition(check, sender, 0, 1, 0, 100);
     auto result = open(check, sender, workspace, 0, 1, 0);
@@ -61,98 +60,68 @@ void transitions(Check check, KdfSha256Workspace& workspace) noexcept {
           "DAVE old epoch duplicate remains rejected after transition");
     u8 material[16];
     seed(2, material);
-    const auto failed = dave_receive_sender_transition(sender, identity, 3, {material, 15}, 40, 9999);
-    check(failed.error == DaveSenderError::invalid_input && sender.count == 2 && sender.latest_revision == 2 &&
-              sender.next_expiry_ms == 110,
-          "DAVE failed replacement leaves old keys, grace and revision unchanged");
     transition(check, sender, 2, 3, 50, 100);
     check(sender.count == 3 && sender.next_expiry_ms == 150,
           "DAVE successful transition refreshes grace for all live previous epochs");
     result = open(check, sender, workspace, 0, 3, 120);
     check(result.ok() && result.revision == 1, "DAVE oldest live epoch receives refreshed transition grace");
-    check(dave_receive_sender_collect(sender, identity, 150) == DaveSenderError::none && sender.count == 3,
+    check(dave_receive_sender_collect(sender, 150) == DaveSenderError::none && sender.count == 3,
           "DAVE collect retains epochs at inclusive expiry boundary");
-    check(dave_receive_sender_collect(sender, identity, 151) == DaveSenderError::none && sender.count == 1,
+    check(dave_receive_sender_collect(sender, 151) == DaveSenderError::none && sender.count == 1,
           "DAVE collect releases expired epochs even without media delivery");
     check(!open(check, sender, workspace, 0, 4, 151).ok(),
           "DAVE expired epoch cannot authenticate later frame");
-    check(dave_receive_sender_transition(sender, identity, 2, {material, 16}, 151, 100).error ==
+    check(dave_receive_sender_transition(sender, 2, {material, 16}, 151, 100).error ==
                   DaveSenderError::stale_transition &&
               sender.count == 1,
           "DAVE stale transition cannot resurrect removed epoch or reset replay");
-    check(dave_receive_sender_retire(sender, identity, 4, 160, 20) == DaveSenderError::none,
+    check(dave_receive_sender_retire(sender, 4, 160, 20) == DaveSenderError::none,
           "DAVE keyless transition starts final retirement grace");
     result = open(check, sender, workspace, 2, 1, 180);
     check(result.ok() && result.revision == 3,
           "DAVE current epoch remains usable through retirement grace");
-    check(dave_receive_sender_collect(sender, identity, 181) == DaveSenderError::none && !sender.count &&
+    check(dave_receive_sender_collect(sender, 181) == DaveSenderError::none && !sender.count &&
               sender.next_expiry_ms == ~u64{0},
           "DAVE retirement leaves no keys or idle expiry deadline");
     check(open(check, sender, workspace, 2, 2, 181).error == DaveSenderError::no_epoch,
           "DAVE keyless retirement does not authorize plaintext");
-    check(dave_receive_sender_retire(sender, identity, 4, 181, 100) == DaveSenderError::stale_transition,
+    check(dave_receive_sender_retire(sender, 4, 181, 100) == DaveSenderError::stale_transition,
           "DAVE transition revision survives removal of all epoch nodes");
     dave_receive_sender_release(&sender);
-    check(!sender.initialized && !sender.newest && !sender.count && !sender.latest_revision,
+    check(!sender.newest && !sender.count && !sender.latest_revision,
           "DAVE sender teardown retires identity, revisions, replay and keys");
     dave_receive_sender_release(&sender);
 }
 void boundaries(Check check, KdfSha256Workspace& workspace) noexcept {
     DaveReceiveSender sender{};
-    check(dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none,
+    check(dave_receive_sender_initialize(&sender, user, 0) == DaveSenderError::none,
           "DAVE boundary sender init");
     transition(check, sender, 0, 65535, 0, 10);
     transition(check, sender, 1, 65536, 1, 10);
     u8 frame[64], output[64], scratch[64], material[16];
-    wire(check, 0, 1, frame);
     seed(2, material);
-    memset(output, 0xa5, sizeof(output));
-    check(dave_receive_sender_open(sender, {102, 202}, workspace, {nullptr, 1}, 99, {}, {}).error ==
-                  DaveSenderError::identity_mismatch &&
-              dave_receive_sender_collect(sender, identity, 1) == DaveSenderError::none,
-          "DAVE stale-call delivery is rejected before parsing or touching epoch clock");
-    check(dave_receive_sender_transition(sender, {101, 203}, 65537, {material, 16}, 2, 10).error ==
-              DaveSenderError::identity_mismatch,
-          "DAVE cannot install another sender's transition");
-    check(dave_receive_sender_collect(sender, identity, 0) == DaveSenderError::invalid_time,
+    check(dave_receive_sender_collect(sender, 0) == DaveSenderError::invalid_time,
           "DAVE sender rejects rollback across epoch clocks");
     const u64 expires = sender.next_expiry_ms;
-    check(dave_receive_sender_transition(sender, identity, 65536, {material, 16}, 2, 1000).error ==
+    check(dave_receive_sender_transition(sender, 65536, {material, 16}, 2, 1000).error ==
                   DaveSenderError::stale_transition &&
               sender.next_expiry_ms == expires,
           "DAVE duplicate revision cannot refresh grace or create a fresh replay owner");
-    for (u32 size = 0; size != 48; ++size) {
-        check(dave_receive_sender_open(sender, identity, workspace, {frame, 64}, 2, {scratch, 64},
-                                       {output, size})
-                          .error == DaveSenderError::output_capacity &&
-                  dave_receive_sender_open(sender, identity, workspace, {frame, 64}, 2, {scratch, size},
-                                           {output, 64})
-                          .error == DaveSenderError::scratch_capacity &&
-                  test_filled(output, 64, 0xa5),
-              "DAVE short shared buffers fail before trying any epoch");
-    }
-    u8 original[64];
-    copy_bytes(original, frame, 64);
-    const auto in_place =
-        dave_receive_sender_open(sender, identity, workspace, {frame, 64}, 2, {scratch, 64}, {frame, 64});
-    correct(check, in_place, 0, frame);
-    check(in_place.revision == 65535 && bytes_equal(frame + 48, original + 48, 16),
-          "DAVE sender retries mixed-clear frame in place and preserves footer");
-    check(dave_receive_sender_collect(sender, identity, 12) == DaveSenderError::none && sender.count == 1,
-          "DAVE old epoch collection after guarded input operations");
+    check(dave_receive_sender_collect(sender, 12) == DaveSenderError::none && sender.count == 1,
+          "DAVE old epoch collection after the expiry");
     transition(check, sender, 2, 65537, 13, 100);
     check(sender.count == 2, "DAVE next transition does not resurrect expired/collected old epoch");
     wire(check, 0, 2, frame);
     check(
-        !dave_receive_sender_open(sender, identity, workspace, {frame, 64}, 14, {scratch, 64}, {output, 64})
+        !dave_receive_sender_open(sender, workspace, {frame, 64}, 14, {scratch, 64}, {output, 64})
              .ok(),
         "DAVE no retained key can authenticate removed epoch");
     dave_receive_sender_release(&sender);
-    check(dave_receive_sender_initialize(&sender, {999, 202}, ~u64{0} - 5) == DaveSenderError::none,
+    check(dave_receive_sender_initialize(&sender, user, ~u64{0} - 5) == DaveSenderError::none,
           "DAVE replacement call initializes fresh identity");
     seed(0, material);
-    check(dave_receive_sender_transition(sender, {999, 202}, 1, {material, 16}, ~u64{0} - 5, 0).ok() &&
-              dave_receive_sender_retire(sender, {999, 202}, 2, ~u64{0} - 4, 100) ==
+    check(dave_receive_sender_transition(sender, 1, {material, 16}, ~u64{0} - 5, 0).ok() &&
+              dave_receive_sender_retire(sender, 2, ~u64{0} - 4, 100) ==
                   DaveSenderError::none &&
               sender.next_expiry_ms == ~u64{0},
           "DAVE deadline addition saturates instead of wrapping");
@@ -160,7 +129,7 @@ void boundaries(Check check, KdfSha256Workspace& workspace) noexcept {
 }
 void many_epochs(Check check, KdfSha256Workspace& workspace) noexcept {
     DaveReceiveSender sender{};
-    check(dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none,
+    check(dave_receive_sender_initialize(&sender, user, 0) == DaveSenderError::none,
           "DAVE many-epoch sender init");
     for (u32 i = 0; i != 12; ++i)
         transition(check, sender, i, i + 1, i, 100);
@@ -168,7 +137,7 @@ void many_epochs(Check check, KdfSha256Workspace& workspace) noexcept {
     check(sender.count == 12 && result.ok() && result.revision == 1,
           "DAVE retained epochs do not inherit a reference implementation's unrelated eight "
           "staged-transition slot cap");
-    check(dave_receive_sender_collect(sender, identity, 112) == DaveSenderError::none && sender.count == 1,
+    check(dave_receive_sender_collect(sender, 112) == DaveSenderError::none && sender.count == 1,
           "DAVE collection releases a batch of obsolete epochs");
     dave_receive_sender_release(&sender);
 }
@@ -187,7 +156,7 @@ void guarded_retry(Check check, KdfSha256Workspace& workspace) noexcept {
     check(ready, "DAVE sender immutable source/exact output/scratch guard pages");
     DaveReceiveSender sender{};
     if (ready) {
-        check(dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none,
+        check(dave_receive_sender_initialize(&sender, user, 0) == DaveSenderError::none,
               "DAVE guarded sender init");
         transition(check, sender, 0, 1, 0, 100);
         transition(check, sender, 1, 2, 1, 100);
@@ -200,7 +169,7 @@ void guarded_retry(Check check, KdfSha256Workspace& workspace) noexcept {
         DWORD previous = 0;
         check(VirtualProtect(pages[0], info.dwPageSize, PAGE_READONLY, &previous) != 0,
               "DAVE sender source page is read-only");
-        const auto result = dave_receive_sender_open(sender, identity, workspace, {input, 64}, 2,
+        const auto result = dave_receive_sender_open(sender, workspace, {input, 64}, 2,
                                                      {scratch, 48}, {output, 48});
         correct(check, result, 0, output);
         check(bytes_equal(original, input, 64) && test_filled(scratch, 48, 0),
@@ -213,7 +182,7 @@ void guarded_retry(Check check, KdfSha256Workspace& workspace) noexcept {
 }
 void expired_transition(Check check, KdfSha256Workspace& workspace) noexcept {
     DaveReceiveSender sender{};
-    check(dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none,
+    check(dave_receive_sender_initialize(&sender, user, 0) == DaveSenderError::none,
           "DAVE no-media transition sender init");
     transition(check, sender, 0, 1, 0, 1);
     transition(check, sender, 1, 2, 1, 1);
@@ -229,7 +198,7 @@ void expired_transition(Check check, KdfSha256Workspace& workspace) noexcept {
           "DAVE live previous epoch receives new grace after idle transition");
     u8 plain[3]{0xf8, 0xff, 0xfe}, output[3];
     const auto rejected =
-        dave_receive_sender_open(sender, identity, workspace, {plain, 3}, 3, {}, {output, 3});
+        dave_receive_sender_open(sender, workspace, {plain, 3}, 3, {}, {output, 3});
     check(rejected.error == DaveSenderError::invalid_frame,
           "DAVE encrypted sender API never silently treats plaintext/silence as authenticated");
     dave_receive_sender_release(&sender);

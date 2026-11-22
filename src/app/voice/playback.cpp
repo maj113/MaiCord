@@ -162,7 +162,7 @@ void voice_playback_clear(VoicePlayback* playback) noexcept {
 
 bool voice_playback_push(VoicePlayback* playback, u32 ssrc, u64 user_id, u32 speaking_flags, u16 sequence,
                          u32 timestamp, ConstSlice<u8> opus, u64 arrival_us) noexcept {
-    if (!user_id || !opus.data || !opus.count)
+    if (!opus.count)
         return false;
     AcquireSRWLockExclusive(playback->lock.native());
     auto* stream = playback->streams ? stream_for(*playback, ssrc, user_id, arrival_us) : nullptr;
@@ -182,13 +182,7 @@ bool voice_playback_push(VoicePlayback* playback, u32 ssrc, u64 user_id, u32 spe
 }
 
 void voice_playback_render(VoicePlayback* playback, Slice<i16> output, u64 now_us) noexcept {
-    if (!output.data)
-        return;
     const u32 frames = minimum(output.count / kVoiceChannels, kVoiceRenderMaximumFrames);
-    if (!playback) {
-        clear_bytes(output.data, output.count * static_cast<u32>(sizeof(i16)));
-        return;
-    }
     u32 mixed = 0; // Leading samples voice_mixer_finish wrote; the rest is silence.
     AcquireSRWLockExclusive(playback->lock.native());
     if (playback->streams && !playback->deafened) {

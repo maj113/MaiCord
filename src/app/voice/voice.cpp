@@ -439,12 +439,10 @@ Utf8View application_voice_tooltip(float x, float y, UiRect* anchor, u32* identi
     const Utf8View label = rectangle ? control_label(control, *rectangle, &area) : Utf8View{};
     if (!label.bytes)
         return {};
-    if (anchor)
-        *anchor = area;
-    if (identity)
-        *identity = static_cast<u32>(control) * 4 + (v.self_mute ? 1 : 0) + (v.self_deaf ? 2 : 0) +
-                    (control == UiVoiceControl::screen_share ? (v.share_live ? 64u : 0u) + (v.share_enabled ? 128u : 0u)
-                                                             : 0u);
+    *anchor = area;
+    *identity = static_cast<u32>(control) * 4 + (v.self_mute ? 1 : 0) + (v.self_deaf ? 2 : 0) +
+                (control == UiVoiceControl::screen_share ? (v.share_live ? 64u : 0u) + (v.share_enabled ? 128u : 0u)
+                                                         : 0u);
     return label;
 }
 

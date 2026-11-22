@@ -60,11 +60,8 @@ MlsStatus author(KdfSha256Workspace& kdf, MlsLocalCommit* local, const MlsSucces
                  ConstSlice<u8> external_sender, Slice<u8> message, Slice<u8> context_output) noexcept {
     const auto& context = current.context;
     auto& next = local->successor;
+    // A path is already in message at path_offset (mls_commit_create_local; at most kMlsMaxUpdatePathBytes).
     const bool has_path = path.count != 0;
-    if (path.count > kMlsMaxUpdatePathBytes)
-        return MlsStatus::invalid_argument;
-    const u32 expected_offset = path_offset(proposals.count);
-    const bool in_place = has_path && path.data == message.data + expected_offset;
     MlsWriter writer{message};
     writer.integer(1, 2);
     writer.integer(1, 2);
@@ -80,12 +77,11 @@ MlsStatus author(KdfSha256Workspace& kdf, MlsLocalCommit* local, const MlsSucces
         writer.vector(proposals[i].reference, kMlsHashBytes);
     }
     writer.integer(has_path ? 1 : 0, 1);
-    if (in_place) {
-        if (writer.ok() && writer.used != expected_offset)
+    if (has_path) {
+        if (writer.ok() && writer.used != path_offset(proposals.count))
             writer.status = MlsStatus::malformed;
         writer.skip(path.count);
-    } else
-        writer.bytes(path.data, path.count);
+    }
     const u32 content_end = writer.used;
     u8 signature[kMlsSignatureMaximum], confirmed[kMlsHashBytes], membership[kMlsHashBytes];
     if (writer.ok()) {
@@ -180,8 +176,6 @@ MlsStatus validate_remote_proposals(const MlsCommit& commit, ConstSlice<MlsPropo
 
 MlsStatus mls_commit_reference_next(ConstSlice<u8> references, u32* offset, const u8** reference,
                                     bool* has_reference) noexcept {
-    if (*offset > references.count)
-        return MlsStatus::invalid_argument;
     *reference = nullptr;
     *has_reference = false;
     if (*offset == references.count)
@@ -199,8 +193,7 @@ MlsStatus mls_commit_reference_next(ConstSlice<u8> references, u32* offset, cons
 }
 MlsStatus mls_commit_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, const MlsGroupContext& context,
                            const MlsMemberAuth& sender, MlsCommit* commit) noexcept {
-    if (!input.data || !commit || !sender.signature_key || !sender.membership_key || !input.count ||
-        input.count > kMlsMaxCommitBytes || !context.serialized.data || !context.group_id_bytes)
+    if (!sender.signature_key)
         return MlsStatus::invalid_argument;
     reset_value(commit);
     MlsCommit candidate{};
@@ -298,10 +291,6 @@ MlsStatus mls_commit_create_local(KdfSha256Workspace& kdf, MlsLocalCommit* local
                                   const u8* leaf_secret, const P256Key& signing, bool force_path,
                                   ConstSlice<u8> external_sender, const MlsCommitBuffers& buffers,
                                   Slice<u8> message) noexcept {
-    if (!local || !external_sender.data || !buffers.scratch.data || !buffers.proposal_tree.data ||
-        !buffers.merged_tree.data || !message.data || !buffers.next_context.data ||
-        (!proposals.data && proposals.count) || (reinterpret_cast<usize>(buffers.scratch.data) & 3))
-        return MlsStatus::invalid_argument;
     reset_value(local);
     // A context at the last epoch cannot advance (the epoch is network input).
     if (current.context.epoch == ~u64{0})
@@ -384,14 +373,6 @@ MlsStatus mls_commit_apply_remote(KdfSha256Workspace& kdf, MlsSuccessor* success
                                   const MlsSuccessor& current, const MlsCommit& commit,
                                   ConstSlice<MlsProposal> proposals, ConstSlice<u8> external_sender,
                                   const MlsCommitBuffers& buffers) noexcept {
-    if (!successor || !external_sender.data || !buffers.scratch.data || !buffers.proposal_tree.data ||
-        !buffers.next_context.data || (commit.has_path && !buffers.merged_tree.data) ||
-        (!proposals.data && proposals.count) || commit.sender_leaf >= current.tree.leaf_count ||
-        commit.sender_leaf == current.tree_private.leaf_index || !commit.confirmation_tag ||
-        !commit.confirmed_content.data || !commit.confirmed_signature.data ||
-        commit.group_id != current.context.group_id || commit.epoch != current.context.epoch ||
-        (reinterpret_cast<usize>(buffers.scratch.data) & 3))
-        return MlsStatus::invalid_argument;
     reset_value(successor);
     if (current.context.epoch == ~u64{0})
         return MlsStatus::invalid_argument;

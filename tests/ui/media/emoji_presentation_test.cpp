@@ -55,11 +55,6 @@ bool errors() noexcept {
     const Utf8View malformed[]{utf8_literal("\x80"),utf8_literal("\xc0\x80"),utf8_literal("\xed\xa0\x80"),utf8_literal("\xf4\x90\x80\x80"),utf8_literal("a\xe2\x80"),utf8_literal("\xf0\x9f\x98\x80\xff")};
     for(const auto text:malformed){TextEmojiCursor cursor{};TextEmojiRange range{1,2,3,4};CHECK(text_emoji_next(text,&cursor,&range)==TextEmojiNext::invalid_input);CHECK(!cursor.byte&&!cursor.unit&&!range.first_byte&&!range.end_byte&&!range.first_unit&&!range.end_unit);}
     TextEmojiCursor cursor{};TextEmojiRange range{};
-    CHECK(text_emoji_next({nullptr,1},&cursor,&range)==TextEmojiNext::invalid_input);
-    CHECK(text_emoji_next({},nullptr,&range)==TextEmojiNext::invalid_input);
-    CHECK(text_emoji_next({},&cursor,nullptr)==TextEmojiNext::invalid_input);
-    cursor={1,0};CHECK(text_emoji_next({},&cursor,&range)==TextEmojiNext::invalid_input&&cursor.byte==1&&!cursor.unit);
-    cursor={0,1};CHECK(text_emoji_next(utf8_literal("a"),&cursor,&range)==TextEmojiNext::invalid_input&&!cursor.byte&&cursor.unit==1);
     cursor={};const auto text=utf8_literal("\xf0\x9f\x98\x80 a\xff");
     CHECK(text_emoji_next(text,&cursor,&range)==TextEmojiNext::range&&cursor.byte==4&&cursor.unit==2);
     CHECK(text_emoji_next(text,&cursor,&range)==TextEmojiNext::invalid_input&&cursor.byte==4&&cursor.unit==2&&!range.end_byte);

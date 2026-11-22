@@ -1,7 +1,6 @@
 #include "maicord/app/voice/soundboard_audio.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/media/audio/mp3_stream.hpp"
 #include "maicord/media/containers/ogg_opus.hpp"
 #include "maicord/media/audio/opus_decoder.hpp"
@@ -180,7 +179,7 @@ SoundboardClip* decode_ogg(u64 sound_id, ConstSlice<u8> encoded) noexcept {
     return clip;
 }
 SoundboardAudioFormat detect_format(ConstSlice<u8> file) noexcept {
-    if (!file.data || file.count < 4)
+    if (file.count < 4) // Both callers refuse an empty file, so file.data is set.
         return SoundboardAudioFormat::unknown;
     if (file[0] == 'O' && file[1] == 'g' && file[2] == 'g' && file[3] == 'S')
         return SoundboardAudioFormat::ogg_opus;
@@ -195,10 +194,6 @@ SoundboardAudioFormat detect_format(ConstSlice<u8> file) noexcept {
 
 SoundboardFileInfo soundboard_probe_file(ConstSlice<u8> file, Slice<u8> scratch) noexcept {
     SoundboardFileInfo info{};
-    if (!byte_range_valid(file) || (!file.data && file.count)) {
-        info.error = SoundboardFileError::input;
-        return info;
-    }
     info.bytes = file.count;
     if (!file.count) {
         info.error = SoundboardFileError::empty;
@@ -220,10 +215,6 @@ SoundboardFileInfo soundboard_probe_file(ConstSlice<u8> file, Slice<u8> scratch)
         info.sample_rate = stream.sample_rate;
         info.channels = stream.channels;
     } else if (info.format == SoundboardAudioFormat::ogg_opus) {
-        if (!scratch.data || scratch.count < kSoundboardProbeScratchBytes) {
-            info.error = SoundboardFileError::memory;
-            return info;
-        }
         OggOpusDemuxer demuxer{};
         const auto error = ogg_opus_demux_initialize(&demuxer, file, scratch);
         if (error != OggOpusError::none) {
@@ -249,7 +240,7 @@ SoundboardFileInfo soundboard_probe_file(ConstSlice<u8> file, Slice<u8> scratch)
 }
 
 SoundboardClip* soundboard_clip_decode(u64 sound_id, ConstSlice<u8> encoded) noexcept {
-    if (!sound_id || !encoded.data || !encoded.count || !byte_range_valid(encoded))
+    if (!sound_id || !encoded.count)
         return nullptr;
     switch (detect_format(encoded)) {
     case SoundboardAudioFormat::mp3:
@@ -375,8 +366,6 @@ MAICORD_HASWELL void accumulate(i32* out, const i16* source, u32 count, u32 gain
 
 u32 soundboard_mixer_render(SoundboardMixer* mixer, Slice<i32> mix, u32 frames, u32 output_percent, bool call,
                             u64 now_us) noexcept {
-    if (!mixer || !mix.data)
-        return 0;
     frames = minimum(frames, mix.count / 2);
     SoundboardClip* finished[kSoundboardVoices];
     u32 finished_count = 0;

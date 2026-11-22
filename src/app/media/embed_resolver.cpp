@@ -180,7 +180,7 @@ struct MusicKindRequest {
 };
 } // namespace
 bool youtube_bootstrap_feed(YoutubeBootstrap* s, ConstSlice<u8> input) noexcept {
-    if (!s || s->complete || s->failed || (!input.data && input.count)) return false;
+    if (s->complete || s->failed) return false;
     static constexpr char upper[] = "\"VISITOR_DATA\"", camel[] = "\"visitorData\"";
     for (u32 i = 0; i < input.count; ++i) {
         const char c = static_cast<char>(input[i]);
@@ -218,7 +218,7 @@ static EmbedResolveResult resolve(EmbedResolver* r, const Utf8View& id, u16 heig
     const bool apple = provider == CdnHost::apple_music_preview || video_preview;
     const bool get = tiktok || spotify || streamable || apple || twitter;
     using E = EmbedPlayerError;
-    if (!r || !out || !height || height > 2048 || (!youtube && !now) || media_index > 4) return {E::invalid_input};
+    if (!youtube && !now) return {E::invalid_input};
     u8 body[2048];
     // Validate the identity before any network or allocation.
     u32 request_bytes = tiktok ? tiktok_player_target(id, {body, sizeof(body)}) : twitch ? twitch_clip_body(id, {body, sizeof(body)})
@@ -305,7 +305,7 @@ EmbedResolveResult pornhub_resolve(EmbedResolver* r, Utf8View id, u16 height, u6
     using E = EmbedPlayerError;
     u8 target[64];
     const u32 bytes = pornhub_embed_target(id, {target, sizeof(target)});
-    if (!r || !bytes || !now || !height || height > 2048) return {E::invalid_input};
+    if (!bytes || !now) return {E::invalid_input};
     if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
     struct Metadata { EmbedStream stream{}; ~Metadata() noexcept { wipe(this, sizeof(*this)); } } metadata;
@@ -347,7 +347,7 @@ EmbedResolveResult amazon_music_preview_resolve(EmbedResolver* r,Utf8View page,u
     EmbedResolveTransport transport) noexcept {
     using E=EmbedPlayerError;
     const auto track=amazon_music_track_locator(page);
-    if(!r || !now || !track.id.bytes) return {E::invalid_input};
+    if(!now || !track.id.bytes) return {E::invalid_input};
     const auto ready=transport_for(*r,transport);
     if(ready!=UpdateTransportError::none) return {E::unavailable,ready};
     char target[64];constexpr auto path=utf8_literal("/getSampleTrack/");
@@ -391,9 +391,7 @@ EmbedResolveResult steam_resolve(EmbedResolver* r, Utf8View app, Utf8View movie,
     ProgressiveVideoFetch* video, ProgressiveVideoFetch* audio, EmbedResolveTransport transport) noexcept {
     using E = EmbedPlayerError;
     u8 target[128]; const u32 bytes = steam_video_target(app, {target, sizeof(target)});
-    if (!r || !video || !audio || video == audio || video->state != ProgressiveVideoFetchState::empty ||
-        audio->state != ProgressiveVideoFetchState::empty || !bytes || (movie.bytes && !steam_id(movie)) || !height || height > 2048)
-        return {E::invalid_input};
+    if (!bytes || (movie.bytes && !steam_id(movie))) return {E::invalid_input};
     if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
     auto result = public_metadata_exchange(r, transport, utf8_literal("store.steampowered.com"),
@@ -542,7 +540,7 @@ static EmbedResolveResult track_title_resolve(EmbedResolver* r, u64 track, const
     const EmbedResolveTransport& caller_transport) noexcept {
     EmbedResolveTransport transport = caller_transport;
     using E = EmbedPlayerError;
-    if (!r || !out || (!track && video.bytes != 11)) return {E::invalid_input};
+    if (!track && video.bytes != 11) return {E::invalid_input};
     if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
     char path[160]; ProtocolWriter writer{{reinterpret_cast<u8*>(path), sizeof(path)}, 0};
@@ -564,7 +562,7 @@ EmbedResolveResult youtube_collection_resolve(EmbedResolver* r, Utf8View page, U
     YoutubeCollectionPage* out, EmbedResolveTransport transport, MediaTrackTitleSink sink) noexcept {
     using E = EmbedPlayerError;
     const auto locator = youtube_collection_locator(page);
-    if (!r || !locator.list.bytes || continuation.bytes > 16384) return {E::invalid_input};
+    if (!locator.list.bytes || continuation.bytes > 16384) return {E::invalid_input};
     if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
     constexpr auto host = utf8_literal("music.youtube.com");
@@ -628,7 +626,7 @@ EmbedResolveResult youtube_collection_resolve(EmbedResolver* r, Utf8View page, U
 EmbedResolveResult soundcloud_batch_titles_resolve(EmbedResolver* r, const SoundcloudTitleBatch& batch, u16 preferred,
     MediaTrackTitleSink sink, EmbedResolveTransport transport) noexcept {
     using E = EmbedPlayerError;
-    if (!r || !batch.count || batch.count > 50 || !sink.write) return {E::invalid_input};
+    if (!batch.count || batch.count > 50) return {E::invalid_input};
     for (char c : batch.client) if (!ascii_is_alnum(c)) return {E::invalid_input};
     char target[1280]; ProtocolWriter path{{reinterpret_cast<u8*>(target),sizeof(target)},0};
     bool ok = protocol_writer_append_literal(&path,"/tracks?ids=");
@@ -652,7 +650,7 @@ EmbedResolveResult soundcloud_batch_titles_resolve(EmbedResolver* r, const Sound
 EmbedResolveResult apple_music_collection_resolve(EmbedResolver* r, Utf8View page, u16* count, AppleMusicCollectionSink sink, EmbedResolveTransport transport) noexcept {
     using E=EmbedPlayerError;
     const auto collection=apple_music_collection_locator(page);
-    if (!r || !sink.write || !collection.id.bytes) return {E::invalid_input};
+    if (!collection.id.bytes) return {E::invalid_input};
     if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
     Slice<u32> scratch{};
@@ -707,7 +705,6 @@ EmbedResolveResult apple_music_collection_resolve(EmbedResolver* r, Utf8View pag
 EmbedResolveResult soundcloud_collection_resolve(EmbedResolver* r, Utf8View page, Slice<u64> tracks,
     SoundcloudCollection* out, EmbedResolveTransport transport, MediaTrackTitleSink sink) noexcept {
     using E = EmbedPlayerError;
-    if (!r || !tracks.data || !tracks.count) return {E::invalid_input};
     ScratchLifetime lifetime{r};
     char decoded[1024]; SoundcloudCollectionLocator locator{};
     auto result = soundcloud_page(r, page, true, {decoded, sizeof(decoded)}, &locator, transport);
@@ -721,7 +718,6 @@ EmbedResolveResult soundcloud_collection_resolve(EmbedResolver* r, Utf8View page
 EmbedResolveResult soundcloud_resolve(EmbedResolver* r, Utf8View page, ProgressiveVideoFetch* audio,
     EmbedResolveTransport transport) noexcept {
     using E = EmbedPlayerError;
-    if (!r || !audio || audio->state != ProgressiveVideoFetchState::empty) return {E::invalid_input};
     ScratchLifetime lifetime{r};
     char decoded[1024]; SoundcloudCollectionLocator locator{};
     auto result = soundcloud_page(r, page, false, {decoded, sizeof(decoded)}, &locator, transport);
@@ -748,10 +744,7 @@ EmbedResolveResult soundcloud_resolve(EmbedResolver* r, Utf8View page, Progressi
 EmbedResolveResult vimeo_resolve(EmbedResolver* r, Utf8View id, u16 height, u64 now,
     ProgressiveVideoFetch* video, ProgressiveVideoFetch* audio, EmbedResolveTransport transport, Utf8View privacy_hash) noexcept {
     using E = EmbedPlayerError;
-    if (!r || !video || !audio || video == audio || !steam_id(id) || !now || !height || height > 2048 ||
-        (privacy_hash.bytes && !vimeo_privacy_hash(privacy_hash)) ||
-        video->state != ProgressiveVideoFetchState::empty || audio->state != ProgressiveVideoFetchState::empty)
-        return {E::invalid_input};
+    if (!steam_id(id) || !now || (privacy_hash.bytes && !vimeo_privacy_hash(privacy_hash))) return {E::invalid_input};
     if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
     char path[32] = "/video/";
@@ -780,8 +773,7 @@ EmbedResolveResult twitch_hls_resolve(EmbedResolver* r, Utf8View id, u16 height,
     ProgressiveVideoFetch* video, ProgressiveVideoFetch* audio, EmbedResolveTransport transport, bool live) noexcept {
     using E = EmbedPlayerError;
     u8 body[512]; const u32 bytes = twitch_playback_body(id, {body, sizeof(body)}, live);
-    if (!r || !video || !audio || video == audio || !bytes || !now || !height || height > 2048 ||
-        video->state != ProgressiveVideoFetchState::empty || audio->state != ProgressiveVideoFetchState::empty) return {E::invalid_input};
+    if (!bytes || !now) return {E::invalid_input};
     if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
     const auto exchange = [&](const Utf8View& host, const Utf8View& path, u32 limit, bool token = false) noexcept {
@@ -807,9 +799,7 @@ EmbedResolveResult twitch_hls_resolve(EmbedResolver* r, Utf8View id, u16 height,
 EmbedResolveResult youtube_hls_resolve(EmbedResolver* r,Utf8View manifest,u16 height,u64 now,
     ProgressiveVideoFetch* video,ProgressiveVideoFetch* audio,EmbedResolveTransport transport) noexcept {
     using E=EmbedPlayerError;EmbedStreamLocation location{};
-    if(!r || !video || !audio || video==audio || !now || !height || height>2048 ||
-        video->state!=ProgressiveVideoFetchState::empty || audio->state!=ProgressiveVideoFetchState::empty ||
-        !embed_stream_location(CdnHost::youtube_playlist,manifest,&location) ||
+    if(!now || !embed_stream_location(CdnHost::youtube_playlist,manifest,&location) ||
         !utf8_starts_with(location.target,utf8_literal("/api/manifest/hls_variant/"))) return {E::invalid_input};
     if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};

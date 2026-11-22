@@ -58,9 +58,9 @@ constexpr u64 ui_voice_invite_channel(const UiVoiceInviteCountdown& countdown) n
 }
 
 // A voice session's length as read aloud: "1 hour, 2 minutes, 3 seconds" (zero parts left out, "0 seconds" for none).
-// Returns the bytes written; 0 for a buffer under kUiVoiceDurationBytes.
+// Returns the bytes written.
 inline constexpr u32 kUiVoiceDurationBytes = 64;
-u32 ui_voice_duration_text(u64 elapsed_s, char* output, u32 capacity) noexcept;
+u32 ui_voice_duration_text(u64 elapsed_s, char (&output)[kUiVoiceDurationBytes]) noexcept;
 
 // Status line under a voice channel's name (stage topic geometry) and the
 // invite row after its users; row_rectangle is the channel row's layout box.

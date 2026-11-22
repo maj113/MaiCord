@@ -172,7 +172,7 @@ bool ui_audio_controls_paint(const UiAudioControlsProjection& projection, const 
 
 bool ui_audio_controls_text_output(const UiAudioControlsProjection& projection, const UiRect& clip,
                                    UiWidgetReference owner, UiTextOutput* output) noexcept {
-    if (!output || !owner_current(owner) || !ui_rect_valid_or_empty(clip))
+    if (!owner_current(owner) || !ui_rect_valid_or_empty(clip))
         return false;
     const auto visible = ui_rect_intersection(projection.geometry.bounds, clip);
     for (const auto& control : projection.controls) {

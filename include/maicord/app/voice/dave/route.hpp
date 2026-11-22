@@ -34,7 +34,7 @@ struct VoiceDaveCommand {
 };
 GatewayEventDecodeResult voice_dave_decode_command(u8 opcode, JsonValue data, Slice<u32> scratch,
                                                    u32 maximum_depth, VoiceDaveCommand* output) noexcept;
-// Client ready_for_transition (23) and invalid_commit_welcome (31).
-GatewayCommandWriteResult voice_dave_write_transition(VoiceDaveOpcode opcode, u16 transition_id,
-                                                      Slice<u8> output) noexcept;
+// Client ready_for_transition (23) or, for any other opcode, invalid_commit_welcome (31); at most 37 bytes.
+// Returns the bytes written.
+u32 voice_dave_write_transition(VoiceDaveOpcode opcode, u16 transition_id, u8* output) noexcept;
 } // namespace maicord

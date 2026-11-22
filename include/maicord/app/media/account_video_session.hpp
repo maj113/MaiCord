@@ -160,6 +160,9 @@ inline bool account_video_identity_equal(const AccountVideoIdentity& a,
            a.session_epoch == b.session_epoch && a.message_revision == b.message_revision &&
            a.cache_generation == b.cache_generation;
 }
+// Each initializer takes a cleared session (never initialized, or released), a resolved identity (no zero field
+// apart from message_revision; reserved zero) and a lane event; account_media_video_dispatch, the one caller, also
+// passes a ready decoder to the movie initializer.
 // Metadata-only: no PCM workspace/MF/device/thread. Present malformed or
 // unsupported AAC is an error, never silently classified as audio-less.
 // A progressive decoder source needs the audio track's own availability reader.

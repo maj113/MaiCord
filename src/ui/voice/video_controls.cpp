@@ -38,7 +38,7 @@ inline UiVideoAction fenced(const UiVideoPlaybackState& playback, UiVideoControl
 bool make_control_action(const UiVideoControlsProjection& projection, UiVideoControl id, u32 value,
                          UiVideoAction* out) noexcept {
     const auto* descriptor = find_control(projection, id);
-    if (!out || !descriptor || !descriptor->enabled)
+    if (!descriptor || !descriptor->enabled)
         return false;
     auto request = fenced(projection.playback, id);
     if (id == UiVideoControl::play_pause)
@@ -82,10 +82,8 @@ float ui_video_controls_height(const UiVideoControlsStyle& style, float width, b
         return 0;
     return 2 * style.padding + maximum(style.target, style.range_height) * (collection && !style.tracks_in_row ? 2 : 1);
 }
-u32 ui_video_format_time(const UiVideoPlaybackState& state, char* text, u32 capacity) noexcept {
+u32 ui_video_format_time(const UiVideoPlaybackState& state, char (&text)[64]) noexcept {
     // Longest output is two 20-digit hour fields plus separators.
-    if (!text || capacity < 64)
-        return 0;
     if (state.live) { text[0] = 'L'; text[1] = 'I'; text[2] = 'V'; text[3] = 'E'; return 4; }
     u32 cursor = 0;
     const bool hours = state.duration_ms >= 3'600'000;
@@ -105,7 +103,7 @@ u32 ui_video_format_time(const UiVideoPlaybackState& state, char* text, u32 capa
 bool ui_video_controls_project(const UiVideoPlaybackState& state, const UiRect& bounds,
                                const UiVideoControlsStyle& style, const Theme& theme,
                                UiVideoControlsProjection* out, bool volume_expanded) noexcept {
-    if (!out || !state.owner || !state.generation || !state.revision || state.volume > 100 ||
+    if (!state.owner || !state.generation || !state.revision || state.volume > 100 ||
         state.collection_count > 8192 || state.collection_track > state.collection_count ||
         (state.collection_count && !state.collection_track) ||
         (state.duration_ms && state.elapsed_ms > state.duration_ms) ||
@@ -128,7 +126,7 @@ bool ui_video_controls_project(const UiVideoPlaybackState& state, const UiRect& 
     projection.volume_expanded = volume_expanded && state.has_audio && state.can_volume && !state.error;
     projection.surface = theme.base_lowest;
     projection.focus = theme.tokens.border.focus;
-    projection.time_bytes = ui_video_format_time(state, projection.time_text, sizeof(projection.time_text));
+    projection.time_bytes = ui_video_format_time(state, projection.time_text);
     const float left = bounds.left + style.padding;
     const float right = bounds.right - style.padding;
     const float center_y = (bounds.top + bounds.bottom + (strip ? row_height : 0)) * .5f;
@@ -270,8 +268,6 @@ bool ui_video_controls_pointer_action(const UiVideoControlsProjection& projectio
 }
 bool ui_video_controls_key(const UiVideoControlsProjection& projection, UiVideoKey key,
                            UiVideoControl* focus, UiVideoAction* out) noexcept {
-    if (!focus)
-        return false;
     static constexpr UiVideoControl order[]{UiVideoControl::play_pause, UiVideoControl::seek, UiVideoControl::mute,
                                      UiVideoControl::volume, UiVideoControl::expand, UiVideoControl::previous_track, UiVideoControl::track, UiVideoControl::next_track};
     constexpr u32 count = sizeof(order) / sizeof(order[0]);
@@ -319,8 +315,6 @@ bool ui_video_controls_key(const UiVideoControlsProjection& projection, UiVideoK
 }
 bool ui_video_controls_player_key(const UiVideoControlsProjection& projection, UiVideoPlayerKey key,
                                   u32 percent, UiVideoAction* out) noexcept {
-    if (!out)
-        return false;
     const auto& playback = projection.playback;
     const auto enabled = [&](UiVideoControl id) noexcept {
         const auto* descriptor = find_control(projection, id);

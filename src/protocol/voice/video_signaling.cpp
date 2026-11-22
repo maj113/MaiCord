@@ -1,6 +1,5 @@
 #include "maicord/protocol/voice/video_signaling.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "../encoding/json_command_writer.hpp"
 #include "../encoding/json_field_lists.hpp"
@@ -102,40 +101,28 @@ u32 voice_video_offers(u32 decodable, u32 encodable, Slice<VoiceCodecOffer> outp
     return count;
 }
 
-bool voice_rtc_connection_id(ConstSlice<u8> random, Slice<char> output) noexcept {
-    if (random.count != 16 || !random.data || output.count < kVoiceRtcConnectionIdBytes || !output.data)
-        return false;
+void voice_rtc_connection_id(const u8* random, char* output) noexcept {
     static constexpr char hex[] = "0123456789abcdef";
     u8 bytes[16];
-    copy_bytes(bytes, random.data, 16);
+    copy_bytes(bytes, random, 16);
     bytes[6] = static_cast<u8>((bytes[6] & 0x0f) | 0x40); // Version 4.
     bytes[8] = static_cast<u8>((bytes[8] & 0x3f) | 0x80); // RFC 4122 variant.
     u32 at = 0;
     for (u32 i = 0; i != 16; ++i) {
         if (i == 4 || i == 6 || i == 8 || i == 10)
-            output.data[at++] = '-';
-        output.data[at++] = hex[bytes[i] >> 4];
-        output.data[at++] = hex[bytes[i] & 15];
+            output[at++] = '-';
+        output[at++] = hex[bytes[i] >> 4];
+        output[at++] = hex[bytes[i] & 15];
     }
-    return true;
 }
 
 GatewayCommandWriteResult voice_gateway_write_select_protocol_media(const VoiceSelectProtocolMedia& selection,
                                                                     Slice<u8> output) noexcept {
     const auto& transport = selection.transport;
     EncodedString address{};
-    const ConstSlice<u8> out{output.data, output.count};
-    const ConstSlice<u8> address_bytes{reinterpret_cast<const u8*>(transport.address.data), transport.address.bytes};
-    const ConstSlice<u8> id_bytes{reinterpret_cast<const u8*>(selection.rtc_connection_id.data),
-                                  selection.rtc_connection_id.bytes};
-    const ConstSlice<u8> codec_bytes{reinterpret_cast<const u8*>(selection.video.data),
-                                     selection.video.count * static_cast<u32>(sizeof(VoiceCodecOffer))};
-    if (!transport.port || transport.address.bytes > 63 || !byte_range_valid(address_bytes) ||
-        !protocol_detail::encoded_string(transport.address, true, &address) || !byte_range_valid(out) ||
-        byte_ranges_overlap(address_bytes, out) || byte_ranges_overlap(id_bytes, out) ||
-        selection.video.count > kVoiceVideoMaximumCodecs || (selection.video.count && !selection.video.data) ||
-        byte_ranges_overlap(codec_bytes, out) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(&selection), sizeof(selection)}, out) ||
+    if (!transport.port || transport.address.bytes > 63 ||
+        !protocol_detail::encoded_string(transport.address, true, &address) ||
+        selection.video.count > kVoiceVideoMaximumCodecs ||
         !uuid_valid(selection.rtc_connection_id) ||
         (transport.mode != voice_transport_aes256_gcm_rtpsize &&
          transport.mode != voice_transport_xchacha20_poly1305_rtpsize))
@@ -170,11 +157,7 @@ GatewayCommandWriteResult voice_gateway_write_select_protocol_media(const VoiceS
 
 GatewayCommandWriteResult voice_gateway_write_media_sink_wants(u8 any_quality, ConstSlice<VoiceSinkWant> wants,
                                                                const Slice<u8>& output) noexcept {
-    const ConstSlice<u8> want_bytes{reinterpret_cast<const u8*>(wants.data),
-                                    wants.count * static_cast<u32>(sizeof(VoiceSinkWant))};
-    if (any_quality > 100 || (wants.count && !wants.data) || wants.count > 4096 ||
-        !byte_range_valid(want_bytes) || !byte_range_valid({output.data, output.count}) ||
-        byte_ranges_overlap(want_bytes, {output.data, output.count}))
+    if (any_quality > 100 || wants.count > 4096)
         return {0, GatewayCommandError::invalid_input};
     for (u32 i = 0; i != wants.count; ++i) {
         // SSRC 2^32-1 is not a JavaScript array index and would sort after "any".
@@ -206,9 +189,7 @@ GatewayCommandWriteResult voice_gateway_write_media_sink_wants(u8 any_quality, C
 GatewayCommandWriteResult voice_gateway_write_video(const VoiceVideoState& state, Slice<u8> output) noexcept {
     const auto& stream = state.stream;
     const bool sending = stream.ssrc != 0;
-    if (!byte_range_valid({output.data, output.count}) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(&state), sizeof(state)}, {output.data, output.count}) ||
-        (sending && (!stream.rtx_ssrc || stream.quality > 100)))
+    if (sending && (!stream.rtx_ssrc || stream.quality > 100))
         return {0, GatewayCommandError::invalid_input};
     return write_json_command(output, [&](Writer& writer) noexcept {
         writer.put("{\"op\":12,\"d\":{\"audio_ssrc\":", state.audio_ssrc, ",\"video_ssrc\":", stream.ssrc,

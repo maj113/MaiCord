@@ -41,8 +41,6 @@ void fit_embed_still(MessageRichStore* store, const MessageRichRecord& rich, con
 
 bool message_media_apply_frame_dimensions(MessageRichStore* store, const AccountMediaFrame& frame,
                                           bool* changed) noexcept {
-    if (!changed)
-        return false;
     *changed = false;
     const bool video = frame.kind == AccountMediaFrameKind::video_nv12_gpu;
     if (frame.key.kind != MediaAssetKind::attachment && frame.key.kind != MediaAssetKind::embed)
@@ -258,9 +256,6 @@ bool visit_inline_emojis(const MessageMediaControllerCallbacks& callbacks, Utf8V
                          MessageMediaController* controller, u64 now_us, u32* candidates,
                          bool* stopped, bool play = true, u64 message_id = 0, u32 revision = 0,
                          u8 scope = 0) noexcept {
-    if (!content.data && content.bytes != 0) {
-        return false;
-    }
     // A revisited message replays its parsed items in the same order.
     bool hit = false;
     MessageMediaEmojiMemo* memo = emoji_memo_slot(controller, message_id, revision, content, scope, &hit);

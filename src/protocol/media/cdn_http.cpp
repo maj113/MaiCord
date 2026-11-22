@@ -24,7 +24,7 @@ bool catalog_provider_request_valid(CdnHost host, CdnImageType type,
                                               : false;
 }
 bool cdn_target_valid(ConstSlice<u8> target) noexcept {
-    if (!target.data || target.count == 0 || target.count > kCdnMaximumTargetBytes || target[0] != '/' ||
+    if (target.count == 0 || target.count > kCdnMaximumTargetBytes || target[0] != '/' ||
         (target.count > 1 && target[1] == '/'))
         return false;
     for (u32 index = 0; index < target.count; ++index) {
@@ -214,7 +214,7 @@ CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
                         range.first > kMediaMaximumProgressiveVideoBytes - u64{range.bytes}))
         return CdnRequestResult{0, CdnHttpError::invalid_input};
     const Utf8View host_name = cdn_host_name(host);
-    if ((!output.data && output.count != 0) || host_name.empty() || !cdn_target_valid(target) ||
+    if (host_name.empty() || !cdn_target_valid(target) ||
         (image_type == CdnImageType::soundboard_sound &&
          (host != CdnHost::cdn || !soundboard_target_valid(target))) ||
         (image_type == CdnImageType::lottie_json &&
@@ -258,8 +258,7 @@ CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
 
 CdnRedirectResult parse_cdn_redirect(CdnHost current_host, ConstSlice<u8> location,
                                      Slice<u8> target_output) noexcept {
-    if (cdn_host_name(current_host).empty() || !location.data || location.count == 0 ||
-        (!target_output.data && target_output.count != 0)) {
+    if (cdn_host_name(current_host).empty() || location.count == 0) {
         return CdnRedirectResult{CdnHost::none, 0, CdnHttpError::invalid_input};
     }
     CdnHost target_host = current_host;
@@ -338,7 +337,7 @@ CdnResponseResult validate_response(CdnImageType image_type, ConstSlice<u8> resp
     if (playlist != embed_playlist_host(host) || (playlist && range)) return response_failure(CdnHttpError::invalid_input);
     const bool binary_video = (image_type == CdnImageType::mp4 || image_type == CdnImageType::mpeg_ts) &&
         (host == CdnHost::twitch_video || host == CdnHost::twitch_live || host == CdnHost::youtube_live);
-    if (!response_head.data || response_head.count == 0) {
+    if (response_head.count == 0) {
         return response_failure(CdnHttpError::invalid_input);
     }
     ResponseFields fields{};

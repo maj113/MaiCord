@@ -76,7 +76,7 @@ MlsStatus parse_entry(KdfSha256Workspace& kdf, const MlsProposalCache& cache, u3
 
 MlsStatus mls_proposal_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, const MlsExternalSender* sender,
                              MlsProposal* proposal, u32* consumed) noexcept {
-    if (!input.data || !proposal || !input.count || (sender && !sender->signature_key))
+    if (!input.count || (sender && !sender->signature_key))
         return MlsStatus::invalid_argument;
     reset_value(proposal);
     *consumed = 0;
@@ -131,7 +131,7 @@ MlsStatus mls_proposal_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, cons
 
 MlsStatus mls_proposal_cache_init(MlsProposalCache* cache, u64 group_id, u64 epoch, Slice<u8> storage,
                                   Slice<MlsProposalCacheEntry> entries) noexcept {
-    if (!cache || !storage.data || !entries.data || !storage.count || !entries.count ||
+    if (!storage.count || !entries.count ||
         storage.count > (1u << kOffsetBits))
         return MlsStatus::invalid_argument;
     clear_bytes(storage.data, storage.count);

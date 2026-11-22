@@ -37,29 +37,29 @@ bool media_attachable(const VoiceConnection& connection) noexcept {
 VoiceReceiveResult voice_receive_packet(VoiceReceive* receive, const VoiceReceivedPacket& packet,
                                         ConstSlice<u8> plaintext, VoiceReceiveDecrypt decrypt, void* context,
                                         u64 now_us) noexcept {
+    // receive_media passes only opened packets, and an RTP one with its current source and member.
     const auto& layout = packet.transport.layout;
     if (layout.kind == MediaPacketKind::rtcp) {
-        if (packet.transport.ok())
-            voice_video_sink_rtcp(&receive->video, plaintext, now_us);
+        voice_video_sink_rtcp(&receive->video, plaintext, now_us);
         return VoiceReceiveResult::ignored;
     }
     // Video RTP is assembled before DAVE; the frame stage decrypts it.
-    if (packet.transport.ok() && layout.kind == MediaPacketKind::rtp && voice_video_source(packet.source))
+    if (voice_video_source(packet.source))
         return voice_video_sink_packet(&receive->video, packet, plaintext, now_us)
                    ? VoiceReceiveResult::video
                    : VoiceReceiveResult::ignored;
-    if (!packet.transport.ok() || layout.kind != MediaPacketKind::rtp || layout.type != kVoiceOpusPayloadType ||
-        packet.source.kind != VoiceSourceKind::audio || !packet.member.user_id || !receive->playback.block)
+    if (layout.type != kVoiceOpusPayloadType || packet.source.kind != VoiceSourceKind::audio ||
+        !receive->playback.block)
         return VoiceReceiveResult::ignored;
-    // rtpsize: the clear header covers fixed header, CSRCs and the extension
-    // preamble; extension elements were encrypted and precede the Opus payload.
-    if (!layout.payload_bytes || layout.payload_offset > plaintext.count ||
-        layout.payload_bytes > plaintext.count - layout.payload_offset)
+    // rtpsize: the clear header covers fixed header, CSRCs and the extension preamble; extension elements were
+    // encrypted and precede the Opus payload. media_packet_payload kept the payload inside plaintext.
+    if (!layout.payload_bytes)
         return VoiceReceiveResult::invalid;
     const ConstSlice<u8> frame{plaintext.data + layout.payload_offset, layout.payload_bytes};
     const auto opened = decrypt(context, packet, frame, {receive->dave_scratch, sizeof(receive->dave_scratch)},
                                 {receive->dave_output, sizeof(receive->dave_output)});
-    if (!opened.ok() || !opened.bytes || opened.bytes > sizeof(receive->dave_output) ||
+    // DAVE writes at most the output it was given; playback refuses an empty frame.
+    if (!opened.ok() ||
         !voice_playback_push(&receive->playback, layout.ssrc, packet.member.user_id, packet.member.speaking,
                              layout.sequence, layout.timestamp, {receive->dave_output, opened.bytes}, now_us))
         return VoiceReceiveResult::lost;

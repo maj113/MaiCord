@@ -370,7 +370,7 @@ bool application_video_viewer_pointer(VideoPointer pointer, UiPoint point) noexc
                                                              point.x, point.y);
 }
 bool application_video_cursor(UiPoint point, UiCursor* cursor) noexcept {
-    if (!cursor || !g_app.account_ui || !video_surface_available() || !g_app.message_scene.active ||
+    if (!g_app.account_ui || !video_surface_available() || !g_app.message_scene.active ||
         !ui_rect_contains(g_app.message_scene.viewport, point.x, point.y))
         return false;
     const auto* video = g_app.video;

@@ -329,8 +329,7 @@ constexpr UiScrollBinding kQueueScroll{nullptr, 0x5155'4555'5343'524cull, queue_
 void sync_quality(const MediaPage& page) noexcept {
     char text[sizeof(g_pages.line)], picked[kUiImageViewerQualityBytes];
     u32 bytes = 0;
-    if (const u32 picked_bytes = ui_image_viewer_quality_text(application_video_page_quality(g_pages.shown), picked,
-                                                              sizeof(picked))) {
+    if (const u32 picked_bytes = ui_image_viewer_quality_text(application_video_page_quality(g_pages.shown), picked)) {
         bytes = page.source_bytes;
         copy_bytes(text, page.source, bytes);
         if (bytes) {

@@ -177,6 +177,7 @@ constexpr u32 kToolbarOrder[]{ui_image_viewer_close,  ui_image_viewer_save,    u
                               ui_image_viewer_fullscreen};
 // The unavailable state's icon, under it its line of text, then Retry.
 constexpr float kStateText = 20;
+// Runs only on a viewer whose open added every button (its callers need an active viewer, or are that open).
 bool place_controls(UiImageViewer* v) noexcept {
     // A page keeps room for its title beside the toolbar.
     const float width = ui_rect_width(v->viewport) - (v->page ? kPageTextLeft + 160 : 0);
@@ -190,8 +191,6 @@ bool place_controls(UiImageViewer* v) noexcept {
     for (u32 index = 0; index < ui_image_viewer_button_count; ++index) {
         auto* widget = ui_widget_manager_resolve(&v->widgets, v->buttons[index]);
         auto* node = ui_widget_manager_layout_node(&v->widgets, v->buttons[index]);
-        if (!node)
-            return false;
         bool visible = shown(*v, index);
         auto& style = node->spec.style;
         reset_value(&style.margin);
@@ -272,7 +271,7 @@ inline UiRect state_box(const UiImageViewer& v) noexcept {
 }
 } // namespace
 bool ui_image_viewer_layout(UiImageViewer* v, const UiRect& viewport) noexcept {
-    if (!v || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 240 || ui_rect_height(viewport) < 160)
+    if (!ui_rect_valid(viewport) || ui_rect_width(viewport) < 240 || ui_rect_height(viewport) < 160)
         return false;
     if (ui_rect_equal(v->viewport, viewport))
         return true;
@@ -285,7 +284,7 @@ bool ui_image_viewer_layout(UiImageViewer* v, const UiRect& viewport) noexcept {
     return true;
 }
 bool ui_image_viewer_open(UiImageViewer* v, const UiRect& viewport, UiSize pixels) noexcept {
-    if (!v || !ui_size_valid(pixels))
+    if (!ui_size_valid(pixels))
         return false;
     const u32 revision = v->revision + 1;
     const float dpi_scale = v->dpi_scale > 0 ? v->dpi_scale : 1;
@@ -334,7 +333,7 @@ bool ui_image_viewer_open(UiImageViewer* v, const UiRect& viewport, UiSize pixel
     return v->active;
 }
 bool ui_image_viewer_set_dpi(UiImageViewer* v, u32 dpi) noexcept {
-    if (!v || !dpi || dpi > 96 * 8)
+    if (!dpi || dpi > 96 * 8)
         return false;
     const float scale = static_cast<float>(dpi) / 96.0f;
     if (scale == v->dpi_scale)
@@ -347,7 +346,7 @@ bool ui_image_viewer_set_dpi(UiImageViewer* v, u32 dpi) noexcept {
     return true;
 }
 bool ui_image_viewer_set_save_available(UiImageViewer* v, bool available) noexcept {
-    if (!v || !v->active) return false;
+    if (!v->active) return false;
     if (v->can_save == available) return true;
     v->can_save = available;
     if (!place_controls(v)) return false;
@@ -355,7 +354,7 @@ bool ui_image_viewer_set_save_available(UiImageViewer* v, bool available) noexce
     return true;
 }
 bool ui_image_viewer_set_actions(UiImageViewer* v, u8 actions) noexcept {
-    if (!v || !v->active) return false;
+    if (!v->active) return false;
     actions &= ui_image_viewer_action_open | ui_image_viewer_action_copy | ui_image_viewer_action_tab;
     if (v->actions == actions) return true;
     v->actions = actions;
@@ -364,7 +363,7 @@ bool ui_image_viewer_set_actions(UiImageViewer* v, u8 actions) noexcept {
     return true;
 }
 bool ui_image_viewer_set_item(UiImageViewer* v, UiSize pixels, u32 item, u32 count, bool video) noexcept {
-    if (!v || !v->active || !ui_size_valid(pixels) || !count || count > 255 || item >= count)
+    if (!v->active || !ui_size_valid(pixels) || !count || count > 255 || item >= count)
         return false;
     const bool chrome = v->item_count != count || v->video != video;
     v->pixels = pixels;
@@ -388,7 +387,7 @@ bool ui_image_viewer_set_item(UiImageViewer* v, UiSize pixels, u32 item, u32 cou
     return true;
 }
 bool ui_image_viewer_set_caption(UiImageViewer* v, Utf8View caption) noexcept {
-    if (!v || !v->active)
+    if (!v->active)
         return false;
     const u32 bytes = utf8_truncated_length(caption, sizeof(v->caption));
     if (bytes == v->caption_bytes && bytes_equal(v->caption, caption.data, bytes))
@@ -399,7 +398,7 @@ bool ui_image_viewer_set_caption(UiImageViewer* v, Utf8View caption) noexcept {
     return true;
 }
 bool ui_image_viewer_set_media(UiImageViewer* v, UiImageViewerMedia media) noexcept {
-    if (!v || !v->active)
+    if (!v->active)
         return false;
     if (v->media != media) {
         const bool retry = shown(*v, ui_image_viewer_retry);
@@ -411,7 +410,7 @@ bool ui_image_viewer_set_media(UiImageViewer* v, UiImageViewerMedia media) noexc
     return true;
 }
 void ui_image_viewer_set_chrome(UiImageViewer* v, float opacity) noexcept {
-    if (!v || !v->active || !ui_coordinate_valid(opacity))
+    if (!v->active || !ui_coordinate_valid(opacity))
         return;
     opacity = maximum(0.0f, minimum(1.0f, opacity));
     if (v->chrome != opacity) {
@@ -420,7 +419,7 @@ void ui_image_viewer_set_chrome(UiImageViewer* v, float opacity) noexcept {
     }
 }
 void ui_image_viewer_set_fullscreen(UiImageViewer* v, bool fullscreen) noexcept {
-    if (!v || !v->active || v->fullscreen == fullscreen)
+    if (!v->active || v->fullscreen == fullscreen)
         return;
     v->fullscreen = fullscreen;
     // A page's regions and toolbar follow it; its viewport usually changes with it too.
@@ -433,7 +432,7 @@ void ui_image_viewer_set_fullscreen(UiImageViewer* v, bool fullscreen) noexcept 
     ++v->revision;
 }
 void ui_image_viewer_set_reveal(UiImageViewer* v, float reveal, const UiRect& origin) noexcept {
-    if (!v || !v->active || !ui_coordinate_valid(reveal))
+    if (!v->active || !ui_coordinate_valid(reveal))
         return;
     reveal = maximum(0.0f, minimum(1.0f, reveal));
     if (reveal == v->reveal && ui_rect_equal(origin, v->origin))
@@ -444,7 +443,7 @@ void ui_image_viewer_set_reveal(UiImageViewer* v, float reveal, const UiRect& or
     ++v->revision;
 }
 bool ui_image_viewer_set_page(UiImageViewer* v, const UiImageViewerPage& page) noexcept {
-    if (!v || !v->active)
+    if (!v->active)
         return false;
     auto& info = v->page_info;
     const bool same_text = info.title.data == page.title.data && info.title.bytes == page.title.bytes &&
@@ -476,7 +475,7 @@ UiImageViewerPageLayout ui_image_viewer_page_layout(const UiImageViewer& v) noex
 }
 void ui_image_viewer_bind_theme_styles(UiImageViewer* v, const UiResolvedThemeStyles* styles) noexcept {
     const u32 revision = styles ? styles->geometry_revision : 0;
-    if (!v || (v->theme_styles == styles && v->theme_geometry_revision == revision))
+    if (v->theme_styles == styles && v->theme_geometry_revision == revision)
         return;
     v->theme_styles = styles;
     v->theme_geometry_revision = revision;
@@ -509,7 +508,7 @@ UiRect ui_image_viewer_queue_thumb(const UiImageViewer& v, u32 n) noexcept {
     return v.queue ? queue_thumb(ui_image_viewer_queue_row(v, n)) : UiRect{};
 }
 void ui_image_viewer_set_view(UiImageViewer* v, float zoom, UiPoint pan) noexcept {
-    if (!v || !v->active || v->video || !ui_coordinate_valid(zoom) || zoom <= 0 || !ui_coordinate_valid(pan.x) ||
+    if (!v->active || v->video || !ui_coordinate_valid(zoom) || zoom <= 0 || !ui_coordinate_valid(pan.x) ||
         !ui_coordinate_valid(pan.y))
         return;
     v->zoom = clamp_zoom(*v, zoom);
@@ -521,7 +520,7 @@ float ui_image_viewer_actual_zoom(const UiImageViewer& v) noexcept {
     return v.fit > 0 && v.dpi_scale > 0 ? 1.0f / (v.dpi_scale * v.fit) : 1.0f;
 }
 void ui_image_viewer_zoom(UiImageViewer* v, float factor, UiPoint anchor) noexcept {
-    if (!v || !v->active || v->video || !ui_coordinate_valid(factor) || factor <= 0)
+    if (!v->active || v->video || !ui_coordinate_valid(factor) || factor <= 0)
         return;
     const float previous = v->zoom;
     v->zoom = clamp_zoom(*v, previous * factor);
@@ -533,7 +532,7 @@ void ui_image_viewer_zoom(UiImageViewer* v, float factor, UiPoint anchor) noexce
     ++v->revision;
 }
 void ui_image_viewer_wheel(UiImageViewer* v, i32 delta, UiPoint anchor) noexcept {
-    if (!v || !delta)
+    if (!delta)
         return;
     constexpr i32 notch = 120;
     constexpr float log_step = .22314355f; // ln(kUiImageViewerWheelStep)
@@ -545,7 +544,7 @@ void ui_image_viewer_wheel(UiImageViewer* v, i32 delta, UiPoint anchor) noexcept
     ui_image_viewer_zoom(v, factor, anchor);
 }
 void ui_image_viewer_toggle_zoom(UiImageViewer* v, UiPoint anchor) noexcept {
-    if (!v || !v->active || v->video)
+    if (!v->active || v->video)
         return;
     if (!ui_image_viewer_fitted(*v)) {
         ui_image_viewer_apply(v, UiImageViewerCommand::fit);
@@ -555,7 +554,7 @@ void ui_image_viewer_toggle_zoom(UiImageViewer* v, UiPoint anchor) noexcept {
     ui_image_viewer_zoom(v, (actual > 1.01f ? actual : 2.0f) / v->zoom, anchor);
 }
 void ui_image_viewer_pan(UiImageViewer* v, UiPoint delta) noexcept {
-    if (!v || !v->active || !ui_coordinate_valid(delta.x) || !ui_coordinate_valid(delta.y))
+    if (!v->active || !ui_coordinate_valid(delta.x) || !ui_coordinate_valid(delta.y))
         return;
     v->pan.x += delta.x;
     v->pan.y += delta.y;
@@ -629,8 +628,8 @@ Utf8View ui_image_viewer_tooltip(const UiImageViewer& v, u32 index) noexcept {
     default: return {};
     }
 }
-u32 ui_image_viewer_quality_text(const MediaPlaybackQuality& q, char* out, u32 capacity) noexcept {
-    if (q.provider == MediaQualityProvider::none || capacity < kUiImageViewerQualityBytes)
+u32 ui_image_viewer_quality_text(const MediaPlaybackQuality& q, char* out) noexcept {
+    if (q.provider == MediaQualityProvider::none)
         return 0;
     u32 n = 0;
     const auto put = [&](Utf8View text) noexcept {
@@ -747,7 +746,7 @@ UiImageViewerCommand ui_image_viewer_key_command(const UiImageViewer& v, UiImage
     }
 }
 bool ui_image_viewer_apply(UiImageViewer* v, UiImageViewerCommand command) noexcept {
-    if (!v || !v->active)
+    if (!v->active)
         return false;
     // Tab and Shift+Tab move the keyboard focus over the buttons, a video's too.
     if (command == UiImageViewerCommand::focus_next || command == UiImageViewerCommand::focus_previous) {

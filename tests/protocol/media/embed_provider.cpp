@@ -38,7 +38,6 @@ MAICORD_TEST_ENTRY(maicord_embed_provider_entry) {
         utf8_literal("https://youtube.com/playlist?list=PLtest"),
         utf8_literal("https://youtube.com/watch?v=aB_01234-xy\r\nHeader: injected")};
     for (auto url : bad) check(!embed_video_locator(url).id.bytes, "reject ambiguous/invalid video locator");
-    check(embed_provider({nullptr, 10}) == P::none, "null input");
     check(embed_provider(utf8_literal("https://open.spotify.com/track/123")) == P::spotify, "Spotify host");
     check(embed_provider(utf8_literal("https://music.apple.com/us/album/name/123?i=456")) == P::apple_music,
           "Apple Music host");

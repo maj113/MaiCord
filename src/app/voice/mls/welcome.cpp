@@ -29,15 +29,10 @@ MlsStatus mls_welcome_write(KdfSha256Workspace& kdf, const MlsLocalCommit& local
                             ConstSlice<MlsProposal> proposals, ConstSlice<u32> joiners,
                             const P256Key& signing, Slice<u8> group_info_scratch, Slice<u8> output,
                             u32* written) noexcept {
-    if (!written)
-        return MlsStatus::invalid_argument;
     *written = 0;
     const auto& successor = local.successor;
     const bool has_path = local.has_path;
-    if (!local.initialized || !successor.initialized || !group_info_scratch.data || !output.data ||
-        !proposals.data || !proposals.count || !joiners.data || !joiners.count ||
-        joiners.count != successor.joiner_count || local.sender_leaf >= successor.tree.leaf_count ||
-        !successor.context.epoch)
+    if (!proposals.count)
         return MlsStatus::invalid_argument;
     u32 offset = 0, add = 0;
     const u8* first_reference = nullptr;

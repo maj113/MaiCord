@@ -104,7 +104,7 @@ bool ui_video_controls_project(const UiVideoPlaybackState&, const UiRect&,
 // Appends m:ss (h:mm:ss when `hours_field` or the time needs hours) at `cursor`.
 void ui_video_append_clock(char* text, u32& cursor, u64 milliseconds, bool hours_field) noexcept;
 // "m:ss / m:ss", hours when the duration needs them and "-:--" before metadata.
-u32 ui_video_format_time(const UiVideoPlaybackState&, char* text, u32 capacity) noexcept;
+u32 ui_video_format_time(const UiVideoPlaybackState&, char (&text)[64]) noexcept;
 Utf8View ui_video_controls_label(const UiVideoControlsProjection&, UiVideoControl) noexcept;
 UiVideoControl ui_video_controls_hit(const UiVideoControlsProjection&, UiPoint) noexcept;
 bool ui_video_controls_pointer_action(const UiVideoControlsProjection&, UiPoint, UiVideoAction*) noexcept;

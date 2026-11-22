@@ -143,7 +143,7 @@ MlsStatus mls_group_context_write(u64 group_id, u64 epoch, const u8* tree_hash,
 
 MlsStatus mls_group_info_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input,
                                ConstSlice<u8> external_sender, MlsGroupInfo* info) noexcept {
-    if (!info || !input.data || !input.count || input.count > kMlsMaxGroupInfoBytes ||
+    if (!input.count || input.count > kMlsMaxGroupInfoBytes ||
         !external_sender.data)
         return MlsStatus::invalid_argument;
     reset_value(info);
@@ -194,7 +194,7 @@ MlsStatus mls_group_info_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input,
 MlsStatus mls_group_info_write(KdfSha256Workspace& kdf, const MlsGroupContext& context,
                                const MlsRatchetTree& tree, const u8* confirmation_tag, u32 signer,
                                const P256Key& signing, Slice<u8> output, u32* written) noexcept {
-    if (!written || !confirmation_tag || !output.data || !context.serialized.data || !tree.group_id ||
+    if (!confirmation_tag || !output.data || !context.serialized.data || !tree.group_id ||
         signer >= tree.leaf_count || tree.serialized.count > kMlsMaxRatchetTreeBytes)
         return MlsStatus::invalid_argument;
     *written = 0;

@@ -145,7 +145,7 @@ inline bool decodable_codec(const VideoStreamDecoders& decoders, VoiceVideoCodec
 bool push_frame(void* context, u32 ssrc, VoiceVideoCodec codec, ConstSlice<u8> frame, u32 rtp_timestamp,
                 bool keyframe, bool intact) noexcept {
     auto* decoders = static_cast<VideoStreamDecoders*>(context);
-    if (!decoders || !ssrc || !frame.data || !frame.count) return false;
+    if (!ssrc || !frame.count) return false;
     AcquireSRWLockShared(decoders->lock.native());
     auto* stream = find(decoders, ssrc);
     const bool current = stream && stream->codec == codec;
@@ -282,7 +282,7 @@ VideoFrameSink video_stream_decoders_sink(VideoStreamDecoders* decoders) noexcep
 }
 
 bool video_stream_decoders_frame(VideoStreamDecoders* decoders, u32 ssrc, VideoStreamFrame* output) noexcept {
-    if (!decoders || !ssrc || !output) return false;
+    if (!ssrc) return false;
     bool found = false;
     AcquireSRWLockShared(decoders->lock.native());
     const bool failed = undecodable(*decoders, ssrc);

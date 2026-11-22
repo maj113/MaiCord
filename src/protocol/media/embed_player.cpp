@@ -25,7 +25,7 @@ u64 decimal(const Utf8View& digits) noexcept {
     return value;
 }
 u32 id_target(const Utf8View& prefix, const Utf8View& id, const Slice<u8>& output) noexcept {
-    if (!output.data || output.count < prefix.bytes + id.bytes) return 0;
+    if (output.count < prefix.bytes + id.bytes) return 0;
     copy_bytes(output.data, prefix.data, prefix.bytes);
     copy_bytes(output.data + prefix.bytes, id.data, id.bytes);
     return prefix.bytes + id.bytes;
@@ -485,8 +485,7 @@ u32 twitch_clip_body(Utf8View id, Slice<u8> out) noexcept {
 EmbedPlayerError twitch_clip_streams(Utf8View json, Utf8View id, u16 height, u64 now,
     Slice<u32> scratch, EmbedStreams* out) noexcept {
     using E = EmbedPlayerError;
-    if (!out || !twitch_clip_id(id) || !height || height > 2048 || !now ||
-        !json.data || !json.bytes || json.bytes > 2u * 1024u * 1024u) return E::invalid_input;
+    if (!json.data || !json.bytes || json.bytes > 2u * 1024u * 1024u) return E::invalid_input;
     ClipSelection s{{}, {}, height};
     if (const auto indexed = index_json(json, scratch, &s.doc); indexed != E::none) return indexed;
     FieldSet<"data", "errors"> root;
@@ -539,9 +538,7 @@ u32 tiktok_player_target(Utf8View id, Slice<u8> output) noexcept {
 EmbedPlayerError tiktok_player_streams(Utf8View json, Utf8View id, u16 height, u64 now,
     Slice<u32> scratch, EmbedStreams* out) noexcept {
     using E = EmbedPlayerError;
-    u8 target[128];
-    if (!out || !height || height > 2048 || !now || !tiktok_player_target(id, {target, sizeof(target)}) ||
-        !json.data || !json.bytes || json.bytes > 2u * 1024u * 1024u) return E::invalid_input;
+    if (!json.data || !json.bytes || json.bytes > 2u * 1024u * 1024u) return E::invalid_input;
     TikTokSelection s{{}, id, now, height};
     if (const auto indexed = index_json(json, scratch, &s.doc); indexed != E::none) return indexed;
     FieldSet<"status_code", "items"> root;

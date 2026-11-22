@@ -38,7 +38,7 @@ struct CacheLeaseScope {
 };
 
 ConstSlice<u8> copy_result_etag(CdnMediaPipeline* pipeline, const ConstSlice<u8>& etag) noexcept {
-    if (!etag.data || etag.count == 0 || etag.count > sizeof(pipeline->result_etag)) {
+    if (etag.count == 0 || etag.count > sizeof(pipeline->result_etag)) {
         return {};
     }
     CopyMemory(pipeline->result_etag, etag.data, etag.count);
@@ -228,8 +228,6 @@ void reduce_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 e
     u8* alpha = base + output_bytes;
     u8* scratch = alpha + alpha_bytes;
     if (layout.alpha_chunk.data) {
-        if (!pipeline->webp_workspace)
-            return;
         const auto decoded = webp_alpha_decode(layout.alpha_chunk, layout.width, layout.height,
                                                pipeline->webp_workspace, {scratch, static_cast<u32>(pixels * 4u)},
                                                {alpha, static_cast<u32>(pixels)});
@@ -280,9 +278,7 @@ void decode_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, CdnSt
         return;
     }
     if (parsed_image.codec == WebpCodec::vp8l_lossless) {
-        if (!pipeline->webp_workspace) {
-            return set_state(out, CdnStaticWebpState::invalid);
-        }
+        // decode_webp_bytes runs only behind the static WebP gates, which ask for webp_workspace.
         cdn_media_pipeline_ensure_scanlines(pipeline, u64{parsed_image.width} * parsed_image.height * 4u);
         out->decode =
             webp_lossless_decode_rgba8(encoded, &out->image, pipeline->webp_workspace,
@@ -1386,7 +1382,7 @@ __declspec(noinline) EncodedAudioError parse_ogg_opus(EncodedAudioMetadata* meta
 }
 EncodedAudioError parse_audio(EncodedAudioMetadata* metadata, MediaAttachmentFormat format,
                               ConstSlice<u8> bytes, OggOpusCancelled cancelled, void* context) noexcept {
-    if (!bytes.data || !bytes.count)
+    if (!bytes.count)
         return EncodedAudioError::invalid_input;
     if (cancelled && cancelled(context))
         return EncodedAudioError::cancelled;
@@ -1441,7 +1437,7 @@ void cdn_media_pipeline_lookup_audio(CdnEncodedAudioResult* out, CdnMediaPipelin
                                      const MediaAssetKey& key, u64 now_seconds, OggOpusCancelled cancelled,
                                      void* context) noexcept {
     reset_value(out);
-    if (!pipeline->cache || !audio_key_valid(key)) {
+    if (!audio_key_valid(key)) {
         out->error = EncodedAudioError::invalid_input;
         return;
     }
@@ -1473,7 +1469,7 @@ void cdn_media_pipeline_admit_audio(CdnEncodedAudioResult* out, CdnMediaPipeline
                                     ConstSlice<u8> body, ConstSlice<u8> conditional_etag,
                                     OggOpusCancelled cancelled, void* context) noexcept {
     reset_value(out);
-    if (!pipeline->cache || !audio_key_valid(key)) {
+    if (!audio_key_valid(key)) {
         out->error = EncodedAudioError::invalid_input;
         return;
     }

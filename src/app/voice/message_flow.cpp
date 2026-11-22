@@ -5,7 +5,7 @@
 
 namespace maicord {
 void voice_message_waveform(ConstSlice<u8> levels, u8 (&waveform)[kVoiceMessageWaveformSamples]) noexcept {
-    const u32 frames = levels.data ? levels.count : 0;
+    const u32 frames = levels.count;
     for (u32 i = 0; i < kVoiceMessageWaveformSamples; ++i) {
         // Short recordings repeat frames; no frames leave an empty bucket (peak 0).
         const u32 first = static_cast<u32>(u64{i} * frames / kVoiceMessageWaveformSamples);

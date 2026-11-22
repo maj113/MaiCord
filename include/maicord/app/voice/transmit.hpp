@@ -14,7 +14,7 @@ inline constexpr u8 kVoiceSilenceFrame[3]{0xf8, 0xff, 0xfe};
 inline constexpr u32 kVoiceSilenceTailFrames = 5;
 inline constexpr u32 kVoiceActivityHangoverFrames = 15; // 300 ms.
 
-// Mean-square level of PCM16 on the 0..100 (-100..0 dBFS) scale.
+// Mean-square level of PCM16 on the 0..100 (-100..0 dBFS) scale. The callers give whole frames: pcm is not empty.
 u32 voice_level(ConstSlice<i16> pcm) noexcept;
 u32 voice_level_from_energy(u64 mean_square) noexcept;
 // Scales PCM16 in place by 0..200 % with saturation.
@@ -74,5 +74,6 @@ VoiceTransmitAction voice_transmit_next(VoiceTransmitter* transmitter, bool want
 // Abandons a spurt without a tail (transport gone).
 void voice_transmit_reset(VoiceTransmitter* transmitter) noexcept;
 
-u32 voice_rtp_header(Slice<u8> output, u16 sequence, u32 timestamp, u32 ssrc) noexcept;
+// Writes the kVoiceRtpHeaderBytes of an Opus RTP header.
+void voice_rtp_header(u8* output, u16 sequence, u32 timestamp, u32 ssrc) noexcept;
 } // namespace maicord

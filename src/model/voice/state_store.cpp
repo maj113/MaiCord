@@ -191,7 +191,7 @@ void sort_by_channel(VoiceState* data, VoiceState* scratch, u32 count) noexcept 
 } // namespace
 
 bool voice_state_store_initialize_owned(VoiceStateStore* store, u32 reserved_capacity) noexcept {
-    if (!store || store->count || store->owned.arena.base || !reserved_capacity ||
+    if (store->count || store->owned.arena.base || !reserved_capacity ||
         reserved_capacity > kVoiceStateCapacity)
         return false;
     reset_value(store);
@@ -202,14 +202,12 @@ bool voice_state_store_initialize_owned(VoiceStateStore* store, u32 reserved_cap
 }
 
 void voice_state_store_release(VoiceStateStore* store) noexcept {
-    if (!store)
-        return;
     stable_storage_release(&store->owned);
     reset_value(store);
 }
 
 bool voice_state_store_reset(VoiceStateStore* store) noexcept {
-    if (!store || !store_valid(*store))
+    if (!store_valid(*store))
         return false;
     const bool changed = store->count != 0;
     store->count = 0;
@@ -221,7 +219,7 @@ bool voice_state_store_reset(VoiceStateStore* store) noexcept {
 VoiceStateResult voice_state_store_apply(VoiceStateStore* store, u64 guild_id,
                                                         u64 channel_id, u64 user_id, u32 flags,
                                                         u32 request_to_speak_s) noexcept {
-    if (!store || !store_valid(*store) || !user_id)
+    if (!store_valid(*store) || !user_id)
         return VoiceStateResult::invalid_input;
     if (!(flags & voice_request_to_speak))
         request_to_speak_s = 0;
@@ -254,7 +252,7 @@ VoiceStateResult voice_state_store_apply(VoiceStateStore* store, u64 guild_id,
 }
 
 VoiceStateResult voice_state_store_apply_batch(VoiceStateStore* store, ConstSlice<u8> packed) noexcept {
-    if (!store || !store_valid(*store) || (!packed.data && packed.count) || packed.count % sizeof(VoiceState))
+    if (!store_valid(*store) || (!packed.data && packed.count) || packed.count % sizeof(VoiceState))
         return VoiceStateResult::invalid_input;
     const u32 rows = static_cast<u32>(packed.count / sizeof(VoiceState));
     const u32 revision = store->revision;
@@ -352,7 +350,7 @@ VoiceStateResult voice_state_store_apply_batch(VoiceStateStore* store, ConstSlic
 
 VoiceStateResult voice_state_store_clear_guild(VoiceStateStore* store,
                                                               u64 guild_id) noexcept {
-    if (!store || !store_valid(*store))
+    if (!store_valid(*store))
         return VoiceStateResult::invalid_input;
     if (!remove_guild(store, guild_id))
         return VoiceStateResult::unchanged;
@@ -378,7 +376,7 @@ ConstSlice<VoiceState> voice_state_store_channel(const VoiceStateStore& store, u
 
 bool voice_state_store_set_speaking(VoiceStateStore* store, u64 channel_id,
                                             ConstSlice<u64> users) noexcept {
-    if (!store || !store_valid(*store))
+    if (!store_valid(*store))
         return false;
     bool changed = false;
     const ChannelRun run = channel_id ? channel_run(*store, channel_id) : ChannelRun{store->count, 0};

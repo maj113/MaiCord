@@ -168,8 +168,7 @@ u32 embed_stream_get(CdnHost cdn, Utf8View url, u64 first, u32 bytes, Slice<u8> 
 EmbedPlayerError youtube_player_streams(Utf8View json, Utf8View id, u16 maximum_height,
     Slice<u32> scratch, EmbedStreams* output, EmbedOffer* offer, bool sound_only) noexcept {
     using E = EmbedPlayerError;
-    if (!output || !video_id(id) || !maximum_height || maximum_height > 2048 ||
-        !json.data || !json.bytes || json.bytes > 2u * 1024u * 1024u) return E::invalid_input;
+    if (!json.data || !json.bytes || json.bytes > 2u * 1024u * 1024u) return E::invalid_input;
     if (offer) offer->count = 0;
     Selection s{{}, {}, {}, {}, maximum_height, 0, offer};
     if (const auto indexed = index_json(json, scratch, &s.doc); indexed != E::none) return indexed;
@@ -269,7 +268,6 @@ bool amazon_music_redirect(Utf8View url,Utf8View id,EmbedStreamLocation* out) no
 }
 EmbedPlayerError amazon_music_preview_stream(Utf8View url,u64 now,EmbedStreams* out) noexcept {
     using E=EmbedPlayerError;
-    if(!out || !now) return E::invalid_input;
     if(!embed_stream_location(CdnHost::amazon_music_preview,url)) return E::malformed;
     const auto expires=stream_expiry(url, "Expires=");
     if(expires<=now) return E::unavailable;
@@ -320,8 +318,7 @@ u32 twitter_video_target(Utf8View id,Slice<u8> output) noexcept {
 EmbedPlayerError twitter_video_streams(Utf8View json,Utf8View id,u16 height,u8 media_index,
     Slice<u32> scratch,EmbedStreams* output) noexcept {
     using E=EmbedPlayerError;
-    if(!output || !twitter_post_id(id) || !height || height>2048 || media_index>4 ||
-        !json.data || !json.bytes || json.bytes>kTwitterMetadataMaximumBytes) return E::invalid_input;
+    if(!json.data || !json.bytes || json.bytes>kTwitterMetadataMaximumBytes) return E::invalid_input;
     JsonIndexedDocument doc;
     if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
     FieldSet<"__typename", "id_str", "mediaDetails"> root;
@@ -420,8 +417,7 @@ bool vimeo_location(Utf8View url, bool playlist, EmbedStreamLocation* out) noexc
 }
 EmbedPlayerError vimeo_video_manifest(Utf8View html, Utf8View id, Slice<u32> scratch, EmbedStream* output, Utf8View privacy_hash) noexcept {
     using E = EmbedPlayerError;
-    if (!output || !steam_id(id) || !html.data || !html.bytes || html.bytes > 128 * 1024 ||
-        (privacy_hash.bytes && !vimeo_privacy_hash(privacy_hash))) return E::invalid_input;
+    if (!html.data || !html.bytes || html.bytes > 128 * 1024) return E::invalid_input;
     Utf8View json{};
     const auto extracted = embedded_json(html, utf8_literal("window.playerConfig"), &json);
     if (extracted != E::none) return extracted;
@@ -457,7 +453,7 @@ EmbedPlayerError vimeo_video_manifest(Utf8View html, Utf8View id, Slice<u32> scr
 }
 EmbedPlayerError pornhub_embed_metadata(Utf8View html, Utf8View id, Slice<u32> scratch, EmbedStream* output) noexcept {
     using E = EmbedPlayerError;
-    if (!output || !pornhub_video_id(id) || !html.data || !html.bytes || html.bytes > kPornhubMetadataMaximumBytes) return E::invalid_input;
+    if (!html.data || !html.bytes || html.bytes > kPornhubMetadataMaximumBytes) return E::invalid_input;
     Utf8View json{};
     const auto extracted = embedded_json(html, utf8_literal("flashvars"), &json);
     if (extracted != E::none) return extracted;
@@ -498,7 +494,7 @@ EmbedPlayerError pornhub_embed_metadata(Utf8View html, Utf8View id, Slice<u32> s
 }
 EmbedPlayerError pornhub_video_streams(Utf8View json, u16 height, u64 now, Slice<u32> scratch, EmbedStreams* output) noexcept {
     using E = EmbedPlayerError;
-    if (!output || !json.data || !json.bytes || json.bytes > kPornhubMetadataMaximumBytes || !height || height > 2048 || !now) return E::invalid_input;
+    if (!json.data || !json.bytes || json.bytes > kPornhubMetadataMaximumBytes) return E::invalid_input;
     JsonIndexedDocument doc;
     if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
     struct Selection { JsonIndexedDocument doc; EmbedStreams streams{}; u64 now; u16 height; } selected{doc, {}, now, height};
@@ -534,7 +530,7 @@ bool imgur_video_id(const Utf8View& id) noexcept {
     return (id.bytes == 5 || id.bytes == 7) && id_chars(id);
 }
 EmbedPlayerError imgur_video_streams(Utf8View id,EmbedStreams* output) noexcept {
-    if(!output || !imgur_video_id(id)) return EmbedPlayerError::invalid_input;
+    if(!imgur_video_id(id)) return EmbedPlayerError::invalid_input;
     constexpr auto prefix=utf8_literal("https://i.imgur.com/");
     EmbedStreams value{};
     copy_bytes(value.video.url,prefix.data,prefix.bytes);
@@ -553,8 +549,7 @@ u32 streamable_video_target(Utf8View id, Slice<u8> output) noexcept {
 EmbedPlayerError streamable_video_streams(Utf8View json, Utf8View id, u16 height, u64 now,
     Slice<u32> scratch, EmbedStreams* output) noexcept {
     using E = EmbedPlayerError;
-    if (!output || !streamable_video_id(id) || !height || height > 2048 || !now ||
-        !json.data || !json.bytes || json.bytes > kStreamableMetadataMaximumBytes) return E::invalid_input;
+    if (!json.data || !json.bytes || json.bytes > kStreamableMetadataMaximumBytes) return E::invalid_input;
     JsonIndexedDocument doc;
     if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
     FieldSet<"status", "url", "files"> root;

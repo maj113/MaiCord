@@ -10,6 +10,6 @@ inline constexpr i32 kVoiceSoftClipKnee = 24576;
 void voice_mixer_accumulate(Slice<i32> mix, ConstSlice<i16> pcm, u32 gain_percent) noexcept;
 i16 voice_mixer_soft_clip(i32 sample) noexcept;
 void voice_mixer_finish(ConstSlice<i32> mix, Slice<i16> output) noexcept;
-// Mean absolute amplitude, for speaking detection.
+// Mean absolute amplitude of a non-empty buffer, for speaking detection.
 u32 voice_pcm_level(ConstSlice<i16> pcm) noexcept;
 } // namespace maicord

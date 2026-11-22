@@ -1,5 +1,4 @@
 #include "maicord/app/voice/udp_media.hpp"
-#include "maicord/core/byte_range.hpp"
 
 #include "maicord/core/memory.hpp"
 #include "maicord/app/voice/packet_crypto.hpp"
@@ -45,15 +44,6 @@ bool read(VoiceUdpMedia* media, u32 slot) noexcept {
         fail(media, VoiceUdpMediaError::receive, static_cast<u32>(result.native_error));
     return result.ok();
 }
-bool safe_buffer(ConstSlice<u8> buffer, const VoiceUdpMedia& media, const VoiceUdpDiscovery& discovery,
-                 const VoicePacketCrypto& crypto) noexcept {
-    return buffer.count >= 28 && byte_range_valid(buffer) &&
-           !byte_ranges_overlap(buffer, {reinterpret_cast<const u8*>(&media), sizeof(media)}) &&
-           !byte_ranges_overlap(buffer, {reinterpret_cast<const u8*>(&discovery), sizeof(discovery)}) &&
-           !byte_ranges_overlap(buffer, {reinterpret_cast<const u8*>(&crypto), sizeof(crypto)}) &&
-           !byte_ranges_overlap(buffer, {crypto.aes.storage.data, crypto.aes.storage.capacity}) &&
-           !byte_ranges_overlap(buffer, {crypto.xchacha.storage.data, crypto.xchacha.storage.capacity});
-}
 } // namespace
 bool voice_udp_media_drained(const VoiceUdpMedia& media) noexcept {
     return !media.discovery;
@@ -61,14 +51,9 @@ bool voice_udp_media_drained(const VoiceUdpMedia& media) noexcept {
 bool voice_udp_media_begin(VoiceUdpMedia* media, VoiceUdpDiscovery* discovery, VoicePacketCrypto* crypto,
                            u64 generation, Slice<u8> receive_buffer, Slice<u8> send_buffer,
                            VoiceUdpMediaReceive receive, void* context, u32 receive_slots) noexcept {
-    if (!media || !voice_udp_media_drained(*media) || !discovery || !crypto || !receive || !generation ||
-        crypto->generation != generation || discovery->phase != VoiceUdpPhase::ready ||
-        !discovery->socket.open || !network_datagram_idle(discovery->socket) || !receive_slots ||
-        receive_slots > kVoiceUdpMediaReceiveSlots || receive_buffer.count / receive_slots < 28 ||
-        !safe_buffer({receive_buffer.data, receive_buffer.count}, *media, *discovery, *crypto) ||
-        !safe_buffer({send_buffer.data, send_buffer.count}, *media, *discovery, *crypto) ||
-        byte_ranges_overlap({receive_buffer.data, receive_buffer.count},
-                            {send_buffer.data, send_buffer.count}))
+    if (!voice_udp_media_drained(*media) || !generation || crypto->generation != generation ||
+        discovery->phase != VoiceUdpPhase::ready || !discovery->socket.open ||
+        !network_datagram_idle(discovery->socket))
         return false;
     reset_value(media);
     media->discovery = discovery;
@@ -116,14 +101,14 @@ VoiceUdpMediaSend voice_udp_media_send(VoiceUdpMedia* media, u64 generation,
     return VoiceUdpMediaSend::accepted;
 }
 void voice_udp_media_stop(VoiceUdpMedia* media) noexcept {
-    if (!media || !media->discovery)
+    if (!media->discovery)
         return;
     media->stopping = true;
     voice_udp_close(media->discovery);
     finish(media);
 }
 void voice_udp_media_completion(VoiceUdpMedia* media, const NetworkCompletion& completion) noexcept {
-    if (!media || !media->discovery || completion.datagram != &media->discovery->socket ||
+    if (!media->discovery || completion.datagram != &media->discovery->socket ||
         (completion.kind != NetworkOperationKind::datagram_send &&
          completion.kind != NetworkOperationKind::datagram_receive))
         return;

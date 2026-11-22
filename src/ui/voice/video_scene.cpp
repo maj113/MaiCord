@@ -215,8 +215,6 @@ u64 text_revision(const UiVideoScene& scene, const Theme& theme) noexcept {
 bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& playback, UiRect preview,
                             UiRect clip, const UiVideoControlsStyle& controls,
                             const UiVideoSceneStyle& style, const Theme& theme) noexcept {
-    if (!scene)
-        return false;
     UiVideoControlsProjection projected_controls;
     const float width = ui_rect_width(preview) - 2 * style.inset;
     const float height = ui_video_controls_height(controls, width, playback.collection_count != 0);
@@ -402,8 +400,6 @@ bool ui_video_scene_project_play_only(UiVideoScene* scene, const UiVideoPlayback
                                       const UiVideoSceneStyle& style,
                                       const UiVideoPlayAffordanceStyle& affordance,
                                       const Theme& theme) noexcept {
-    if (!scene)
-        return false;
     const UiRect button = ui_video_play_affordance_rectangle(preview, affordance),
                  visible = ui_rect_overlap(preview, clip);
     UiVideoControlsProjection validated;
@@ -477,8 +473,6 @@ UiVideoControl ui_video_scene_hit(const UiVideoScene& scene, UiPoint point) noex
     return ui_video_controls_hit(scene.projection, point);
 }
 bool ui_video_scene_hover(UiVideoScene* scene, UiPoint point) noexcept {
-    if (!scene)
-        return false;
     const bool previous_preview = scene->preview_hovered;
     const auto previous_control = scene->hover;
     scene->preview_hovered = scene->active && contains(ui_rect_overlap(scene->preview, scene->clip), point);
@@ -490,7 +484,7 @@ bool ui_video_scene_hover(UiVideoScene* scene, UiPoint point) noexcept {
     return previous_preview != scene->preview_hovered || previous_control != scene->hover;
 }
 void ui_video_scene_titles(UiVideoScene* scene, Utf8View current, u16 track, Utf8View hovered) noexcept {
-    if (!scene || !scene->active) return;
+    if (!scene->active) return;
     scene->track_title_bytes = static_cast<u16>(utf8_copy_truncated(scene->track_title, sizeof(scene->track_title), current));
     if (track && track == scene->hover_track && hovered.bytes) {
         scene->hover_time_bytes = track_label(scene->hover_time, track);
@@ -499,8 +493,6 @@ void ui_video_scene_titles(UiVideoScene* scene, Utf8View current, u16 track, Utf
     }
 }
 bool ui_video_scene_focus(UiVideoScene* scene, UiVideoControl id, bool keyboard) noexcept {
-    if (!scene)
-        return false;
     const auto* control = descriptor(*scene, id);
     const bool keyboard_volume = keyboard && id == UiVideoControl::volume && control && control->enabled &&
                                  rectangle(ui_rect_overlap(control->bounds, scene->clip));
@@ -525,8 +517,6 @@ void ui_video_scene_blur(UiVideoScene* scene) noexcept {
 UiVideoSceneResult ui_video_scene_pointer(UiVideoScene* scene, UiVideoPointerEvent event,
                                           UiPoint point) noexcept {
     UiVideoSceneResult result{};
-    if (!scene)
-        return result;
     if (event == UiVideoPointerEvent::leave) {
         scene->preview_hovered = false;
         scene->hover = UiVideoControl::none;
@@ -594,7 +584,7 @@ UiVideoSceneResult ui_video_scene_pointer(UiVideoScene* scene, UiVideoPointerEve
 UiVideoSceneResult ui_video_scene_player_key(UiVideoScene* scene, UiVideoPlayerKey key, u32 percent,
                                              u64 now_ms) noexcept {
     UiVideoSceneResult result{};
-    if (!scene || !scene->active)
+    if (!scene->active)
         return result;
     ui_video_scene_activity(scene, now_ms);
     result.action_requested = ui_video_controls_player_key(scene->projection, key, percent, &result.action);
@@ -606,7 +596,7 @@ UiVideoSceneResult ui_video_scene_player_key(UiVideoScene* scene, UiVideoPlayerK
 UiVideoSceneResult ui_video_scene_key(UiVideoScene* scene, UiVideoKey key) noexcept {
 
     UiVideoSceneResult result{};
-    if (!scene || !scene->active)
+    if (!scene->active)
         return result;
     // Descriptor navigation is filtered through the scene's visible clip.
     auto projection = scene->projection;
@@ -708,7 +698,7 @@ u64 ui_video_scene_next_wake(const UiVideoScene& scene, u64 now_ms, bool reduced
     return earliest_deadline(earliest_deadline(wake, spinner), transition);
 }
 bool ui_video_scene_activity(UiVideoScene* scene, u64 now_ms) noexcept {
-    if (!scene || !scene->active || !now_ms)
+    if (!scene->active || !now_ms)
         return false;
     const bool was_idle = scene->idle;
     scene->activity_ms = now_ms;
@@ -717,7 +707,7 @@ bool ui_video_scene_activity(UiVideoScene* scene, u64 now_ms) noexcept {
     return was_idle;
 }
 bool ui_video_scene_tick(UiVideoScene* scene, u64 now_ms, bool reduced_motion) noexcept {
-    if (!scene || !scene->active)
+    if (!scene->active)
         return false;
     if (scene->hover_track && !scene->track_hover_since_ms) scene->track_hover_since_ms = now_ms ? now_ms : 1;
     if (!scene->activity_ms)

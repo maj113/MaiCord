@@ -217,6 +217,5 @@ void test_dave_welcome(Check check) noexcept {
     p256_release(&init);
     SecureZeroMemory(buffers, 131072);
     VirtualFree(buffers, 0, MEM_RELEASE);
-    dave_welcome_release(nullptr);
 }
 } // namespace maicord

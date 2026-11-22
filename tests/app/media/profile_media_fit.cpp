@@ -91,8 +91,7 @@ bool fit_whole(const u8* source, const MediaFit& fit, u8* output, u8* scratch, u
                          {scratch, scratch_bytes}))
         return false;
     for (u32 y = 0; y < fit.source_height; ++y)
-        if (!media_fit_push_row(&sink, source + static_cast<usize>(y) * fit.source_width * 4u))
-            return false;
+        media_fit_push_row(&sink, source + static_cast<usize>(y) * fit.source_width * 4u);
     return sink.cell_row == fit.height;
 }
 

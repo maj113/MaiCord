@@ -74,7 +74,7 @@ AccountMediaRequestResult result(AccountMediaRequestState state,
 
 bool png_animation_body(const ConstSlice<u8>& body) noexcept {
     static constexpr u8 signature[] = {137, 80, 78, 71, 13, 10, 26, 10};
-    if (!body.data || body.count < sizeof(signature) || !bytes_equal(body.data, signature, sizeof(signature)))
+    if (body.count < sizeof(signature) || !bytes_equal(body.data, signature, sizeof(signature)))
         return false;
     for (u32 cursor = sizeof(signature); body.count - cursor >= 12;) {
         const u32 length = byte_load_be32(body.data + cursor);
@@ -240,7 +240,9 @@ bool fit_frame(AccountMedia* media, const MediaFit& fit, MediaFitRegion source, 
                               {block + output_space, static_cast<u32>(scratch)});
     for (u32 y = 0; ok && y < source.height; ++y) {
         const u8* row = rows.row(y, block + output_space + scratch);
-        ok = row && media_fit_push_row(&sink, row);
+        ok = row != nullptr;
+        if (ok)
+            media_fit_push_row(&sink, row);
     }
     auto& pipeline = media->pipeline;
     ok = ok && cdn_media_pipeline_ensure_scanlines(&pipeline, output);

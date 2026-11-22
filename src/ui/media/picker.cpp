@@ -12,24 +12,20 @@ using namespace ui_media_picker_detail;
 bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPickerSource* source,
                                   const UiMediaPickerContent* content, UiRect viewport, UiRect anchor,
                                   float preferred_width) noexcept {
-    if (!finite_rectangle(viewport) || !finite_rectangle(anchor) ||
-        !bounded(preferred_width, 0, kMaximumUiCoordinate))
-        return false;
     // Keep basic descriptor admission unconditional even when the publication
-    // revision permits reuse of already validated section metadata.
-    if (source && (!source->resolve || source->count > kUiMediaPickerMaximumItems ||
-                   source->sections.count > kUiMediaPickerMaximumSections ||
-                   (source->sections.count && !source->sections.data)))
+    // revision permits reuse of already validated section metadata. The one
+    // caller (application_media_picker_synchronize) passes its own content and
+    // source, both stamped with the same account scope and query generation,
+    // and at most kUiMediaPickerMaximumSections sections in its section array.
+    if (source && (!source->resolve || source->count > kUiMediaPickerMaximumItems))
         return false;
     // The publication revision owns section metadata and its borrowed labels.
     // Avoid repeating quadratic uniqueness admission during unchanged scroll frames.
     const bool admitted_source = source && scene->active && scene->source == source &&
                                  scene->source_revision == source->revision &&
                                  scene->account_scope == source->account_scope &&
-                                 scene->query_generation == source->query_generation && content &&
-                                 content->account_scope == source->account_scope &&
-                                 content->query_generation == source->query_generation;
-    if (!content || !content->account_scope || !content->query_generation ||
+                                 scene->query_generation == source->query_generation;
+    if (!content->account_scope || !content->query_generation ||
         content->kind > UiMediaPickerKind::emoji || content->phase > UiMediaPickerPhase::failed ||
         !(content->available_tabs & ui_media_picker_tab_bit(content->kind)) ||
         (content->available_tabs & ~7u) || content->variant > UiMediaPickerVariant::inline_results ||
@@ -44,7 +40,7 @@ bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPicker
         (content->variant != UiMediaPickerVariant::inline_results && !content->edit.active) ||
         !label_valid(content->placeholder) ||
         !label_valid(content->status) || !ui_rect_valid(viewport) || !ui_rect_valid(anchor) ||
-        (!admitted_source && !source_valid(source, *content)))
+        (!admitted_source && !source_valid(source)))
         return false;
     const bool inline_variant = content->variant == UiMediaPickerVariant::inline_results;
     const auto& theme_metrics = ui_theme_metrics(scene->theme_styles);
@@ -127,14 +123,10 @@ bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPicker
     return true;
 }
 void ui_media_picker_scene_cancel_capture(UiMediaPickerScene* scene) noexcept {
-    if (!scene)
-        return;
     reset_value(&scene->pressed);
     ui_widget_manager_capture(&scene->widgets, ui_widget_invalid_handle());
 }
 void ui_media_picker_scene_close(UiMediaPickerScene* scene) noexcept {
-    if (!scene)
-        return;
     ui_media_picker_scene_cancel_capture(scene);
     scene->page_duration_ms = 0;
     ui_widget_manager_reset(&scene->widgets);
@@ -177,7 +169,7 @@ UiMediaPickerTarget ui_media_picker_scene_hit_test(const UiMediaPickerScene& sce
     return hit;
 }
 bool ui_media_picker_scene_hover(UiMediaPickerScene* scene, float x, float y, u64 now_ms) noexcept {
-    if (!scene || !ui_media_picker_scene_current(*scene))
+    if (!ui_media_picker_scene_current(*scene))
         return false;
     const auto widget = ui_widget_manager_hit_test(scene->widgets, x, y);
     const bool widget_changed = !ui_widget_handle_equal(scene->widgets.hovered, widget);
@@ -202,7 +194,7 @@ bool ui_media_picker_scene_hover(UiMediaPickerScene* scene, float x, float y, u6
     return true;
 }
 bool ui_media_picker_scene_pointer_down(UiMediaPickerScene* scene, float x, float y) noexcept {
-    if (!scene || !ui_media_picker_scene_current(*scene))
+    if (!ui_media_picker_scene_current(*scene))
         return false;
     const auto widget = ui_widget_manager_hit_test(scene->widgets, x, y);
     scene->pressed = ui_media_picker_scene_hit_test(*scene, x, y);
@@ -217,9 +209,8 @@ UiMediaPickerTarget ui_media_picker_scene_pointer_up(UiMediaPickerScene* scene, 
     return valid ? hit : UiMediaPickerTarget{};
 }
 bool ui_media_picker_scene_scroll(UiMediaPickerScene* scene, float delta, bool rail) noexcept {
-    if (scene)
-        scene->page_duration_ms = 0;
-    if (!scene || !ui_media_picker_scene_current(*scene) ||
+    scene->page_duration_ms = 0;
+    if (!ui_media_picker_scene_current(*scene) ||
         scene->content->phase != UiMediaPickerPhase::ready ||
         !bounded(delta, -kMaximumPaintCoordinate, kMaximumPaintCoordinate))
         return false;
@@ -241,7 +232,7 @@ bool ui_media_picker_scene_scroll(UiMediaPickerScene* scene, float delta, bool r
     return false;
 }
 bool ui_media_picker_scene_scroll_section(UiMediaPickerScene* scene, u64 id) noexcept {
-    if (!scene || !ui_media_picker_scene_current(*scene) || !scene->source ||
+    if (!ui_media_picker_scene_current(*scene) || !scene->source ||
         scene->content->phase != UiMediaPickerPhase::ready)
         return false;
     float offset = content_top(*scene);
@@ -256,7 +247,7 @@ bool ui_media_picker_scene_scroll_section(UiMediaPickerScene* scene, u64 id) noe
     return false;
 }
 bool ui_media_picker_scene_select(UiMediaPickerScene* scene, u32 index) noexcept {
-    if (!scene || !ui_media_picker_scene_current(*scene))
+    if (!ui_media_picker_scene_current(*scene))
         return false;
     float top = 0, height = 0;
     UiMediaPickerItem item{};
@@ -267,7 +258,7 @@ bool ui_media_picker_scene_select(UiMediaPickerScene* scene, u32 index) noexcept
 }
 bool ui_media_picker_scene_move_selection(UiMediaPickerScene* scene, i32 horizontal,
                                           i32 vertical) noexcept {
-    if (!scene || !ui_media_picker_scene_current(*scene) || !scene->source || !scene->source->count ||
+    if (!ui_media_picker_scene_current(*scene) || !scene->source || !scene->source->count ||
         scene->content->phase != UiMediaPickerPhase::ready || horizontal < -1 || horizontal > 1 ||
         vertical < -1 || vertical > 1 || (!horizontal && !vertical) || (horizontal && vertical))
         return false;
@@ -286,7 +277,7 @@ bool ui_media_picker_scene_move_selection(UiMediaPickerScene* scene, i32 horizon
     return select_available(*scene, index, index > selected ? 1 : -1);
 }
 bool ui_media_picker_scene_page_selection(UiMediaPickerScene* scene, bool reverse) noexcept {
-    if (!scene || !ui_media_picker_scene_current(*scene) || !scene->source || !scene->source->count ||
+    if (!ui_media_picker_scene_current(*scene) || !scene->source || !scene->source->count ||
         scene->content->phase != UiMediaPickerPhase::ready)
         return false;
     const u32 selected = scene->selected_index;
@@ -302,11 +293,11 @@ bool ui_media_picker_scene_page_selection(UiMediaPickerScene* scene, bool revers
     return index != selected && select_available(*scene, index, index > selected ? 1 : -1);
 }
 bool ui_media_picker_scene_edge_selection(UiMediaPickerScene* scene, bool last) noexcept {
-    return scene && ui_media_picker_scene_current(*scene) && scene->source && scene->source->count &&
+    return ui_media_picker_scene_current(*scene) && scene->source && scene->source->count &&
            select_available(*scene, last ? scene->source->count - 1 : 0, last ? -1 : 1);
 }
 bool ui_media_picker_scene_row_edge_selection(UiMediaPickerScene* scene, bool last) noexcept {
-    if (!scene || !ui_media_picker_scene_current(*scene) || !scene->source || !scene->source->count)
+    if (!ui_media_picker_scene_current(*scene) || !scene->source || !scene->source->count)
         return false;
     GridPosition at{};
     if (scene->masonry || scene->selected_index >= scene->source->count ||
@@ -319,9 +310,8 @@ bool ui_media_picker_scene_row_edge_selection(UiMediaPickerScene* scene, bool la
     return index != scene->selected_index && select_available(*scene, index, last ? -1 : 1);
 }
 bool ui_media_picker_scene_step_selection(UiMediaPickerScene* scene, i32 direction) noexcept {
-    if (scene)
-        scene->page_duration_ms = 0;
-    if (!scene || !ui_media_picker_scene_current(*scene) || !inline_results(*scene) || !scene->source ||
+    scene->page_duration_ms = 0;
+    if (!ui_media_picker_scene_current(*scene) || !inline_results(*scene) || !scene->source ||
         scene->content->phase != UiMediaPickerPhase::ready || (direction != 1 && direction != -1))
         return false;
     const u32 count = scene->kind == UiMediaPickerKind::sticker
@@ -337,7 +327,7 @@ bool ui_media_picker_scene_step_selection(UiMediaPickerScene* scene, i32 directi
     return item_position(*scene, index, &top, &height) && select_index(*scene, index, top, height);
 }
 bool ui_media_picker_scene_clear_selection(UiMediaPickerScene* scene) noexcept {
-    if (!scene || !ui_media_picker_scene_current(*scene) || scene->selected_index == ~u32{0})
+    if (!ui_media_picker_scene_current(*scene) || scene->selected_index == ~u32{0})
         return false;
     scene->selected_index = ~u32{0};
     ui_widget_manager_focus(&scene->widgets, ui_widget_invalid_handle());
@@ -358,7 +348,7 @@ float page_eased(float progress) noexcept {
 } // namespace
 bool ui_media_picker_scene_page(UiMediaPickerScene* scene, bool forward, u64 now_ms, float pixels_per_dip,
                                 bool reduced_motion) noexcept {
-    if (!scene || !ui_media_picker_scene_current(*scene) || !inline_results(*scene) ||
+    if (!ui_media_picker_scene_current(*scene) || !inline_results(*scene) ||
         scene->kind != UiMediaPickerKind::gif || scene->content->phase != UiMediaPickerPhase::ready ||
         !bounded(pixels_per_dip, .25f, 8.f))
         return false;
@@ -382,7 +372,7 @@ bool ui_media_picker_scene_page(UiMediaPickerScene* scene, bool forward, u64 now
     return true;
 }
 bool ui_media_picker_scene_page_tick(UiMediaPickerScene* scene, u64 now_ms) noexcept {
-    if (!scene || !scene->page_duration_ms)
+    if (!scene->page_duration_ms)
         return false;
     const u32 duration = scene->page_duration_ms;
     if (!ui_media_picker_scene_current(*scene) || scene->source_revision != scene->page_source_revision) {
@@ -414,7 +404,7 @@ bool ui_media_picker_scene_spinner_visible(const UiMediaPickerScene& scene) noex
 }
 bool ui_media_picker_scene_favorite(const UiMediaPickerScene& scene, u32 index, UiRect* rectangle,
                                     UiRect* full_rectangle) noexcept {
-    if (!rectangle || !ui_media_picker_scene_current(scene) || index >= scene.cell_count)
+    if (!ui_media_picker_scene_current(scene) || index >= scene.cell_count)
         return false;
     const auto& cell = scene.projection->cells[index];
     if (!cell.item.enabled || !cell.item.favoritable || cell.item.kind != UiMediaPickerItemKind::gif ||
@@ -462,7 +452,7 @@ ConstSlice<UiMediaPickerCell> ui_media_picker_scene_cells(const UiMediaPickerSce
 }
 bool ui_media_picker_scene_rail_media(const UiMediaPickerScene& scene, u32 index,
                                       UiMediaPickerRailMediaSlot* output) noexcept {
-    if (!output || !ui_media_picker_scene_current(scene) || index >= scene.rail_count)
+    if (!ui_media_picker_scene_current(scene) || index >= scene.rail_count)
         return false;
     const auto& slot = scene.projection->rail[index];
     const auto& section = scene.source->sections[slot.section_index];
@@ -523,7 +513,7 @@ bool media_slot(const UiMediaPickerScene& scene, const UiMediaPickerCell& cell, 
 } // namespace
 bool ui_media_picker_scene_media(const UiMediaPickerScene& scene, u32 index,
                                  UiMediaPickerMediaSlot* output) noexcept {
-    if (!output || !ui_media_picker_scene_current(scene) || index >= scene.cell_count)
+    if (!ui_media_picker_scene_current(scene) || index >= scene.cell_count)
         return false;
     const auto& cell = scene.projection->cells[index];
     UiRect rectangle = cell.rectangle;
@@ -557,7 +547,7 @@ const UiMediaPickerCell* ui_media_picker_scene_inspected(const UiMediaPickerScen
     return selected ? selected : first;
 }
 bool ui_media_picker_scene_footer_media(const UiMediaPickerScene& scene, UiMediaPickerMediaSlot* output) noexcept {
-    const auto* cell = output ? ui_media_picker_scene_inspected(scene) : nullptr;
+    const auto* cell = ui_media_picker_scene_inspected(scene);
     if (!cell)
         return false;
     const auto& m = scene.style.metrics;

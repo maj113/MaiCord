@@ -96,10 +96,6 @@ void boundaries(Check check) noexcept {
     check(dave_replay_can_accept(replay, 900000) &&
               dave_replay_can_accept(replay, 5001),
           "DAVE preflight cannot advance state before successful authentication");
-    DaveReplay before = replay;
-    check(!dave_replay_commit(&replay, kDaveMaximumFrameCounter + 1) &&
-              bytes_equal(&before, &replay, sizeof(replay)),
-          "DAVE impossible counter rejection leaves all replay state unchanged");
     check(dave_replay_commit(&replay, kDaveMaximumFrameCounter) &&
               !dave_replay_can_accept(replay, kDaveMaximumFrameCounter) &&
               dave_replay_can_accept(replay, kDaveMaximumFrameCounter - 1000) &&

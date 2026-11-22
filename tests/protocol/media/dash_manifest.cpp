@@ -55,9 +55,6 @@ void run() noexcept {
     check(!dash_segment_path(m.video, 15, false, {output, sizeof(output)}) &&
           !dash_segment_path(m.video, 0, false, {output, 1}) && output[0] == 42,
           "DASH path boundaries and insufficient capacity preserve caller output");
-    auto aliased = m.video;
-    check(!dash_segment_path(aliased, 0, false, {reinterpret_cast<u8*>(&aliased), sizeof(aliased)}) &&
-          bytes_equal(&aliased, &m.video, sizeof(aliased)), "DASH path output cannot overwrite its own borrowed metadata");
     check(dash_manifest_parse(fixture, 1080, &m) == E::none && m.video.height == 1080 &&
           dash_manifest_parse(fixture, 144, &m) == E::none && m.video.height == 480,
           "DASH selects the requested rendition or the smallest available larger rendition");
@@ -112,10 +109,6 @@ void run() noexcept {
     const auto valid = replace(utf8_literal("PT42.9S"), utf8_literal("PT1M0.000001S"));
     check(dash_manifest_parse(valid, 720, &m) == E::none && m.duration_us == 60000001 && m.video.segment_count == 21,
           "DASH fractional duration uses integer microseconds and rounds only segment coverage upward");
-    copy_bytes(changed, fixture.data, fixture.bytes);
-    check(dash_manifest_parse({reinterpret_cast<const char*>(changed), fixture.bytes}, 720,
-          reinterpret_cast<DashManifest*>(changed)) == E::invalid_input && bytes_equal(changed, fixture.data, fixture.bytes),
-          "DASH selection output cannot overwrite the document that owns its views");
 }
 } // namespace
 } // namespace maicord

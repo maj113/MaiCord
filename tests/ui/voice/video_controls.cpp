@@ -36,7 +36,7 @@ void test_collection_controls(void (*check)(bool, const char*) noexcept) noexcep
 }
 bool time_is(const UiVideoPlaybackState& state, Utf8View expected) noexcept {
     char text[64]{};
-    const u32 bytes = ui_video_format_time(state, text, sizeof(text));
+    const u32 bytes = ui_video_format_time(state, text);
     return utf8_equal({text, bytes}, expected);
 }
 void test_video_player_keys(void (*check)(bool,const char*) noexcept) noexcept {

@@ -175,10 +175,9 @@ void cancel(ApplicationMediaPicker& p) noexcept;
 bool repaint(bool defer_text = false) noexcept;
 // A saved favourite is built whole in *temporary (favorite_item) and returned from there, so callers leave
 // *temporary unset.
-const MediaCatalogItem* item_at(const ApplicationMediaPicker& p, u32 index,
-                                const CatalogBank** bank = nullptr, u32* local = nullptr,
-                                MediaCatalogItem* temporary = nullptr) noexcept;
-bool sticker_previews(CatalogBank* bank, char* urls, u32 capacity) noexcept;
+const MediaCatalogItem* item_at(const ApplicationMediaPicker& p, u32 index, const CatalogBank** bank, u32* local,
+                                MediaCatalogItem* temporary) noexcept;
+void sticker_previews(CatalogBank* bank, char* urls) noexcept;
 bool build_server_stickers(ApplicationMediaPicker& p) noexcept;
 Utf8View sticker_source(const ApplicationMediaPicker& p, const MediaCatalogItem& item) noexcept;
 bool inline_stickers(ApplicationMediaPicker& p, u32 count, Utf8View query) noexcept;

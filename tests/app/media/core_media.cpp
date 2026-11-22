@@ -1926,25 +1926,9 @@ void test_account_media_cached_frame() noexcept {
                media_asset_key_equal(emoji_frame.key, emoji_key) && !media.client_started,
            "account_media_lazy_vp8l_cache_hit_frame");
 
-    constexpr Utf8View guild_icon_hash = utf8_literal("0123456789abcdef0123456789abcdef");
-    const MediaAssetKey guild_icon_key =
-        media_asset_guild_icon(8'009, cdn_guild_icon_variant(guild_icon_hash), false);
-    const EncodedMediaCacheStoreResult guild_icon_stored = encoded_media_cache_store(
-        &media.cache, guild_icon_key, ConstSlice<u8>{kWebpGradient, sizeof(kWebpGradient)},
-        EncodedMediaCachePolicy{byte_literal("\"account-guild-webp\""), 2'000, true, false});
-    const AccountMediaGuildIconRequest guild_icon_request{guild_icon_hash, guild_icon_key, {0, 0}};
-    const AccountMediaRequestResult guild_icon_requested =
-        account_media_request_guild_icon(&media, guild_icon_request, 1'002, 1'102);
-    AccountMediaFrame guild_icon_frame{};
-    const bool guild_icon_taken = account_media_take_frame(&media, &guild_icon_frame);
-    expect(guild_icon_stored.stored(), "account_media_guild_icon_cache_store");
-    expect(guild_icon_requested.ok() && guild_icon_requested.state == AccountMediaRequestState::ready,
-           "account_media_guild_icon_cache_request");
-    expect(guild_icon_taken && guild_icon_frame.kind == AccountMediaFrameKind::straight_rgba8 &&
-               media_asset_key_equal(guild_icon_frame.key, guild_icon_key),
-           "account_media_guild_icon_cache_hit_frame");
     // The rail's still of an a_ icon: a static key naming the animated hash
     // (the CDN's .webp without animated=true); an animated key still needs a_.
+    constexpr Utf8View guild_icon_hash = utf8_literal("0123456789abcdef0123456789abcdef");
     constexpr Utf8View animated_icon_hash = utf8_literal("a_0123456789abcdef0123456789abcdef");
     const MediaAssetKey still_icon_key =
         media_asset_guild_icon(8'011, cdn_guild_icon_variant(animated_icon_hash), false);
@@ -1966,40 +1950,21 @@ void test_account_media_cached_frame() noexcept {
                mismatched_icon.state == AccountMediaRequestState::failed,
            "account_media_guild_icon_still_key_accepts_animated_hash");
 
-    const MediaAssetKey avatar_key =
-        media_asset_user_avatar(8'010, user_avatar_variant(guild_icon_hash), false);
-    const EncodedMediaCacheStoreResult avatar_stored = encoded_media_cache_store(
-        &media.cache, avatar_key, ConstSlice<u8>{kWebpGradient, sizeof(kWebpGradient)},
-        EncodedMediaCachePolicy{byte_literal("\"account-avatar-webp\""), 2'000, true, false});
-    const AccountMediaGuildIconRequest avatar_request{guild_icon_hash, avatar_key, {0, 0}};
-    const AccountMediaRequestResult avatar_requested =
-        account_media_request_guild_icon(&media, avatar_request, 1'002, 1'102);
-    AccountMediaFrame avatar_frame{};
-    const bool avatar_taken = account_media_take_frame(&media, &avatar_frame);
-    expect(avatar_stored.stored() && avatar_requested.ok() &&
-               avatar_requested.state == AccountMediaRequestState::ready && avatar_taken &&
-               avatar_frame.kind == AccountMediaFrameKind::straight_rgba8 &&
-               media_asset_key_equal(avatar_frame.key, avatar_key),
-           "account_media_user_avatar_cache_hit_frame");
-
     const MediaAssetKey group_icon_key =
         media_asset_channel_icon(8'011, user_avatar_variant(guild_icon_hash), false);
     const EncodedMediaCacheStoreResult group_icon_stored = encoded_media_cache_store(
         &media.cache, group_icon_key, ConstSlice<u8>{kWebpGradient, sizeof(kWebpGradient)},
         EncodedMediaCachePolicy{byte_literal("\"account-group-icon-webp\""), 2'000, true, false});
-    const AccountMediaGuildIconRequest group_icon_bad_size{guild_icon_hash, group_icon_key, {48, 0}};
     const AccountMediaGuildIconRequest group_icon_request{guild_icon_hash, group_icon_key, {64, 0}};
-    const AccountMediaRequestResult group_icon_rejected =
-        account_media_request_guild_icon(&media, group_icon_bad_size, 1'002, 1'102);
     const AccountMediaRequestResult group_icon_requested =
         account_media_request_guild_icon(&media, group_icon_request, 1'002, 1'102);
     AccountMediaFrame group_icon_frame{};
     const bool group_icon_taken = account_media_take_frame(&media, &group_icon_frame);
-    expect(group_icon_stored.stored() && group_icon_rejected.state == AccountMediaRequestState::invalid &&
-               group_icon_requested.ok() && group_icon_requested.state == AccountMediaRequestState::ready &&
-               group_icon_taken && group_icon_frame.kind == AccountMediaFrameKind::straight_rgba8 &&
+    expect(group_icon_stored.stored() && group_icon_requested.ok() &&
+               group_icon_requested.state == AccountMediaRequestState::ready && group_icon_taken &&
+               group_icon_frame.kind == AccountMediaFrameKind::straight_rgba8 &&
                media_asset_key_equal(group_icon_frame.key, group_icon_key),
-           "account_media_group_dm_icon_sized_request_and_cache_hit_frame");
+           "account_media_hashed_identity_sized_request_cache_hit_frame");
 
     const MediaAssetKey lossy_emoji_key = media_asset_custom_emoji(8'005, false);
     const EncodedMediaCacheStoreResult lossy_emoji_stored = encoded_media_cache_store(

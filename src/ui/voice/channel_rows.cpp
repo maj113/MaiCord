@@ -52,9 +52,7 @@ UiRect ui_voice_disconnect_rectangle(UiRect footer) noexcept {
     return ui_voice_panel_disconnect(ui_voice_panel_rectangle(footer));
 }
 
-u32 ui_voice_duration_text(u64 elapsed_s, char* output, u32 capacity) noexcept {
-    if (!output || capacity < kUiVoiceDurationBytes)
-        return 0;
+u32 ui_voice_duration_text(u64 elapsed_s, char (&output)[kUiVoiceDurationBytes]) noexcept {
     const u64 amounts[3]{elapsed_s / 3'600, elapsed_s / 60 % 60, elapsed_s % 60};
     const char* const units[3]{" hour", " minute", " second"};
     u32 used = 0;
@@ -75,7 +73,7 @@ u32 ui_voice_duration_text(u64 elapsed_s, char* output, u32 capacity) noexcept {
 }
 
 bool ui_voice_invite_observe(UiVoiceInviteCountdown* countdown, u64 connected_channel_id) noexcept {
-    if (!countdown || countdown->channel_id == connected_channel_id)
+    if (countdown->channel_id == connected_channel_id)
         return false;
     const bool shown = ui_voice_invite_channel(*countdown) != 0;
     *countdown = {connected_channel_id, 0, false, false};
@@ -83,7 +81,7 @@ bool ui_voice_invite_observe(UiVoiceInviteCountdown* countdown, u64 connected_ch
 }
 
 bool ui_voice_invite_tick(UiVoiceInviteCountdown* countdown, u64 now_ms, bool running) noexcept {
-    if (!countdown || !ui_voice_invite_channel(*countdown))
+    if (!ui_voice_invite_channel(*countdown))
         return false;
     if (!running) {
         countdown->counting = false;
@@ -112,7 +110,7 @@ UiRect ui_voice_status_rectangle(const ChannelViewRow& row, UiRect row_rectangle
 }
 
 bool ui_voice_invite_row(const ChannelViewRow& row, const UiRect& row_rectangle, UiVoiceInviteRow* output) noexcept {
-    if (!output || !row.voice_invite)
+    if (!row.voice_invite)
         return false;
     const float top = row_rectangle.top + shell_navigation_voice_top(row) +
                       static_cast<float>(row.voice_count) * kShellNavigationVoiceUserHeight;

@@ -15,7 +15,7 @@ bool positive(float value) noexcept {
 bool action(const UiAudioControlsProjection& projection, UiAudioControl id, u32 value,
             UiAudioAction* out) noexcept {
     const auto* descriptor = ui_audio_controls_find(projection, id);
-    if (!out || !descriptor || !descriptor->enabled)
+    if (!descriptor || !descriptor->enabled)
         return false;
     const auto& state = projection.playback;
     UiAudioAction request{};
@@ -79,8 +79,8 @@ UiAudioPageLayout ui_audio_page_layout(const UiRect& stage, const UiAudioControl
 }
 bool ui_audio_card_geometry(const UiRect& bounds, const UiAudioControlsStyle& style, UiAudioCardGeometry* out,
                             bool voice, bool volume_expanded) noexcept {
-    if (!out || !(ui_coordinate_valid(bounds.left) & ui_coordinate_valid(bounds.top) &
-                  ui_coordinate_valid(bounds.right) & ui_coordinate_valid(bounds.bottom)))
+    if (!(ui_coordinate_valid(bounds.left) & ui_coordinate_valid(bounds.top) &
+          ui_coordinate_valid(bounds.right) & ui_coordinate_valid(bounds.bottom)))
         return false;
     const float width = minimum(ui_rect_width(bounds), style.maximum_width);
     const float height = ui_audio_card_height(style, width, voice);
@@ -121,7 +121,7 @@ bool ui_audio_card_geometry(const UiRect& bounds, const UiAudioControlsStyle& st
 bool ui_audio_controls_project(const UiAudioPlaybackState& state, const UiRect& bounds,
                                const UiAudioControlsStyle& style, const Theme& theme,
                                UiAudioControlsProjection* out, bool volume_expanded) noexcept {
-    if (!out || !state.owner || !state.generation || !state.revision || state.volume > 100 ||
+    if (!state.owner || !state.generation || !state.revision || state.volume > 100 ||
         (state.has_duration && state.elapsed_ms > state.duration_ms) ||
         state.waveform.count > kUiAudioWaveformMaximum || (state.waveform.count && !state.waveform.data) ||
         state.title.bytes > 512 ||
@@ -272,8 +272,6 @@ bool ui_audio_controls_pointer_action(const UiAudioControlsProjection& projectio
 }
 bool ui_audio_controls_key(const UiAudioControlsProjection& projection, UiAudioKey key,
                            UiAudioControl* focus, UiAudioAction* out) noexcept {
-    if (!focus)
-        return false;
     static constexpr UiAudioControl order[]{UiAudioControl::play_pause, UiAudioControl::seek, UiAudioControl::mute,
                                      UiAudioControl::volume, UiAudioControl::download};
     if (key == UiAudioKey::previous || key == UiAudioKey::next) {
@@ -383,8 +381,6 @@ bool captured_action(const UiAudioScene& scene, UiPoint point, UiAudioAction* ou
 bool ui_audio_scene_project(UiAudioScene* scene, const UiAudioPlaybackState& state, UiRect bounds,
                             UiRect clip, UiWidgetReference owner, UiAudioSourceSurface surface,
                             const UiAudioControlsStyle& style, const Theme& theme) noexcept {
-    if (!scene)
-        return false;
     const auto* widget = owner.manager ? ui_widget_manager_resolve(*owner.manager, owner.handle) : nullptr;
     UiAudioControlsProjection projection; // Written whole by ui_audio_controls_project before any read.
     const bool same_source = scene->active && scene->surface == surface &&
@@ -439,8 +435,6 @@ UiAudioControl ui_audio_scene_hit(const UiAudioScene& scene, UiPoint point) noex
                : UiAudioControl::none;
 }
 bool ui_audio_scene_hover(UiAudioScene* scene, UiPoint point) noexcept {
-    if (!scene)
-        return false;
     const auto previous = scene->hover;
     const bool previous_volume = scene->projection.controls[4].hidden;
     scene->hover = ui_audio_scene_hit(*scene, point);
@@ -448,7 +442,7 @@ bool ui_audio_scene_hover(UiAudioScene* scene, UiPoint point) noexcept {
     return scene->hover != previous || scene->projection.controls[4].hidden != previous_volume;
 }
 bool ui_audio_scene_focus(UiAudioScene* scene, UiAudioControl id, bool keyboard) noexcept {
-    if (!scene || !eligible(*scene, id, false))
+    if (!eligible(*scene, id, false))
         return false;
     scene->focus = id;
     scene->keyboard_focus = keyboard;
@@ -463,8 +457,6 @@ void ui_audio_scene_blur(UiAudioScene* scene) noexcept {
 UiAudioSceneResult ui_audio_scene_pointer(UiAudioScene* scene, UiAudioPointerEvent event,
                                           UiPoint point) noexcept {
     UiAudioSceneResult result{};
-    if (!scene)
-        return result;
     if (event == UiAudioPointerEvent::cancel || !scene_current(*scene)) {
         result.handled = scene->capture != UiAudioControl::none;
         result.release_capture = result.handled;
@@ -515,7 +507,7 @@ UiAudioSceneResult ui_audio_scene_pointer(UiAudioScene* scene, UiAudioPointerEve
 }
 UiAudioSceneResult ui_audio_scene_key(UiAudioScene* scene, UiAudioKey key) noexcept {
     UiAudioSceneResult result{};
-    if (!scene || !scene_current(*scene))
+    if (!scene_current(*scene))
         return result;
     if (key == UiAudioKey::next || key == UiAudioKey::previous) {
         for (u32 i = 0; i < 5; ++i) {

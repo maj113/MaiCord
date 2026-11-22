@@ -76,8 +76,7 @@ __declspec(noinline) inline bool local_draft_preview_request_valid(
         return false;
     if (r.content.context)
         return upload_source_valid(r.content) && r.content.bytes == r.snapshot.bytes && !r.path.count;
-    if (r.content.ops || r.content.bytes || !r.path.data || !r.path.count ||
-        r.path.count > kLocalDraftPreviewPathMaximum || r.snapshot.identity.reserved)
+    if (r.content.ops || r.content.bytes || !r.path.data || !r.path.count || r.path.count > kLocalDraftPreviewPathMaximum)
         return false;
     for (u32 i = 0; i < r.path.count; ++i)
         if (!r.path[i])

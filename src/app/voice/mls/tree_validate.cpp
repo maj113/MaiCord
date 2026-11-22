@@ -393,7 +393,7 @@ u32 mls_tree_validation_bytes(u32 leaf_count, u32 node_count) noexcept {
 MlsStatus mls_tree_validate(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, const Slice<u8>& scratch,
                             u8* tree_hash) noexcept {
     const u32 required = mls_tree_validation_bytes(tree.leaf_count, tree.node_count);
-    if (!required || !scratch.data || (reinterpret_cast<usize>(scratch.data) & 3))
+    if (!required)
         return MlsStatus::invalid_argument;
     if (scratch.count < required)
         return MlsStatus::buffer_too_small;

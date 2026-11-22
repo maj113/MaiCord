@@ -39,7 +39,7 @@ bool read_content(void* context, u64 offset, Slice<u8> output) noexcept {
     u32 done = 0;
     while (done < output.count) {
         const auto part = source.ops->read(source.context, offset + done, {output.data + done, output.count - done});
-        if (!part.data || !part.count || part.count > output.count - done)
+        if (!part.count || part.count > output.count - done)
             return false;
         if (part.data != output.data + done)
             copy_bytes(output.data + done, part.data, part.count);

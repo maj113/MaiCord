@@ -1,7 +1,6 @@
 #include "maicord/protocol/media/dash_manifest.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "text_match.hpp"
 
 namespace maicord {
@@ -178,17 +177,11 @@ bool better(const DashTrack& a, const DashTrack& b, u16 cap) noexcept {
 } // namespace
 u32 dash_segment_path(const DashTrack& t, u32 segment, bool init, Slice<u8> output) noexcept {
     const u32 size = path(t, segment, init, nullptr);
-    if (!size || size > 512 || !output.data || output.count < size) return 0;
-    if (!byte_range_valid(output.data, size) || byte_ranges_overlap(output.data, size, &t, sizeof(t)) ||
-        byte_ranges_overlap(output.data, size, t.id.data, t.id.bytes) ||
-        byte_ranges_overlap(output.data, size, t.initialization.data, t.initialization.bytes) ||
-        byte_ranges_overlap(output.data, size, t.media.data, t.media.bytes)) return 0;
+    if (!size || size > 512 || output.count < size) return 0;
     return path(t, segment, init, output.data);
 }
 DashManifestError dash_manifest_parse(Utf8View input, u16 cap, DashManifest* output) noexcept {
-    if (!input.data || !input.bytes || input.bytes > maximum_bytes || !cap || cap > 2048 || !output) return E::invalid_input;
-    if (!byte_range_valid(input.data, input.bytes) || !byte_range_valid(output, sizeof(*output)) ||
-        byte_ranges_overlap(input.data, input.bytes, output, sizeof(*output))) return E::invalid_input;
+    if (!input.bytes || input.bytes > maximum_bytes || !cap || cap > 2048) return E::invalid_input;
     for (u32 i = 0; i < input.bytes; ++i)
         if (static_cast<u8>(input.data[i]) < 32 && !ascii_is_space(input.data[i])) return E::malformed;
     Reader reader{input}; Element element{}; Utf8View stack[8]{}, ids[64]{};

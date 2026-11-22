@@ -85,7 +85,7 @@ void voice_jitter_reset(VoiceJitterBuffer* buffer) noexcept {
 
 VoiceJitterPush voice_jitter_push(VoiceJitterBuffer* buffer, u16 sequence, u32 timestamp, ConstSlice<u8> packet,
                                   u64 arrival_us) noexcept {
-    if (!packet.data || !packet.count || packet.count > kVoiceJitterPacketBytes)
+    if (!packet.count || packet.count > kVoiceJitterPacketBytes)
         return VoiceJitterPush::rejected;
     if (!buffer->started) {
         buffer->started = true;

@@ -1,12 +1,11 @@
 #include "maicord/protocol/voice/media_packet.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/byte_range.hpp"
 
 namespace maicord {
 namespace {
 // value arrives zeroed from both callers.
 bool header(ConstSlice<u8> packet, MediaPacketLayout& value) noexcept {
-    if (!byte_range_valid(packet) || packet.count < 8 || (packet[0] >> 6) != 2)
+    if (packet.count < 8 || (packet[0] >> 6) != 2)
         return false;
     value.padded = (packet[0] & 0x20) != 0;
     if (packet[1] >= 192 && packet[1] <= 223) {
@@ -41,14 +40,11 @@ bool header(ConstSlice<u8> packet, MediaPacketLayout& value) noexcept {
     }
     return true;
 }
-bool destination(ConstSlice<u8> packet, const MediaPacketLayout* output) noexcept {
-    return output && !byte_ranges_overlap(packet, {reinterpret_cast<const u8*>(output), sizeof(*output)});
-}
 } // namespace
 
 bool media_packet_header(ConstSlice<u8> packet, MediaPacketLayout* output) noexcept {
     MediaPacketLayout value{};
-    if (!destination(packet, output) || !header(packet, value))
+    if (!header(packet, value))
         return false;
     *output = value;
     return true;
@@ -98,7 +94,7 @@ bool media_packet_payload(ConstSlice<u8> packet, MediaPacketLayout* layout) noex
 
 bool media_packet_plaintext(ConstSlice<u8> packet, MediaPacketLayout* output) noexcept {
     MediaPacketLayout value{};
-    if (!destination(packet, output) || !header(packet, value) || !media_packet_payload(packet, &value))
+    if (!header(packet, value) || !media_packet_payload(packet, &value))
         return false;
     *output = value;
     return true;

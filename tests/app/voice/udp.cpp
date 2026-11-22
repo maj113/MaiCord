@@ -197,14 +197,8 @@ void loopback(void (*check)(bool, const char*) noexcept, i32 family) noexcept {
 } // namespace
 void test_voice_udp(void (*check)(bool, const char*) noexcept) noexcept {
     u8 packet[100];
-    for (u32 capacity = 0; capacity < 74; ++capacity) {
-        memset(packet, 0xa5, sizeof(packet));
-        bool unchanged = !voice_discovery_request(0x01020304, {packet, capacity});
-        for (u8 value : packet)
-            unchanged &= value == 0xa5;
-        check(unchanged, "UDP discovery short request output is atomic");
-    }
-    voice_discovery_request(0x01020304, {packet, 100});
+    memset(packet, 0xa5, sizeof(packet));
+    voice_discovery_request(0x01020304, packet);
     check(packet[0] == 0 && packet[1] == 1 && packet[2] == 0 && packet[3] == 70 && packet[4] == 1 &&
               packet[7] == 4 && packet[74] == 0xa5,
           "UDP discovery exact request bytes");

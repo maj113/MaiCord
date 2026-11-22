@@ -137,8 +137,6 @@ bool has_start_code(ConstSlice<u8> data, u32 from, u32 to) noexcept {
 
 DavePreparedFrame dave_frame_prepare(DaveVideoCodec codec, ConstSlice<u8> frame, Slice<u8> output,
                                      Slice<DaveClearRange> ranges) noexcept {
-    if (!frame.data || !frame.count || !output.data || !ranges.data)
-        return {};
     Builder b{output, ranges, 0, 0, true};
     if (codec == DaveVideoCodec::av1)
         prepare_av1(b, frame);

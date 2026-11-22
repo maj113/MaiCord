@@ -177,14 +177,14 @@ struct LocalPreviewReader {
 };
 bool read_local_preview(void* opaque, u64 offset, Slice<u8> output) noexcept {
     auto& reader = *static_cast<LocalPreviewReader*>(opaque);
-    if (local_retired(reader.lane) || !output.data || !output.count)
+    if (local_retired(reader.lane) || !output.count)
         return false;
     u32 done = 0;
     while (done < output.count) {
         if (reader.content.context) {
             const auto part = reader.content.ops->read(reader.content.context, offset + done,
                                                        {output.data + done, output.count - done});
-            if (!part.data || !part.count || part.count > output.count - done)
+            if (!part.count || part.count > output.count - done)
                 return false;
             if (part.data != output.data + done)
                 CopyMemory(output.data + done, part.data, part.count);
@@ -289,7 +289,7 @@ AccountMediaRequestResult execute_local_preview(AccountMediaWorkerLane* lane,
         if (work.local_content.context) {
             const auto part =
                 work.local_content.ops->read(work.local_content.context, offset, {bytes + offset, count});
-            valid = part.data && part.count && part.count <= count;
+            valid = part.count && part.count <= count;
             if (valid) {
                 if (part.data != bytes + offset)
                     CopyMemory(bytes + offset, part.data, part.count);
@@ -331,7 +331,6 @@ AccountMediaRequestResult execute(AccountMediaWorkerLane* lane, AccountMediaWork
         MediaTrackTitle title{}; EmbedResolveResult fetched{};
         if (work.title_batch) {
             SoundcloudTitleBatch batch{};
-            if (work.text_bytes != sizeof(batch)) return request_result(AccountMediaRequestState::invalid,AccountMediaError::invalid_input);
             copy_bytes(&batch,work.text,sizeof(batch)); work.text_bytes=0;
             struct Output { AccountMediaWorkerLane* lane; const SoundcloudTitleBatch* batch; } output{lane,&batch};
             if (lane->collection_titles) pages_release(lane->collection_titles);

@@ -97,7 +97,6 @@ VoiceReceivedPacket received(const VoiceConnection& connection, ConstSlice<u8> p
     packet.transport.bytes = plain.count;
     packet.source = voice_participants_source(connection.participants, packet.transport.layout.ssrc);
     packet.member = voice_participants_user(connection.participants, packet.source.user_id);
-    packet.setup_generation = packet.ready_revision = 1;
     return packet;
 }
 bool announce(VoiceConnection& connection, u8 opcode, Utf8View json) noexcept {
@@ -478,7 +477,7 @@ void dave_frames(Check check) noexcept {
     auto result = voice_connection_dave_decrypt_frame(&connection, kUser, kVideo, frame, {scratch, 64},
                                                       {output, 64}, 1);
     check(result.error == DaveMediaError::not_ready, "Video DAVE: frames wait for the call's DAVE session");
-    check(dave_session_initialize(&connection.dave_session, 1, kSelf, 1, 0) == MlsStatus::ok,
+    check(dave_session_initialize(&connection.dave_session, 1, kSelf, 0) == MlsStatus::ok,
           "Video DAVE fixture: protocol version 0 session");
     result = voice_connection_dave_decrypt_frame(&connection, kUser, kVideo, frame, {scratch, 64}, {output, 64}, 1);
     check(result.ok() && result.passthrough && result.bytes == sizeof(kAnnexB) &&

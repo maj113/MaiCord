@@ -37,8 +37,6 @@ bool voice_udp_drained(const VoiceUdpDiscovery& discovery) noexcept {
     return !discovery.socket.open && network_datagram_idle(discovery.socket);
 }
 void voice_udp_close(VoiceUdpDiscovery* discovery) noexcept {
-    if (!discovery)
-        return;
     discovery->deadline_ms = 0;
     discovery->phase = VoiceUdpPhase::closing;
     network_datagram_close(&discovery->socket);
@@ -60,7 +58,7 @@ bool voice_udp_begin(VoiceUdpDiscovery* discovery, NetworkLoop* loop, const Netw
     discovery->ssrc = ssrc;
     discovery->sent = discovery->received = false;
     discovery->deadline_ms = deadline_after(now_ms, 5000);
-    voice_discovery_request(ssrc, {discovery->request, sizeof(discovery->request)});
+    voice_discovery_request(ssrc, discovery->request);
     if (!receive(discovery))
         return false;
     const auto sent =
@@ -73,7 +71,7 @@ bool voice_udp_begin(VoiceUdpDiscovery* discovery, NetworkLoop* loop, const Netw
 }
 void voice_udp_completion(VoiceUdpDiscovery* discovery, const NetworkCompletion& completion,
                           u64 now_ms) noexcept {
-    if (!discovery || completion.datagram != &discovery->socket ||
+    if (completion.datagram != &discovery->socket ||
         (completion.kind != NetworkOperationKind::datagram_send &&
          completion.kind != NetworkOperationKind::datagram_receive))
         return;
@@ -120,8 +118,6 @@ void voice_udp_completion(VoiceUdpDiscovery* discovery, const NetworkCompletion&
         receive(discovery); // Ignore unrelated/control/malformed packets without extending timeout.
 }
 void voice_udp_tick(VoiceUdpDiscovery* discovery, u64 now_ms) noexcept {
-    if (!discovery)
-        return;
     if (discovery->phase == VoiceUdpPhase::discovering && deadline_due(now_ms, discovery->deadline_ms))
         fail(discovery, VoiceUdpError::timeout, WAIT_TIMEOUT);
     else

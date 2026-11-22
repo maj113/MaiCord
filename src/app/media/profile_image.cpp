@@ -2,7 +2,6 @@
 
 #include "maicord/app/media/local_preview_thumbnail.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/media/image/gif.hpp"
@@ -202,7 +201,7 @@ ProfileImageError gif_open(const ConstSlice<u8>& s, usize extra, u32 minimum_fra
 ProfileImageError inspect(ConstSlice<u8> s, Source* src) noexcept {
     reset_value(src);
     src->orientation = 1;
-    if (!byte_range_valid(s) || !s.count)
+    if (!s.count)
         return ProfileImageError::input;
     if (s.count > kProfileImageSourceMaximumBytes)
         return ProfileImageError::too_large;
@@ -1061,8 +1060,6 @@ ProfileImageInfo profile_image_probe(ConstSlice<u8> source) noexcept {
 
 ProfileImageInfo profile_image_crop(ConstSlice<u8> source, const ImageCropOutput& crop,
                                     GuildImageBuffer* output) noexcept {
-    if (!output)
-        return fail({}, ProfileImageError::input);
     reset_value(output);
     Source src{};
     const ProfileImageError error = inspect(source, &src);

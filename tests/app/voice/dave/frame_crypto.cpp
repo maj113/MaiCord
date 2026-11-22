@@ -82,20 +82,6 @@ void fixtures(Check check) noexcept {
                   filled(output, sizeof(output), 0xa5) && filled(scratch, sizeof(scratch), 0xa5),
               "DAVE rejects replay before gathering or changing destinations");
         clear_bytes(&replay, sizeof(replay));
-        result = open(view, wrong, vector.generation, replay, scratch, frame);
-        check(result.error == AeadError::authentication_failed && bytes_equal(frame, original, size) &&
-                  !replay.initialized && filled(scratch, vector.body_bytes, 0),
-              "DAVE in-place wrong epoch preserves source for another key attempt");
-        memset(scratch, 0xa5, sizeof(scratch));
-        result = open(view, key, vector.generation, replay, scratch, frame);
-        check(result.error == AeadError::none && result.counter == counter && expected(vector, frame) &&
-                  bytes_equal(frame + vector.body_bytes, original + vector.body_bytes,
-                              size - vector.body_bytes) &&
-                  filled(scratch, vector.body_bytes, 0) &&
-                  filled(scratch + vector.body_bytes, sizeof(scratch) - vector.body_bytes, 0xa5),
-              "DAVE in-place reconstruction preserves the footer and erases temporary plaintext");
-        copy_bytes(frame, original, size);
-        clear_bytes(&replay, sizeof(replay));
         memset(output, 0xa5, sizeof(output));
         memset(scratch, 0xa5, sizeof(scratch));
         // Every body byte includes either clear AAD or encrypted data; changing
@@ -195,16 +181,17 @@ void guards(Check check) noexcept {
                     VirtualProtect(pages, info.dwPageSize, PAGE_READWRITE, &previous) != 0;
                 check(writable, "DAVE restores writable scratch guard page");
                 if (writable) {
-                    // Reuse the guarded page for exact scratch, keeping the
-                    // encrypted source and destination in the regular buffer.
+                    // Reuse the guarded page for exact scratch: a frame with
+                    // clear ranges stages its whole body there.
                     auto* temporary = pages + info.dwPageSize - vector.body_bytes;
                     DaveFrameView view{};
                     DaveReplay replay{};
                     check(dave_frame_parse({original, size}, {ranges, 8}, &view).ok(),
                           "DAVE exact scratch fixture parse");
-                    check(open(view, key, vector.generation, replay, temporary, original).error ==
-                                  AeadError::none &&
-                              expected(vector, original) && filled(temporary, vector.body_bytes, 0),
+                    check(!view.clear_bytes ||
+                              (open(view, key, vector.generation, replay, temporary, output).error ==
+                                   AeadError::none &&
+                               expected(vector, output) && filled(temporary, vector.body_bytes, 0)),
                           "DAVE reconstruction and plaintext erasure respect exact guarded scratch capacity");
                 }
             }

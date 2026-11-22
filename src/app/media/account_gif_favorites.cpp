@@ -1,5 +1,4 @@
 #include "maicord/app/media/account_gif_favorites.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/user/emoji_preferences.hpp"
 #include "maicord/protocol/messages/application_commands.hpp"
 #include "maicord/app/net/rest_client.hpp"
@@ -10,7 +9,7 @@ using PatchValidator = bool (*)(ConstSlice<u8>) noexcept;
 RestClientSubmitResult settings_proto(RestClient* rest, AccountGifFavoritesOperation operation,
                                       ConstSlice<u8> patch, u64 request, PatchValidator valid) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
-    if (!rest || !request || !byte_range_valid(patch))
+    if (!rest || !request)
         return invalid;
     if (operation == AccountGifFavoritesOperation::cancel) {
         if (patch.count)

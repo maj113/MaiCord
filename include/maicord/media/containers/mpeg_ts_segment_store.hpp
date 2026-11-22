@@ -11,11 +11,10 @@ namespace maicord {
 // track's epoch. Later files unwrap against this store's accepted endpoint.
 Mp4DemuxError mpeg_ts_segment_store_initialize(Mp4SegmentStore*, ConstSlice<u8>, bool audio,
     u32 advertised_files, u64 duration_us, u64 clock_reference_90k = 0) noexcept;
-// Same demand/serial and active-slot fence as ordinary segment receipt. The
-// advertised video interval supplies its final picture duration; the next file
-// must meet that exact endpoint. AAC uses counted 1024-frame rational timing.
-// No full-segment staging buffer or per-PES allocation. Failure preserves active
-// bytes but invalidates/empties the replaceable candidate and old seek proposals.
-Mp4DemuxError mpeg_ts_segment_store_accept(Mp4SegmentStore*, u32 number, u64 serial,
-    ConstSlice<u8>, u64 duration_us) noexcept;
+// The caller drops a stale reply as for ordinary segment receipt (segmented_video_accept); the active-slot fence
+// is the same. The advertised video interval supplies its final picture duration; the next file must meet that
+// exact endpoint. AAC uses counted 1024-frame rational timing. No full-segment staging buffer or per-PES
+// allocation. Failure preserves active bytes but invalidates/empties the replaceable candidate and old seek
+// proposals.
+Mp4DemuxError mpeg_ts_segment_store_accept(Mp4SegmentStore*, u32 number, ConstSlice<u8>, u64 duration_us) noexcept;
 } // namespace maicord

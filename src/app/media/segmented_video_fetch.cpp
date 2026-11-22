@@ -220,13 +220,13 @@ ProgressiveVideoAccept segmented_video_accept(ProgressiveVideoFetch* f, const Cd
         ? (s.initialization
             ? mpeg_ts_segment_store_initialize(&s.store,body,f->kind==ProgressiveVideoKind::fragmented_audio,
                 minimum(3u,s.playlist.segments),s.current.duration_us,initial_clock)
-            : mpeg_ts_segment_store_accept(&s.store,s.number,s.serial,body,s.current.duration_us))
+            : mpeg_ts_segment_store_accept(&s.store,s.number,body,s.current.duration_us))
         : s.initialization
         ? mp4_segment_store_initialize(&s.store, body, f->kind == ProgressiveVideoKind::fragmented_audio,
                                       s.manifest.bytes ? minimum(3u, s.playlist.segments) : s.playlist.input.bytes ? s.playlist.segments : s.track.segment_count,
                                       s.playlist.input.bytes ? s.playlist.target_seconds : s.track.segment_duration,
                                       s.playlist.input.bytes ? 1 : s.track.timescale, s.manifest.bytes != 0)
-        : mp4_segment_store_accept(&s.store, s.number, s.serial, body);
+        : mp4_segment_store_accept(&s.store, s.number, body);
     if (error != Mp4DemuxError::none) return reject(*f);
     if (s.initialization && s.manifest.bytes) s.store.ended = s.playlist.ended;
     if (s.initialization && s.playlist.input.bytes && !s.manifest.bytes) { s.store.seek_context = &s; s.store.locate = locate; }
@@ -309,27 +309,5 @@ Mp4DemuxError segmented_video_synchronize(ProgressiveVideoFetch* video, Progress
     audio->audio = packets;
     video->segmented->synchronized = audio->segmented->synchronized = true;
     return E::none;
-}
-u32 segmented_video_buffered(ProgressiveVideoFetch* f, u64 duration, u16* begin, u16* end, u32 capacity) noexcept {
-    if (!duration || !begin || !end || !capacity || !mp4_fragment_source_valid(f->fragment)) return 0;
-    const auto& slots = f->segmented->store.slots;
-    const u32 first = slots[0].number > slots[1].number ? 1 : 0;
-    u32 count = 0;
-    for (u32 i = 0; i < 2; ++i) {
-        const auto& slot = slots[(first + i) % 2];
-        if (!slot.bytes) continue;
-        const auto& range = slot.media.range;
-        const u64 endpoint = range.index + 1 == f->fragment.index.count && f->fragment.presentation_end
-            ? f->fragment.presentation_end : range.time + range.duration;
-        i64 start{}, finish{};
-        if (!mp4_fragment_source_time(f->fragment, static_cast<i64>(range.time), &start) ||
-            !mp4_fragment_source_time(f->fragment, static_cast<i64>(endpoint), &finish)) continue;
-        const u16 b = static_cast<u16>(minimum<u64>(start < 0 ? 0 : static_cast<u64>(start), duration) * 10000 / duration);
-        const u16 e = static_cast<u16>(minimum<u64>(finish < 0 ? 0 : static_cast<u64>(finish), duration) * 10000 / duration);
-        if (e <= b) continue;
-        if (count && b <= end[count - 1] + 1u) end[count - 1] = maximum(end[count - 1], e);
-        else if (count < capacity) { begin[count] = b; end[count++] = e; }
-    }
-    return count;
 }
 } // namespace maicord

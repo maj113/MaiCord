@@ -107,7 +107,7 @@ inline Utf8View call_title(u64 channel_id) noexcept {
     return chat_state_store_channel_name(ui.chat_state, *channel);
 }
 inline const GatewayVoiceVideoUser* video_user(u64 user_id) noexcept {
-    for (u32 i = 0; view.snapshot_valid && i < view.snapshot.count && i < kGatewayVoiceVideoUsers; ++i)
+    for (u32 i = 0; view.snapshot_valid && i < view.snapshot.count; ++i)
         if (view.snapshot.users[i].user_id == user_id && view.snapshot.users[i].ssrc)
             return &view.snapshot.users[i];
     return nullptr;
@@ -170,10 +170,11 @@ Utf8View user_name(u64 user_id) noexcept {
     const auto* user = user_store_find(ui.user_store, user_id);
     return user ? user_store_name(ui.user_store, *user) : Utf8View{};
 }
-// The voice server's announced cameras (op 12/13), in snapshot order.
+// The voice server's announced cameras (op 12/13), in snapshot order. The account fills at most
+// kGatewayVoiceVideoUsers (voice_video_users stops at its output's capacity).
 u32 camera_targets(const GatewayClientVoiceVideoSnapshot& snapshot, CallVideoTarget* output) noexcept {
     u32 count = 0;
-    for (u32 i = 0; i < snapshot.count && i < kGatewayVoiceVideoUsers; ++i)
+    for (u32 i = 0; i < snapshot.count; ++i)
         output[count++] = {snapshot.users[i].user_id, snapshot.users[i].ssrc, 0, false};
     return count;
 }
@@ -377,7 +378,7 @@ CallVideoPumpResult synchronize_video(bool poll) noexcept {
         }
         targets[count++] = target;
     };
-    for (u32 i = 0; i < snapshot.count && i < kGatewayVoiceVideoUsers; ++i) {
+    for (u32 i = 0; i < snapshot.count; ++i) {
         const auto& user = snapshot.users[i];
         if (user.user_id && user.ssrc)
             add_target(user.user_id, user.ssrc);
@@ -421,11 +422,9 @@ CallVideoPumpResult synchronize_video(bool poll) noexcept {
         return result.ok();
     };
     callbacks.release = +[](void*, VideoStreamFrame* frame) noexcept {
-        if (frame) {
-            gpu_release(frame->gpu.chroma);
-            gpu_release(frame->gpu.luma);
-            gpu_release(frame->gpu.texture);
-        }
+        gpu_release(frame->gpu.chroma);
+        gpu_release(frame->gpu.luma);
+        gpu_release(frame->gpu.texture);
     };
     callbacks.wanted = +[](void*, u64 user_id, bool wanted) noexcept {
         auto& h = g_app.account;
@@ -730,7 +729,7 @@ bool application_call_pump(bool* repaint_requested) noexcept {
     const bool signaled = video_notification() != nullptr;
     view.next_poll_ms = call_video_poll_after(view.next_poll_ms, now, poll, result, signaled);
     const u64 morph = scene_visible() ? ui_call_scene_next_wake(view.scene, application_reduced_motion()) : 0;
-    if ((result.presented || result.changed || (morph && now >= morph)) && repaint_requested) {
+    if (result.presented || result.changed || (morph && now >= morph)) {
         *repaint_requested = true;
         if (result.changed)
             g_app.renderer.retained_presentation.valid = false;
@@ -892,11 +891,10 @@ bool application_call_window_event(const WindowEvent& event) noexcept {
 }
 
 bool application_call_header_search(float width, UiRect* field) noexcept {
-    if (field)
-        reset_value(field);
+    reset_value(field);
     view.search_width = 0;
     // Beside its chat (split) the call leaves the title bar to the chat column.
-    if (!field || !view.open || !g_app.account_ui || g_app.login.visible || application_settings_active() ||
+    if (!view.open || !g_app.account_ui || g_app.login.visible || application_settings_active() ||
         view.split_width > 0)
         return false;
     if (view.fullscreen)

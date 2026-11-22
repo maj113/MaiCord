@@ -133,8 +133,9 @@ MlsStatus mls_tree_parent_hash_chain(KdfSha256Workspace& kdf, const MlsRatchetTr
                                      const u8 (*path_keys)[kMlsPointBytes], u32 path_count,
                                      u8 (*hashes)[kMlsHashBytes]) noexcept;
 // RFC 9420 7.9 integrity: unique keys/identities, unmerged-leaf placement and
-// parent-hash coverage. Scratch sizing from mls_tree_validation_bytes. The
-// check hashes every subtree, so tree_hash, when given, receives the root's.
+// parent-hash coverage. Scratch (4-byte aligned) sizing from
+// mls_tree_validation_bytes. The check hashes every subtree, so tree_hash,
+// when given, receives the root's.
 u32 mls_tree_validation_bytes(u32 leaf_count, u32 node_count) noexcept;
 MlsStatus mls_tree_validate(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, const Slice<u8>& scratch,
                             u8* tree_hash) noexcept;

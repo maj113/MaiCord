@@ -222,8 +222,7 @@ void progressive_retire(AccountMediaWorkerLane* lane) noexcept {
 }
 } // namespace
 bool account_media_video_offer_url(AccountMediaWorker* worker, MediaAssetKey key, Utf8View url) noexcept {
-    if (!worker->initialized || !worker->video_runtime || !url.data || !url.bytes ||
-        url.bytes > kCdnMaximumTargetBytes)
+    if (!worker->initialized || !worker->video_runtime || !url.bytes || url.bytes > kCdnMaximumTargetBytes)
         return false;
     auto& v = *worker->video_runtime;
     AcquireSRWLockExclusive(&v.lock);
@@ -377,7 +376,7 @@ AccountVideoPlaybackStatus account_media_worker_video_status(const AccountMediaW
     return copy;
 }
 bool account_media_worker_video_take(AccountMediaWorker* worker, AccountVideoFrame* out) noexcept {
-    if (!worker->initialized || !worker->video_runtime || !out)
+    if (!worker->initialized || !worker->video_runtime)
         return false;
     auto& v = *worker->video_runtime;
     AcquireSRWLockExclusive(&v.lock);

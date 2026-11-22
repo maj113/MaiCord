@@ -58,7 +58,8 @@ struct VoiceSession {
     u8 client_key[kWebSocketClientKeyBytes];
     bool opened, failed, closed;
 };
-// Caller-owned disjoint buffers; no allocation. Reinitialize only after the old
+// Caller-owned disjoint buffers; no allocation. input holds maximum_frame_bytes + 14, fragments holds
+// maximum_message_bytes, client_key is kWebSocketClientKeyBytes. Reinitialize only after the old
 // socket's operations drain. Old buffers must remain alive until reinitialization
 // or clear erases them. Resume retains sequence through heartbeat state.
 bool voice_session_initialize(VoiceSession* session, Slice<u8> input, Slice<u8> fragments,

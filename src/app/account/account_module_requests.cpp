@@ -60,19 +60,16 @@ bool account_module_channel_info(void* instance, u64 guild_id) noexcept {
     return gateway_client_request_channel_info(module_gateway(instance), guild_id);
 }
 void account_module_client_focus(void* instance, bool focused) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (runtime && client_session_metadata_set_focus(&runtime->client_metadata, focused))
+    if (client_session_metadata_set_focus(&static_cast<AccountModuleRuntime*>(instance)->client_metadata, focused))
         gateway_client_activity_changed(module_gateway(instance));
 }
 void account_module_media_vp8_cpu(void* instance, bool on_cpu) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (runtime)
-        account_media_worker_set_vp8_cpu(&runtime->media, on_cpu);
+    account_media_worker_set_vp8_cpu(&static_cast<AccountModuleRuntime*>(instance)->media, on_cpu);
 }
 
 RestClientSubmitResult account_module_account_settings(void* instance, const AccountSettingsRequest* request,
                                                             u64 request_id) noexcept {
-    if (!instance || !request_id)
+    if (!request_id)
         return {RestClientSubmitError::invalid_input};
     // Settings share the PRIMARY lane with the self-status settings writer;
     // a cancel without a request tries both lanes.
@@ -86,8 +83,8 @@ RestClientSubmitResult account_module_account_settings(void* instance, const Acc
                                    request_id);
 }
 bool account_module_credential_replace(void* instance, const u8* token, u32 bytes) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime && token && user_account_coordinator_replace_credential(&runtime->coordinator, {token, bytes});
+    return token && user_account_coordinator_replace_credential(
+                        &static_cast<AccountModuleRuntime*>(instance)->coordinator, {token, bytes});
 }
 namespace account_module_detail {
 // Thread, forum and poll requests act as the signed-in user of this profile; forum posts and polls also
@@ -113,43 +110,36 @@ RestClientSubmitResult account_module_poll_create(void* instance, u64 channel_id
 }
 bool account_module_local_presence(void* instance, const GatewayLocalPresence* input,
                                    GatewayActivitySharing* output) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime) {
-        if (output)
-            reset_value(output);
-        return false;
-    }
-    return gateway_client_local_presence(&runtime->coordinator.gateway, input, output);
+    return gateway_client_local_presence(&static_cast<AccountModuleRuntime*>(instance)->coordinator.gateway, input,
+                                         output);
 }
 RestClientSubmitResult account_module_activity_sharing(void* instance, u64 profile_id, u64 self_user_id,
                                                        bool share, u64 request_id) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime ? gateway_client_activity_sharing_submit(&runtime->coordinator.gateway, &runtime->coordinator.rest,
-                                                            profile_id, self_user_id, share, request_id)
-                   : RestClientSubmitResult{RestClientSubmitError::invalid_input};
+    return gateway_client_activity_sharing_submit(&runtime->coordinator.gateway, &runtime->coordinator.rest,
+                                                  profile_id, self_user_id, share, request_id);
 }
 bool account_module_custom_status_snapshot(void* instance, SelfCustomStatus* output) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime && gateway_client_custom_status_snapshot(&runtime->coordinator.gateway, output);
+    return gateway_client_custom_status_snapshot(&static_cast<AccountModuleRuntime*>(instance)->coordinator.gateway,
+                                                 output);
 }
 RestClientSubmitResult account_module_custom_status_submit(void* instance, u64 profile_id, u64 self_user_id,
                                                            const SelfCustomStatus* custom,
                                                            u64 request_id) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime ? gateway_client_custom_status_submit(&runtime->coordinator.gateway, &runtime->coordinator.rest,
-                                                         profile_id, self_user_id, custom, request_id)
-                   : RestClientSubmitResult{RestClientSubmitError::invalid_input};
+    return gateway_client_custom_status_submit(&runtime->coordinator.gateway, &runtime->coordinator.rest, profile_id,
+                                               self_user_id, custom, request_id);
 }
 RestClientSubmitResult account_module_guild_assets(void* instance, const GuildAssetRequest* request,
                                                    u64 request_id) noexcept {
     // The image probe needs no lane or request id.
-    if (instance && request && request->operation == GuildAssetOperation::image_probe)
+    if (request && request->operation == GuildAssetOperation::image_probe)
         return {account_guild_assets_probe(request) ? RestClientSubmitError::none
                                                     : RestClientSubmitError::invalid_input};
     return module_lane<account_guild_assets_submit>(instance, request, request_id);
 }
-bool account_module_profile_image(void* instance, ProfileImageRequest* request) noexcept {
-    return instance && account_profile_image(request);
+bool account_module_profile_image(void*, ProfileImageRequest* request) noexcept {
+    return account_profile_image(request);
 }
 
 namespace {
@@ -178,26 +168,24 @@ bool account_module_voice_request(void* instance, const GatewayVoiceStateUpdate*
 }
 bool account_module_voice_snapshot(void* instance, GatewayClientVoiceSnapshot* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    auto* gateway = user_account_coordinator_gateway(&runtime->coordinator);
     ensure_video_frames(runtime, gateway);
     return gateway && gateway_client_voice_snapshot(gateway, output);
 }
 u32 account_module_voice_revision(void* instance) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    auto* gateway = user_account_coordinator_gateway(&runtime->coordinator);
     ensure_video_frames(runtime, gateway);
     return gateway ? gateway_client_voice_revision(gateway) : 0;
 }
 bool account_module_voice_video_snapshot(void* instance, GatewayClientVoiceVideoSnapshot* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    auto* gateway = user_account_coordinator_gateway(&runtime->coordinator);
     ensure_video_frames(runtime, gateway);
     return gateway && gateway_client_voice_video_snapshot(gateway, output);
 }
 bool account_module_voice_video_device(void* instance, GpuDevice* device) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime)
-        return false;
     video_stream_decoders_set_device(&runtime->video, device);
     go_live_devices_set_device(&runtime->go_live, device);
     ensure_video_frames(runtime, user_account_coordinator_gateway(&runtime->coordinator));
@@ -205,18 +193,17 @@ bool account_module_voice_video_device(void* instance, GpuDevice* device) noexce
 }
 bool account_module_voice_video_frame(void* instance, u32 ssrc, VideoStreamFrame* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !output)
+    if (!output)
         return false;
     ensure_video_frames(runtime, user_account_coordinator_gateway(&runtime->coordinator));
     return video_stream_decoders_frame(&runtime->video, ssrc, output);
 }
 HANDLE account_module_voice_video_notification(void* instance) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime ? runtime->video.frame_event : nullptr;
+    return static_cast<AccountModuleRuntime*>(instance)->video.frame_event;
 }
 bool account_module_stream_watch(void* instance, const GatewayStreamKey* key) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    auto* gateway = user_account_coordinator_gateway(&runtime->coordinator);
     if (!gateway)
         return false;
     // Stream video goes to the same decoders as call video.
@@ -225,7 +212,7 @@ bool account_module_stream_watch(void* instance, const GatewayStreamKey* key) no
 }
 bool account_module_go_live(void* instance, const GoLiveCommand* command) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    auto* gateway = user_account_coordinator_gateway(&runtime->coordinator);
     if (!gateway || !command)
         return false;
     ensure_video_frames(runtime, gateway);
@@ -233,14 +220,14 @@ bool account_module_go_live(void* instance, const GoLiveCommand* command) noexce
 }
 bool account_module_go_live_snapshot(void* instance, GoLiveSnapshot* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    auto* gateway = user_account_coordinator_gateway(&runtime->coordinator);
     ensure_video_frames(runtime, gateway);
     return gateway && gateway_client_go_live_snapshot(gateway, output);
 }
 // The self-preview: the encoder's newest NV12 picture, as a remote stream's.
 bool account_module_go_live_preview(void* instance, VideoStreamFrame* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !output)
+    if (!output)
         return false;
     GpuVideoFrame frame{};
     u32 sequence = 0;
@@ -257,7 +244,7 @@ bool account_module_go_live_preview(void* instance, VideoStreamFrame* output) no
 RestClientSubmitResult account_module_stream_preview(void* instance, const GatewayStreamKey* key,
                                                      u64 request_id) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request_id || (key && !gateway_stream_key_valid(*key)))
+    if (!request_id || (key && !gateway_stream_key_valid(*key)))
         return {RestClientSubmitError::invalid_input};
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     if (!rest)
@@ -289,8 +276,8 @@ bool admit_invite(AccountModuleRuntime&, const GuildInviteRequest& request) noex
 
 bool account_module_voice_audio_configure(void* instance, const VoiceAudioSettings* settings) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
-    if (runtime && settings) {
+    auto* gateway = user_account_coordinator_gateway(&runtime->coordinator);
+    if (settings) {
         account_soundboard_output(&runtime->soundboard, *settings);
         account_voice_message_configure(&runtime->voice_message, *settings);
     }
@@ -299,45 +286,36 @@ bool account_module_voice_audio_configure(void* instance, const VoiceAudioSettin
 RestClientSubmitResult account_module_soundboard(void* instance, const SoundboardRequest* request,
                                                  u64 request_id) noexcept {
     // The sound probe needs no lane or request id.
-    if (instance && request && request->operation == SoundboardOperation::probe)
+    if (request && request->operation == SoundboardOperation::probe)
         return {account_soundboard_probe(request) ? RestClientSubmitError::none
                                                   : RestClientSubmitError::invalid_input};
     return module_lane<account_soundboard_submit>(instance, request, request_id);
 }
 bool account_module_soundboard_audio(void* instance, const SoundboardAudioCommand* command) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime && account_soundboard_command(&runtime->soundboard,
-                                                 user_account_coordinator_gateway(&runtime->coordinator), command,
-                                                 clock_monotonic_milliseconds());
+    return account_soundboard_command(&runtime->soundboard, user_account_coordinator_gateway(&runtime->coordinator),
+                                      command, clock_monotonic_milliseconds());
 }
 bool account_module_voice_message(void* instance, const VoiceMessageCommand* command,
                                   VoiceMessageStatus* status) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime && account_voice_message_command(&runtime->voice_message, command, status);
+    return account_voice_message_command(&static_cast<AccountModuleRuntime*>(instance)->voice_message, command,
+                                         status);
 }
 
 CaptchaBridgeStatus account_module_action_captcha(void* instance, const AccountActionCaptchaRequest* request) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request)
-        return {0, 0, 0, 0, CaptchaBridgePhase::empty, CaptchaBridgeError::invalid_input, false};
     return account_action_captcha(&runtime->action_captcha, user_account_coordinator_rest(&runtime->coordinator),
                                   user_account_coordinator_rest(&runtime->coordinator, true), *request);
 }
 
 AccountMediaRequestResult account_module_collection_title(void* instance, const AccountMediaCollectionTitleRequest* request, MediaTrackTitle* title) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request || !title) {
-        return rejected_media_request();
-    }
     return account_media_worker_collection_title(&runtime->media, *request, title);
 }
 AccountMediaRequestResult
 account_module_catalog_preview_request(void* instance, const AccountMediaCatalogPreviewRequest* request, u64 now_ms,
                                        u64 now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request) {
-        return rejected_media_request();
-    }
     return account_media_worker_request_catalog_preview(&runtime->media, *request, now_ms, now_seconds);
 }
 AccountMediaRequestResult account_module_media_local_preview(void* instance,
@@ -345,15 +323,6 @@ AccountMediaRequestResult account_module_media_local_preview(void* instance,
                                                              const AccountMediaLocalPreviewRequest* request,
                                                              u64 now_ms, u64 now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime ||
-        (operation != AccountLocalPreviewOperation::request &&
-         operation != AccountLocalPreviewOperation::retire &&
-         operation != AccountLocalPreviewOperation::uploaded &&
-         operation != AccountLocalPreviewOperation::presented) ||
-        (operation == AccountLocalPreviewOperation::presented ? request != nullptr : request == nullptr) ||
-        (operation != AccountLocalPreviewOperation::request && (now_ms || now_seconds))) {
-        return rejected_media_request();
-    }
     if (operation == AccountLocalPreviewOperation::presented)
         return account_media_worker_local_previews_presented(&runtime->media);
     if (operation == AccountLocalPreviewOperation::uploaded)
@@ -383,8 +352,6 @@ RestClientTakeResult account_module_rest_take(void* instance, RestClientResponse
     RestClientTakeResult invalid{};
     invalid.error = RestClientTakeError::invalid_input;
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime)
-        return invalid;
     if (runtime->logout_request_id)
         return module_rest(instance) ? rest_client_take_response(&runtime->coordinator.details, response, body_output)
                                      : invalid;
@@ -395,7 +362,7 @@ RestClientTakeResult account_module_rest_take(void* instance, RestClientResponse
 AccountLogoutResult account_module_logout(void* instance, AccountLogoutOperation operation, u64 request_id,
                                           AccountLogoutResponse* response) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request_id)
+    if (!request_id)
         return {RestClientSubmitError::invalid_input, false, false};
     if (operation == AccountLogoutOperation::begin) {
         if ((runtime->logout_request_id && runtime->logout_request_id != request_id) ||
@@ -420,21 +387,14 @@ AccountLogoutResult account_module_logout(void* instance, AccountLogoutOperation
 
 AccountMediaRequestResult account_module_media_request(void* instance, MediaAssetKey key,
                                                        u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime) {
-        return rejected_media_request();
-    }
-    return account_media_worker_request_static_asset(&runtime->media, key, monotonic_now_ms,
-                                                     unix_now_seconds);
+    return account_media_worker_request_static_asset(&static_cast<AccountModuleRuntime*>(instance)->media, key,
+                                                     monotonic_now_ms, unix_now_seconds);
 }
 
 AccountMediaRequestResult
 account_module_media_guild_icon_request(void* instance, const AccountMediaGuildIconRequest* request,
                                         u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request) {
-        return rejected_media_request();
-    }
     return account_media_worker_request_guild_icon(&runtime->media, *request, monotonic_now_ms,
                                                    unix_now_seconds);
 }
@@ -443,9 +403,6 @@ AccountMediaRequestResult
 account_module_media_attachment_request(void* instance, const AccountMediaAttachmentRequest* request,
                                         u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request) {
-        return rejected_media_request();
-    }
     return account_media_worker_request_attachment(&runtime->media, *request, monotonic_now_ms,
                                                    unix_now_seconds);
 }
@@ -453,45 +410,38 @@ account_module_media_attachment_request(void* instance, const AccountMediaAttach
 AccountMediaRequestResult account_module_media_advance(void* instance, MediaAssetKey key,
                                                        u16 cache_generation, u32 frame_index,
                                                        u64 unix_now_seconds) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime) {
-        return rejected_media_request();
-    }
-    return account_media_worker_advance_animation(&runtime->media, key, cache_generation, frame_index,
-                                                  unix_now_seconds);
+    return account_media_worker_advance_animation(&static_cast<AccountModuleRuntime*>(instance)->media, key,
+                                                  cache_generation, frame_index, unix_now_seconds);
 }
 
 bool account_module_media_take(void* instance, AccountMediaFrame* frame) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime && account_media_worker_take_frame(&runtime->media, frame);
+    return account_media_worker_take_frame(&static_cast<AccountModuleRuntime*>(instance)->media, frame);
 }
 
 AccountVideoResult account_module_video_select(void* instance,
                                                const AccountVideoSelection* selection) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime && selection ? account_media_worker_video_select(&runtime->media, *selection)
-                                : AccountVideoResult{AccountVideoError::invalid_input};
+    return selection ? account_media_worker_video_select(&runtime->media, *selection)
+                     : AccountVideoResult{AccountVideoError::invalid_input};
 }
 AccountVideoResult account_module_video_control(void* instance,
                                                 const AccountVideoControl* command) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime && command ? account_media_worker_video_control(&runtime->media, *command)
-                              : AccountVideoResult{AccountVideoError::invalid_input};
+    return command ? account_media_worker_video_control(&runtime->media, *command)
+                   : AccountVideoResult{AccountVideoError::invalid_input};
 }
 AccountVideoPlaybackStatus account_module_video_status(void* instance) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime ? account_media_worker_video_status(&runtime->media) : AccountVideoPlaybackStatus{};
+    return account_media_worker_video_status(&static_cast<AccountModuleRuntime*>(instance)->media);
 }
 bool account_module_video_take(void* instance, AccountVideoFrame* frame) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime && account_media_worker_video_take(&runtime->media, frame);
+    return account_media_worker_video_take(&static_cast<AccountModuleRuntime*>(instance)->media, frame);
 }
 bool account_module_video_acknowledge(void* instance, const AccountVideoFrame* frame) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime && frame && account_media_worker_video_acknowledge(&runtime->media, *frame);
+    return frame && account_media_worker_video_acknowledge(&runtime->media, *frame);
 }
 AccountModuleStatus account_module_stop(void** instance, u32 timeout_ms, u64, u64 unix_now_ms) noexcept {
-    if (!instance || !*instance || timeout_ms == 0 || unix_now_ms == 0) {
+    if (timeout_ms == 0 || unix_now_ms == 0) {
         return module_failure(AccountModuleError::invalid_input);
     }
     auto* runtime = static_cast<AccountModuleRuntime*>(*instance);
