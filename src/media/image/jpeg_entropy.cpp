@@ -209,22 +209,22 @@ __forceinline i32 receive_extend(JpegEntropyReader* reader, u32 bits) noexcept {
                              : static_cast<i32>(value);
 }
 
-// *end: after a decode that succeeds, one past the last coefficient (zigzag order) it read.
-__forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecodeTable& dc_table,
-                                      const JpegAcDecodeTable& ac_table, i32* predictor, JpegCoefficientBlock* block,
-                                      u32* end) noexcept {
+// One past the last coefficient (zigzag order) it read, 1-64, or 0 when the decode fails.
+__forceinline u32 decode_block_local(JpegEntropyReader* reader, const JpegDecodeTable& dc_table,
+                                     const JpegAcDecodeTable& ac_table, i32* predictor,
+                                     JpegCoefficientBlock* block) noexcept {
     for (u32 index = 0; index < 64; ++index) {
         block->values[index] = 0;
     }
     u8 symbol = 0;
     if (!decode_huffman_symbol(reader, dc_table, &symbol) || symbol > 11) {
         reader->error = JpegError::coefficient;
-        return false;
+        return 0;
     }
     *predictor += receive_extend(reader, symbol);
     if (reader->error != JpegError::none || *predictor < -32'768 || *predictor > 32'767) {
         reader->error = JpegError::coefficient;
-        return false;
+        return 0;
     }
     block->values[0] = static_cast<i16>(*predictor);
 
@@ -253,7 +253,7 @@ __forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecod
             }
         }
         if (!decode_huffman_symbol(reader, ac_table, &symbol)) {
-            return false;
+            return 0;
         }
         const u32 run = symbol >> 4;
         const u32 bits = symbol & 0x0F;
@@ -263,37 +263,36 @@ __forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecod
             }
             if (run != 15 || coefficient + 16 > 64) {
                 reader->error = JpegError::coefficient;
-                return false;
+                return 0;
             }
             coefficient += 16;
             continue;
         }
         if (bits > 10 || coefficient + run >= 64) {
             reader->error = JpegError::coefficient;
-            return false;
+            return 0;
         }
         coefficient += run;
         const i32 value = receive_extend(reader, bits);
         if (reader->error != JpegError::none || value < -1'023 || value > 1'023) {
             reader->error = JpegError::coefficient;
-            return false;
+            return 0;
         }
         block->values[kZigzagToRaster[coefficient]] = static_cast<i16>(value);
         ++coefficient;
     }
-    *end = coefficient;
-    return true;
+    return coefficient;
 }
 
 // The reader state lives in a local copy (registers) for the whole block. One out-of-line body serves the whole-block
 // and stored-rows layouts.
-__declspec(noinline) bool decode_block(JpegEntropyReader* reader, const JpegDecodeTable& dc_table,
-                                       const JpegAcDecodeTable& ac_table, i32* predictor,
-                                       JpegCoefficientBlock* block, u32* end) noexcept {
+__declspec(noinline) u32 decode_block(JpegEntropyReader* reader, const JpegDecodeTable& dc_table,
+                                      const JpegAcDecodeTable& ac_table, i32* predictor,
+                                      JpegCoefficientBlock* block) noexcept {
     JpegEntropyReader local = *reader;
-    const bool ok = decode_block_local(&local, dc_table, ac_table, predictor, block, end);
+    const u32 end = decode_block_local(&local, dc_table, ac_table, predictor, block);
     *reader = local;
-    return ok;
+    return end;
 }
 
 __forceinline bool store_coefficient(JpegEntropyReader* reader, i32 value, i16* destination) noexcept {

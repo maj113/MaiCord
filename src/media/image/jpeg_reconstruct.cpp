@@ -18,33 +18,39 @@ inline constexpr float kIdctBasis[8][8] = {
     {0.353553391f, -0.490392640f, 0.461939766f, -0.415734806f, 0.353553391f, -0.277785117f, 0.191341716f, -0.097545161f},
 };
 
-// The inverse DCT and its box averages as pairs of 16-bit values for _mm256_madd_epi16, scaled by 2^15. Row k of
-// kBasisPairs<Samples> holds for each sample s the value M[s][2k] in the low half and M[s][2k + 1] in the high half.
 // M[s][u] is the mean of kIdctBasis[x][u] over the s-th box of 8 / Samples pixels x: the basis itself at 8 samples.
+// The boxes are symmetric, so M[Samples - 1 - s][u] is M[s][u] for even u and -M[s][u] for odd u, also after the
+// rounding: sample s is E + O and sample Samples - 1 - s is E - O, with E the sum over the even frequencies and O over
+// the odd ones. kBasisPairs<Samples>.values[k][s] holds M[s][u] (low half) and M[s][v] (high half) scaled by 2^15 as
+// 16-bit values for _mm256_madd_epi16, for (u, v) = (0, 2), (4, 6), (1, 3), (5, 7) as k = 0 to 3 and the first
+// Samples / 2 samples s; samples 4-7 repeat samples 0-3 for the second 128-bit lane.
 template <u32 Samples> struct BasisPairs {
     u32 values[4][8];
 };
 template <u32 Samples> constexpr BasisPairs<Samples> basis_pairs() noexcept {
     BasisPairs<Samples> result{};
     constexpr u32 step = 8 / Samples;
-    for (u32 s = 0; s < Samples; ++s)
-        for (u32 u = 0; u < 8; ++u) {
-            double total = 0;
-            for (u32 x = s * step; x < (s + 1) * step; ++x)
-                total += kIdctBasis[x][u];
-            const double scaled = total * (32768.0 / step);
-            const i32 value = static_cast<i32>(scaled < 0 ? scaled - .5 : scaled + .5);
-            result.values[u / 2][s] |= static_cast<u32>(static_cast<u16>(value)) << (u % 2 * 16);
-        }
+    constexpr u8 kFrequencies[4][2] = {{0, 2}, {4, 6}, {1, 3}, {5, 7}};
+    for (u32 k = 0; k < 4; ++k)
+        for (u32 s = 0; s < Samples / 2; ++s)
+            for (u32 half = 0; half < 2; ++half) {
+                const u32 u = kFrequencies[k][half];
+                double total = 0;
+                for (u32 x = s * step; x < (s + 1) * step; ++x)
+                    total += kIdctBasis[x][u];
+                const double scaled = total * (32768.0 / step);
+                const i32 value = static_cast<i32>(scaled < 0 ? scaled - .5 : scaled + .5);
+                const u32 pair = static_cast<u32>(static_cast<u16>(value)) << (half * 16);
+                result.values[k][s] |= pair;
+                result.values[k][s + 4] |= pair;
+            }
     return result;
 }
 template <u32 Samples> alignas(32) inline constexpr BasisPairs<Samples> kBasisPairs = basis_pairs<Samples>();
 
-// In each 128-bit lane, the words of the low and the high quadword in turns.
-alignas(32) inline constexpr u8 kInterleaveWords[32] = {0, 1, 8, 9, 2, 3, 10, 11, 4, 5, 12, 13, 6, 7, 14, 15,
-                                                        0, 1, 8, 9, 2, 3, 10, 11, 4, 5, 12, 13, 6, 7, 14, 15};
-// After two packs: the rows of four samples, each row in 8 bytes.
-alignas(32) inline constexpr u32 kRowOrder[8] = {0, 4, 1, 5, 2, 6, 3, 7};
+// The words of each row in the order 0, 2, 4, 6, 1, 3, 5, 7: the pairs (0, 2), (4, 6), (1, 3) and (5, 7) as dwords.
+alignas(32) inline constexpr u8 kPairWords[32] = {0, 1, 4, 5, 8, 9, 12, 13, 2, 3, 6, 7, 10, 11, 14, 15,
+                                                  0, 1, 4, 5, 8, 9, 12, 13, 2, 3, 6, 7, 10, 11, 14, 15};
 
 // Dequantized coefficients to Samples x Samples samples: the 8x8 inverse DCT or its box averages. A vertical pass
 // and then a horizontal pass multiply pairs of 16-bit values and add the products in 32 bits. Between the passes
@@ -54,52 +60,78 @@ template <u32 Samples, u32 Used>
 MAICORD_HASWELL void reconstruct(const JpegCoefficientBlock& block, const JpegQuantizationTable& table, u8* plane,
                                  u32 pitch) noexcept {
     const auto& basis = kBasisPairs<Samples>.values;
-    const __m256i interleave = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(kInterleaveWords));
-    // pairs[k]: rows 2k and 2k + 1 of each column in turns, columns 0-3 in the low lane and 4-7 in the high lane.
+    const auto rows_of = [&](u32 first) MAICORD_HASWELL noexcept {
+        return _mm256_mullo_epi16(_mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(block.values + first * 8)),
+                                  _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(table.values + first * 8)));
+    };
+    // pairs[k]: coefficient rows (0, 2), (1, 3), (4, 6) and (5, 7) of each column in turns, as k = 0 to 3; columns
+    // 0-3 in the low lane and 4-7 in the high lane.
     __m256i pairs[Used / 2];
-    for (u32 k = 0; k < Used / 2; ++k) {
-        const __m256i values =
-            _mm256_mullo_epi16(_mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(block.values + k * 16)),
-                               _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(table.values + k * 16)));
-        pairs[k] = _mm256_shuffle_epi8(_mm256_permute4x64_epi64(values, 0xD8), interleave);
+    for (u32 k = 0; k < Used / 2; k += 2) {
+        const __m256i first = rows_of(k * 2), second = rows_of(k * 2 + 2);
+        const __m256i low = _mm256_unpacklo_epi16(first, second), high = _mm256_unpackhi_epi16(first, second);
+        pairs[k] = _mm256_permute2x128_si256(low, high, 0x20);
+        pairs[k + 1] = _mm256_permute2x128_si256(low, high, 0x31);
     }
     // The vertical pass: one row of eight frequencies for each sample row.
     alignas(32) i16 rows[Samples][8];
-    for (u32 sy = 0; sy < Samples; sy += 2) {
-        __m256i sums[2];
-        for (u32 i = 0; i < 2; ++i) {
-            sums[i] = _mm256_set1_epi32(1 << 9);
-            for (u32 k = 0; k < Used / 2; ++k)
-                sums[i] = _mm256_add_epi32(
-                    sums[i], _mm256_madd_epi16(pairs[k], _mm256_set1_epi32(static_cast<int>(basis[k][sy + i]))));
-            sums[i] = _mm256_srai_epi32(sums[i], 10);
+    for (u32 s = 0; s < Samples / 2; ++s) {
+        const auto term = [&](u32 pair, u32 k) MAICORD_HASWELL noexcept {
+            return _mm256_madd_epi16(pairs[pair], _mm256_set1_epi32(static_cast<int>(basis[k][s])));
+        };
+        __m256i even = _mm256_add_epi32(term(0, 0), _mm256_set1_epi32(1 << 9)), odd = term(1, 2);
+        if constexpr (Used == 8) {
+            even = _mm256_add_epi32(even, term(2, 1));
+            odd = _mm256_add_epi32(odd, term(3, 3));
         }
-        _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(rows[sy]),
-                            _mm256_permute4x64_epi64(_mm256_packs_epi32(sums[0], sums[1]), 0xD8));
+        const __m256i both = _mm256_permute4x64_epi64(
+            _mm256_packs_epi32(_mm256_srai_epi32(_mm256_add_epi32(even, odd), 10),
+                               _mm256_srai_epi32(_mm256_sub_epi32(even, odd), 10)),
+            0xD8);
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(rows[s]), _mm256_castsi256_si128(both));
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(rows[Samples - 1 - s]), __builtin_shufflevector(both, both, 2, 3));
     }
-    // The horizontal pass, plus 128 and rounded half up.
-    __m256i samples[Samples < 4 ? 4 : Samples];
-    for (u32 sy = 0; sy < Samples; ++sy) {
-        __m256i sum = _mm256_set1_epi32((128 << 20) + (1 << 19));
-        for (u32 k = 0; k < Used / 2; ++k)
-            sum = _mm256_add_epi32(
-                sum, _mm256_madd_epi16(
-                         _mm256_set1_epi32(static_cast<int>(byte_load_le32(reinterpret_cast<const u8*>(rows[sy] + k * 2)))),
-                         _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(basis[k]))));
-        samples[sy] = _mm256_srai_epi32(sum, 20);
+    // The horizontal pass, two sample rows at once (one in each lane), plus 128 and rounded half up.
+    const __m256i order = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(kPairWords));
+    for (u32 sy = 0; sy < Samples; sy += 2) {
+        const __m256i values =
+            _mm256_shuffle_epi8(_mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(rows[sy])), order);
+        const auto term = [&](__m256i pair, u32 k) MAICORD_HASWELL noexcept {
+            return _mm256_madd_epi16(pair, _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(basis[k])));
+        };
+        __m256i even = _mm256_add_epi32(term(_mm256_shuffle_epi32(values, 0x00), 0),
+                                        _mm256_set1_epi32((128 << 20) + (1 << 19)));
+        __m256i odd = term(_mm256_shuffle_epi32(values, 0xAA), 2);
+        if constexpr (Used == 8) {
+            even = _mm256_add_epi32(even, term(_mm256_shuffle_epi32(values, 0x55), 1));
+            odd = _mm256_add_epi32(odd, term(_mm256_shuffle_epi32(values, 0xFF), 3));
+        }
+        // Samples 0 to Samples / 2 - 1 of each row, then the others from the last.
+        const __m256i front = _mm256_srai_epi32(_mm256_add_epi32(even, odd), 20);
+        const __m256i back = _mm256_srai_epi32(_mm256_sub_epi32(even, odd), 20);
+        __m256i words;
+        if constexpr (Samples == 8) {
+            words = _mm256_packs_epi32(front, _mm256_shuffle_epi32(back, 0x1B));
+        } else {
+            const __v8si row = Samples == 4
+                                   ? __builtin_shufflevector((__v8si)front, (__v8si)back, 0, 1, 9, 8, 4, 5, 13, 12)
+                                   : __builtin_shufflevector((__v8si)front, (__v8si)back, 0, 8, 0, 8, 4, 12, 4, 12);
+            words = _mm256_packs_epi32((__m256i)row, (__m256i)row);
+        }
+        const __m256i bytes = _mm256_packus_epi16(words, words);
+        const __m128i high = __builtin_shufflevector(bytes, bytes, 2, 3);
+        u8* const first = plane + sy * pitch;
+        if constexpr (Samples == 8) {
+            _mm_storel_epi64(reinterpret_cast<__m128i*>(first), _mm256_castsi256_si128(bytes));
+            _mm_storel_epi64(reinterpret_cast<__m128i*>(first + pitch), high);
+        } else if constexpr (Samples == 4) {
+            _mm_storeu_si32(first, _mm256_castsi256_si128(bytes));
+            _mm_storeu_si32(first + pitch, high);
+        } else {
+            byte_store_le16(first, static_cast<u16>(_mm_cvtsi128_si32(_mm256_castsi256_si128(bytes))));
+            byte_store_le16(first + pitch, static_cast<u16>(_mm_cvtsi128_si32(high)));
+        }
     }
-    for (u32 sy = Samples; sy < 4; ++sy)
-        samples[sy] = _mm256_setzero_si256();
-    const __m256i order = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(kRowOrder));
-    alignas(32) u8 bytes[Samples < 4 ? 32 : 64];
-    for (u32 sy = 0; sy < Samples; sy += 4)
-        _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(bytes + sy * 8),
-                            _mm256_permutevar8x32_epi32(
-                                _mm256_packus_epi16(_mm256_packs_epi32(samples[sy], samples[sy + 1]),
-                                                    _mm256_packs_epi32(samples[sy + 2], samples[sy + 3])),
-                                order));
-    for (u32 y = 0; y < Samples; ++y)
-        copy_bytes(plane + y * pitch, bytes + y * 8, Samples);
 }
 
 template <u32 Used>
@@ -392,9 +424,9 @@ JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegIm
                 const JpegComponent& component = image.components[component_index];
                 for (u32 vertical = 0; vertical < component.vertical_sampling; ++vertical)
                     for (u32 horizontal = 0; horizontal < component.horizontal_sampling; ++horizontal) {
-                        u32 end;
-                        if (!decode_block(&reader, dc_decode[component.dc_table],
-                                          ac_decode[component.ac_table], &predictor[component_index], &block, &end)) {
+                        const u32 end = decode_block(&reader, dc_decode[component.dc_table],
+                                                     ac_decode[component.ac_table], &predictor[component_index], &block);
+                        if (!end) {
                             result.error = reader.error == JpegError::none ? JpegError::coefficient : reader.error;
                             return result;
                         }

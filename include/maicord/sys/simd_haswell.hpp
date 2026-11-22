@@ -212,9 +212,6 @@ MAICORD_SIMD_HASWELL __m256i _mm256_unpackhi_epi16(__m256i __a, __m256i __b) {
 MAICORD_SIMD_HASWELL __m256i _mm256_shuffle_epi8(__m256i __a, __m256i __b) {
     return (__m256i)__builtin_ia32_pshufb256((__v32qi)__a, (__v32qi)__b);
 }
-MAICORD_SIMD_HASWELL __m256i _mm256_permutevar8x32_epi32(__m256i __a, __m256i __b) {
-    return (__m256i)__builtin_ia32_permvarsi256((__v8si)__a, (__v8si)__b);
-}
 // For the ChaCha20 rows.
 #define _mm256_shuffle_epi32(A, I) ((__m256i)__builtin_ia32_pshufd256((__v8si)(__m256i)(A), (int)(I)))
 MAICORD_SIMD_HASWELL __m256i _mm256_broadcastsi128_si256(__m128i __X) {

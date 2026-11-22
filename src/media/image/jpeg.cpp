@@ -117,7 +117,6 @@ bool build_huffman_table(JpegHuffmanTable* table, const u8* counts, const u8* sy
     for (u32 index = 0; index < symbol_count; ++index) {
         table->symbols[index] = symbols[index];
     }
-    table->symbol_count = static_cast<u16>(symbol_count);
     table->present = true;
     return true;
 }
@@ -383,9 +382,6 @@ JpegError parse_scan_header(ConstSlice<u8> encoded, u32 payload, u32 bytes, cons
 JpegParseResult parse_jpeg(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspace* workspace,
                            bool thumbnail) noexcept {
     JpegParseResult result{};
-    if (!image || !workspace || (!encoded.data && encoded.count != 0)) {
-        return parse_failure(result, JpegError::invalid_input);
-    }
     reset_value<JpegImage>(image);
     image->orientation = JpegOrientation::top_left;
     reset_value<JpegTables>(&workspace->tables);
@@ -469,7 +465,6 @@ JpegParseResult parse_jpeg(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspa
                 }
             }
             image->scan_count = static_cast<u16>(result.scans);
-            image->restart_markers = result.restart_markers;
             finalize_icc_profile(encoded, icc_chunks, icc_seen_chunks, icc_declared_chunks, icc_marker_seen,
                                  icc_transport_malformed, *image, &workspace->icc);
             result.error = JpegError::none;
@@ -602,7 +597,6 @@ JpegParseResult parse_jpeg(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspa
                 quantization_locked |= static_cast<u8>(1u << component.quantization_table);
             }
             image->restart_interval = scan.restart_interval;
-            result.restart_markers += scan.restart_markers;
             ++result.scans;
             cursor = next_marker;
             continue;
@@ -637,8 +631,7 @@ JpegDecodeResult decode_progressive_scans(ConstSlice<u8> encoded, const JpegImag
             return result;
         }
         if (marker == 0xD9) {
-            if (cursor != encoded.count || scans != image.scan_count ||
-                result.decoded_scans != image.scan_count) {
+            if (cursor != encoded.count || scans != image.scan_count) {
                 result.error = cursor != encoded.count ? JpegError::trailing_data : JpegError::scan;
                 return result;
             }
@@ -783,29 +776,26 @@ JpegDecodeResult jpeg_detail::decode_baseline_coefficients(ConstSlice<u8> encode
                 for (u32 horizontal = 0; horizontal < component.horizontal_sampling; ++horizontal) {
                     const u32 block_x = mcu_x * component.horizontal_sampling + horizontal;
                     const u32 block_y = mcu_y * component.vertical_sampling + vertical;
+                    // The block lies in its component's grid: block_x < mcu_columns * h = block_columns, and
+                    // block_y < block_rows likewise.
                     const u32 block_index =
                         component.block_offset + block_y * component.block_columns + block_x;
-                    bool decoded = block_index < image.coefficient_blocks;
-                    if (decoded) {
-                        u32 end = 64;
-                        auto* const block = reinterpret_cast<JpegCoefficientBlock*>(
-                            stored_rows ? rows + stored * 16u : rows + block_index * sizeof(JpegCoefficientBlock));
-                        decoded = decode_block(&reader, dc, ac, &predictor[component_index], block, &end);
-                        if (stored_rows) {
-                            // The rows up to the last the block's coefficients reach (all eight after a failure).
-                            const u32 count = decoded ? kRowsThrough.values[end] : 8u;
-                            const u32 packed = stored << 8 | count;
-                            memcpy(words + block_index * 4u, &packed, sizeof(packed));
-                            stored += count;
-                        }
+                    auto* const block = reinterpret_cast<JpegCoefficientBlock*>(
+                        stored_rows ? rows + stored * 16u : rows + block_index * sizeof(JpegCoefficientBlock));
+                    const u32 end = decode_block(&reader, dc, ac, &predictor[component_index], block);
+                    if (stored_rows) {
+                        // The rows up to the last the block's coefficients reach (all eight after a failure).
+                        const u32 count = end ? kRowsThrough.values[end] : 8u;
+                        const u32 packed = stored << 8 | count;
+                        memcpy(words + block_index * 4u, &packed, sizeof(packed));
+                        stored += count;
                     }
-                    if (!decoded) {
+                    if (!end) {
                         coefficients->stored_rows = stored;
                         result.error =
                             reader.error == JpegError::none ? JpegError::coefficient : reader.error;
                         return result;
                     }
-                    ++result.decoded_blocks;
                 }
             }
         }
@@ -815,12 +805,12 @@ JpegDecodeResult jpeg_detail::decode_baseline_coefficients(ConstSlice<u8> encode
         }
     }
     coefficients->stored_rows = stored;
-    if (!entropy_at_end(&reader) || result.decoded_blocks != image.coefficient_blocks) {
+    // Each MCU decodes h * v blocks of each component, so a complete scan decodes every block.
+    if (!entropy_at_end(&reader)) {
         result.error = reader.error == JpegError::none ? JpegError::entropy : reader.error;
         return result;
     }
     result.error = JpegError::none;
-    result.decoded_scans = 1;
     return result;
 }
 
