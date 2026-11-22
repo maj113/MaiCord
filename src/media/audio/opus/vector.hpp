@@ -47,6 +47,13 @@ __forceinline F4 low4(F8 value) noexcept {
 __forceinline F4 high4(F8 value) noexcept {
     return __builtin_shufflevector(value, value, 4, 5, 6, 7);
 }
+// Every other float: forward from p[0] to p[14], or backward from p[0] to p[-14].
+__forceinline F8 forward(const float* p) noexcept {
+    return __builtin_shufflevector(load8(p), load8(p + 8), 0, 2, 4, 6, 8, 10, 12, 14);
+}
+__forceinline F8 backward(const float* p) noexcept {
+    return __builtin_shufflevector(load8(p - 15), load8(p - 7), 15, 13, 11, 9, 7, 5, 3, 1);
+}
 // ((v0 + v2) + (v1 + v3)), and for eight lanes the two halves added first.
 __forceinline float sum4(F4 value) noexcept {
     const F4 pairs = value + __builtin_shufflevector(value, value, 2, 3, 2, 3);

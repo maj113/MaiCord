@@ -5,7 +5,7 @@
 // are in aac_tables.inc (the tables of ISO/IEC 14496-3, checked in).
 #include "maicord/media/audio/aac_lc.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/sys/simd_haswell.hpp"
+#include "opus/vector.hpp"
 
 namespace maicord {
 namespace {
@@ -87,6 +87,27 @@ struct Bits {
     const u8* data;
     u32 bytes, total, position;
     bool error;
+    // The 64 bits from `position` on, the first in the top bit; past the frame they are zeros. The last
+    // position % 8 are zeros too, so the first 57 are the stream's.
+    u64 peek() const noexcept {
+        const u32 at = position >> 3;
+        u64 word = 0;
+        if (at + 8 <= bytes) {
+            __builtin_memcpy(&word, data + at, 8);
+            word = __builtin_bswap64(word);
+        } else {
+            for (u32 i = 0; i < 8; ++i)
+                word = (word << 8) | (at + i < bytes ? data[at + i] : 0u);
+        }
+        return word << (position & 7);
+    }
+    void advance(u32 n) noexcept {
+        position += n;
+        if (position > total) {
+            error = true;
+            position = total;
+        }
+    }
     u32 get(u32 n) noexcept { // n <= 25
         if (n == 0)
             return 0;
@@ -95,29 +116,12 @@ struct Bits {
             position = total;
             return 0;
         }
-        const u32 at = position >> 3;
-        u32 word = 0;
-        for (u32 i = 0; i < 4; ++i)
-            word = (word << 8) | (at + i < bytes ? data[at + i] : 0u);
-        const u32 value = (word << (position & 7)) >> (32 - n);
+        const u32 value = static_cast<u32>(peek() >> (64 - n));
         position += n;
         return value;
     }
-    u32 get1() noexcept {
-        if (error || position >= total) {
-            error = true;
-            return 0;
-        }
-        const u32 value = (data[position >> 3] >> (7 - (position & 7))) & 1u;
-        ++position;
-        return value;
-    }
     void align() noexcept {
-        position = (position + 7) & ~7u;
-        if (position > total) {
-            error = true;
-            position = total;
-        }
+        advance(-position & 7u);
     }
 };
 
@@ -154,39 +158,30 @@ struct AacLc {
     float staged_pcm[2][kLines];
     Channel channel[2];
     u8 mid_side[kMaximumBands];
-    i32 quantized[kLines];
+    i16 quantized[kLines]; // escapes reach 8191, pulses 15 more
     float time[2 * kLines];
-    float transform[kLines];
     float fft_re[kLines / 2], fft_im[kLines / 2];
     // Tables.
     float power43[kPowerEntries];
     float rise_long[2][kLines]; // [0] sine, [1] Kaiser-Bessel-derived
     float rise_short[2][kShortLines];
-    float stage_re[kLines / 2], stage_im[kLines / 2]; // butterfly twiddles of the long transform, stage k at [k..2k)
     float pre_re[kLines / 2], pre_im[kLines / 2], post_re[kLines / 2], post_im[kLines / 2];
-    float short_stage_re[kShortLines / 2], short_stage_im[kShortLines / 2];
     float short_pre_re[kShortLines / 2], short_pre_im[kShortLines / 2];
     float short_post_re[kShortLines / 2], short_post_im[kShortLines / 2];
-    u16 reverse_long[kLines / 2];
-    u16 reverse_short[kShortLines / 2];
+    // FFT twiddles: exp(-2 pi i s j / (4 m)) of the radix-4 passes over sub-blocks of m = 4, 16 and 64, at 2 (m - 4)
+    // as [s - 1][real, imaginary][j]; exp(-2 pi i j / 512) of the radix-2 pass, as [real, imaginary][j].
+    float four[504];
+    float two[2][kLines / 4];
 };
 
 namespace {
 
 // ---- Tables ------------------------------------------------------------------------------------------------------
 
-void build_transform(const u32 size, float* stage_re, float* stage_im, float* pre_re, float* pre_im, float* post_re,
-                     float* post_im, u16* reverse, double scale) noexcept {
-    // `size` coefficients, a complex transform of size / 2 points.
-    const u32 points = size / 2;
-    for (u32 half = 1; half < points; half <<= 1)
-        for (u32 j = 0; j < half; ++j) {
-            double c, s;
-            cos_sin(-kPi * j / half, &c, &s);
-            stage_re[half + j] = static_cast<float>(c);
-            stage_im[half + j] = static_cast<float>(s);
-        }
-    for (u32 n = 0; n < points; ++n) {
+// The rotations around the FFT of an IMDCT of `size` coefficients (size / 2 complex points).
+void build_rotations(const u32 size, float* pre_re, float* pre_im, float* post_re, float* post_im,
+                     double scale) noexcept {
+    for (u32 n = 0; n < size / 2; ++n) {
         double c, s;
         cos_sin(-kPi * (4.0 * n + 1.0) / (4.0 * size), &c, &s);
         pre_re[n] = static_cast<float>(c);
@@ -195,14 +190,22 @@ void build_transform(const u32 size, float* stage_re, float* stage_im, float* pr
         post_re[n] = static_cast<float>(c * scale);
         post_im[n] = static_cast<float>(s * scale);
     }
-    u32 bits = 0;
-    while ((1u << bits) < points)
-        ++bits;
-    for (u32 n = 0; n < points; ++n) {
-        u32 r = 0;
-        for (u32 b = 0; b < bits; ++b)
-            r |= ((n >> b) & 1u) << (bits - 1 - b);
-        reverse[n] = static_cast<u16>(r);
+}
+
+void build_twiddles(AacLc& d) noexcept {
+    for (u32 m = 4; m <= 64; m *= 4)
+        for (u32 s = 1; s <= 3; ++s)
+            for (u32 j = 0; j < m; ++j) {
+                double c, si;
+                cos_sin(-kPi * s * j / (2.0 * m), &c, &si);
+                d.four[2 * (m - 4) + (s - 1) * 2 * m + j] = static_cast<float>(c);
+                d.four[2 * (m - 4) + (s - 1) * 2 * m + m + j] = static_cast<float>(si);
+            }
+    for (u32 j = 0; j < kLines / 4; ++j) {
+        double c, s;
+        cos_sin(-kPi * j / (kLines / 4), &c, &s);
+        d.two[0][j] = static_cast<float>(c);
+        d.two[1][j] = static_cast<float>(s);
     }
 }
 
@@ -238,23 +241,46 @@ void build_windows(AacLc& d) noexcept {
 
 // ---- Entropy-coded data ------------------------------------------------------------------------------------------
 
-// The codebooks are canonical (aac_tables.inc): the codewords of one length are consecutive and the first follows the
-// last of the shorter lengths, so the code read so far is a symbol once it falls below `first + count` of its length.
-u32 huffman(u32 book, Bits& b) noexcept {
-    const u8* counts = kAacCodeCounts[book];
-    u32 code = 0, first = 0, rank = 0;
-    for (u32 length = 0; length < 19; ++length) {
-        code = (code << 1) | b.get1();
-        const u32 count = counts[length];
-        if (code - first < count) {
-            rank += code - first;
-            return book == 10 ? kAacSymbols16[rank] : kAacSymbols8[kAacSymbolBase[book] + rank];
+// Canonical decoding (A. Moffat and A. Turpin, "On the implementation of minimum redundancy prefix codes", IEEE
+// Trans. Commun. 45(10), 1997). The codebooks are canonical and complete (aac_tables.inc): the codewords of one length
+// are consecutive, the first follows the last of the shorter lengths, and any 19 bits start with a codeword. With the
+// next 19 bits as the number w, the codewords of length l + 1 end below limit[l] (their end extended to 19 bits):
+// the codeword's length is one more than the count of limits at or below w, and it is the first l + 1 bits of w.
+struct Canonical {
+    alignas(16) i32 limit[20]; // by length - 1, then 2^19 (above every w)
+    i32 offset[19];            // by length - 1: the symbol index of its codeword 0 (first symbol - first codeword)
+};
+struct CanonicalBooks {
+    Canonical book[12];
+};
+constexpr CanonicalBooks canonical_books() noexcept {
+    CanonicalBooks c{};
+    for (u32 book = 0; book < 12; ++book) {
+        i32 first = 0, rank = kAacSymbolBase[book];
+        for (u32 l = 0; l < 19; ++l) {
+            const i32 count = kAacCodeCounts[book][l];
+            c.book[book].limit[l] = (first + count) << (18 - l);
+            c.book[book].offset[l] = rank - first;
+            rank += count;
+            first = (first + count) << 1;
         }
-        rank += count;
-        first = (first + count) << 1;
+        c.book[book].limit[19] = 1 << 19;
     }
-    b.error = true;
-    return 0;
+    return c;
+}
+constexpr CanonicalBooks kCanonical = canonical_books();
+typedef i32 Limits __attribute__((__vector_size__(16), __may_alias__));
+
+// The symbol of the next codeword of `book`: for the spectral books, its values as bit fields (aac_tables.inc).
+__forceinline u32 huffman(u32 book, Bits& b) noexcept {
+    const Canonical& c = kCanonical.book[book];
+    const i32 w = static_cast<i32>(b.peek() >> 45);
+    const Limits* limit = reinterpret_cast<const Limits*>(c.limit);
+    const Limits above = (limit[0] > w) + (limit[1] > w) + (limit[2] > w) + (limit[3] > w) + (limit[4] > w);
+    const u32 l = static_cast<u32>(20 + above[0] + above[1] + above[2] + above[3]);
+    b.advance(l + 1);
+    const u32 index = static_cast<u32>(c.offset[l] + (w >> (18 - l)));
+    return book == 10 ? kAacSymbols16[index] : kAacSymbols8[index];
 }
 
 // Side information, once per channel and frame: compiled for size.
@@ -281,7 +307,7 @@ AacLcError parse_ics_info(const AacLc& d, Bits& b, Ics& ics) noexcept {
         ics.tns_max_bands = kAacTnsMaxBandsShort[d.rate_index];
     } else {
         ics.max_sfb = static_cast<u8>(b.get(6));
-        if (b.get1())
+        if (b.get(1))
             return AacLcError::unsupported; // predictor data: AAC Main, not LC
         ics.groups = 1;
         ics.group_length[0] = 1;
@@ -360,7 +386,7 @@ AacLcError parse_scalefactors(Bits& b, Channel& c, u32 global_gain) noexcept {
 
 AacLcError parse_pulses(Bits& b, Channel& c) noexcept {
     c.pulse_count = 0;
-    if (!b.get1())
+    if (!b.get(1))
         return AacLcError::none;
     const u32 count = b.get(2) + 1, start_band = b.get(6);
     if (c.ics.sequence == kEightShort || start_band >= c.ics.num_swb)
@@ -385,7 +411,7 @@ AacLcError parse_tns(Bits& b, Channel& c) noexcept {
         c.tns_filters[w] = static_cast<u8>(b.get(is_short ? 1 : 2));
         if (!c.tns_filters[w])
             continue;
-        const u32 resolution_bits = b.get1() + 3;
+        const u32 resolution_bits = b.get(1) + 3;
         for (u32 f = 0; f < c.tns_filters[w]; ++f) {
             c.tns_length[w][f] = static_cast<u8>(b.get(is_short ? 4 : 6));
             const u32 order = b.get(is_short ? 3 : 5);
@@ -394,8 +420,8 @@ AacLcError parse_tns(Bits& b, Channel& c) noexcept {
             c.tns_order[w][f] = static_cast<u8>(order);
             if (!order)
                 continue;
-            c.tns_direction[w][f] = static_cast<u8>(b.get1());
-            const u32 compress = b.get1(), bits = resolution_bits - compress;
+            c.tns_direction[w][f] = static_cast<u8>(b.get(1));
+            const u32 compress = b.get(1), bits = resolution_bits - compress;
             const double positive = ((1u << (resolution_bits - 1)) - 0.5) / (kPi / 2.0);
             const double negative = ((1u << (resolution_bits - 1)) + 0.5) / (kPi / 2.0);
             for (u32 i = 0; i < order; ++i) {
@@ -416,39 +442,40 @@ AacLcError parse_tns(Bits& b, Channel& c) noexcept {
 #pragma clang attribute pop
 
 // One band of spectral values into q; false on a malformed escape.
-bool read_band(Bits& b, u32 book, i32* q, u32 width) noexcept {
-    static constexpr u8 kModulus[11] = {3, 3, 3, 3, 9, 9, 8, 8, 13, 13, 17};
+bool read_band(Bits& b, u32 book, i16* q, u32 width) noexcept {
     const bool is_signed = book <= 2 || book == 5 || book == 6;
-    const u32 dimension = book <= 4 ? 4 : 2, modulus = kModulus[book - 1];
+    const u32 dimension = book <= 4 ? 4 : 2, field = book <= 4 ? 2 : book == 11 ? 5 : 4;
     const i32 offset = book <= 2 ? -1 : (book == 5 || book == 6) ? -4 : 0;
     for (u32 k = 0; k < width; k += dimension) {
-        u32 symbol = huffman(book - 1, b);
+        const u32 symbol = huffman(book - 1, b);
         i32 magnitude[4];
-        for (i32 i = static_cast<i32>(dimension) - 1; i >= 0; --i) {
-            magnitude[i] = static_cast<i32>(symbol % modulus) + offset;
-            symbol /= modulus;
-        }
+        for (u32 i = 0; i < dimension; ++i)
+            magnitude[i] = static_cast<i32>((symbol >> field * (dimension - 1 - i)) & ((1u << field) - 1)) + offset;
         if (is_signed) {
             for (u32 i = 0; i < dimension; ++i)
-                q[k + i] = magnitude[i];
+                q[k + i] = static_cast<i16>(magnitude[i]);
             continue;
         }
+        // A sign bit per nonzero value, then book 11's escapes: n - 4 ones, a zero and n bits (n at most 12).
+        const u64 signs = b.peek();
+        u32 used = 0;
         bool negative[4]{};
         for (u32 i = 0; i < dimension; ++i)
             if (magnitude[i])
-                negative[i] = b.get1() != 0;
+                negative[i] = (signs << used++) >> 63;
+        b.advance(used);
         if (book == 11)
             for (u32 i = 0; i < dimension; ++i)
                 if (magnitude[i] == 16) {
-                    u32 n = 4;
-                    while (b.get1()) {
-                        if (++n > 12)
-                            return false;
-                    }
-                    magnitude[i] = static_cast<i32>((1u << n) + b.get(n));
+                    const u64 escape = b.peek();
+                    const u32 ones = static_cast<u32>(__builtin_clzll(~escape | 1));
+                    if (ones > 8)
+                        return false;
+                    magnitude[i] = static_cast<i32>((1u << (ones + 4)) + (escape << (ones + 1) >> (60 - ones)));
+                    b.advance(2 * ones + 5);
                 }
         for (u32 i = 0; i < dimension; ++i)
-            q[k + i] = negative[i] ? -magnitude[i] : magnitude[i];
+            q[k + i] = static_cast<i16>(negative[i] ? -magnitude[i] : magnitude[i]);
         if (b.error)
             return false;
     }
@@ -475,8 +502,8 @@ AacLcError read_spectrum(AacLc& d, Bits& b, Channel& c) noexcept {
     // A pulse adds to a positive quantized value. It subtracts from a negative value and from zero (ISO/IEC 14496-3
     // 4.6.3.3).
     for (u32 i = 0; i < c.pulse_count; ++i) {
-        i32& value = d.quantized[c.pulse_position[i]];
-        value += value > 0 ? static_cast<i32>(c.pulse_amplitude[i]) : -static_cast<i32>(c.pulse_amplitude[i]);
+        i16& value = d.quantized[c.pulse_position[i]];
+        value = static_cast<i16>(value + (value > 0 ? c.pulse_amplitude[i] : -c.pulse_amplitude[i]));
     }
     return AacLcError::none;
 }
@@ -511,7 +538,7 @@ void dequantize(AacLc& d, Channel& c, u32& random) noexcept {
                         out[k] *= scale;
                 } else if (book < kNoiseBook) {
                     const float gain = power_quarters(c.value[index] - 100);
-                    const i32* q = d.quantized + base;
+                    const i16* q = d.quantized + base;
                     for (u32 k = 0; k < width; ++k) {
                         const u32 magnitude = static_cast<u32>(q[k] < 0 ? -q[k] : q[k]);
                         const float value = d.power43[magnitude < kPowerEntries ? magnitude : kPowerEntries - 1] * gain;
@@ -612,56 +639,149 @@ void apply_tns(Channel& c) noexcept {
 
 // ---- The filterbank ----------------------------------------------------------------------------------------------
 
-// The IMDCT of `lines` coefficients into 2 * lines samples, scaled by `scale` folded into the post twiddles.
-// AVX2: the vectorized loops take eight lanes. Fused multiply-adds were slower here.
-MAICORD_HASWELL void imdct(AacLc& d, const float* spectrum, float* out, bool is_long) noexcept {
-    const u32 lines = is_long ? kLines : kShortLines, points = lines / 2;
-    const float* stage_re = is_long ? d.stage_re : d.short_stage_re;
-    const float* stage_im = is_long ? d.stage_im : d.short_stage_im;
+// The IMDCT of `lines` coefficients into 2 * lines samples: a complex FFT of lines / 2 points between two rotations
+// (P. Duhamel, Y. Mahieux and J. P. Petit, "A fast algorithm for the implementation of filter banks based on time
+// domain aliasing cancellation", ICASSP 1991), the scale folded into the second rotation. The FFT is a mixed-radix
+// decimation in time: a radix-4 pass fused with the first rotation, radix-4 passes over sub-blocks of 4, 16 and (512
+// points) 64, and for 512 points a last radix-2 pass. Real and imaginary parts are separate arrays, so every pass takes
+// four or eight butterflies at a time.
+using namespace opus;
+
+template <typename V> __forceinline V load(const float* from) noexcept {
+    V value;
+    __builtin_memcpy(&value, from, sizeof(V));
+    return value;
+}
+template <typename V> __forceinline void store(float* to, V value) noexcept {
+    __builtin_memcpy(to, &value, sizeof(V));
+}
+MAICORD_HASWELL_FMA __forceinline F4 multiply_add(F4 a, F4 b, F4 c) noexcept {
+    return _mm_fmadd_ps(a, b, c);
+}
+MAICORD_HASWELL_FMA __forceinline F8 multiply_add(F8 a, F8 b, F8 c) noexcept {
+    return _mm256_fmadd_ps(a, b, c);
+}
+template <typename V> struct Complex {
+    V re, im;
+};
+// The values at re / im times the factors at wr / wi.
+template <typename V>
+MAICORD_HASWELL_FMA __forceinline Complex<V> rotate(const float* re, const float* im, const float* wr,
+                                                    const float* wi) noexcept {
+    const V a = load<V>(re), b = load<V>(im), c = load<V>(wr), s = load<V>(wi);
+    return {multiply_add(a, c, -(b * s)), multiply_add(a, s, b * c)};
+}
+
+// A radix-4 pass: in each block of 4 m points, the transforms of m points at s m (s < 4), rotated by the twiddles w
+// of s, combine into one transform of 4 m points. Not inlined: one copy serves the passes over 16 and 64 points.
+template <typename V>
+__declspec(noinline) MAICORD_HASWELL_FMA void radix4(float* re, float* im, u32 points, u32 m,
+                                                     const float* w) noexcept {
+#pragma clang fp contract(off)
+    for (u32 p = 0; p < points; p += 4 * m)
+        for (u32 j = 0; j < m; j += sizeof(V) / sizeof(float)) {
+            float* const r = re + p + j;
+            float* const i = im + p + j;
+            const V a_re = load<V>(r), a_im = load<V>(i);
+            const Complex<V> b = rotate<V>(r + m, i + m, w + j, w + m + j);
+            const Complex<V> c = rotate<V>(r + 2 * m, i + 2 * m, w + 2 * m + j, w + 3 * m + j);
+            const Complex<V> e = rotate<V>(r + 3 * m, i + 3 * m, w + 4 * m + j, w + 5 * m + j);
+            const V ac_re = a_re + c.re, ac_im = a_im + c.im, ca_re = a_re - c.re, ca_im = a_im - c.im;
+            const V be_re = b.re + e.re, be_im = b.im + e.im, eb_re = b.re - e.re, eb_im = b.im - e.im;
+            store<V>(r, ac_re + be_re);
+            store<V>(i, ac_im + be_im);
+            store<V>(r + m, ca_re + eb_im);
+            store<V>(i + m, ca_im - eb_re);
+            store<V>(r + 2 * m, ac_re - be_re);
+            store<V>(i + 2 * m, ac_im - be_im);
+            store<V>(r + 3 * m, ca_re - eb_im);
+            store<V>(i + 3 * m, ca_im + eb_re);
+        }
+}
+
+// The first pass reads points q + k quarter (k < 4) and writes their four outputs to the block of four whose index is
+// q's digits reversed: the radices of the later passes, from the last, are (4, 4) for 64 points and (2, 4, 4, 4) for
+// 512. For q = 8 a + lane, that block is kFirstBlocks[lane] plus 2 a (64 points) or 4 (a % 4) + a / 4 (512 points).
+constexpr u8 kFirstBlocks[2][8]{{0, 4, 8, 12, 1, 5, 9, 13}, {0, 64, 16, 80, 32, 96, 48, 112}};
+
+MAICORD_HASWELL_FMA void imdct(AacLc& d, const float* spectrum, float* out, bool is_long) noexcept {
+#pragma clang fp contract(off)
+    const u32 lines = is_long ? kLines : kShortLines, points = lines / 2, quarter = points / 4;
     const float* pre_re = is_long ? d.pre_re : d.short_pre_re;
     const float* pre_im = is_long ? d.pre_im : d.short_pre_im;
     const float* post_re = is_long ? d.post_re : d.short_post_re;
     const float* post_im = is_long ? d.post_im : d.short_post_im;
-    const u16* reverse = is_long ? d.reverse_long : d.reverse_short;
-    float* re = d.fft_re;
-    float* im = d.fft_im;
-    for (u32 n = 0; n < points; ++n) {
-        const u32 to = reverse[n];
-        const float x = spectrum[2 * n], y = spectrum[lines - 1 - 2 * n];
-        re[to] = x * pre_re[n] - y * pre_im[n];
-        im[to] = x * pre_im[n] + y * pre_re[n];
-    }
-    for (u32 half = 1; half < points; half <<= 1) {
-        for (u32 start = 0; start < points; start += 2 * half) {
-            float* ar = re + start;
-            float* ai = im + start;
-            float* br = ar + half;
-            float* bi = ai + half;
-#pragma clang loop vectorize(enable)
-            for (u32 j = 0; j < half; ++j) {
-                const float wr = stage_re[half + j], wi = stage_im[half + j];
-                const float tr = br[j] * wr - bi[j] * wi, ti = br[j] * wi + bi[j] * wr;
-                br[j] = ar[j] - tr;
-                bi[j] = ai[j] - ti;
-                ar[j] += tr;
-                ai[j] += ti;
+    float* const re = d.fft_re;
+    float* const im = d.fft_im;
+    // Bins 2 i and lines - 1 - 2 i, rotated, are complex point i.
+    for (u32 q = 0; q < quarter; q += 8) {
+        Complex<F8> z[4];
+        for (u32 k = 0; k < 4; ++k) {
+            const u32 i = q + k * quarter;
+            const F8 x = forward(spectrum + 2 * i), y = backward(spectrum + lines - 1 - 2 * i);
+            const F8 c = load8(pre_re + i), s = load8(pre_im + i);
+            z[k] = {multiply_add(x, c, -(y * s)), multiply_add(x, s, y * c)};
+        }
+        const F8 sum02_re = z[0].re + z[2].re, sum02_im = z[0].im + z[2].im, sum13_re = z[1].re + z[3].re,
+                 sum13_im = z[1].im + z[3].im;
+        const F8 dif02_re = z[0].re - z[2].re, dif02_im = z[0].im - z[2].im, dif13_re = z[1].re - z[3].re,
+                 dif13_im = z[1].im - z[3].im;
+        const F8 parts[2][4]{{sum02_re + sum13_re, dif02_re + dif13_im, sum02_re - sum13_re, dif02_re - dif13_im},
+                             {sum02_im + sum13_im, dif02_im - dif13_re, sum02_im - sum13_im, dif02_im + dif13_re}};
+        const u32 a = q / 8;
+        float* const block[2]{re + 4 * (is_long ? 4 * (a & 3) + a / 4 : 2 * a),
+                              im + 4 * (is_long ? 4 * (a & 3) + a / 4 : 2 * a)};
+        for (u32 part = 0; part < 2; ++part) {
+            const F8* const o = parts[part];
+            // Transpose: lanes k and k + 4 of the four outputs become two rows of four.
+            const F8 t0 = __builtin_shufflevector(o[0], o[1], 0, 8, 1, 9, 4, 12, 5, 13);
+            const F8 t1 = __builtin_shufflevector(o[0], o[1], 2, 10, 3, 11, 6, 14, 7, 15);
+            const F8 t2 = __builtin_shufflevector(o[2], o[3], 0, 8, 1, 9, 4, 12, 5, 13);
+            const F8 t3 = __builtin_shufflevector(o[2], o[3], 2, 10, 3, 11, 6, 14, 7, 15);
+            const F8 rows[4]{__builtin_shufflevector(t0, t2, 0, 1, 8, 9, 4, 5, 12, 13),
+                             __builtin_shufflevector(t0, t2, 2, 3, 10, 11, 6, 7, 14, 15),
+                             __builtin_shufflevector(t1, t3, 0, 1, 8, 9, 4, 5, 12, 13),
+                             __builtin_shufflevector(t1, t3, 2, 3, 10, 11, 6, 7, 14, 15)};
+            for (u32 k = 0; k < 4; ++k) {
+                store4(block[part] + 4 * kFirstBlocks[is_long][k], low4(rows[k]));
+                store4(block[part] + 4 * kFirstBlocks[is_long][k + 4], high4(rows[k]));
             }
         }
     }
-    float* t = d.transform;
-    for (u32 k = 0; k < points; ++k) {
-        const float yr = re[k] * post_re[k] - im[k] * post_im[k], yi = re[k] * post_im[k] + im[k] * post_re[k];
-        t[2 * k] = yr;
-        t[lines - 1 - 2 * k] = -yi;
+    radix4<F4>(re, im, points, 4, d.four);
+    radix4<F8>(re, im, points, 16, d.four + 24);
+    if (is_long) {
+        radix4<F8>(re, im, points, 64, d.four + 120);
+        for (u32 j = 0; j < kLines / 4; j += 8) {
+            const Complex<F8> b = rotate<F8>(re + kLines / 4 + j, im + kLines / 4 + j, d.two[0] + j, d.two[1] + j);
+            const F8 a_re = load8(re + j), a_im = load8(im + j);
+            store8(re + j, a_re + b.re);
+            store8(im + j, a_im + b.im);
+            store8(re + kLines / 4 + j, a_re - b.re);
+            store8(im + kLines / 4 + j, a_im - b.im);
+        }
     }
-    // The symmetries of the MDCT kernel: samples from the DCT-IV output.
-    const u32 quarter = lines / 2;
-    for (u32 n = 0; n < quarter; ++n)
-        out[n] = t[quarter + n];
-    for (u32 n = quarter; n < 3 * quarter; ++n)
-        out[n] = -t[3 * quarter - 1 - n];
-    for (u32 n = 3 * quarter; n < 2 * lines; ++n)
-        out[n] = -t[n - 3 * quarter];
+    // Rotated back, point k is DCT-IV outputs 2 k (real part) and lines - 1 - 2 k (minus the imaginary part); a block
+    // of eight points from the front and the mirrored block from the back give sixteen outputs at each end, and the
+    // symmetries of the MDCT kernel put each output at two samples.
+    for (u32 k = 0; k < points / 2; k += 8) {
+        const u32 back = points - 8 - k;
+        const Complex<F8> f = rotate<F8>(re + k, im + k, post_re + k, post_im + k);
+        const Complex<F8> b = rotate<F8>(re + back, im + back, post_re + back, post_im + back);
+        const F8 odd_f = -reverse8(b.im), odd_b = -reverse8(f.im);
+        const F8 f0 = __builtin_shufflevector(f.re, odd_f, 0, 8, 1, 9, 2, 10, 3, 11);
+        const F8 f1 = __builtin_shufflevector(f.re, odd_f, 4, 12, 5, 13, 6, 14, 7, 15);
+        const F8 b0 = __builtin_shufflevector(b.re, odd_b, 0, 8, 1, 9, 2, 10, 3, 11);
+        const F8 b1 = __builtin_shufflevector(b.re, odd_b, 4, 12, 5, 13, 6, 14, 7, 15);
+        store8(out + points - 16 - 2 * k, b0);
+        store8(out + points - 8 - 2 * k, b1);
+        store8(out + points + 2 * k, -reverse8(b1));
+        store8(out + points + 2 * k + 8, -reverse8(b0));
+        store8(out + 3 * points - 16 - 2 * k, -reverse8(f1));
+        store8(out + 3 * points - 8 - 2 * k, -reverse8(f0));
+        store8(out + 3 * points + 2 * k, -f0);
+        store8(out + 3 * points + 2 * k + 8, -f1);
+    }
 }
 
 // The windowed 2048 samples of one channel and its new overlap, into staged_pcm / staged_overlap.
@@ -733,9 +853,9 @@ AacLcError read_channel(AacLc& d, Bits& b, Channel& c, bool common_window) noexc
         return error;
     for (u32 w = 0; w < kShortWindows; ++w)
         c.tns_filters[w] = 0;
-    if (b.get1() && (error = parse_tns(b, c)) != AacLcError::none)
+    if (b.get(1) && (error = parse_tns(b, c)) != AacLcError::none)
         return error;
-    if (b.get1())
+    if (b.get(1))
         return AacLcError::unsupported; // gain control: SSR
     if (b.error)
         return AacLcError::truncated;
@@ -748,7 +868,7 @@ AacLcError read_channel(AacLc& d, Bits& b, Channel& c, bool common_window) noexc
 AacLcError read_pair(AacLc& d, Bits& b, u32 first) noexcept {
     Channel& left = d.channel[first];
     Channel& right = d.channel[first + 1];
-    const bool common = b.get1() != 0;
+    const bool common = b.get(1) != 0;
     u32 mask_present = 0;
     if (common) {
         AacLcError error = parse_ics_info(d, b, left.ics);
@@ -760,7 +880,7 @@ AacLcError read_pair(AacLc& d, Bits& b, u32 first) noexcept {
             return AacLcError::invalid_stream;
         const u32 bands = left.ics.groups * left.ics.max_sfb;
         for (u32 i = 0; i < bands; ++i)
-            d.mid_side[i] = mask_present == 2 ? 1 : mask_present == 1 ? static_cast<u8>(b.get1()) : 0;
+            d.mid_side[i] = mask_present == 2 ? 1 : mask_present == 1 ? static_cast<u8>(b.get(1)) : 0;
     } else {
         clear_bytes(d.mid_side, sizeof(d.mid_side));
     }
@@ -821,11 +941,10 @@ AacLc* aac_lc_initialize(void* memory, u32 sample_rate, u32 channels) noexcept {
         d->power43[q] = static_cast<float>(x * root);
     }
     build_windows(*d);
-    build_transform(kLines, d->stage_re, d->stage_im, d->pre_re, d->pre_im, d->post_re, d->post_im, d->reverse_long,
-                    1.0 / (static_cast<double>(kLines) * 32768.0));
-    build_transform(kShortLines, d->short_stage_re, d->short_stage_im, d->short_pre_re, d->short_pre_im,
-                    d->short_post_re, d->short_post_im, d->reverse_short,
+    build_rotations(kLines, d->pre_re, d->pre_im, d->post_re, d->post_im, 1.0 / (static_cast<double>(kLines) * 32768.0));
+    build_rotations(kShortLines, d->short_pre_re, d->short_pre_im, d->short_post_re, d->short_post_im,
                     1.0 / (static_cast<double>(kShortLines) * 32768.0));
+    build_twiddles(*d);
     // clear_bytes above cleared the overlap and the window shapes.
     d->random_state = kNoiseSeed;
     return d;
@@ -841,19 +960,8 @@ void aac_lc_reset(AacLc* d) noexcept {
 
 namespace {
 
-// Skips `bits` bits of the frame, as a data or fill element's payload.
-bool skip(Bits& b, u32 bits) noexcept {
-    if (b.error || bits > b.total - b.position) {
-        b.error = true;
-        return false;
-    }
-    b.position += bits;
-    return true;
-}
-
-typedef float Lanes __attribute__((__vector_size__(32), __aligned__(4), __may_alias__));
 // Corrupt scalefactors and TNS filters can produce huge or non-finite values; real audio stays far inside.
-MAICORD_HASWELL __forceinline Lanes sanitize(Lanes value) noexcept {
+MAICORD_HASWELL __forceinline F8 sanitize(F8 value) noexcept {
     constexpr float kLimit = 1024.0f;
     value = value < -kLimit ? -kLimit : value > kLimit ? kLimit : value;
     return value != value ? 0.0f : value;
@@ -861,16 +969,14 @@ MAICORD_HASWELL __forceinline Lanes sanitize(Lanes value) noexcept {
 // The staged channels into `pcm`, clamped and interleaved: eight samples of each channel at a time.
 MAICORD_HASWELL void emit(const AacLc& d, u32 channels, float* pcm) noexcept {
     for (u32 i = 0; i < kLines; i += 8) {
-        const Lanes left = sanitize(*reinterpret_cast<const Lanes*>(d.staged_pcm[0] + i));
+        const F8 left = sanitize(load8(d.staged_pcm[0] + i));
         if (channels == 1) {
-            *reinterpret_cast<Lanes*>(pcm + i) = left;
+            store8(pcm + i, left);
             continue;
         }
-        const Lanes right = sanitize(*reinterpret_cast<const Lanes*>(d.staged_pcm[1] + i));
-        *reinterpret_cast<Lanes*>(pcm + 2 * i) =
-            __builtin_shufflevector(left, right, 0, 8, 1, 9, 2, 10, 3, 11);
-        *reinterpret_cast<Lanes*>(pcm + 2 * i + 8) =
-            __builtin_shufflevector(left, right, 4, 12, 5, 13, 6, 14, 7, 15);
+        const F8 right = sanitize(load8(d.staged_pcm[1] + i));
+        store8(pcm + 2 * i, __builtin_shufflevector(left, right, 0, 8, 1, 9, 2, 10, 3, 11));
+        store8(pcm + 2 * i + 8, __builtin_shufflevector(left, right, 4, 12, 5, 13, 6, 14, 7, 15));
     }
 }
 
@@ -904,20 +1010,20 @@ AacLcError aac_lc_decode(AacLc* d, ConstSlice<u8> frame, float* pcm) noexcept {
             break;
         case kData: {
             b.get(4);
-            const bool aligned = b.get1() != 0;
+            const bool aligned = b.get(1) != 0;
             u32 count = b.get(8);
             if (count == 255)
                 count += b.get(8);
             if (aligned)
                 b.align();
-            skip(b, count * 8);
+            b.advance(count * 8);
             break;
         }
         case kFill: {
             u32 count = b.get(4);
             if (count == 15)
                 count += b.get(8) - 1;
-            skip(b, count * 8);
+            b.advance(count * 8);
             break;
         }
         case kEnd:

@@ -209,14 +209,6 @@ __forceinline void first_pass(const Complex8& z0, const Complex8& z1, const Comp
     }
 }
 
-// Every other float: forward from p[0] to p[14], or backward from p[0] to p[-14].
-__forceinline F8 forward(const float* p) noexcept {
-    return __builtin_shufflevector(load8(p), load8(p + 8), 0, 2, 4, 6, 8, 10, 12, 14);
-}
-__forceinline F8 backward(const float* p) noexcept {
-    return __builtin_shufflevector(load8(p - 15), load8(p - 7), 15, 13, 11, 9, 7, 5, 3, 1);
-}
-
 } // namespace
 
 MAICORD_HASWELL_FMA void celt_imdct(const float* spectrum, float* out, u32 shift) noexcept {
