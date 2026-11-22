@@ -187,8 +187,6 @@ HRESULT open(AacDecoder& owner) noexcept {
 AacDecodeResult aac_decoder_initialize(AacDecoder* owner, ConstSlice<u8> asc, u32 rate, u32 channels) noexcept {
     if (!aac_decoder_configuration_valid(asc, rate, channels))
         return {Error::invalid_input};
-    if (owner->initialized || owner->runtime)
-        return {Error::busy};
     reset_value(owner);
     copy_bytes(owner->asc, asc.data, asc.count);
     owner->asc_bytes = asc.count;

@@ -52,11 +52,6 @@ u32 context_error(const Session& session) noexcept {
     return session.context ? kErrorPulse | static_cast<u32>(g_api.pa_context_errno(session.context)) : kErrorPulse;
 }
 
-void set_error(u32* destination, u32 error) noexcept {
-    if (destination)
-        *destination = error;
-}
-
 // ---- callbacks: libpulse's mainloop thread; they record state and signal the worker, nothing else ----
 
 void context_state_changed(Context* context, void* userdata) noexcept {
@@ -153,7 +148,7 @@ bool session_open(Session* session, Waitable event, const char* client_name, Aud
     session->event = event;
     session->watch_mask = flow == AudioFlow::render ? kSubscribeSink : kSubscribeSource;
     if (!api()) {
-        set_error(native_error, kErrorLibraryMissing);
+        *native_error = kErrorLibraryMissing;
         return false;
     }
     session->loop = g_api.pa_threaded_mainloop_new();
@@ -167,7 +162,7 @@ bool session_open(Session* session, Waitable event, const char* client_name, Aud
     if (properties)
         g_api.pa_proplist_free(properties);
     if (!session->context || g_api.pa_threaded_mainloop_start(session->loop) < 0) {
-        set_error(native_error, ERROR_NOT_ENOUGH_MEMORY);
+        *native_error = ERROR_NOT_ENOUGH_MEMORY;
         session_close(session);
         return false;
     }
@@ -178,12 +173,10 @@ bool session_open(Session* session, Waitable event, const char* client_name, Aud
         connecting = g_api.pa_context_connect(session->context, nullptr, kContextNoAutospawn, nullptr) >= 0;
     }
     if (!connecting) {
-        u32 error = 0;
         {
             Lock lock(*session);
-            error = context_error(*session);
+            *native_error = context_error(*session);
         }
-        set_error(native_error, error);
         session_close(session);
         return false;
     }
@@ -199,7 +192,7 @@ bool session_open(Session* session, Waitable event, const char* client_name, Aud
             Lock lock(*session);
             error = context_error(*session);
         }
-        set_error(native_error, error);
+        *native_error = error;
         session_close(session);
         return false;
     }
@@ -257,7 +250,7 @@ bool track_open(Session* session, Track* track, const TrackConfig& config, bool 
     if (properties)
         g_api.pa_proplist_free(properties);
     if (!track->stream) {
-        set_error(native_error, context_error(*session));
+        *native_error = context_error(*session);
         return false;
     }
     g_api.pa_stream_set_state_callback(track->stream, track_state_changed, track);
@@ -276,7 +269,7 @@ bool track_open(Session* session, Track* track, const TrackConfig& config, bool 
                                    : g_api.pa_stream_connect_record(track->stream, config.device, &config.attributes,
                                                                     config.flags);
     if (connected < 0) {
-        set_error(native_error, context_error(*session));
+        *native_error = context_error(*session);
         g_api.pa_stream_set_state_callback(track->stream, nullptr, nullptr);
         g_api.pa_stream_unref(track->stream);
         track->stream = nullptr;
@@ -308,7 +301,7 @@ bool track_wait_ready(Track* track, Waitable stop, u32 timeout_ms, u32* native_e
         Lock lock(*track->session);
         error = context_error(*track->session);
     }
-    set_error(native_error, error);
+    *native_error = error;
     return false;
 }
 
@@ -426,12 +419,12 @@ struct ListState {
     AudioFlow flow;
 };
 
+// `capacity` is not zero (server_info's test).
 void copy_name(char* destination, u32 capacity, const char* name) noexcept {
     u32 length = 0;
     for (; name && name[length] && length + 1 < capacity; ++length)
         destination[length] = name[length];
-    if (capacity)
-        destination[length] = 0;
+    destination[length] = 0;
 }
 
 void server_info(Context*, const ServerInfo* info, void* userdata) noexcept {
@@ -450,7 +443,7 @@ void sink_info(Context*, const SinkInfo* info, i32 end_of_list, void* userdata) 
         event_set(list->event);
         return;
     }
-    if (info && info->name && list->visitor)
+    if (info && info->name)
         list->visitor(list->context, {info->name, info->description ? info->description : info->name, false});
 }
 
@@ -461,7 +454,7 @@ void source_info(Context*, const SourceInfo* info, i32 end_of_list, void* userda
         event_set(list->event);
         return;
     }
-    if (info && info->name && list->visitor)
+    if (info && info->name)
         list->visitor(list->context, {info->name, info->description ? info->description : info->name,
                                       info->monitor_of_sink != kInvalid});
 }
@@ -526,18 +519,16 @@ void match(void* context, const DeviceInfo& device) noexcept {
 
 bool device_exists(Session* session, AudioFlow flow, const char* name, Waitable stop) noexcept {
     Lookup lookup{name, false};
-    return name && *name && device_list(session, flow, stop, 3000, match, &lookup, nullptr, 0) && lookup.found;
+    return device_list(session, flow, stop, 3000, match, &lookup, nullptr, 0) && lookup.found;
 }
 
 bool device_name_from_id(const wchar_t* id, char* name, u32 capacity) noexcept {
     u32 length = 0;
-    for (; id && id[length]; ++length) {
+    for (; id[length]; ++length) {
         if (length + 1 >= capacity || id[length] >= 0x80)
             return false;
         name[length] = static_cast<char>(id[length]);
     }
-    if (!capacity)
-        return false;
     name[length] = 0;
     return true;
 }
@@ -549,8 +540,6 @@ bool device_id_from_name(const char* name, wchar_t* id, u32 capacity) noexcept {
             return false;
         id[length] = static_cast<wchar_t>(name[length]);
     }
-    if (!capacity)
-        return false;
     id[length] = 0;
     return true;
 }

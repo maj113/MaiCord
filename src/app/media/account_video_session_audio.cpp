@@ -300,13 +300,7 @@ bool pcm_workspace(AccountVideoSession& s) noexcept {
     w->allocation_bytes = allocation;
     if (mp3) {
         auto& owner = *static_cast<Mp3Workspace*>(w);
-        const auto decoded = mp3_decoder_initialize(&owner.decoder,
-            {reinterpret_cast<u8*>(w) + offset, state_bytes},
-            source_rate(s), encoded_audio_channels(*s.encoded_metadata));
-        if (decoded != Mp3Error::none) {
-            terminal(s, AccountVideoError::decoder, static_cast<u32>(decoded));
-            return false;
-        }
+        mp3_decoder_initialize(&owner.decoder, reinterpret_cast<u8*>(w) + offset);
         const auto indexed = mp3_stream_build_index(s.encoded_metadata->mp3, &owner.index,
             {owner.points, kMp3DefaultSeekPoints}, s.source_cancelled, s.source_cancel_context);
         if (indexed != Mp3Error::none) {
@@ -458,11 +452,7 @@ bool reset(AccountVideoSession& s, i64 target) noexcept {
         if (s.status.kind == AccountPlaybackKind::ogg_opus) {
             opus_decoder_reset(&static_cast<OpusWorkspace*>(s.workspace)->decoder);
         } else if (s.status.kind == AccountPlaybackKind::mp3) {
-            const auto flushed = mp3_decoder_reset(&static_cast<Mp3Workspace*>(s.workspace)->decoder);
-            if (flushed != Mp3Error::none) {
-                terminal(s, AccountVideoError::decoder, static_cast<u32>(flushed));
-                return false;
-            }
+            mp3_decoder_reset(&static_cast<Mp3Workspace*>(s.workspace)->decoder);
         } else if (!standalone(s)) {
             auto& w = *static_cast<Workspace*>(s.workspace);
             if (w.opus) {
@@ -931,8 +921,7 @@ bool pcm_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, void
                 *interrupted = true;
                 return true;
             }
-            const auto decoded = mp3_decoder_decode(&mp3.decoder, packet.bytes,
-                                                     {w.pcm, kMediaAudioMaximumWriteFrames * 2});
+            const auto decoded = mp3_decoder_decode(&mp3.decoder, packet.bytes, w.pcm);
             ++blocks;
             const u32 frames = packet.duration_frames - packet.trim_front_frames - packet.trim_back_frames;
             if (decoded.error == Mp3Error::need_preroll && !frames) {

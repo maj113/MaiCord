@@ -120,11 +120,10 @@ __forceinline float fade(u32 i, float before, float now) noexcept {
 void opus_encoder_start(OpusEncoder* encoder, const OpusEncoderProfile& profile) noexcept {
     State& st = state_of(encoder);
     clear_bytes(&st, sizeof(st));
-    st.bitrate = clamp_value<u32>(profile.bitrate, 6000, 510000);
-    st.channels = profile.channels == 2 ? 2 : 1;
-    st.complexity = clamp_value<u32>(profile.complexity, 1, 10);
-    st.loss_percent = minimum<u32>(profile.loss_percent, 100);
-    st.stream_channels = 0;
+    st.bitrate = profile.bitrate;
+    st.channels = profile.channels;
+    st.complexity = profile.complexity;
+    st.loss_percent = profile.loss_percent;
     st.stereo_width_q14 = 1 << 14;
     st.high_band_gain = 1.f;
     st.cutoff = 5.9068906f; // 60 Hz

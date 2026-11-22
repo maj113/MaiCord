@@ -8,14 +8,14 @@
 
 namespace maicord {namespace {
 using Error=MediaAudioError;
-using audio_detail::disjoint;
 using audio_detail::fail;
 bool rate_valid(u32 rate) noexcept { return rate >= 8000 && rate <= 192000; }
+// A ring that initialize accepts; write, render, rewind and the transports' consumption updates keep consumed <=
+// submitted <= written and written - consumed <= its frames, so no later call checks it again.
 bool ring_valid(const MediaAudioRing& r) noexcept {
-    if(!r.samples.data||(reinterpret_cast<usize>(r.samples.data)&3)||!r.epoch||!rate_valid(r.sample_rate)||(r.channels!=1&&r.channels!=2)||
-        r.samples.count%r.channels||r.samples.count/r.channels<kMediaAudioMinimumRingFrames||r.samples.count/r.channels>kMediaAudioMaximumRingFrames||
-        !byte_range_valid({reinterpret_cast<const u8*>(r.samples.data),r.samples.count*4}))return false;
-    return r.consumed<=r.submitted&&r.submitted<=r.written&&r.written-r.consumed<=r.samples.count/r.channels;
+    return r.samples.data&&!(reinterpret_cast<usize>(r.samples.data)&3)&&r.epoch&&rate_valid(r.sample_rate)&&(r.channels==1||r.channels==2)&&
+        !(r.samples.count%r.channels)&&r.samples.count/r.channels>=kMediaAudioMinimumRingFrames&&r.samples.count/r.channels<=kMediaAudioMaximumRingFrames&&
+        byte_range_valid({reinterpret_cast<const u8*>(r.samples.data),r.samples.count*4});
 }
 // No clip here. The system applies the user's volume to these samples and limits them at the device.
 // A clip at this point cuts every decoded peak above full scale, also at a low volume.
@@ -37,16 +37,14 @@ inline bool all_finite(const float* in,u32 count) noexcept {
 }
 bool media_audio_gain_valid(float gain) noexcept {return is_finite(gain)&&gain>=0&&gain<=1;}
 bool media_audio_ring_initialize(MediaAudioRing* r,Slice<float> samples,u32 rate,u32 channels,u64 epoch) noexcept {
-    if(!r||!disjoint(r,sizeof(*r),samples.data,samples.count>32768?0:samples.count*4)||samples.count>32768)return false;
     MediaAudioRing candidate{samples,epoch,0,0,0,channels,rate,false};if(!ring_valid(candidate))return false;*r=candidate;return true;
 }
 u32 media_audio_ring_free(const MediaAudioRing& r) noexcept {
-    return ring_valid(r)?r.samples.count/r.channels-static_cast<u32>(r.written-r.consumed):0;
+    return r.samples.count/r.channels-static_cast<u32>(r.written-r.consumed);
 }
 MediaAudioResult media_audio_ring_write(MediaAudioRing* r,u64 epoch,ConstSlice<float> pcm) noexcept {
-    if(!r||!ring_valid(*r)||!pcm.count||pcm.count%r->channels||pcm.count/r->channels>kMediaAudioMaximumWriteFrames||
-        (reinterpret_cast<usize>(pcm.data)&3)||!disjoint(r,sizeof(*r),pcm.data,pcm.count*4)||
-        !disjoint(r->samples.data,r->samples.count*4,pcm.data,pcm.count*4))return fail(Error::invalid_input);
+    if(!pcm.count||pcm.count%r->channels||pcm.count/r->channels>kMediaAudioMaximumWriteFrames||
+        (reinterpret_cast<usize>(pcm.data)&3))return fail(Error::invalid_input);
     if(epoch!=r->epoch)return fail(Error::stale_epoch);if(r->ended)return fail(Error::stopped);
     const u32 frames=pcm.count/r->channels;if(frames>media_audio_ring_free(*r))return fail(Error::capacity);
     if(r->written>~u64{0}-frames)return fail(Error::timeline);
@@ -56,19 +54,18 @@ MediaAudioResult media_audio_ring_write(MediaAudioRing* r,u64 epoch,ConstSlice<f
     copy_bytes(r->samples.data+start,pcm.data,first*4);copy_bytes(r->samples.data,pcm.data+first,(pcm.count-first)*4);
     r->written+=frames;return {};
 }
+// The transports render chunks of at most kMediaAudioMaximumWriteFrames whole frames into their own buffer, with the
+// gain that initialize checked.
 u32 media_audio_ring_render(MediaAudioRing* r,Slice<float> output,float gain) noexcept {
-    if(!r||!ring_valid(*r)||!media_audio_gain_valid(gain)||!output.count||output.count%r->channels||
-        output.count/r->channels>kMediaAudioMaximumWriteFrames||(reinterpret_cast<usize>(output.data)&3)||
-        !disjoint(r,sizeof(*r),output.data,output.count*4)||!disjoint(r->samples.data,r->samples.count*4,output.data,output.count*4))return 0;
     const u32 count=static_cast<u32>(minimum<u64>(output.count/r->channels,r->written-r->submitted)),capacity=r->samples.count/r->channels;
     const u32 total=count*r->channels,start=static_cast<u32>(r->submitted%capacity)*r->channels,first=minimum(total,r->samples.count-start);
     scale(output.data,r->samples.data+start,first,gain);scale(output.data+first,r->samples.data,total-first,gain);
     r->submitted+=count;return count;
 }
 bool media_audio_ring_native_queue_empty(const MediaAudioRing& r,u32 padding) noexcept {
-    return ring_valid(r)&&!padding&&r.submitted==r.consumed;
+    return !padding&&r.submitted==r.consumed;
 }
-void media_audio_ring_rewind(MediaAudioRing* r) noexcept {if(r&&ring_valid(*r))r->submitted=r->consumed;}
+void media_audio_ring_rewind(MediaAudioRing* r) noexcept {r->submitted=r->consumed;}
 bool media_audio_clock_time(u64 position,u64 frequency,u64* time) noexcept {
     return media_audio_clock_frames(position,frequency,10000000,time);
 }

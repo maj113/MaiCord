@@ -150,9 +150,8 @@ void test_logic() noexcept {
     forget();
     Speech speech{};
     check(!speechd::speak(&speech, load_fake, {}) && !speechd::speak(&speech, load_fake, view("x", 0)) &&
-              !speechd::speak(nullptr, load_fake, view("x", 1)) && g_fake.loads == 0 && g_fake.opens == 0 &&
-              !speech.attempted,
-          "no text and no speech say nothing and open nothing");
+              g_fake.loads == 0 && g_fake.opens == 0 && !speech.attempted,
+          "no text says nothing and opens nothing");
 
     // The first request opens the client, cancels what it was saying and queues the text.
     check(speechd::speak(&speech, load_fake, view("hello world", 11)) && speech.voice && speech.attempted,
@@ -219,7 +218,6 @@ void test_logic() noexcept {
     check(order_is("xc") && !speech.voice && !speech.attempted, "release cancels, closes and resets");
     forget();
     speechd::release(&speech, &g_fake_api);
-    speechd::release(nullptr, &g_fake_api);
     check(g_fake.order_count == 0, "releasing a closed speech calls nothing");
 }
 

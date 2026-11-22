@@ -306,9 +306,7 @@ AccountVideoResult account_video_session_release(AccountVideoSession* s, u32 tim
         const auto audio = media_audio_release(owner, timeout);
         if (!audio.ok())
             return result(AccountVideoError::release, audio.native_error, true);
-        if (s->status.kind == AccountPlaybackKind::mp3) {
-            mp3_decoder_release(&static_cast<Mp3Workspace*>(s->workspace)->decoder);
-        } else if (!standalone(*s)) {
+        if (s->status.kind != AccountPlaybackKind::mp3 && !standalone(*s)) {
             auto& w = *static_cast<Workspace*>(s->workspace);
             const auto decoder = w.opus ? AacDecodeResult{} : aac_decoder_release(&w.decoder);
             if (!decoder.ok())

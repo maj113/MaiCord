@@ -17,10 +17,11 @@ struct OpusDecoder {
 void opus_decoder_start(OpusDecoder*, u32 channels, i32 gain_q8 = 0) noexcept;
 // Forgets the decoded history, as after a seek; channels and gain stay.
 void opus_decoder_reset(OpusDecoder*) noexcept;
-// Decodes one packet into pcm and returns the frames (samples per channel) written, at most
-// kOpusDecoderMaximumFrames. 0: the packet is malformed or longer than pcm; nothing was written and the
-// state is unchanged, except for a frame that overruns its own bits (the caller conceals or resets either
-// way).
+// Decodes one packet into pcm and returns the frames (samples per channel) written. pcm has room for the packet's
+// frames of the stream's channels: kOpusDecoderMaximumFrames frames take any packet, and a caller with less room
+// refuses a longer packet first (the WebM audio pump gives 4,096 values and takes only packets of its stream's
+// frames_per_packet, at most kWebmOpusMaximumPacketFrames). 0: the packet is malformed; nothing was written and the
+// state is unchanged, except for a frame that overruns its own bits (the caller conceals or resets either way).
 u32 opus_decode(OpusDecoder*, ConstSlice<u8> packet, Slice<i16> pcm) noexcept;
 // The same decode with float output, where full scale is 1: for music. `pcm` has room for as many samples as `work`.
 // An encoder codes music as CELT frames. A CELT frame after a CELT frame goes out before the PCM16 saturation, so a
@@ -29,7 +30,7 @@ u32 opus_decode_float(OpusDecoder*, ConstSlice<u8> packet, Slice<i16> work, floa
 // Fills in for the packet lost just before `next`: `frames` (a multiple of 120, at most 5760) are concealed
 // from the decoder's history, or, when `next` carries a redundant copy of the lost frame (LBRR), decoded
 // from it; the caller still decodes `next` afterwards. An empty `next` always conceals. 0 on a malformed
-// `next` or a short pcm.
+// `next` or `frames`. pcm has room for `frames` frames of the stream's channels.
 u32 opus_decode_lost(OpusDecoder*, ConstSlice<u8> next, u32 frames, Slice<i16> pcm) noexcept;
 // True when the packet carries a redundant copy of the frame before it.
 bool opus_packet_has_fec(ConstSlice<u8> packet) noexcept;

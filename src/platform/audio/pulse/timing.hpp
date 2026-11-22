@@ -107,9 +107,8 @@ constexpr u64 read_frames(u64 anchor, u64 stream_us, u64 sink_us, u64 read, u32 
 // pa_stream_writable_size), 0 when it asks for less than a frame. The voice worker wakes once for each request, and
 // the server reads one cycle (its quantum, up to 2048 frames or more) at a time. A worker that writes less than a
 // cycle at each wake falls further behind in each cycle. A stream without a prebuffer then reads past the audio.
+// `bytes_per_frame` is a frame_bytes of a format the transport uses (never 0).
 constexpr u32 request_frames(usize writable_bytes, u32 bytes_per_frame) noexcept {
-    if (!bytes_per_frame)
-        return 0;
     const usize frames = writable_bytes / bytes_per_frame;
     return frames > ~u32{0} ? ~u32{0} : static_cast<u32>(frames);
 }

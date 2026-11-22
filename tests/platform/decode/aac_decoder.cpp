@@ -70,9 +70,8 @@ void test_aac_decoder(void (*check)(bool, const char*) noexcept) noexcept {
           "AAC metadata: out-of-domain SBR extension refuses rather than changing output rate silently");
     AacDecoder decoder{};
     check(aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).ok() &&
-              aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).error == AacDecodeError::busy &&
               aac_decoder_submit(&decoder, {}, 0, 1024).error == AacDecodeError::invalid_input,
-          "AAC lifecycle: a second initialization is busy and an empty packet is invalid");
+          "AAC lifecycle: an empty packet is invalid");
     check(aac_decoder_drain(&decoder).ok() && aac_decoder_flush(&decoder).ok() && aac_decoder_release(&decoder).ok() &&
               aac_decoder_initialize(&decoder, {he44, 4}, 44100, 2).ok() && aac_decoder_release(&decoder).ok(),
           "AAC lifecycle: drain, flush and release without a packet; an HE configuration initializes");

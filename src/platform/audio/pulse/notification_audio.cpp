@@ -250,9 +250,7 @@ u32 render_audio(Runtime& r, Transport& t, Engine& e, u32 rate) noexcept {
             break;
         }
         const u32 n = minimum(kNotificationAudioMixChunkFrames, frames - offset);
-        const auto mixed = notification_audio_mixer_render_rate(&r.mixer, {t.scratch, n * kChannels}, rate);
-        if (mixed.error != NotificationAudioError::none || mixed.frames != n)
-            return pulse::kErrorPulse;
+        notification_audio_mixer_render_rate(&r.mixer, {t.scratch, n * kChannels}, rate);
         if (!pulse::track_write(&e.track, t.scratch, n * kFrameBytes))
             return pulse::kErrorPulse;
         wrote = true;
@@ -401,14 +399,14 @@ NotificationAudioResult launch(NotificationAudio& owner) noexcept {
 
 NotificationAudioResult notification_audio_initialize(NotificationAudio* owner,
                                                       const NotificationAudioConfig& config) noexcept {
-    if (!owner || owner->initialized || owner->runtime || !config.initial_epoch || config.wake.cause > wake_tray ||
+    if (owner->initialized || owner->runtime || !config.initial_epoch || config.wake.cause > wake_tray ||
         (!config.wake.window && config.wake.cause))
         return fail(NotificationAudioError::invalid_input);
     *owner = {config, nullptr, config.initial_epoch, true, config.enabled};
     return {};
 }
 bool notification_audio_can_accept(const NotificationAudio* owner, u32 needed) noexcept {
-    if (!owner || !owner->initialized || !owner->enabled || !needed || needed > kNotificationAudioQueueCapacity)
+    if (!owner->initialized || !owner->enabled || !needed || needed > kNotificationAudioQueueCapacity)
         return false;
     auto* r = static_cast<Runtime*>(owner->runtime);
     if (!r)
@@ -422,7 +420,7 @@ bool notification_audio_can_accept(const NotificationAudio* owner, u32 needed) n
 }
 NotificationAudioResult notification_audio_submit(NotificationAudio* owner,
                                                   const NotificationAudioRequest& request) noexcept {
-    if (!owner || !owner->initialized || !notification_audio_gain_valid(request.gain) ||
+    if (!owner->initialized || !notification_audio_gain_valid(request.gain) ||
         (request.clip.samples.count ? !notification_audio_clip_valid(request.clip)
                                     : !owner->config.resolve || !request.clip_id))
         return fail(NotificationAudioError::invalid_input);
@@ -462,7 +460,7 @@ NotificationAudioResult notification_audio_submit(NotificationAudio* owner,
     return result;
 }
 NotificationAudioResult notification_audio_reset(NotificationAudio* owner, u64 epoch, bool enabled) noexcept {
-    if (!owner || !owner->initialized || !epoch)
+    if (!owner->initialized || !epoch)
         return fail(NotificationAudioError::invalid_input);
     if (epoch <= owner->epoch)
         return fail(NotificationAudioError::stale_epoch);
@@ -494,7 +492,7 @@ NotificationAudioResult notification_audio_reset(NotificationAudio* owner, u64 e
     return {};
 }
 NotificationAudioStatus notification_audio_status(const NotificationAudio* owner) noexcept {
-    if (!owner || !owner->initialized)
+    if (!owner->initialized)
         return {};
     auto* r = static_cast<Runtime*>(owner->runtime);
     if (!r) {
@@ -516,13 +514,11 @@ NotificationAudioStatus notification_audio_status(const NotificationAudio* owner
     return status;
 }
 bool notification_audio_status_pending(const NotificationAudio* owner) noexcept {
-    const auto* r = owner && owner->initialized ? static_cast<const Runtime*>(owner->runtime) : nullptr;
+    const auto* r = owner->initialized ? static_cast<const Runtime*>(owner->runtime) : nullptr;
     // Plain reads: the worker sets both words under the lock, and only this UI thread writes `stopping`.
     return r && (read_acquire(&r->attention) || *static_cast<const volatile bool*>(&r->wake_pending) || r->stopping);
 }
 NotificationAudioResult notification_audio_release(NotificationAudio* owner, u32 timeout) noexcept {
-    if (!owner)
-        return fail(NotificationAudioError::invalid_input);
     auto* r = static_cast<Runtime*>(owner->runtime);
     if (!r) {
         reset_value(owner);

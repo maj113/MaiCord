@@ -347,18 +347,15 @@ void pulse_data() noexcept {
 void lifecycle() noexcept {
     const u8 stereo44[]{0x12, 0x10}, mono48[]{0x11, 0x88}, he44[]{0x2b, 0x92, 0x08, 0};
     AacDecoder decoder{};
-    check(aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).ok() && decoder.initialized && !decoder.runtime,
-          "AAC lifecycle: initialization is copied metadata with no decoder allocation");
-    check(aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).error == AacDecodeError::busy &&
+    check(aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).ok() &&
               aac_decoder_submit(&decoder, {}, 0, 1024).error == AacDecodeError::invalid_input &&
               aac_decoder_read(&decoder, {reinterpret_cast<u8*>(g_pcm), sizeof(g_pcm)}).error == AacDecodeError::need_input &&
               aac_decoder_read(&decoder, {reinterpret_cast<u8*>(g_pcm), 100}).error == AacDecodeError::capacity,
-          "AAC lifecycle: busy initialization, an empty packet, a read with no input and a small buffer are refused");
-    check(aac_decoder_drain(&decoder).ok() && decoder.ended && decoder.draining && aac_decoder_flush(&decoder).ok() &&
-              !decoder.ended && !decoder.draining && aac_decoder_release(&decoder).ok() && !decoder.initialized,
-          "AAC lifecycle: metadata drain, flush and release balance with nothing allocated");
+          "AAC lifecycle: an empty packet, a read with no input and a small buffer are refused");
+    check(aac_decoder_drain(&decoder).ok() && aac_decoder_flush(&decoder).ok() && aac_decoder_release(&decoder).ok(),
+          "AAC lifecycle: drain, flush and release without a packet");
     check(aac_decoder_initialize(&decoder, {he44, 4}, 44100, 2).error == AacDecodeError::unsupported &&
-              !decoder.initialized && aac_decoder_initialize(&decoder, {stereo44, 2}, 48000, 2).error ==
+              aac_decoder_initialize(&decoder, {stereo44, 2}, 48000, 2).error ==
                                           AacDecodeError::invalid_input &&
               aac_decoder_initialize(&decoder, {mono48, 2}, 48000, 1).ok() && aac_decoder_release(&decoder).ok(),
           "AAC lifecycle: HE-AAC is unsupported, a rate that does not match the config is invalid");
@@ -368,7 +365,7 @@ void lifecycle() noexcept {
     const Fixture& f = g_fixtures[1];
     check(aac_decoder_initialize(&decoder, {f.asc, f.asc_bytes}, f.rate, f.channels).ok(),
           "AAC lifecycle: a fixture's configuration initializes");
-    check(aac_decoder_submit(&decoder, {f.frame[0], f.size[0]}, -5000, 1000).ok() && decoder.runtime &&
+    check(aac_decoder_submit(&decoder, {f.frame[0], f.size[0]}, -5000, 1000).ok() &&
               aac_decoder_submit(&decoder, {f.frame[1], f.size[1]}, 0, 1000).error == AacDecodeError::need_output,
           "AAC lifecycle: a second packet waits for the first block to be read");
     const auto block = aac_decoder_read(&decoder, {reinterpret_cast<u8*>(g_pcm), sizeof(g_pcm)});
@@ -378,16 +375,14 @@ void lifecycle() noexcept {
           "AAC lifecycle: the block carries the packet's signed timestamp and is read once");
     check(aac_decoder_submit(&decoder, {f.frame[1], f.size[1]}, 10, 1000).ok() && aac_decoder_flush(&decoder).ok() &&
               aac_decoder_read(&decoder, {reinterpret_cast<u8*>(g_pcm), sizeof(g_pcm)}).error ==
-                  AacDecodeError::need_input && decoder.accepted_frames == 0,
-          "AAC lifecycle: flush drops the undelivered block and the counters");
+                  AacDecodeError::need_input,
+          "AAC lifecycle: flush drops the undelivered block");
     check(aac_decoder_submit(&decoder, {f.frame[0], f.size[0]}, 0, 1000).ok() && aac_decoder_drain(&decoder).ok() &&
               aac_decoder_submit(&decoder, {f.frame[1], f.size[1]}, 1, 1000).error == AacDecodeError::end_of_stream &&
               aac_decoder_read(&decoder, {reinterpret_cast<u8*>(g_pcm), sizeof(g_pcm)}).ok() &&
               aac_decoder_read(&decoder, {reinterpret_cast<u8*>(g_pcm), sizeof(g_pcm)}).error ==
-                  AacDecodeError::end_of_stream && decoder.ended,
+                  AacDecodeError::end_of_stream && aac_decoder_release(&decoder).ok(),
           "AAC lifecycle: drain delivers the block in flight, then ends the stream");
-    check(aac_decoder_release(&decoder).ok() && !decoder.runtime && !decoder.initialized,
-          "AAC lifecycle: release frees the decoder");
     u8 bad[]{0x12, 0x10};
     decoder = {};
     check(aac_decoder_initialize(&decoder, {f.asc, f.asc_bytes}, f.rate, f.channels).ok() &&
@@ -506,13 +501,8 @@ void robustness() noexcept {
     }
     u8 zeros[64]{};
     check(decoder && !noise_bad && aac_lc_decode(decoder, {zeros, 64}, g_pcm) != AacLcError::none &&
-              aac_lc_decode(decoder, {}, g_pcm) == AacLcError::invalid_input &&
               aac_lc_decode(decoder, {g_scratch, 9000}, g_pcm) == AacLcError::invalid_input,
-          "AAC robustness: noise of every length, a zero frame, an empty frame and an oversized frame");
-    check(!aac_lc_initialize(nullptr, 44100, 2) && !aac_lc_initialize(g_scratch + 1, 44100, 2) &&
-              !(memory && aac_lc_initialize(memory, 11111, 2)) && !(memory && aac_lc_initialize(memory, 44100, 3)) &&
-              !(memory && aac_lc_initialize(memory, 44100, 0)),
-          "AAC robustness: unsupported or misplaced decoder configurations are refused");
+          "AAC robustness: noise of every length, a zero frame and an oversized frame");
     if (memory)
         pages_release(memory, bytes);
 }

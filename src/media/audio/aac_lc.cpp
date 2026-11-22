@@ -918,9 +918,6 @@ bool aac_lc_supported(u32 sample_rate, u32 channels) noexcept {
 constexpr u32 kNoiseSeed = 0x1f2e3d4cu;
 
 AacLc* aac_lc_initialize(void* memory, u32 sample_rate, u32 channels) noexcept {
-    if (!memory || (reinterpret_cast<usize>(memory) & (kAacLcStateAlignment - 1)) ||
-        !aac_lc_supported(sample_rate, channels))
-        return nullptr;
     auto* d = static_cast<AacLc*>(memory);
     clear_bytes(d, sizeof(AacLc));
     d->sample_rate = sample_rate;
@@ -951,8 +948,6 @@ AacLc* aac_lc_initialize(void* memory, u32 sample_rate, u32 channels) noexcept {
 }
 
 void aac_lc_reset(AacLc* d) noexcept {
-    if (!d)
-        return;
     clear_bytes(d->overlap, sizeof(d->overlap));
     clear_bytes(d->shape, sizeof(d->shape));
     d->random_state = kNoiseSeed;
@@ -983,7 +978,7 @@ MAICORD_HASWELL void emit(const AacLc& d, u32 channels, float* pcm) noexcept {
 } // namespace
 
 AacLcError aac_lc_decode(AacLc* d, ConstSlice<u8> frame, float* pcm) noexcept {
-    if (!d || !pcm || !frame.data || !frame.count || frame.count > 8192)
+    if (frame.count > 8192)
         return AacLcError::invalid_input;
     Bits b{frame.data, frame.count, frame.count * 8, 0, false};
     d->staged_random = d->random_state;

@@ -55,7 +55,7 @@ const Api* library() noexcept {
 }
 
 bool speak(Speech* speech, const Api* (*load)() noexcept, Utf8View text, i32 rate) noexcept {
-    if (!speech || !text.data || !text.bytes)
+    if (!text.data || !text.bytes)
         return false;
     if (!speech->voice && speech->attempted)
         return false;
@@ -98,8 +98,6 @@ bool speak(Speech* speech, const Api* (*load)() noexcept, Utf8View text, i32 rat
 }
 
 void release(Speech* speech, const Api* api) noexcept {
-    if (!speech)
-        return;
     if (speech->voice && api) {
         auto* connection = static_cast<Connection*>(speech->voice);
         api->spd_cancel(connection);
@@ -115,7 +113,7 @@ bool speech_speak(Speech* speech, Utf8View text, i32 rate) noexcept {
 }
 
 void speech_release(Speech* speech) noexcept {
-    speechd::release(speech, speech && speech->voice ? speechd::library() : nullptr);
+    speechd::release(speech, speech->voice ? speechd::library() : nullptr);
 }
 
 } // namespace maicord

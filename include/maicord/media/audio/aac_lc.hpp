@@ -17,7 +17,7 @@ struct AacLc;
 
 enum class AacLcError : u8 {
     none,
-    invalid_input,  // bad arguments: a null pointer, an unsupported rate or channel count
+    invalid_input,  // a frame over 8192 bytes
     truncated,      // the frame ends inside an element
     unsupported,    // a valid stream the decoder does not cover (prediction, gain control, CCE, LFE, PCE)
     invalid_stream  // a syntax element out of range: reserved codebook, scalefactor, band or pulse position
@@ -33,11 +33,11 @@ inline constexpr usize kAacLcStateAlignment = 64;
 // True when the core decodes `sample_rate` (one of the 13 rates of the standard) in 1 or 2 channels.
 bool aac_lc_supported(u32 sample_rate, u32 channels) noexcept;
 
-// Prepares `memory` (aac_lc_state_bytes() bytes, aligned to kAacLcStateAlignment, any content) as a decoder for the
-// configuration; null when it is not supported or the memory is not valid. Fills the window and transform tables.
+// Prepares `memory` (aac_lc_state_bytes() bytes, aligned to kAacLcStateAlignment, any content) as a decoder for a
+// configuration aac_lc_supported accepts. Fills the window and transform tables.
 AacLc* aac_lc_initialize(void* memory, u32 sample_rate, u32 channels) noexcept;
 
-// Decodes one raw frame into 1024 * channels interleaved samples scaled to [-1, 1] (a full-scale PCM16 sample is
+// Decodes one raw frame (1 byte or more) into 1024 * channels interleaved samples scaled to [-1, 1] (a full-scale PCM16 sample is
 // 1/32768; the sum of loud channels may exceed 1). Nothing is written and the decoder state is unchanged on error, so
 // the next frame decodes as if this one were missing; a decoder that lost frames can call aac_lc_reset. Output is
 // always finite.

@@ -456,7 +456,7 @@ __attribute__((minsize)) void conceal_update(SilkChannel& ch, const FrameControl
     ch.previous_signal = ch.indices.signal;
     i32 gain_q14 = 0;
     if (ch.indices.signal == kSilkVoiced) {
-        // The strongest long-term filter within the last pitch period.
+        // The strongest long-term filter within the last pitch period: its gain and lag.
         for (u32 j = 0;
              j * ch.subframe_length < static_cast<u32>(control.lags[ch.subframes - 1]) && j < ch.subframes;
              ++j) {
@@ -466,7 +466,6 @@ __attribute__((minsize)) void conceal_update(SilkChannel& ch, const FrameControl
                 sum += taps[i];
             if (sum > gain_q14) {
                 gain_q14 = sum;
-                copy_bytes(ch.conceal_ltp, taps, sizeof(ch.conceal_ltp));
                 ch.conceal_pitch_q8 = control.lags[ch.subframes - 1 - j] << 8;
             }
         }

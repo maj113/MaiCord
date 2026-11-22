@@ -19,7 +19,6 @@
 namespace maicord {
 namespace {
 using Error = MediaAudioError;
-using audio_detail::disjoint;
 using audio_detail::fail;
 
 constexpr u32 kServerTimeoutMs = 3000;
@@ -468,7 +467,7 @@ MediaAudioResult launch(MediaAudio& owner) noexcept {
 }
 
 MediaAudioResult command(MediaAudio* owner, u32 kind, float volume = 0) noexcept {
-    if (!owner || !owner->initialized)
+    if (!owner->initialized)
         return fail(Error::invalid_input);
     auto* r = static_cast<Runtime*>(owner->runtime);
     if (!r) {
@@ -507,10 +506,8 @@ MediaAudioResult command(MediaAudio* owner, u32 kind, float volume = 0) noexcept
 } // namespace
 
 MediaAudioResult media_audio_initialize(MediaAudio* owner, const MediaAudioConfig& config) noexcept {
-    if (!owner || owner->initialized || owner->runtime || !media_audio_gain_valid(config.volume) ||
-        !media_audio_gain_valid(config.gain) ||
-        !disjoint(owner, sizeof(*owner), &config, sizeof(config)) || config.pcm.count > 32768 ||
-        !disjoint(owner, sizeof(*owner), config.pcm.data, config.pcm.count * 4))
+    if (owner->initialized || owner->runtime || !media_audio_gain_valid(config.volume) ||
+        !media_audio_gain_valid(config.gain))
         return fail(Error::invalid_input);
     MediaAudioRing ring{};
     if (!media_audio_ring_initialize(&ring, config.pcm, config.sample_rate, config.channels, config.initial_epoch))
@@ -531,13 +528,11 @@ MediaAudioResult media_audio_volume(MediaAudio* owner, float volume) noexcept {
     return media_audio_gain_valid(volume) ? command(owner, 3, volume) : fail(Error::invalid_input);
 }
 MediaAudioResult media_audio_write(MediaAudio* owner, u64 epoch, ConstSlice<float> pcm) noexcept {
-    if (!owner || !owner->initialized || pcm.count > 4096 || !disjoint(owner, sizeof(*owner), pcm.data, pcm.count * 4))
+    if (!owner->initialized || pcm.count > 4096)
         return fail(Error::invalid_input);
     auto* r = static_cast<Runtime*>(owner->runtime);
     if (!r)
         return media_audio_ring_write(&owner->ring, epoch, pcm);
-    if (!disjoint(r, sizeof(*r), pcm.data, pcm.count * 4))
-        return fail(Error::invalid_input);
     AcquireSRWLockExclusive(&r->lock);
     MediaAudioResult result =
         r->stopping || r->status.worker_exited ? fail(Error::stopped) : media_audio_ring_write(&r->ring, epoch, pcm);
@@ -550,7 +545,7 @@ MediaAudioResult media_audio_write(MediaAudio* owner, u64 epoch, ConstSlice<floa
     return result;
 }
 MediaAudioResult media_audio_end(MediaAudio* owner, u64 epoch) noexcept {
-    if (!owner || !owner->initialized)
+    if (!owner->initialized)
         return fail(Error::invalid_input);
     auto* r = static_cast<Runtime*>(owner->runtime);
     if (!r) {
@@ -574,7 +569,7 @@ MediaAudioResult media_audio_end(MediaAudio* owner, u64 epoch) noexcept {
     return result;
 }
 MediaAudioResult media_audio_reset(MediaAudio* owner, u64 epoch, i64 origin) noexcept {
-    if (!owner || !owner->initialized || !epoch)
+    if (!owner->initialized || !epoch)
         return fail(Error::invalid_input);
     if (epoch <= owner->epoch)
         return fail(Error::stale_epoch);
@@ -610,7 +605,7 @@ MediaAudioResult media_audio_reset(MediaAudio* owner, u64 epoch, i64 origin) noe
     return result;
 }
 MediaAudioStatus media_audio_status(const MediaAudio* owner) noexcept {
-    if (!owner || !owner->initialized)
+    if (!owner->initialized)
         return {};
     auto* r = static_cast<Runtime*>(owner->runtime);
     if (!r) {
@@ -632,8 +627,6 @@ MediaAudioStatus media_audio_status(const MediaAudio* owner) noexcept {
     return status;
 }
 MediaAudioResult media_audio_release(MediaAudio* owner, u32 timeout) noexcept {
-    if (!owner)
-        return fail(Error::invalid_input);
     auto* r = static_cast<Runtime*>(owner->runtime);
     if (!r) {
         reset_value(owner);

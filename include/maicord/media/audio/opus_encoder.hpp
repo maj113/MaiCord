@@ -22,7 +22,8 @@ inline constexpr u32 kOpusEncoderBytes = 20896;
 struct OpusEncoder {
     alignas(32) u8 state[kOpusEncoderBytes];
 };
-// Starts a stream; out-of-range profile values are clamped. Any content of the struct is overwritten.
+// Starts a stream with a profile inside the ranges above (1 or 2 channels). Any content of the struct is
+// overwritten.
 void opus_encoder_start(OpusEncoder*, const OpusEncoderProfile&) noexcept;
 // Encodes kOpusEncoderFrameSamples per channel into `packet` (kOpusEncoderMaximumPacketBytes of room) and
 // returns the packet's bytes: 2 for a frame that carries no audio (the decoder conceals), more otherwise.

@@ -7,7 +7,6 @@
 
 namespace maicord {namespace {
 using Error=MediaAudioError;
-using audio_detail::disjoint;
 using audio_detail::fail;
 }
 namespace {
@@ -208,7 +207,7 @@ MediaAudioResult launch(MediaAudio& owner) noexcept {
     if(!SetEvent(r->command)||(r->config.refill_event&&!SetEvent(r->config.refill_event)))return fail(Error::event,thread_last_error());return {};
 }
 MediaAudioResult command(MediaAudio* owner,u32 kind,float volume=0) noexcept {
-    if(!owner||!owner->initialized)return fail(Error::invalid_input);auto* r=static_cast<Runtime*>(owner->runtime);
+    if(!owner->initialized)return fail(Error::invalid_input);auto* r=static_cast<Runtime*>(owner->runtime);
     if(!r){if(kind==1)return launch(*owner);if(kind==3)owner->config.volume=volume;return {};}
     AcquireSRWLockExclusive(&r->lock);MediaAudioResult result{};
     if(r->stopping||r->status.worker_exited)result=fail(Error::stopped);
@@ -220,9 +219,8 @@ MediaAudioResult command(MediaAudio* owner,u32 kind,float volume=0) noexcept {
 }
 }
 MediaAudioResult media_audio_initialize(MediaAudio* owner,const MediaAudioConfig& config) noexcept {
-    if(!owner||owner->initialized||owner->runtime||!media_audio_gain_valid(config.volume)||!media_audio_gain_valid(config.gain)||
-        !disjoint(owner,sizeof(*owner),&config,sizeof(config))||config.pcm.count>32768||
-        !disjoint(owner,sizeof(*owner),config.pcm.data,config.pcm.count*4))return fail(Error::invalid_input);
+    if(owner->initialized||owner->runtime||!media_audio_gain_valid(config.volume)||!media_audio_gain_valid(config.gain))
+        return fail(Error::invalid_input);
     MediaAudioRing ring{};if(!media_audio_ring_initialize(&ring,config.pcm,config.sample_rate,config.channels,config.initial_epoch))return fail(Error::invalid_input);
     owner->config=config;owner->ring=ring;owner->epoch=config.initial_epoch;owner->initialized=true;return {};
 }
@@ -230,24 +228,23 @@ MediaAudioResult media_audio_play(MediaAudio* owner) noexcept{return command(own
 MediaAudioResult media_audio_pause(MediaAudio* owner) noexcept{return command(owner,2);}
 MediaAudioResult media_audio_volume(MediaAudio* owner,float volume) noexcept {return media_audio_gain_valid(volume)?command(owner,3,volume):fail(Error::invalid_input);}
 MediaAudioResult media_audio_write(MediaAudio* owner,u64 epoch,ConstSlice<float> pcm) noexcept {
-    if(!owner||!owner->initialized||pcm.count>4096||!disjoint(owner,sizeof(*owner),pcm.data,pcm.count*4))return fail(Error::invalid_input);
+    if(!owner->initialized||pcm.count>4096)return fail(Error::invalid_input);
     auto* r=static_cast<Runtime*>(owner->runtime);
     if(!r)return media_audio_ring_write(&owner->ring,epoch,pcm);
-    if(!disjoint(r,sizeof(*r),pcm.data,pcm.count*4))return fail(Error::invalid_input);
     AcquireSRWLockExclusive(&r->lock);MediaAudioResult result=r->stopping||r->status.worker_exited?fail(Error::stopped):media_audio_ring_write(&r->ring,epoch,pcm);
     if(result.ok())r->refill_pending=false;ReleaseSRWLockExclusive(&r->lock);
     // The set comes after the release: the worker that it wakes takes this lock first.
     if(result.ok()&&!SetEvent(r->command))result=fail(Error::event,thread_last_error());return result;
 }
 MediaAudioResult media_audio_end(MediaAudio* owner,u64 epoch) noexcept {
-    if(!owner||!owner->initialized)return fail(Error::invalid_input);auto* r=static_cast<Runtime*>(owner->runtime);
+    if(!owner->initialized)return fail(Error::invalid_input);auto* r=static_cast<Runtime*>(owner->runtime);
     if(!r){if(epoch!=owner->epoch)return fail(Error::stale_epoch);owner->ring.ended=true;return {};}
     AcquireSRWLockExclusive(&r->lock);MediaAudioResult result{};
     if(r->stopping||r->status.worker_exited)result=fail(Error::stopped);else if(epoch!=r->ring.epoch)result=fail(Error::stale_epoch);
     else {r->ring.ended=true;if(!SetEvent(r->command))result=fail(Error::event,thread_last_error());}ReleaseSRWLockExclusive(&r->lock);return result;
 }
 MediaAudioResult media_audio_reset(MediaAudio* owner,u64 epoch,i64 origin) noexcept {
-    if(!owner||!owner->initialized||!epoch)return fail(Error::invalid_input);if(epoch<=owner->epoch)return fail(Error::stale_epoch);
+    if(!owner->initialized||!epoch)return fail(Error::invalid_input);if(epoch<=owner->epoch)return fail(Error::stale_epoch);
     auto* r=static_cast<Runtime*>(owner->runtime);if(!r){owner->ring.epoch=epoch;owner->ring.written=owner->ring.submitted=owner->ring.consumed=0;
         owner->ring.ended=false;owner->epoch=epoch;owner->config.source_origin_100ns=origin;return {};}
     AcquireSRWLockExclusive(&r->lock);MediaAudioResult result{};
@@ -259,14 +256,14 @@ MediaAudioResult media_audio_reset(MediaAudio* owner,u64 epoch,i64 origin) noexc
     ReleaseSRWLockExclusive(&r->lock);return result;
 }
 MediaAudioStatus media_audio_status(const MediaAudio* owner) noexcept {
-    if(!owner||!owner->initialized)return {};auto* r=static_cast<Runtime*>(owner->runtime);
+    if(!owner->initialized)return {};auto* r=static_cast<Runtime*>(owner->runtime);
     if(!r){MediaAudioStatus status{};status.desired_epoch=status.observed_epoch=owner->epoch;status.written_frames=owner->ring.written;
         status.free_frames=media_audio_ring_free(owner->ring);status.presentation_time_100ns=owner->config.source_origin_100ns;status.desired_volume=owner->config.volume;
         status.paused=true;status.ended=owner->ring.ended;return status;}
     AcquireSRWLockExclusive(&r->lock);notify_locked(*r);auto status=r->status;r->wake_pending=false;ReleaseSRWLockExclusive(&r->lock);return status;
 }
 MediaAudioResult media_audio_release(MediaAudio* owner,u32 timeout) noexcept {
-    if(!owner)return fail(Error::invalid_input);auto* r=static_cast<Runtime*>(owner->runtime);if(!r){reset_value(owner);return {};}
+    auto* r=static_cast<Runtime*>(owner->runtime);if(!r){reset_value(owner);return {};}
     if(r->thread){AcquireSRWLockExclusive(&r->lock);r->stopping=true;r->desired_play=false;
         const bool signaled=SetEvent(r->stop)!=0;const DWORD error=signaled?0:thread_last_error();ReleaseSRWLockExclusive(&r->lock);
         if(!signaled)return fail(Error::event,error);const DWORD wait=WaitForSingleObject(r->thread,timeout);

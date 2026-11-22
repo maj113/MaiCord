@@ -279,8 +279,7 @@ bool ends_with(const char* text, const char* suffix) noexcept {
 
 // ---- The scenario ------------------------------------------------------------------------------------------------
 
-void devices(pulse::Session& session) noexcept {
-    (void)session;
+void devices() noexcept {
     VoiceAudioDevice list[32];
     const u32 render = voice_audio_devices(false, {list, 32});
     bool has_sink = false, any_default = false;
@@ -374,7 +373,7 @@ void output(const char* device_name, const char* label_ok, const char* label_flo
     wchar_t id[kVoiceDeviceIdCharacters];
     const bool named = device_name && pulse::device_id_from_name(device_name, id, kVoiceDeviceIdCharacters);
     VoiceAudioOutput voice{};
-    check(voice_audio_output_start_device(&voice, named ? id : nullptr, tone_render, &g_tone) && voice_audio_output_running(voice),
+    check(voice_audio_output_start_device(&voice, named ? id : L"", tone_render, &g_tone) && voice_audio_output_running(voice),
           "voice output: the worker starts");
     check(wait_until([]() noexcept { return measure_recording().peak > 3000; }, 5000),
           label_flow);
@@ -643,7 +642,7 @@ MAICORD_TEST_ENTRY(maicord_pulse_loopback_entry) {
     pulse::device_id_from_name(kMonitor, monitor_id, kVoiceDeviceIdCharacters);
     if (!pulse::device_exists(&session, AudioFlow::capture, kMonitor, nullptr))
         skip("the null sink has no monitor source");
-    devices(session);
+    devices();
     buffers(session);
     check(voice_audio_capture_start(&capture, monitor_id, false, record_sink, record_tick, nullptr),
           "voice capture: the worker starts on the sink's monitor");

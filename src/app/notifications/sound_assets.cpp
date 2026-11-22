@@ -94,10 +94,10 @@ bool notification_sound_asset_resolve(void* context,u32 id,NotificationAudioClip
         if(!pcm) return false;
         DeflateWorkspace* workspace=deflate_workspace_allocate();
         if(!workspace) {pages_release(pcm);return false;}
-        const auto result=notification_pcm_unpack({data+16,count-16},{frames,data[5],data[6]},
+        const bool unpacked=notification_pcm_unpack({data+16,count-16},{frames,data[5],data[6]},
             {static_cast<u8*>(pcm),bytes},workspace);
         deflate_workspace_free(workspace);
-        if(result!=NotificationPcmError::none) {pages_release(pcm);bank->failed_mask|=1u<<index;return false;}
+        if(!unpacked) {pages_release(pcm);bank->failed_mask|=1u<<index;return false;}
         if(!pages_protect(pcm,bytes,PageAccess::read)) {pages_release(pcm);return false;}
         bank->pcm[index]=pcm;bank->frames[index]=frames;bank->rates[index]=rate;
     }

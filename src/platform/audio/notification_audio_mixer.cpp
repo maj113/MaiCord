@@ -1,6 +1,5 @@
 #include "audio_support.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/byte_range.hpp"
 
 // The part of notification audio that has no operating system in it: clip and gain validation, request
 // preparation and the offline source-rate mixer. The Windows (notification_audio.cpp) and Linux
@@ -22,7 +21,7 @@ bool notification_audio_clip_valid(NotificationAudioClip clip) noexcept {
 }
 bool notification_audio_gain_valid(float gain) noexcept {return gain>=0.0f&&gain<=1.0f;}
 bool notification_audio_record_stream_failure(NotificationAudioStatus* status,u64 closed_epoch,u32 native_error) noexcept {
-    if(!status||!closed_epoch||status->desired_epoch!=closed_epoch)return false;
+    if(!closed_epoch||status->desired_epoch!=closed_epoch)return false;
     status->error=NotificationAudioError::stream;status->native_error=native_error;return true;
 }
 NotificationAudioResult notification_audio_prepare_request(const NotificationAudioConfig& config,
@@ -37,10 +36,9 @@ NotificationAudioResult notification_audio_prepare_request(const NotificationAud
     if(!notification_audio_gain_valid(effective))return fail(NotificationAudioError::invalid_input);
     *clip=resolved;*gain=effective;return {};
 }
-void notification_audio_mixer_reset(NotificationAudioMixer* m,u64 epoch) noexcept {if(m){clear_bytes(m,sizeof(*m));m->epoch=epoch;}}
+void notification_audio_mixer_reset(NotificationAudioMixer* m,u64 epoch) noexcept {clear_bytes(m,sizeof(*m));m->epoch=epoch;}
+// The clip and the gain come from notification_audio_prepare_request, which checked them.
 NotificationAudioResult notification_audio_mixer_add(NotificationAudioMixer* m,u64 epoch,NotificationAudioClip clip,float gain) noexcept {
-    if(!m||!epoch||!notification_audio_clip_valid(clip)||!notification_audio_gain_valid(gain)||
-        byte_ranges_conflict(m,sizeof(*m),clip.samples.data,usize(clip.samples.count)*sizeof(i16)))return fail(NotificationAudioError::invalid_input);
     if(epoch!=m->epoch)return fail(NotificationAudioError::stale_epoch);
     if(m->count==kNotificationAudioVoiceCapacity)return fail(NotificationAudioError::full_voices);
     const u64 position=submitted(*m,clip.sample_rate);
@@ -48,22 +46,20 @@ NotificationAudioResult notification_audio_mixer_add(NotificationAudioMixer* m,u
     m->voices[m->count++]={clip,position+clip.silence_frames,gain};return {};
 }
 u32 notification_audio_mixer_voices_rate(const NotificationAudioMixer& m,u32 rate) noexcept {
-    if(!rate_valid(rate))return 0;u32 count{};
+    u32 count{};
 #pragma clang loop vectorize(disable) unroll(disable)
     for(u32 i=0;i<m.count;++i)if(m.voices[i].clip.sample_rate==rate)++count;
     return count;
 }
 u32 notification_audio_mixer_needed_rate(const NotificationAudioMixer& m,u32 rate) noexcept {
-    if(!rate_valid(rate))return 0;const u64 position=submitted(m,rate);u64 end=position;
+    const u64 position=submitted(m,rate);u64 end=position;
     for(u32 i=0;i<m.count;++i)if(m.voices[i].clip.sample_rate==rate)end=maximum(end,m.voices[i].start+m.voices[i].clip.samples.count/2+m.voices[i].clip.silence_frames);
     return static_cast<u32>(minimum<u64>(end-position,10*rate));
 }
-NotificationAudioMixResult notification_audio_mixer_render_rate(NotificationAudioMixer* m,Slice<i16> output,u32 rate) noexcept {
-    if(!m||!m->epoch||!rate_valid(rate)||!output.data||!output.count||(output.count&1u)||output.count>2*kNotificationAudioMixChunkFrames||
-        byte_ranges_conflict(m,sizeof(*m),output.data,usize(output.count)*sizeof(i16)))return {NotificationAudioError::invalid_input};
-    for(u32 i=0;i<m->count;++i)if(byte_ranges_conflict(output.data,usize(output.count)*sizeof(i16),
-        m->voices[i].clip.samples.data,usize(m->voices[i].clip.samples.count)*sizeof(i16)))return {NotificationAudioError::invalid_input};
-    const u32 frames=minimum(output.count/2,notification_audio_mixer_needed_rate(*m,rate));
+// The transports render chunks of at most kNotificationAudioMixChunkFrames whole frames, never more than needed_rate(),
+// into their own endpoint buffer.
+bool notification_audio_mixer_render_rate(NotificationAudioMixer* m,Slice<i16> output,u32 rate) noexcept {
+    const u32 frames=output.count/2;
     bool nonzero=false;
     for(u32 i=0;i<frames;++i){float left=0,right=0;const u64 position=submitted(*m,rate)+i;
         for(u32 j=0;j<m->count;++j){const auto& v=m->voices[j];
@@ -74,13 +70,13 @@ NotificationAudioMixResult notification_audio_mixer_render_rate(NotificationAudi
         output[2*i]=static_cast<i16>(clipped(left));output[2*i+1]=static_cast<i16>(clipped(right));
         nonzero=nonzero||output[2*i]!=0||output[2*i+1]!=0;
     }
-    submitted(*m,rate)+=frames;return {NotificationAudioError::none,frames,nonzero};
+    submitted(*m,rate)+=frames;return nonzero;
 }
 u32 notification_audio_mixer_played_rate(NotificationAudioMixer* m,u32 padding,u32 rate) noexcept {
-    if(!m||!rate_valid(rate)||padding>submitted(*m,rate)-consumed(*m,rate))return 0;
+    if(padding>submitted(*m,rate)-consumed(*m,rate))return 0;
     consumed(*m,rate)=submitted(*m,rate)-padding;u32 kept=0;
     for(u32 i=0;i<m->count;++i)if(m->voices[i].clip.sample_rate!=rate||m->voices[i].start+m->voices[i].clip.samples.count/2+m->voices[i].clip.silence_frames>consumed(*m,rate))m->voices[kept++]=m->voices[i];
     const u32 retired=m->count-kept;for(u32 i=kept;i<m->count;++i)reset_value(&m->voices[i]);m->count=kept;return retired;
 }
-void notification_audio_mixer_rewind_rate(NotificationAudioMixer* m,u32 rate) noexcept {if(m&&rate_valid(rate))submitted(*m,rate)=consumed(*m,rate);}
+void notification_audio_mixer_rewind_rate(NotificationAudioMixer* m,u32 rate) noexcept {submitted(*m,rate)=consumed(*m,rate);}
 } // namespace maicord

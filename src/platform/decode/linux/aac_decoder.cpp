@@ -34,13 +34,8 @@ State* open(AacDecoder& owner) noexcept {
     auto* memory = static_cast<u8*>(pages_allocate(total));
     if (!memory)
         return nullptr;
-    AacLc* decoder = aac_lc_initialize(memory, owner.sample_rate, owner.channels);
-    if (!decoder) {
-        pages_release(memory, total);
-        return nullptr;
-    }
     auto* state = reinterpret_cast<State*>(memory + core);
-    state->decoder = decoder;
+    state->decoder = aac_lc_initialize(memory, owner.sample_rate, owner.channels);
     state->bytes = total;
     owner.runtime = memory;
     return state;
@@ -56,8 +51,6 @@ State* state_of(const AacDecoder& owner) noexcept {
 AacDecodeResult aac_decoder_initialize(AacDecoder* owner, ConstSlice<u8> asc, u32 rate, u32 channels) noexcept {
     if (!aac_decoder_configuration_valid(asc, rate, channels))
         return {Error::invalid_input};
-    if (owner->initialized || owner->runtime)
-        return {Error::busy};
     AacConfiguration configuration{};
     aac_configuration_decode(asc, &configuration);
     // SBR and PS need their own decoder; the AAC-LC core alone would give half-bandwidth audio at the wrong rate.

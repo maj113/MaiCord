@@ -198,20 +198,11 @@ u32 small_stack_worker(void* passed) noexcept {
 }
 
 void test_opus_encoder() noexcept {
-    // Profile values outside their ranges act as the nearest valid ones.
+    // The defaults.
     {
         const Scenario s{1, 64000, 7, 10, 0, 6, 0, 0};
         fill(s);
-        const auto same = [&](OpusEncoderProfile odd, OpusEncoderProfile valid) noexcept {
-            u64 a = 0, b = 1;
-            return encode_all(odd, s.frames, &a) && encode_all(valid, s.frames, &b) && a == b;
-        };
-        OpusEncoderProfile low{1, 3, 0, 0}, low_valid{6000, 1, 1, 0};
-        OpusEncoderProfile high{4000000000u, 1, 200, 255}, high_valid{510000, 1, 10, 100};
         u64 implicit = 0, written = 1;
-        check(same(low, low_valid) && same(high, high_valid),
-              "Opus encoder profile: bitrate, complexity, loss and channel count outside their ranges are "
-              "clamped");
         check(
             encode_all({}, s.frames, &implicit) && encode_all(profile_of(s), s.frames, &written) &&
                 implicit == written,

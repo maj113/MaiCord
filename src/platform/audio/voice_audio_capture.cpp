@@ -187,7 +187,7 @@ void free_runtime(Runtime* r) noexcept {
 
 bool voice_audio_capture_start(VoiceAudioCapture* capture, const wchar_t* device_id, bool communications,
                                VoiceAudioCaptureSink sink, VoiceAudioCaptureTick tick, void* context) noexcept {
-    if (!capture || capture->runtime || !sink || !tick)
+    if (capture->runtime)
         return false;
     auto* r = commit_pages<Runtime>();
     if (!r)
@@ -196,7 +196,7 @@ bool voice_audio_capture_start(VoiceAudioCapture* capture, const wchar_t* device
     r->tick = tick;
     r->context = context;
     r->processing = communications;
-    for (u32 i = 0; device_id && i + 1 < kVoiceDeviceIdCharacters && device_id[i]; ++i)
+    for (u32 i = 0; i + 1 < kVoiceDeviceIdCharacters && device_id[i]; ++i)
         r->device[i] = device_id[i];
     r->stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     r->wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -216,7 +216,7 @@ bool voice_audio_capture_start(VoiceAudioCapture* capture, const wchar_t* device
 }
 
 void voice_audio_capture_stop(VoiceAudioCapture* capture) noexcept {
-    if (!capture || !capture->runtime)
+    if (!capture->runtime)
         return;
     auto* r = static_cast<Runtime*>(capture->runtime);
     SetEvent(r->stop);
@@ -241,8 +241,6 @@ VoiceAudioCaptureStatus voice_audio_capture_status(const VoiceAudioCapture& capt
 }
 
 u32 voice_audio_devices(bool capture, Slice<VoiceAudioDevice> output) noexcept {
-    if (!output.data || !output.count)
-        return 0;
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     IMMDeviceEnumerator* enumerator = nullptr;
     IMMDeviceCollection* devices = nullptr;

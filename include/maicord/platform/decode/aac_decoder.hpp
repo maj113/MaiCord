@@ -18,7 +18,6 @@ enum class AacDecodeError : u8 {
     none,
     invalid_input,
     unsupported,
-    busy,
     runtime,
     media_type,
     input,

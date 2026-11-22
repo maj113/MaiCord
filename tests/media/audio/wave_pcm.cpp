@@ -114,19 +114,8 @@ void test_wave_pcm(void (*check)(bool, const char*) noexcept) noexcept {
               pcm_sample_matches(fixture.samples[2], 8388607.0f / 8388608.0f) &&
               fixture.samples[3] == -0.5f,
           "wave PCM walks padded unknown chunks and preserves native stereo interleaving at 192 kHz");
-    const auto before = fixture.source;
-    fixture.samples[0] = 9;
-    fixture.samples[1] = 9;
-    check(wave_pcm_decode(fixture.source, 0, 2, {fixture.samples, 3}).error == WavePcmError::capacity &&
-              fixture.samples[0] == 9 && fixture.samples[1] == 9 && unchanged(before),
-          "wave PCM insufficient output capacity preserves every sample and immutable source");
     check(wave_pcm_decode(fixture.source, 2, 1, {fixture.samples, 16}).error == WavePcmError::end_of_stream,
           "wave PCM decode at the exact EOF frame reports end of stream");
-    check(wave_pcm_decode(fixture.source, 0, 8193, {fixture.samples, 16}).error ==
-                  WavePcmError::invalid_input &&
-              wave_pcm_decode(fixture.source, 0, 1, {reinterpret_cast<float*>(fixture.bytes), 1}).error ==
-                  WavePcmError::invalid_input,
-          "wave PCM decode bounds work per call and rejects overwriting retained encoded source");
     begin();
     format(1, 1, 24, 44100, true, 20, 4);
     const u8 valid20[9]{0, 0, 0x80, 0xf0, 0xff, 0x7f, 0, 0, 0xc0};
@@ -293,20 +282,12 @@ void test_wave_pcm(void (*check)(bool, const char*) noexcept) noexcept {
     chunk("JUNK", {nullptr, 0});
     check(wave_pcm_parse(&fixture.source, {fixture.bytes, fixture.count}) == WavePcmError::capacity,
           "wave zero-length unknown chunks are bounded by an explicit chunk-count cap");
-    // The exaggerated input range includes fixture.source in the same static
-    // fixture. Use independent stack output to isolate the size-cap check.
     WavePcmSource capacity_output{};
     const auto capacity_before = capacity_output;
     check(wave_pcm_parse(&capacity_output, {fixture.bytes, kWavePcmMaximumEncodedBytes + 1}) ==
                   WavePcmError::capacity &&
               bytes_equal(&capacity_output, &capacity_before, sizeof(capacity_output)),
           "wave encoded size cap rejects before reading beyond the fixture and preserves output");
-    check(wave_pcm_parse(&fixture.source, {fixture.bytes, kWavePcmMaximumEncodedBytes + 1}) ==
-              WavePcmError::invalid_input,
-          "wave output alias has priority when the declared oversized source includes metadata output");
-    check(wave_pcm_parse(reinterpret_cast<WavePcmSource*>(fixture.bytes), {fixture.bytes, fixture.count}) ==
-              WavePcmError::invalid_input,
-          "wave rejects metadata output within encoded source before any input access or output write");
     begin();
     format(1, 1, 8, 16000);
     fixture.data_offset = fixture.count + 8;
@@ -321,11 +302,5 @@ void test_wave_pcm(void (*check)(bool, const char*) noexcept) noexcept {
               wave_pcm_decode(fixture.source, 32000, 8192, {fixture.samples, 1}).ok() &&
               fixture.samples[0] == 0,
           "wave seek retains a final sub-millisecond frame");
-    auto forged = fixture.source;
-    forged.total_frames = ~u64{0};
-    fixture.samples[0] = 9;
-    check(wave_pcm_decode(forged, 0, 1, {fixture.samples, 1}).error == WavePcmError::invalid_input &&
-              fixture.samples[0] == 9,
-          "wave converter rejects forged frame metadata before arithmetic or output writes");
 }
 } // namespace maicord

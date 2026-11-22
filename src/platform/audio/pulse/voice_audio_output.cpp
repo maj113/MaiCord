@@ -130,7 +130,7 @@ void free_runtime(Runtime* r) noexcept {
 
 bool voice_audio_output_start_device(VoiceAudioOutput* output, const wchar_t* device_id, VoiceAudioRender render,
                                      void* context) noexcept {
-    if (!output || output->runtime || !render)
+    if (output->runtime)
         return false;
     auto* r = commit_pages<Runtime>();
     if (!r)
@@ -138,7 +138,7 @@ bool voice_audio_output_start_device(VoiceAudioOutput* output, const wchar_t* de
     r->render = render;
     r->context = context;
     // An ID that is not a PulseAudio name (a Windows endpoint ID in shared settings) selects the default.
-    if (!device_id || !pulse::device_name_from_id(device_id, r->device, sizeof(r->device)))
+    if (!pulse::device_name_from_id(device_id, r->device, sizeof(r->device)))
         r->device[0] = 0;
     r->stop = event_create(true, false);
     r->wake = event_create(false, false);
@@ -153,7 +153,7 @@ bool voice_audio_output_start_device(VoiceAudioOutput* output, const wchar_t* de
 }
 
 void voice_audio_output_stop(VoiceAudioOutput* output) noexcept {
-    if (!output || !output->runtime)
+    if (!output->runtime)
         return;
     auto* r = static_cast<Runtime*>(output->runtime);
     event_set(r->stop);

@@ -182,7 +182,7 @@ void collect(void* context, const pulse::DeviceInfo& device) noexcept {
 bool voice_audio_capture_start(VoiceAudioCapture* capture, const wchar_t* device_id, bool communications,
                                VoiceAudioCaptureSink sink, VoiceAudioCaptureTick tick, void* context) noexcept {
     (void)communications;
-    if (!capture || capture->runtime || !sink || !tick)
+    if (capture->runtime)
         return false;
     auto* r = commit_pages<Runtime>();
     if (!r)
@@ -191,7 +191,7 @@ bool voice_audio_capture_start(VoiceAudioCapture* capture, const wchar_t* device
     r->tick = tick;
     r->context = context;
     // An ID that is not a PulseAudio name (a Windows endpoint ID in shared settings) selects the default.
-    if (!device_id || !pulse::device_name_from_id(device_id, r->device, sizeof(r->device)))
+    if (!pulse::device_name_from_id(device_id, r->device, sizeof(r->device)))
         r->device[0] = 0;
     r->stop = event_create(true, false);
     r->wake = event_create(false, false);
@@ -208,7 +208,7 @@ bool voice_audio_capture_start(VoiceAudioCapture* capture, const wchar_t* device
 }
 
 void voice_audio_capture_stop(VoiceAudioCapture* capture) noexcept {
-    if (!capture || !capture->runtime)
+    if (!capture->runtime)
         return;
     auto* r = static_cast<Runtime*>(capture->runtime);
     event_set(r->stop);
@@ -233,8 +233,6 @@ VoiceAudioCaptureStatus voice_audio_capture_status(const VoiceAudioCapture& capt
 }
 
 u32 voice_audio_devices(bool capture, Slice<VoiceAudioDevice> output) noexcept {
-    if (!output.data || !output.count)
-        return 0;
     const Waitable event = event_create(false, false);
     if (!event)
         return 0;

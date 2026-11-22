@@ -44,9 +44,8 @@ void test_media_audio(void (*check)(bool,const char*) noexcept) noexcept {
     check(media_audio_ring_native_queue_empty(ring,0),"media clock: EOF confirms an empty submitted prefix");
     const auto before=ring;u32 nan_bits=0x7fc00000;float nan{};copy_bytes(&nan,&nan_bits,4);input[1]=nan;
     check(media_audio_ring_write(&ring,1,{input,2}).error==MediaAudioError::invalid_input&&bytes_equal(&before,&ring,sizeof(ring))&&
-        media_audio_ring_write(&ring,2,{output,2}).error==MediaAudioError::stale_epoch&&
-        media_audio_ring_write(&ring,1,{storage,2}).error==MediaAudioError::invalid_input,
-        "media ring: NaN, stale epoch and alias failures preserve cursors atomically");
+        media_audio_ring_write(&ring,2,{output,2}).error==MediaAudioError::stale_epoch,
+        "media ring: NaN and stale epoch failures preserve cursors atomically");
     input[0]=2;input[1]=-2;check(media_audio_ring_write(&ring,1,{input,2}).ok()&&media_audio_ring_render(&ring,{output,2},.75f)==1&&output[0]==1.5f&&output[1]==-1.5f,
         "media ring: finite overrange PCM applies gain and does not clip, so the system applies the volume before any limit");
     check(!media_audio_ring_native_queue_empty(ring,1)&&!media_audio_ring_native_queue_empty(ring,0),

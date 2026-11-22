@@ -156,17 +156,15 @@ HRESULT render_audio(Runtime& r,Engine& e,u32 rate) noexcept {
     const u32 frames=minimum(e.frames-padding,notification_audio_mixer_needed_rate(r.mixer,rate));
     if(!frames)return S_OK;
     BYTE* target=nullptr;h=e.render->GetBuffer(frames,&target);if(FAILED(h))return h;
-    const u64 epoch=r.mixer.epoch;bool nonzero=false,canceled=false;HRESULT mix_error=S_OK;u32 offset=0;
+    const u64 epoch=r.mixer.epoch;bool nonzero=false,canceled=false;u32 offset=0;
     while(offset<frames){
         if(!current(r,epoch)){canceled=true;break;}
         const u32 n=minimum(kNotificationAudioMixChunkFrames,frames-offset);
-        const auto mixed=notification_audio_mixer_render_rate(&r.mixer,{reinterpret_cast<i16*>(target)+offset*2,n*2},rate);
-        if(mixed.error!=NotificationAudioError::none||mixed.frames!=n){canceled=true;mix_error=E_UNEXPECTED;break;}
-        offset+=n;nonzero=nonzero||mixed.nonzero;
+        nonzero=notification_audio_mixer_render_rate(&r.mixer,{reinterpret_cast<i16*>(target)+offset*2,n*2},rate)||nonzero;
+        offset+=n;
     }
     if(!current(r,epoch))canceled=true;
     h=e.render->ReleaseBuffer(frames,(canceled||!nonzero)?AUDCLNT_BUFFERFLAGS_SILENT:0);
-    if(SUCCEEDED(h)&&FAILED(mix_error))return mix_error;
     if(SUCCEEDED(h)&&!canceled&&!e.started){h=e.client->Start();if(SUCCEEDED(h))e.started=true;}
     return h;
 }
@@ -254,18 +252,18 @@ inline NotificationAudioResult launch(NotificationAudio& owner) noexcept {
 }
 }
 NotificationAudioResult notification_audio_initialize(NotificationAudio* owner,const NotificationAudioConfig& config) noexcept {
-    if(!owner||owner->initialized||owner->runtime||!config.initial_epoch||
+    if(owner->initialized||owner->runtime||!config.initial_epoch||
         config.wake.cause>wake_tray||(!config.wake.window&&config.wake.cause))return fail(NotificationAudioError::invalid_input);
     *owner={config,nullptr,config.initial_epoch,true,config.enabled};return {};
 }
 bool notification_audio_can_accept(const NotificationAudio* owner,u32 needed) noexcept {
-    if(!owner||!owner->initialized||!owner->enabled||!needed||needed>kNotificationAudioQueueCapacity)return false;
+    if(!owner->initialized||!owner->enabled||!needed||needed>kNotificationAudioQueueCapacity)return false;
     auto* r=static_cast<Runtime*>(owner->runtime);if(!r)return true;
     AcquireSRWLockShared(&r->lock);const bool available=!r->stopping&&!r->status.worker_exited&&r->status.enabled&&
         needed<=kNotificationAudioQueueCapacity-r->count&&needed<=kNotificationAudioVoiceCapacity-r->reserved;ReleaseSRWLockShared(&r->lock);return available;
 }
 NotificationAudioResult notification_audio_submit(NotificationAudio* owner,const NotificationAudioRequest& request) noexcept {
-    if(!owner||!owner->initialized||!notification_audio_gain_valid(request.gain)||
+    if(!owner->initialized||!notification_audio_gain_valid(request.gain)||
         (request.clip.samples.count?!notification_audio_clip_valid(request.clip):!owner->config.resolve||!request.clip_id))return fail(NotificationAudioError::invalid_input);
     if(request.epoch!=owner->epoch)return fail(NotificationAudioError::stale_epoch);
     if(!owner->enabled)return fail(NotificationAudioError::stopped);
@@ -282,7 +280,7 @@ NotificationAudioResult notification_audio_submit(NotificationAudio* owner,const
     ReleaseSRWLockExclusive(&r.lock);return result;
 }
 NotificationAudioResult notification_audio_reset(NotificationAudio* owner,u64 epoch,bool enabled) noexcept {
-    if(!owner||!owner->initialized||!epoch)return fail(NotificationAudioError::invalid_input);
+    if(!owner->initialized||!epoch)return fail(NotificationAudioError::invalid_input);
     if(epoch<=owner->epoch)return fail(NotificationAudioError::stale_epoch);
     auto* r=static_cast<Runtime*>(owner->runtime);
     if(r){AcquireSRWLockExclusive(&r->lock);
@@ -295,19 +293,18 @@ NotificationAudioResult notification_audio_reset(NotificationAudio* owner,u64 ep
     owner->epoch=epoch;owner->enabled=enabled;return {};
 }
 NotificationAudioStatus notification_audio_status(const NotificationAudio* owner) noexcept {
-    if(!owner||!owner->initialized)return {};
+    if(!owner->initialized)return {};
     auto* r=static_cast<Runtime*>(owner->runtime);
     if(!r){NotificationAudioStatus status{};status.desired_epoch=status.observed_epoch=owner->epoch;status.enabled=owner->enabled;return status;}
     AcquireSRWLockExclusive(&r->lock);auto status=r->status;status.queued=r->count;status.outstanding=r->reserved;
     status.worker_started=true;status.stopping=r->stopping;r->wake_pending=false;r->attention=0;r->last_notified=r->status;ReleaseSRWLockExclusive(&r->lock);return status;
 }
 bool notification_audio_status_pending(const NotificationAudio* owner) noexcept {
-    const auto* r=owner&&owner->initialized?static_cast<const Runtime*>(owner->runtime):nullptr;
+    const auto* r=owner->initialized?static_cast<const Runtime*>(owner->runtime):nullptr;
     // Plain reads: the worker sets both words under the lock, and only this UI thread writes `stopping`.
     return r&&(ReadAcquire(&r->attention)||*static_cast<const volatile bool*>(&r->wake_pending)||r->stopping);
 }
 NotificationAudioResult notification_audio_release(NotificationAudio* owner,u32 timeout) noexcept {
-    if(!owner)return fail(NotificationAudioError::invalid_input);
     auto* r=static_cast<Runtime*>(owner->runtime);if(!r){reset_value(owner);return {};}
     AcquireSRWLockExclusive(&r->lock);r->stopping=true;r->status.enabled=false;owner->enabled=false;
     const bool signaled=SetEvent(r->stop)!=0;const u32 signal_error=signaled?0:thread_last_error();ReleaseSRWLockExclusive(&r->lock);

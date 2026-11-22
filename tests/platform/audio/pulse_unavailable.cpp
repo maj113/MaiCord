@@ -68,14 +68,14 @@ void run(bool no_library) noexcept {
           "audio unavailable: the device lists are empty, so the selectors show only the default");
 
     VoiceAudioOutput output{};
-    check(voice_audio_output_start_device(&output, nullptr, render, nullptr) && voice_audio_output_running(output),
+    check(voice_audio_output_start_device(&output, L"", render, nullptr) && voice_audio_output_running(output),
           "audio unavailable: voice output starts its retrying worker");
     thread_sleep(100);
     voice_audio_output_stop(&output);
     check(!voice_audio_output_running(output), "audio unavailable: voice output stops and joins");
 
     VoiceAudioCapture capture{};
-    check(voice_audio_capture_start(&capture, nullptr, true, sink, tick, nullptr) && voice_audio_capture_running(capture),
+    check(voice_audio_capture_start(&capture, L"", true, sink, tick, nullptr) && voice_audio_capture_running(capture),
           "audio unavailable: voice capture starts its retrying worker");
     check(wait_until(
               [&]() noexcept {

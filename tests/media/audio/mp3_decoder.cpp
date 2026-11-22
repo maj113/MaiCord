@@ -26,10 +26,9 @@ ConstSlice<u8> feature(u32 index) noexcept {
 u32 decode_all(ConstSlice<u8> source, u8* storage, float* pcm, u32 capacity) noexcept {
     Mp3Stream stream{};
     Mp3Decoder decoder{};
-    if (mp3_stream_initialize(&stream, source) != Mp3Error::none ||
-        mp3_decoder_initialize(&decoder, {storage, mp3_decoder_storage_bytes()}, stream.sample_rate,
-                               stream.channels) != Mp3Error::none)
+    if (mp3_stream_initialize(&stream, source) != Mp3Error::none)
         return ~0u;
+    mp3_decoder_initialize(&decoder, storage);
     u32 frames = 0;
     for (;;) {
         const auto packet = mp3_stream_next(&stream);
@@ -37,15 +36,13 @@ u32 decode_all(ConstSlice<u8> source, u8* storage, float* pcm, u32 capacity) noe
             break;
         if (!packet.ok() || (frames + packet.duration_frames) * stream.channels > capacity)
             return ~0u;
-        const auto decoded =
-            mp3_decoder_decode(&decoder, packet.bytes, {pcm + frames * stream.channels, 2304});
+        const auto decoded = mp3_decoder_decode(&decoder, packet.bytes, pcm + frames * stream.channels);
         if (decoded.error == Mp3Error::need_preroll && !frames)
             continue;
         if (!decoded.ok() || decoded.frames != packet.duration_frames)
             return ~0u;
         frames += decoded.frames;
     }
-    mp3_decoder_release(&decoder);
     return frames;
 }
 
@@ -124,7 +121,7 @@ __declspec(noinline) u32 dirty_stack(u8 pattern) noexcept {
 } // namespace
 
 void test_mp3_decoder(void (*check)(bool, const char*) noexcept) noexcept {
-    alignas(kMp3DecoderStateAlignment) static u8 storage[8192], other[8192];
+    alignas(16) static u8 storage[8192], other[8192];
     static float pcm[6912 * 2 + 2304], pcm2[6912 * 2 + 2304];
 
     // Conformance: decoder paths LAME never emits, against libmad.
@@ -151,25 +148,22 @@ void test_mp3_decoder(void (*check)(bool, const char*) noexcept) noexcept {
     {
         Mp3Stream first{}, second{};
         Mp3Decoder a{}, b{};
-        bool same =
-            mp3_stream_initialize(&first, feature(1)) == Mp3Error::none &&
-            mp3_decoder_initialize(&a, {storage, mp3_decoder_storage_bytes()}, 44100, 2) ==
-                Mp3Error::none &&
-            mp3_decoder_initialize(&b, {other, mp3_decoder_storage_bytes()}, 44100, 2) == Mp3Error::none;
+        const bool parsed = mp3_stream_initialize(&first, feature(1)) == Mp3Error::none;
+        bool same = parsed;
+        mp3_decoder_initialize(&a, storage);
+        mp3_decoder_initialize(&b, other);
         second = first;
         while (same) {
             const auto p = mp3_stream_next(&first), q = mp3_stream_next(&second);
             if (p.error == Mp3Error::end_of_stream)
                 break;
             dirty_stack(0xa5);
-            const auto r = mp3_decoder_decode(&a, p.bytes, {pcm, 2304});
+            const auto r = mp3_decoder_decode(&a, p.bytes, pcm);
             dirty_stack(0x5a);
-            const auto t = mp3_decoder_decode(&b, q.bytes, {pcm2, 2304});
+            const auto t = mp3_decoder_decode(&b, q.bytes, pcm2);
             same = r.ok() && t.ok() && bytes_equal(pcm, pcm2, 2304 * sizeof(float)) &&
                    bytes_equal(storage, other, mp3_decoder_storage_bytes());
         }
-        mp3_decoder_release(&a);
-        mp3_decoder_release(&b);
         check(same, "MP3 decoding is deterministic: identical PCM and state bytes after every packet");
     }
 
@@ -258,20 +252,18 @@ void test_mp3_decoder(void (*check)(bool, const char*) noexcept) noexcept {
             float* exact = reinterpret_cast<float*>(guard.end()) - 2304;
             Mp3Stream source{};
             Mp3Decoder decoder{};
-            bool same = frames != ~0u && mp3_stream_initialize(&source, feature(2)) == Mp3Error::none &&
-                        mp3_decoder_initialize(&decoder, {storage, mp3_decoder_storage_bytes()}, 44100,
-                                               2) == Mp3Error::none;
+            bool same = frames != ~0u && mp3_stream_initialize(&source, feature(2)) == Mp3Error::none;
+            mp3_decoder_initialize(&decoder, storage);
             u32 decoded = 0;
             while (same) {
                 const auto packet = mp3_stream_next(&source);
                 if (packet.error == Mp3Error::end_of_stream)
                     break;
-                const auto r = mp3_decoder_decode(&decoder, packet.bytes, {exact, 2304});
+                const auto r = mp3_decoder_decode(&decoder, packet.bytes, exact);
                 same = packet.ok() && (r.ok() || (r.error == Mp3Error::need_preroll && !decoded)) &&
                        bytes_equal(exact, pcm + decoded * 2, r.frames * 2 * sizeof(float));
                 decoded += r.frames;
             }
-            mp3_decoder_release(&decoder);
             check(same && decoded == frames, "MP3 frames decode in place within exactly their PCM samples");
         }
 

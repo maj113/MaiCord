@@ -67,8 +67,8 @@ SoundboardClip* decode_mp3(u64 sound_id, ConstSlice<u8> encoded) noexcept {
     auto* packet_pcm = reinterpret_cast<float*>(work + packet_offset);
     auto* source = reinterpret_cast<float*>(work + source_offset);
     u32 produced = 0;
-    bool ok = mp3_decoder_initialize(&decoder, {work, static_cast<u32>(state_bytes)},
-                                     stream.sample_rate, stream.channels) == Mp3Error::none;
+    mp3_decoder_initialize(&decoder, work);
+    bool ok = true;
     while (ok && produced < source_capacity) {
         const auto packet = mp3_stream_next(&stream);
         if (packet.error == Mp3Error::end_of_stream)
@@ -79,7 +79,7 @@ SoundboardClip* decode_mp3(u64 sound_id, ConstSlice<u8> encoded) noexcept {
             ok = false;
             break;
         }
-        const auto decoded = mp3_decoder_decode(&decoder, packet.bytes, {packet_pcm, kMp3MaximumFrames * 2});
+        const auto decoded = mp3_decoder_decode(&decoder, packet.bytes, packet_pcm);
         const u32 frames = packet.duration_frames - packet.trim_front_frames - packet.trim_back_frames;
         if (decoded.error == Mp3Error::need_preroll && !frames)
             continue;
@@ -95,7 +95,6 @@ SoundboardClip* decode_mp3(u64 sound_id, ConstSlice<u8> encoded) noexcept {
         }
         produced += take;
     }
-    mp3_decoder_release(&decoder);
     SoundboardClip* clip = nullptr;
     if (ok && produced) {
         const u64 output_frames =

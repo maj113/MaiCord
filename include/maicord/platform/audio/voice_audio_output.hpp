@@ -15,7 +15,7 @@ struct VoiceAudioOutput {
     void* runtime;
 };
 // Opens the given endpoint ID, falling back to the default while it is missing;
-// null selects the default.
+// empty selects the default.
 bool voice_audio_output_start_device(VoiceAudioOutput* output, const wchar_t* device_id, VoiceAudioRender render,
                                      void* context) noexcept;
 void voice_audio_output_stop(VoiceAudioOutput* output) noexcept;

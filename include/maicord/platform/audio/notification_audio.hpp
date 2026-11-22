@@ -92,7 +92,6 @@ struct NotificationAudioMixer {
     // 48000 Hz frame timeline. All voices share one limit of 64 descriptors.
     u64 epoch{},submitted{},consumed{},submitted_48000{},consumed_48000{};u32 count{};
 };
-struct NotificationAudioMixResult {NotificationAudioError error{};u32 frames{};bool nonzero{};};
 bool notification_audio_clip_valid(NotificationAudioClip) noexcept;
 bool notification_audio_gain_valid(float) noexcept;
 // Offline helpers shared with the worker/callback; no owner/device operations.
@@ -104,13 +103,15 @@ bool notification_audio_record_stream_failure(NotificationAudioStatus*,u64 close
 NotificationAudioResult notification_audio_prepare_request(const NotificationAudioConfig&,
     const NotificationAudioRequest&,NotificationAudioClip*,float*) noexcept;
 void notification_audio_mixer_reset(NotificationAudioMixer*,u64 epoch) noexcept;
+// Adds a clip and gain that notification_audio_prepare_request admitted.
 NotificationAudioResult notification_audio_mixer_add(NotificationAudioMixer*,u64 epoch,NotificationAudioClip,float gain) noexcept;
-// Mixes at most 512 frames per call, summing gain and saturating. Output must not
-// alias the mixer or any voice PCM. Invalid input changes nothing.
+// The sample rate is one of the two above. Render mixes output.count / 2 whole frames, at most 512 and at most
+// needed_rate(), into output that does not alias the mixer or any voice PCM, summing gain and saturating; true when a
+// sample is not zero.
 // No software interpolation/resampling: the transport converts to the hardware rate.
 u32 notification_audio_mixer_voices_rate(const NotificationAudioMixer&,u32 sample_rate) noexcept;
 u32 notification_audio_mixer_needed_rate(const NotificationAudioMixer&,u32 sample_rate) noexcept;
-NotificationAudioMixResult notification_audio_mixer_render_rate(NotificationAudioMixer*,Slice<i16>,u32 sample_rate) noexcept;
+bool notification_audio_mixer_render_rate(NotificationAudioMixer*,Slice<i16>,u32 sample_rate) noexcept;
 // padding is the source-rate frames submitted but not yet played, as the transport reports them.
 // Returns the number of finished voices; invalid/backwards padding leaves state unchanged.
 u32 notification_audio_mixer_played_rate(NotificationAudioMixer*,u32 padding,u32 sample_rate) noexcept;

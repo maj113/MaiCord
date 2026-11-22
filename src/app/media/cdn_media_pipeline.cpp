@@ -1361,14 +1361,13 @@ EncodedAudioError audio_error(OggOpusError error) noexcept {
 }
 EncodedAudioError audio_error(WavePcmError error) noexcept {
     using E = EncodedAudioError;
-    static constexpr E table[]{E::none,      E::invalid_input, E::malformed,
-                               E::unsupported, E::truncated,   E::capacity};
+    static constexpr E table[]{E::none, E::malformed, E::unsupported, E::truncated, E::capacity};
     return audio_error(table, error);
 }
 EncodedAudioError audio_error(Mp3Error error) noexcept {
     using E = EncodedAudioError;
-    static constexpr E table[]{E::none,      E::invalid_input, E::malformed, E::unsupported,
-                               E::truncated, E::capacity,      E::cancelled};
+    static constexpr E table[]{E::none,      E::invalid_input, E::malformed,
+                               E::unsupported, E::truncated,   E::cancelled};
     return audio_error(table, error);
 }
 inline CdnImageType audio_http_type(const MediaAssetKey& key) noexcept {

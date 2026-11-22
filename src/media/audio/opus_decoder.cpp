@@ -469,8 +469,6 @@ __attribute__((minsize)) u32 opus_decode(OpusDecoder* decoder, ConstSlice<u8> pa
     if (!parse_packet(packet, &parsed))
         return 0;
     const u32 frames = parsed.count * parsed.frame_size;
-    if (!pcm.data || pcm.count / st.channels < frames)
-        return 0;
     st.mode = parsed.mode;
     st.bandwidth = parsed.bandwidth;
     st.frame_size = parsed.frame_size;
@@ -495,8 +493,6 @@ __attribute__((minsize)) u32 opus_decode_float(OpusDecoder* decoder, ConstSlice<
     if (!parse_packet(packet, &parsed))
         return 0;
     const u32 frames = parsed.count * parsed.frame_size;
-    if (!work.data || !pcm || work.count / st.channels < frames)
-        return 0;
     st.mode = parsed.mode;
     st.bandwidth = parsed.bandwidth;
     st.frame_size = parsed.frame_size;
@@ -522,8 +518,7 @@ __attribute__((minsize)) u32 opus_decode_float(OpusDecoder* decoder, ConstSlice<
 __attribute__((minsize)) u32 opus_decode_lost(OpusDecoder* decoder, ConstSlice<u8> next, u32 frames,
                                               Slice<i16> pcm) noexcept {
     State& st = state_of(decoder);
-    if (!frames || frames > kOpusDecoderMaximumFrames || frames % kFrame2_5 || !pcm.data ||
-        pcm.count / st.channels < frames)
+    if (!frames || frames > kOpusDecoderMaximumFrames || frames % kFrame2_5)
         return 0;
     FrameScratch scratch;
     if (!next.data || !next.count)

@@ -16,19 +16,17 @@ void test_opus_decoder(void (*check)(bool, const char*) noexcept) noexcept {
         opus_decoder_start(&decoder, channels);
         copy_bytes(&saved, &decoder, sizeof(decoder));
         for (auto& sample : output) sample = 12345;
-        check(!opus_decode(&decoder, {silence, 3}, {output, 960 * channels - 1}) && !opus_decode(&decoder, {}, {output, 11520}) &&
-                  !opus_decode(&decoder, {silence, 3}, {nullptr, 11520}) &&
+        check(!opus_decode(&decoder, {}, {output, 11520}) &&
                   !opus_decode(&decoder, {oversized, sizeof(oversized)}, {output, 11520}) &&
                   !opus_decode(&decoder, {missing_count, 1}, {output, 11520}) &&
                   !opus_decode(&decoder, {over_duration, 2}, {output, 11520}) &&
                   !opus_decode(&decoder, {bad_lengths, 2}, {output, 11520}) && unchanged() && output[0] == 12345 &&
                   output[11521] == 12345,
-              "Opus packets: short PCM, empty, oversized, countless, longer than 120 ms and overrunning packets decode nothing and leave state and PCM alone");
+              "Opus packets: empty, oversized, countless, longer than 120 ms and overrunning packets decode nothing and leave state and PCM alone");
         check(!opus_decode_lost(&decoder, {}, 0, {output, 11520}) && !opus_decode_lost(&decoder, {}, 961, {output, 11520}) &&
                   !opus_decode_lost(&decoder, {}, 5880, {output, 11520 + 2}) &&
-                  !opus_decode_lost(&decoder, {}, 960, {output, 960 * channels - 1}) &&
                   !opus_decode_lost(&decoder, {bad_lengths, 2}, 960, {output, 11520}) && unchanged() && output[0] == 12345,
-              "Opus loss: a duration that is no whole number of 2.5 ms up to 120 ms, short PCM or a malformed next packet conceal nothing");
+              "Opus loss: a duration that is no whole number of 2.5 ms up to 120 ms or a malformed next packet conceal nothing");
         u32 frames = opus_decode(&decoder, {silence, 3}, {output, 960 * channels});
         bool silent = frames == 960;
         for (u32 i = 0; i < 960 * channels; ++i) silent = silent && output[i] == 0;

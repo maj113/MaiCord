@@ -13,8 +13,6 @@ constexpr u32 kSpeechMaximumChars = 4096;
 } // namespace
 
 static bool speech_available(Speech* speech) noexcept {
-    if (!speech)
-        return false;
     if (speech->voice)
         return true;
     if (speech->attempted)
@@ -64,8 +62,6 @@ bool speech_speak(Speech* speech, Utf8View text, i32 rate) noexcept {
 }
 
 void speech_release(Speech* speech) noexcept {
-    if (!speech)
-        return;
     if (speech->voice) {
         auto* voice = static_cast<ISpVoice*>(speech->voice);
         voice->Speak(nullptr, SPF_PURGEBEFORESPEAK, nullptr);

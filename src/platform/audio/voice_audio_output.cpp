@@ -140,14 +140,14 @@ void free_runtime(Runtime* r) noexcept {
 
 bool voice_audio_output_start_device(VoiceAudioOutput* output, const wchar_t* device_id, VoiceAudioRender render,
                                      void* context) noexcept {
-    if (!output || output->runtime || !render)
+    if (output->runtime)
         return false;
     auto* r = commit_pages<Runtime>();
     if (!r)
         return false;
     r->render = render;
     r->context = context;
-    for (u32 i = 0; device_id && i + 1 < sizeof(r->device) / sizeof(r->device[0]) && device_id[i]; ++i)
+    for (u32 i = 0; i + 1 < sizeof(r->device) / sizeof(r->device[0]) && device_id[i]; ++i)
         r->device[i] = device_id[i];
     r->stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     r->wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -163,7 +163,7 @@ bool voice_audio_output_start_device(VoiceAudioOutput* output, const wchar_t* de
 }
 
 void voice_audio_output_stop(VoiceAudioOutput* output) noexcept {
-    if (!output || !output->runtime)
+    if (!output->runtime)
         return;
     auto* r = static_cast<Runtime*>(output->runtime);
     SetEvent(r->stop);

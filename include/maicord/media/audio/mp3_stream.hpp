@@ -12,7 +12,6 @@ enum class Mp3Error : u8 {
     malformed,
     unsupported,
     truncated,
-    capacity,
     cancelled,
     end_of_stream,
     need_preroll,
@@ -33,8 +32,7 @@ struct Mp3SeekPoint {
 };
 struct Mp3SeekIndex {
     Slice<Mp3SeekPoint> points;
-    const u8* source;
-    u32 source_bytes, point_count, frame_count;
+    u32 point_count;
 };
 struct Mp3Packet {
     ConstSlice<u8> bytes;
@@ -47,9 +45,6 @@ struct Mp3Packet {
 };
 struct Mp3Decoder {
     void* state;
-    u32 state_bytes, sample_rate;
-    u8 channels;
-    bool initialized;
 };
 struct Mp3DecodeResult {
     Mp3Error error;
@@ -64,20 +59,24 @@ struct Mp3DecodeResult {
 // No allocation, decoder, device or whole-file PCM. Failure preserves output.
 Mp3Error mp3_stream_initialize(Mp3Stream*, ConstSlice<u8>, Mp3Cancelled = nullptr,
                                void* = nullptr) noexcept;
+// Points of a stream that mp3_stream_initialize accepted, into bank (2 to 4096 points).
 Mp3Error mp3_stream_build_index(const Mp3Stream&, Mp3SeekIndex*, Slice<Mp3SeekPoint>,
                                 Mp3Cancelled = nullptr, void* = nullptr) noexcept;
+// The next packet of a stream that mp3_stream_initialize accepted, or end_of_stream.
 Mp3Packet mp3_stream_next(Mp3Stream*) noexcept;
 // Relative audible frame target. Caller resets decoder and decodes/discards all
 // preroll packets; checkpoints cover 511B reservoir before two DSP frames.
-// Null index uses the stream start, keeping seeks exact without an allocation.
+// Null index uses the stream start, keeping seeks exact without an allocation;
+// else the index is the stream's own (mp3_stream_build_index).
 Mp3Error mp3_stream_seek(Mp3Stream*, u64 target_frame, const Mp3SeekIndex* = nullptr,
                          Mp3Cancelled = nullptr, void* = nullptr) noexcept;
 u32 mp3_decoder_storage_bytes() noexcept;
-Mp3Error mp3_decoder_initialize(Mp3Decoder*, Slice<u8> state, u32 sample_rate, u32 channels) noexcept;
-Mp3Error mp3_decoder_reset(Mp3Decoder*) noexcept;
-// Decode one validated frame into caller interleaved float PCM, at most
-// 1152 frames/channel. need_preroll is allowed only when caller discards the whole
-// packet; never fabricate silence for a missing reservoir or corrupt side info.
-Mp3DecodeResult mp3_decoder_decode(Mp3Decoder*, ConstSlice<u8>, Slice<float>) noexcept;
-void mp3_decoder_release(Mp3Decoder*) noexcept;
+// storage holds mp3_decoder_storage_bytes() for the decoder's life.
+void mp3_decoder_initialize(Mp3Decoder*, void* storage) noexcept;
+void mp3_decoder_reset(Mp3Decoder*) noexcept;
+// Decode one packet of mp3_stream_next of the stream the caller decodes into
+// interleaved float PCM with room for its frames. need_preroll is allowed only
+// when caller discards the whole packet; never fabricate silence for a missing
+// reservoir or corrupt side info.
+Mp3DecodeResult mp3_decoder_decode(Mp3Decoder*, ConstSlice<u8>, float* pcm) noexcept;
 } // namespace maicord
