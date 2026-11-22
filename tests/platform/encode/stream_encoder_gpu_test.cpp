@@ -257,12 +257,13 @@ void decode_release(Decode* d) noexcept {
     com_release(d->target);
 }
 
-// Every codec encodes and decodes at 40 dB with a keyframe on request. `full` also checks, once (each costs time: a
-// still-capture wait and a transform activation), max_fps pacing, the still-capture keyframe and a size change.
+// Every codec encodes and decodes at 40 dB with a keyframe on request. The pictures alternate between two textures, as
+// WGC's frame pool gives them, so each picture must come from its own texture. `full` also checks, once (each costs
+// time: a still-capture wait and a transform activation), max_fps pacing, the still-capture keyframe and a size change.
 int run_codec(ID3D11Device* device, ID3D11DeviceContext* context, GpuStreamCodec codec, bool full) noexcept {
     u32 failures = 0;
     reset_value(&g_collector);
-    ID3D11Texture2D* source = nullptr;
+    ID3D11Texture2D* sources[2]{};
     D3D11_TEXTURE2D_DESC desc{};
     desc.Width = kWidth;
     desc.Height = kHeight;
@@ -270,8 +271,13 @@ int run_codec(ID3D11Device* device, ID3D11DeviceContext* context, GpuStreamCodec
     desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     desc.Usage = D3D11_USAGE_DEFAULT;
     desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    if (FAILED(device->CreateTexture2D(&desc, nullptr, &source)))
+    if (FAILED(device->CreateTexture2D(&desc, nullptr, &sources[0])) ||
+        FAILED(device->CreateTexture2D(&desc, nullptr, &sources[1]))) {
+        com_release(sources[0]);
         return 1;
+    }
+    // The last picture, which the checks after the loop submit again.
+    ID3D11Texture2D* const source = sources[(kFrames - 1) & 1];
     GpuStreamEncoder* encoder = gpu_stream_encoder_create(
         {device, codec, {kWidth, kHeight, kMaxFps, kBitrate}, {&g_collector, on_unit, on_ended}});
     test_check(&failures, encoder != nullptr, "the encoder starts");
@@ -280,11 +286,11 @@ int run_codec(ID3D11Device* device, ID3D11DeviceContext* context, GpuStreamCodec
     u64 timestamp = 0;
     for (u32 i = 0; encoder && i < kFrames; ++i) {
         fill(i);
-        context->UpdateSubresource(source, 0, nullptr, g_pixels, kWidth * 4, 0);
+        context->UpdateSubresource(sources[i & 1], 0, nullptr, g_pixels, kWidth * 4, 0);
         if (i == kKeyframeAt)
             gpu_stream_encoder_request_keyframe(encoder);
         timestamp = next_timestamp(timestamp);
-        test_check(&failures, gpu_stream_encoder_submit(encoder, {source, kWidth, kHeight, timestamp, false}),
+        test_check(&failures, gpu_stream_encoder_submit(encoder, {sources[i & 1], kWidth, kHeight, timestamp, false}),
                    "every picture is taken");
         picture_of_unit[expected_units++] = i;
         test_check(&failures, wait_units(expected_units), "every picture becomes a unit");
@@ -351,7 +357,8 @@ int run_codec(ID3D11Device* device, ID3D11DeviceContext* context, GpuStreamCodec
         test_write_metric("failure: ", stats.failure);
     }
     gpu_stream_encoder_destroy(encoder);
-    com_release(source);
+    com_release(sources[1]);
+    com_release(sources[0]);
 
     const Collector& c = g_collector;
     test_check(&failures, !c.ended && !c.overflow && c.count == expected_units && stats.encoded == c.count &&

@@ -341,6 +341,13 @@ struct EncodeConstants {
 };
 static_assert(sizeof(EncodeConstants) == 32);
 
+// A capture texture and the view the conversion reads it through. The view holds a reference to the texture, so no
+// other texture can take its address while the view is kept: an equal pointer is the same texture.
+struct SourceView {
+    ID3D11Texture2D* texture;
+    ID3D11ShaderResourceView* view;
+};
+
 u32 taps_for(float scale) noexcept {
     const u32 taps = static_cast<u32>(scale + 0.999f);
     return taps < 1 ? 1 : taps > 8 ? 8 : taps;
@@ -364,6 +371,7 @@ struct GpuStreamEncoder {
     ID3D11Buffer* constants;
     IMFDXGIDeviceManager* manager;
     Slot slots[kSlots];
+    SourceView sources[2]; // the capture textures of the latest two pictures, the latest first (source_view)
     u32 slot_width, slot_height;
     u8 newest, held, pending;
     Transform mft;
@@ -498,6 +506,32 @@ Slot* free_slot(GpuStreamEncoder* e) noexcept {
     return fresh && slot_create(e, fresh) ? fresh : nullptr;
 }
 
+// The view of a capture texture. A capture gives the same texture (Desktop Duplication) or the two of its pool (WGC)
+// picture after picture, so the views of the latest two pictures' textures are kept: creating one each picture costs
+// the conversion more than its creation. A texture twice in a row is a one-texture capture: the other view goes, so a
+// texture the capture let go of (another source or size) is not kept alive.
+ID3D11ShaderResourceView* source_view(GpuStreamEncoder* e, ID3D11Texture2D* texture) noexcept {
+    SourceView* const kept = e->sources;
+    if (kept[0].texture == texture) {
+        if (kept[1].view) {
+            kept[1].view->Release();
+            kept[1] = {};
+        }
+        return kept[0].view;
+    }
+    if (kept[1].texture != texture) {
+        ID3D11ShaderResourceView* view = nullptr;
+        if (FAILED(e->device->CreateShaderResourceView(texture, nullptr, &view)))
+            return nullptr;
+        com_release(kept[1].view);
+        kept[1] = {texture, view};
+    }
+    const SourceView latest = kept[1];
+    kept[1] = kept[0];
+    kept[0] = latest;
+    return latest.view;
+}
+
 bool convert(GpuStreamEncoder* e, const CaptureFrame& frame, Slot* slot) noexcept {
     auto* source = static_cast<ID3D11Texture2D*>(frame.texture);
     D3D11_TEXTURE2D_DESC desc{};
@@ -505,8 +539,8 @@ bool convert(GpuStreamEncoder* e, const CaptureFrame& frame, Slot* slot) noexcep
     if (desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM || !(desc.BindFlags & D3D11_BIND_SHADER_RESOURCE) || !frame.width ||
         !frame.height || frame.width > desc.Width || frame.height > desc.Height)
         return false;
-    ID3D11ShaderResourceView* view = nullptr;
-    if (FAILED(e->device->CreateShaderResourceView(source, nullptr, &view)))
+    ID3D11ShaderResourceView* const view = source_view(e, source);
+    if (!view)
         return false;
     const float width = static_cast<float>(e->slot_width), height = static_cast<float>(e->slot_height);
     EncodeConstants constants{};
@@ -554,7 +588,6 @@ bool convert(GpuStreamEncoder* e, const CaptureFrame& frame, Slot* slot) noexcep
     // Submitted now, so the encoder (which may work on another engine) starts behind the conversion.
     c->Flush();
     e->guard->Leave();
-    view->Release();
     return drawn;
 }
 
@@ -806,6 +839,8 @@ void release(GpuStreamEncoder* e) noexcept {
     if (e->opened)
         CloseHandle(e->opened);
     slots_release(e);
+    for (SourceView& source : e->sources)
+        com_release(source.view);
     encoded_unit_release(&e->unit);
     com_release(e->manager);
     com_release(e->constants);
