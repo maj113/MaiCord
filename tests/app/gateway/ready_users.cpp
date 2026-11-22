@@ -270,7 +270,9 @@ void worker_projection(void (*check)(bool, const char*) noexcept) noexcept {
 }
 
 // The worker's oversized guild record: routed into its reservation, handed to
-// the consumer outside the ring, and decommitted by the consumer's pop.
+// the consumer outside the ring, and decommitted by the consumer's pop. The
+// frame is decoded as the worker decodes it, so the larger retry routes data
+// whose index the first attempt overwrote.
 u8 oversized_json[1024 * 1024], oversized_output[kGatewayClientGuildRecordCapacity];
 void oversized_record(void (*check)(bool, const char*) noexcept) noexcept {
     namespace fixture = oversized_guild_fixture;
@@ -279,22 +281,24 @@ void oversized_record(void (*check)(bool, const char*) noexcept) noexcept {
     runtime.owner = &client;
     runtime.self_user_id = 1;
     const bool reserved = reserved_bytes_initialize(&runtime.large_record, kGatewayClientGuildRecordCapacity);
-    const Utf8View source = fixture::write({oversized_json, sizeof(oversized_json)}, guild, 1);
-    GatewayEnvelope envelope{};
-    envelope.data = {source, 0, JsonValueKind::object};
-    envelope.event_name = {utf8_literal("GUILD_CREATE"), 0, false};
-    envelope.sequence = 12;
-    envelope.opcode = 0;
-    envelope.has_sequence = envelope.has_event_name = true;
+    constexpr char head[] = R"({"op":0,"s":12,"t":"GUILD_CREATE","d":)";
+    copy_bytes(oversized_json, head, sizeof(head) - 1);
+    const Utf8View source = fixture::write({oversized_json + sizeof(head) - 1, sizeof(oversized_json) - sizeof(head)},
+                                           guild, 1);
+    oversized_json[sizeof(head) - 1 + source.bytes] = '}';
     const Slice<char> scratch{reinterpret_cast<char*>(runtime.handshake_output + kMessageBytes),
                               kHandshakeBytes - kMessageBytes};
     Slice<u32> index{};
     runtime.mailbox_deadline_ms = 0;
     const bool indexed = grow_main_index(&runtime, 1u << 18, &index);
+    GatewayEnvelope envelope{};
+    const bool decoded = indexed && gateway_decode_envelope({reinterpret_cast<const char*>(oversized_json),
+                                                             static_cast<u32>(sizeof(head) + source.bytes)},
+                                                            index, 64, &envelope).ok();
     GatewayClientEvent event{};
     ConstSlice<u8> payload{};
     runtime.mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
-    const auto routed = indexed ? gateway_client_route_dispatch_large(envelope, index, 64, scratch, {}, 1,
+    const auto routed = decoded ? gateway_client_route_dispatch_large(envelope, index, 64, scratch, {}, 1,
                                                                       {acquire_large_record, &runtime}, &event, &payload)
                                 : GatewayClientDispatchRouteResult{};
     const u32 record_bytes = static_cast<u32>(payload.count);
@@ -333,9 +337,10 @@ void oversized_record(void (*check)(bool, const char*) noexcept) noexcept {
               spsc_mailbox_size(runtime.events) == 0 &&
               VirtualQuery(runtime.large_record.base, &region, sizeof(region)) && region.State == MEM_RESERVE,
           "oversized guild: the consumer copies the whole record and decommits the worker storage");
-    // The ordinary scratch reports the overflow instead of dropping parts.
+    // The ordinary scratch reports the overflow instead of dropping parts. The routes above overwrote the index.
     GatewayClientEvent limited{};
     ConstSlice<u8> limited_payload{};
+    envelope.document = {};
     const auto old = gateway_client_route_dispatch(envelope, index, 64, scratch, {}, 1, &limited, &limited_payload);
     check(!old.ok() && old.payload_overflow && old.error == GatewayClientDispatchRouteError::payload_capacity,
           "oversized guild: the ordinary scratch reports an overflow the caller can retry");

@@ -637,7 +637,10 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch_large(
             return routed;
         reset_value(event);
         reset_value(payload);
-        routed = gateway_client_route_dispatch(envelope, structural_scratch, maximum_depth,
+        // The first route overwrote the frame's index in the scratch: the data is scanned again.
+        GatewayEnvelope rescanned = envelope;
+        rescanned.document = {};
+        routed = gateway_client_route_dispatch(rescanned, structural_scratch, maximum_depth,
                                                {storage.data, capacity}, bulk_ids, self_user_id, event, payload,
                                                message_scratch);
     }
