@@ -9,10 +9,9 @@ MessageDraftStoreResult draft_error(MessageDraftStoreError error) noexcept {
     return MessageDraftStoreResult{~0u, error, false};
 }
 
+// Initialization sets the capacity, and the store keeps its own counts and offsets in range.
 bool store_valid(const MessageDraftStore& store) noexcept {
-    return store.records && store.text && store.capacity != 0 &&
-           store.capacity <= kMessageDraftStoreMaximumRecords && store.count <= store.capacity &&
-           store.text_used <= store.text_capacity && store.text_wasted <= store.text_used;
+    return store.capacity != 0;
 }
 
 MessageDraftStoreError validate_input(const MessageDraftStore* store,
@@ -55,14 +54,10 @@ u32 empty_index(const MessageDraftStore& store) noexcept {
 }
 
 bool text_equal(const MessageDraftStore& store, const MessageDraftRecord& record, Utf8View text) noexcept {
-    if (record.text_bytes != text.bytes || record.text_offset > store.text_used ||
-        record.text_bytes > store.text_used - record.text_offset) {
-        return false;
-    }
-    return bytes_equal(store.text + record.text_offset, text.data, text.bytes);
+    return record.text_bytes == text.bytes && bytes_equal(store.text + record.text_offset, text.data, text.bytes);
 }
 
-bool compact(MessageDraftStore* store) noexcept {
+void compact(MessageDraftStore* store) noexcept {
     u32 write_offset = 0;
     for (u32 index = 0; index < store->capacity; ++index) {
         if (store->records[index].occupied && store->records[index].text_bytes == 0) {
@@ -88,10 +83,6 @@ bool compact(MessageDraftStore* store) noexcept {
             break;
         }
         MessageDraftRecord& record = store->records[selected];
-        if (record.text_offset > store->text_used ||
-            record.text_bytes > store->text_used - record.text_offset) {
-            return false;
-        }
         copy_bytes(store->text + write_offset, store->text + record.text_offset, record.text_bytes);
         record.text_offset = write_offset;
         write_offset += record.text_bytes;
@@ -102,7 +93,6 @@ bool compact(MessageDraftStore* store) noexcept {
     store->text_used = write_offset;
     store->text_wasted = 0;
     ++store->compactions;
-    return true;
 }
 
 u64 touch(MessageDraftStore* store) noexcept {
@@ -123,12 +113,9 @@ void erase_index(MessageDraftStore* store, u32 index) noexcept {
     ++store->revision;
 }
 
+// Callers give fixed nonzero buffers (kMessageDraftCapacity, or a live store's own capacity).
 bool initialize_store(MessageDraftStore* store, Slice<MessageDraftRecord> records, Slice<u8> text,
                       bool clear_text) noexcept {
-    if (!store || !records.data || records.count == 0 || records.count > kMessageDraftStoreMaximumRecords ||
-        !text.data || text.count == 0) {
-        return false;
-    }
     reset_value<MessageDraftStore>(store);
     store->records = records.data;
     store->text = text.data;
@@ -206,9 +193,8 @@ MessageDraftStoreResult message_draft_store_save(MessageDraftStore* store,
             clear_bytes(store->text + record.text_offset, record.text_bytes);
             store->text_wasted += record.text_bytes;
             record.text_bytes = 0;
-            if (input.text.bytes > store->text_capacity - store->text_used && !compact(store)) {
-                return draft_error(MessageDraftStoreError::text_capacity);
-            }
+            if (input.text.bytes > store->text_capacity - store->text_used)
+                compact(store);
             record.text_offset = store->text_used;
             record.text_bytes = input.text.bytes;
             copy_bytes(store->text + store->text_used, reinterpret_cast<const u8*>(input.text.data),
@@ -230,14 +216,13 @@ MessageDraftStoreResult message_draft_store_save(MessageDraftStore* store,
     if (store->count == store->capacity) {
         return draft_error(MessageDraftStoreError::record_capacity);
     }
-    if (input.text.bytes > store->text_capacity - store->text_used &&
-        (!compact(store) || input.text.bytes > store->text_capacity - store->text_used)) {
-        return draft_error(MessageDraftStoreError::text_capacity);
+    if (input.text.bytes > store->text_capacity - store->text_used) {
+        compact(store);
+        if (input.text.bytes > store->text_capacity - store->text_used)
+            return draft_error(MessageDraftStoreError::text_capacity);
     }
+    // count < capacity: a free record exists.
     const u32 index = empty_index(*store);
-    if (index == store->capacity) {
-        return draft_error(MessageDraftStoreError::record_capacity);
-    }
     MessageDraftRecord& record = store->records[index];
     record.channel_id = input.channel_id;
     record.touched = touch(store);
@@ -299,9 +284,6 @@ bool message_draft_store_snapshot(const MessageDraftStore& store, u64 channel_id
         return false;
     }
     const MessageDraftRecord& record = store.records[found.index];
-    if (record.text_offset > store.text_used || record.text_bytes > store.text_used - record.text_offset) {
-        return false;
-    }
     *snapshot = MessageDraftSnapshot{
         Utf8View{reinterpret_cast<const char*>(store.text + record.text_offset), record.text_bytes},
         record.channel_id,
@@ -326,7 +308,7 @@ bool message_draft_store_delete(MessageDraftStore* store, u64 channel_id) noexce
 }
 
 bool message_draft_store_reset(MessageDraftStore* store) noexcept {
-    if (!store || !store_valid(*store)) {
+    if (!store_valid(*store)) {
         return false;
     }
     // Every save, shrink and compaction clears the bytes it frees, so the

@@ -47,6 +47,7 @@ bool application_forum_attachments_url_admitted(const ApplicationForumPostTicket
 void application_forum_attachments_url_unadmitted(const ApplicationForumPostTicket&, u64 draft_id) noexcept;
 void application_forum_attachments_url_response(const ApplicationForumPostTicket&, u64 draft_id,
     const RestClientResponse&, Utf8View) noexcept;
+// The references and sizes have room for kAttachmentUploadMaximumCount entries.
 bool application_forum_attachments_prepare(const ApplicationForumPostTicket&,
     Slice<UploadedAttachment>, Slice<u64> sizes, u32*) noexcept;
 void application_forum_attachments_lock(const ApplicationForumPostTicket&, bool) noexcept;

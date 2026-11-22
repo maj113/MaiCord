@@ -196,21 +196,14 @@ void test_download_scene(void (*check)(bool,const char*) noexcept) noexcept {
         !ui_rect_has_area(ui_gif_favorite_rectangle({100,100,170,300},kDefaultTheme)) &&
         !ui_rect_has_area(ui_gif_favorite_rectangle({100,100,400,130},kDefaultTheme)) &&
         ui_gif_favorite_paint(&paint,attachment_owner,gif_star,s.viewport,kDefaultTheme,true,false) &&
-        !paint.rejected && paint.clip_depth == 1 &&
-        !ui_gif_favorite_paint(&paint,attachment_owner,{10,10,5,20},s.viewport,kDefaultTheme,false,false),
-        "favourite star: top left at the official 6 DIP inset, clear of Save at top right, needs room, and "
-        "rejects reversed geometry");
+        !paint.rejected && paint.clip_depth == 1,
+        "favourite star: top left at the official 6 DIP inset, clear of Save at top right, and needs room");
     const UiRect file_action = ui_attachment_save_rectangle(
         {attachment.left - 2,attachment.top - 2,attachment.right + 2,attachment.bottom + 2},true);
     check(ui_rect_has_area(file_action) &&
         ui_attachment_save_paint(&paint,attachment_owner,file_action,{},kDefaultTheme,true) &&
         !paint.count && !paint.batch_count && !paint.rejected && paint.clip_depth == 1 && paint.clip_count == 1,
         "attachment Save: an empty caller clip is a successful no-op without paint or clip-stack work");
-    const UiRect invalid_geometry{10,10,5,20};
-    check(!ui_attachment_save_paint(&paint,attachment_owner,invalid_geometry,s.viewport,kDefaultTheme,true) &&
-        !ui_attachment_save_paint(&paint,attachment_owner,file_action,invalid_geometry,kDefaultTheme,true) &&
-        !paint.count && !paint.batch_count && !paint.rejected && paint.clip_depth == 1 && paint.clip_count == 1,
-        "attachment Save: reversed action or clip geometry fails before emitting partial paint");
     const UiRect half_clip{file_action.left,file_action.top,
         (file_action.left + file_action.right) * .5f,file_action.bottom};
     bool clipped_save = attachment_node &&

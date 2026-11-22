@@ -107,9 +107,10 @@ inline bool application_text_form_color_check(TextFormOwnerKey, Utf8View text, u
 // The colour picker, as in the official client's custom colour popout, shared by every colour field: a
 // saturation/value square and a hue bar, the hex field with an eyedropper beside it where the desktop can pick from
 // the screen, and suggested swatches (ui/widgets/color_picker.hpp). All of it works from the keyboard and reads to
-// screen readers. `preview` (optional) sees every change for a live preview; Apply calls `save` (true closes the
-// picker); every close calls `closed` (optional; after a close without Apply, restore what preview showed). `valid`
-// gates the callbacks as for any text form, and application_text_form_cancel_owner(valid) closes the picker.
+// screen readers. `preview` (optional) sees every change for a live preview; Apply calls `save` (required; true
+// closes the picker); every close calls `closed` (optional; after a close without Apply, restore what preview
+// showed). `valid` gates the callbacks as for any text form, and application_text_form_cancel_owner(valid) closes
+// the picker.
 struct ApplicationColorPickerRequest {
     Utf8View title, label; // the dialog's title; the field's name for screen readers
     TextFormOwnerKey owner;

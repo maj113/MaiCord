@@ -19,7 +19,8 @@ enum AttachmentMenuAction : u32 {
     popup_action_attachment_rename = 2'020,
 };
 inline constexpr u32 kAttachmentFileMenuItems = 5;
-// File-name storage belongs to the caller and must outlive the open popup.
+// File-name storage belongs to the caller and must outlive the open popup. output holds kAttachmentFileMenuItems
+// (kAttachmentModifyMenuItems below); an empty name builds nothing.
 u32 attachment_file_menu(Utf8View filename, bool spoiler, Slice<PopupItem> output) noexcept;
 inline constexpr u32 kAttachmentModifyMenuItems = 3;
 // Modify Attachment rows: filename and description (alt text).

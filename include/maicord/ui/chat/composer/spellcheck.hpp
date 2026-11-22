@@ -26,6 +26,7 @@ inline constexpr u32 kComposerSpellcheckMenuItems = kComposerSpellcheckSuggestio
 
 enum class ComposerSpellVerdict : u8 { unavailable, correct, misspelled };
 
+// With check set, suggest and learn are set too.
 struct ComposerSpellcheckBackend {
     void* context;
     ComposerSpellVerdict (*check)(void* context, Utf8View word) noexcept;

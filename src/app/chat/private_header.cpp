@@ -49,9 +49,10 @@ void close_card() noexcept {
     if (g_app.renderer.names_card_scene == &header.card)
         g_app.renderer.names_card_scene = nullptr;
 }
+// Callers make sure g_app.account_ui is set.
 bool current_identity(UiPrivateHeaderIdentity* identity) noexcept {
     const auto* rows = application_private_channel_rows();
-    const u64 channel = g_app.account_ui ? g_app.account_ui->chat_state.selected_channel_id : 0;
+    const u64 channel = g_app.account_ui->chat_state.selected_channel_id;
     return rows && channel && ui_private_header_identity(g_app.shell_scene, *rows, channel, identity);
 }
 bool identity_at(float x, float y, UiPrivateHeaderIdentity* identity) noexcept {
@@ -241,7 +242,7 @@ void application_private_header_popout(bool show) noexcept {
     UiPrivateHeaderIdentity identity{};
     if (!show)
         close_card();
-    else if (g_app.account_ui && !blocked() && current_identity(&identity))
+    else if (!blocked() && current_identity(&identity))
         open_card(identity, clock_monotonic_milliseconds());
 }
 

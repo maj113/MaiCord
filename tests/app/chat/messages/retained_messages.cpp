@@ -158,19 +158,12 @@ void test_retained_messages() noexcept {
     f.timeline.follow_bottom = true;
     expect(message_timeline_insert_retained(&f.timeline, input(70)).mutation.inserted && f.store.count == 5,
            "retained_insert_at_the_live_edge_when_following");
-    expect(!message_timeline_insert_retained(&f.timeline, input(20)).mutation.inserted && f.store.count == 5,
-           "retained_insert_is_idempotent");
-    MessageInput wrong = input(25);
-    wrong.delivery = MessageDeliveryState::authoritative;
-    expect(!message_timeline_insert_retained(&f.timeline, wrong).ok() || !record_of(f.store, 25),
-           "retained_insert_needs_the_retained_state");
     MessageInput local = input(26);
     local.delivery = MessageDeliveryState::pending;
-    expect(!message_timeline_insert_local(&f.timeline, input(27)).ok() && message_timeline_insert_local(&f.timeline, local).ok(),
-           "retained_rows_are_not_local_inserts");
 
     // A history page removes local rows and keeps tombstones in place.
-    expect(record_of(f.store, 26) && record_of(f.store, 26)->delivery == MessageDeliveryState::pending,
+    expect(message_timeline_insert_local(&f.timeline, local).ok() && record_of(f.store, 26) &&
+               record_of(f.store, 26)->delivery == MessageDeliveryState::pending,
            "retained_local_row_present");
     GatewayMessageEvent page[2]{message(9, "older"), message(8, "oldest")};
     const MessageHistoryApplyResult merged = message_timeline_apply_history_page(

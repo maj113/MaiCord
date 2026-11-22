@@ -229,13 +229,12 @@ bool ui_thread_header_update(UiThreadHeader* h, const UiThreadHeaderView& v, UiR
     h->active = v.visible;
     h->published = true;
     if (changed) saturating_increment(h->revision);
-    saturating_increment(h->projections);
     return true;
 }
 UiThreadHeaderTarget ui_thread_header_widget_target(const UiThreadHeader& h, UiWidgetHandle widget) noexcept {
     UiThreadHeaderTarget target{};
-    if (!h.active || !h.manager || !h.view.visible || !h.view.thread_id || !h.view.source_publication ||
-        !ui_widget_manager_input_enabled(*h.manager, widget)) return target;
+    // An active header has its manager. A visible view passed view_valid, so it has its thread and publication.
+    if (!h.active || !h.view.visible || !ui_widget_manager_input_enabled(*h.manager, widget)) return target;
     UiThreadAction action = UiThreadAction::none;
     if (ui_widget_handle_equal(widget, h.widgets.primary) && !h.view.busy) action = ui_thread_header_primary_action(h.view);
     else if (ui_widget_handle_equal(widget, h.widgets.overflow)) action = UiThreadAction::menu;
@@ -314,20 +313,18 @@ bool ui_thread_header_text(const UiThreadHeader& h, const Theme& theme, UiTextOu
 }
 u32 ui_thread_menu_build(const UiThreadHeaderView& v, UiThreadMenuActions actions,
     const Slice<PopupItem>& out) noexcept {
-    if (!view_valid(v) || !v.visible || !out.data) return 0;
+    if (!view_valid(v) || !v.visible) return 0;
     const u32 ids[]{actions.check_status, actions.join, actions.leave, actions.unarchive, actions.retry, actions.cancel};
-    for (u32 i = 0; i < 6; ++i) for (u32 j = 0; ids[i] && j < i; ++j) if (ids[i] == ids[j]) return 0;
-    UiThreadAction choices[6]{};
-    u32 count = 0;
-    if (actions.check_status) choices[count++] = UiThreadAction::check_status;
-    if (v.archive_known && v.archived && actions.unarchive) choices[count++] = UiThreadAction::unarchive;
+    UiThreadAction choices[6]{UiThreadAction::check_status};
+    u32 count = 1;
+    if (v.archive_known && v.archived) choices[count++] = UiThreadAction::unarchive;
     else if (v.archive_known && !v.archived) {
-        if (v.membership == UiThreadMembership::joined && actions.leave) choices[count++] = UiThreadAction::leave;
-        if (v.membership == UiThreadMembership::not_joined && actions.join) choices[count++] = UiThreadAction::join;
+        if (v.membership == UiThreadMembership::joined) choices[count++] = UiThreadAction::leave;
+        if (v.membership == UiThreadMembership::not_joined) choices[count++] = UiThreadAction::join;
     }
-    if (enabled(v, UiThreadAction::retry) && actions.retry) choices[count++] = UiThreadAction::retry;
-    if (enabled(v, UiThreadAction::cancel) && actions.cancel) choices[count++] = UiThreadAction::cancel;
-    if (!count || out.count < count) return 0;
+    if (enabled(v, UiThreadAction::retry)) choices[count++] = UiThreadAction::retry;
+    if (enabled(v, UiThreadAction::cancel)) choices[count++] = UiThreadAction::cancel;
+    if (out.count < count) return 0;
     for (u32 i = 0; i < count; ++i) {
         const auto action = choices[i];
         const u32 index = static_cast<u32>(action) - 1;

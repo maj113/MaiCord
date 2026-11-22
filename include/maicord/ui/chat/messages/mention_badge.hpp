@@ -8,9 +8,9 @@ inline constexpr float kUiMentionBadgeHeight = 16.0f;
 
 // Public numeric badges display exact counts below 1000, then 1k+ through
 // 9k+. The model retains its complete count independently of this label.
+// count is not zero and output holds kUiMentionBadgeMaximumTextBytes.
 inline Utf8View ui_mention_badge_label(u32 count, Slice<char> output) noexcept {
     const u32 bytes = count < 10 ? 1u : count < 100 ? 2u : 3u;
-    if (!count || !output.data || output.count < bytes) return {};
     if (count >= 1000) {
         output.data[0] = static_cast<char>('0' + minimum(count / 1000, 9u));
         output.data[1] = 'k'; output.data[2] = '+';

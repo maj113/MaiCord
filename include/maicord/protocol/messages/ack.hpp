@@ -14,7 +14,7 @@ struct MessageAckRequest {
     bool token_known, last_viewed_known, flags_known;
     // Manual unread ACKs omit ordinary token/date/flags entirely. A known
     // mention count writes even zero; an unknown count is omitted, not guessed.
-    // Mixed manual/ordinary metadata, or an ordinary mention count, is invalid.
+    // A manual ACK ignores the ordinary fields, and an ordinary ACK ignores the mention count.
     bool manual;
     u32 mention_count;
     bool mention_count_known;

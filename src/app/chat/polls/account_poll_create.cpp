@@ -7,7 +7,8 @@
 namespace maicord {
 RestClientSubmitResult account_poll_create_submit(RestClient* rest, u64 channel_id, u64 nonce,
                                                   const PollCreate* poll, u64 request_id) noexcept {
-    if (!rest || !channel_id || !nonce || !poll || !request_id || !poll_create_valid(*poll))
+    // account_module_poll_create gives its request lane, a poll and the poll form's channel, nonce and request id.
+    if (!poll_create_valid(*poll))
         return {RestClientSubmitError::invalid_input};
     u8 target[96];
     const auto path = write_message_create_target(channel_id, {target, sizeof(target)});

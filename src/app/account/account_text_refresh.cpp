@@ -123,8 +123,7 @@ bool refresh_shell_text(bool force) noexcept {
         return true;
     }
     bool restored = false;
-    if (ui.message_composer_controller.initialized &&
-        !message_composer_controller_restore_local(&ui.message_composer_controller, ui.active_channel_id,
+    if (!message_composer_controller_restore_local(&ui.message_composer_controller, ui.active_channel_id,
                                                    &restored)) {
         log_write(LogLevel::warning, "message", "local_send_restore_failed");
     }

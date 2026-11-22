@@ -255,7 +255,7 @@ bool refresh(ApplicationForumForm* f) noexcept {
 }
 // The layout node of the field when the text layout of the field is current, else null.
 const UiLayoutNode* current_node(ApplicationForumFormField* field) noexcept {
-    if (!field || !valid(field->owner) || field->owner->child_suspended || !g_app.window)
+    if (!valid(field->owner) || field->owner->child_suspended || !g_app.window)
         return nullptr;
     const auto& layout = field->owner->surface.layouts[field->index];
     const auto* node = forum_post_node(field->owner->scene,
@@ -302,8 +302,7 @@ bool range_geometry(void* context, u32 first, u32 last, SecureTextRect* rectangl
     return true;
 }
 void changed(void* context) noexcept {
-    auto* field = static_cast<ApplicationForumFormField*>(context);
-    auto* f = field ? field->owner : nullptr;
+    auto* f = static_cast<ApplicationForumFormField*>(context)->owner;
     if (!valid(f) || f->refreshing || !f->editable)
         return;
     reset_value(&f->local_status);

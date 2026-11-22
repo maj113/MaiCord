@@ -53,7 +53,7 @@ struct UiThreadHeader {
     UiThreadHeaderStyle style;
     UiThreadHeaderGeometry geometry;
     u64 captured_publication;
-    u32 revision, projections;
+    u32 revision;
     bool active, published;
 };
 struct UiThreadHeaderPointerResult {
@@ -80,8 +80,8 @@ UiThreadHeaderPointerResult ui_thread_header_pointer(UiThreadHeader*, UiButtonPo
     UiPoint) noexcept;
 bool ui_thread_header_paint(const UiThreadHeader&, const Theme&, PaintStream*) noexcept;
 bool ui_thread_header_text(const UiThreadHeader&, const Theme&, UiTextOutput*) noexcept;
-// Copies at most six standard native menu rows. Zero IDs omit actions, and
-// insufficient capacity / colliding supplied IDs leave output unchanged.
+// Copies at most six standard native menu rows. The action IDs are distinct and
+// not zero; insufficient capacity leaves the output unchanged.
 u32 ui_thread_menu_build(const UiThreadHeaderView&, UiThreadMenuActions, const Slice<PopupItem>&) noexcept;
 
 static_assert(__is_trivial(UiThreadHeader) && __is_standard_layout(UiThreadHeader));

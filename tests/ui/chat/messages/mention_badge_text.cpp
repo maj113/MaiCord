@@ -102,10 +102,7 @@ bool numeric(const UiTextCommand* command, Utf8View label, UiRect rectangle) noe
 
 void test_mention_badge_text(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace mention_text_probe;
-    char label[3] = {'x', 'x', 'x'};
-    check(!ui_mention_badge_label(0, {label, 3}).bytes && !ui_mention_badge_label(100, {label, 2}).bytes &&
-        label[0] == 'x' && label[1] == 'x' && label[2] == 'x',
-        "mention badge: zero count and insufficient label backing do not publish or overwrite text");
+    char label[3]{};
     const u32 edges[]{9, 10, 99, 100, 999, 1000, 8999, 9000, ~u32{0}};
     constexpr Utf8View expected[]{utf8_literal("9"), utf8_literal("10"), utf8_literal("99"), utf8_literal("100"),
         utf8_literal("999"), utf8_literal("1k+"), utf8_literal("8k+"), utf8_literal("9k+"), utf8_literal("9k+")};

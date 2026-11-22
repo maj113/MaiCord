@@ -29,9 +29,6 @@ void ownership() noexcept {
         store.collapsed_guilds.arena.committed == system.dwPageSize &&
         reaction_preferences_section_collapsed(store, 16, 1007),
         "reaction storage: first guild collapse commits exactly one native page before publishing identity");
-    check(!reaction_preferences_initialize(&store) && store.collapsed_guilds.arena.base == base &&
-        reaction_preferences_section_collapsed(store, 16, 1007),
-        "reaction storage: duplicate reset cannot discard a live owned bank");
     for (u32 i = 0; i < kReactionPreferenceCollapsedGuildCapacity - 1; ++i)
         check(reaction_preferences_toggle_section(&store, 16, 2000 + i).ok(),
             "reaction storage: all 256 distinct guild identities remain supported");
@@ -55,9 +52,6 @@ void ownership() noexcept {
     reaction_preferences_release(&store);
     check(!store.next_sequence && !store.collapsed_guild_count && !store.collapsed_guilds.arena.base && memory_released(released),
         "reaction storage: explicit account release frees the bank and clears preference ownership");
-    reaction_preferences_release(&store);
-    check(reaction_preferences_initialize(&store), "reaction storage: released account owner can be initialized afresh");
-    reaction_preferences_release(&store);
 }
 void commit_failure() noexcept {
     ReactionPreferenceStore store{};

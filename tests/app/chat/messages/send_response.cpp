@@ -70,12 +70,11 @@ void test_message_send_response(void (*check)(bool, const char*) noexcept) noexc
     const auto* forwarded_child = message_rich_store_snapshot(rich, 900);
     check(nonce && accepted.body_decoded && accepted.message.ok() && accepted.message.changed &&
         messages[0].snapshot.present && messages[0].attachments.count == 1 && messages[0].snapshot.attachments.count == 1 &&
-        messages[0].snapshot.attachments.data == snapshot_attachments && messages[0].snapshot.mention_users.data == snapshot_users &&
         !messages[0].mentions_current_user && messages[0].snapshot.mention_users.count == 1 &&
         utf8_equal(messages[0].snapshot.content, utf8_literal("child body <@11>")) &&
         forwarded_child && forwarded_child->attachment_count == 1 &&
         message_composer_controller_take_completion(&controller, &completion) && completion.response_observed,
-        "send confirmation forwards independent child scratch and installs snapshot without child notification pings");
+        "send confirmation installs the forwarded snapshot without child notification pings");
     for (auto& byte : content) byte = 'x';
     check(forwarded_child && utf8_equal(message_rich_store_string(rich, forwarded_child->snapshot.content), utf8_literal("child body <@11>")) &&
         utf8_equal(message_rich_store_string(rich, forwarded_child->attachments[0].filename), utf8_literal("child.png")),

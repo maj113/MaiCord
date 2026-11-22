@@ -61,7 +61,7 @@ bool application_message_delete_request(u64 message_id, bool skip_confirmation) 
     const u32 preview = message_delete_preview_format(
         author ? user_store_name(g_app.account_ui->user_store, *author) : Utf8View{},
         message_store_content(g_app.message_view.store, found.handle),
-        rich && rich->message_id == message_id && rich->attachment_count, {context + lead.bytes, 512});
+        rich && rich->attachment_count, {context + lead.bytes, 512});
     copy_bytes(context + lead.bytes + preview, tip.data, tip.bytes);
     delete_confirmation = {g_app.plugin_account_scope_serial, record->channel_id, record->id};
     ApplicationTextFormRequest request{utf8_literal("Delete message?"),
@@ -88,8 +88,8 @@ void reset_message_delete() noexcept {
 }
 
 bool message_can_delete(const MessageRecord& record) noexcept {
-    if (!g_app.account_ui || record.id == 0 || record.channel_id == 0 ||
-        record.delivery != MessageDeliveryState::authoritative ||
+    // The message store holds no record with a zero ID, channel or author.
+    if (!g_app.account_ui || record.delivery != MessageDeliveryState::authoritative ||
         !application_thread_actions_channel_readable(record.channel_id)) {
         return false;
     }
@@ -109,8 +109,7 @@ bool message_can_delete(const MessageRecord& record) noexcept {
         return false;
     }
     // Auto moderation actions require Manage Messages even when authored by self.
-    if (record.type != 24 && record.author_id != 0 &&
-        record.author_id == g_app.account_ui->chat_state.self_user_id) {
+    if (record.type != 24 && record.author_id == g_app.account_ui->chat_state.self_user_id) {
         return true;
     }
     const ChannelViewRow* channel =

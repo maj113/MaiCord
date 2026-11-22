@@ -408,8 +408,7 @@ bool message_search_query_valid(const MessageSearchQuery& query) noexcept {
 
 MessageSearchWriteResult write_message_search_target(const MessageSearchQuery& query,
                                                      Slice<u8> output) noexcept {
-    if (!message_search_query_valid(query) ||
-        query.scope == MessageSearchScope::private_channels)
+    if (query.scope == MessageSearchScope::private_channels)
         return {0, MessageSearchWriteError::invalid_input};
     ProtocolWriter writer{output, 0};
     bool written =
@@ -509,9 +508,6 @@ void json_tab(JsonBody& b, const MessageSearchQuery& query, MessageSearchTab tab
 
 MessageSearchTabsWriteResult write_message_search_tabs_request(
     const MessageSearchQuery& query, Slice<u8> target, Slice<u8> body) noexcept {
-    if (!message_search_query_valid(query) ||
-        (!body.data && body.count))
-        return {0, 0, MessageSearchWriteError::invalid_input};
     ProtocolWriter path{target, 0};
     bool written = protocol_write(&path, "/api/v9/");
     if (query.scope == MessageSearchScope::private_channels)
@@ -542,12 +538,9 @@ MessageSearchDecodeResult decode_message_search_page(
     Utf8View body, const MessageSearchQuery& query, Slice<u32> page_structurals, u32 maximum_depth,
     Slice<char> text_output, Slice<MessageSearchGroup> groups, Slice<MessageSearchMessage> messages,
     const MessageSearchRichScratch& rich_scratch, MessageSearchRichSink sink) noexcept {
-    if (!message_search_query_valid(query) || !body.data || !body.bytes || !page_structurals.data ||
-        !page_structurals.count ||
-        !maximum_depth || (!text_output.data && text_output.count) || (!groups.data && groups.count) ||
-        (!messages.data && messages.count)) {
-        return {{}, 0, MessageSearchDecodeError::invalid_input};
-    }
+    // The one caller (application_search_response) passes the controller's query, which message_search_begin
+    // checked and message_search_page and message_search_fallback keep valid, a body that is not empty, and its own
+    // index, text and result banks.
     const auto scan = json_scan_structurals_avx1(body, page_structurals);
     if (!scan.ok()) {
         return {{},

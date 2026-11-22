@@ -85,7 +85,7 @@ MessageContextControllerResult message_context_controller_open(
     ConstSlice<PopupItem> extra_items, bool can_pin_authoritative, bool can_forward_authoritative,
     bool can_mark_unread_authoritative, bool reply_target_deleted, bool can_create_thread_authoritative,
     bool developer_mode, MessageContextMenuExtras extras, ConstSlice<PopupItem> media_items) noexcept {
-    if (!controller || !popup || message.id == 0 || !valid_extras(extra_items) ||
+    if (message.id == 0 || !valid_extras(extra_items) ||
         !valid_extras(media_items, kMessageContextMaximumMediaItems)) {
         return reject(MessageContextControllerError::invalid_input);
     }

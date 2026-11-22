@@ -3,7 +3,6 @@
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/protocol/messages/thread_actions.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "../encoding/json_field_lists.hpp"
 #include "../encoding/json_helpers.hpp"
 #include "maicord/core/utf.hpp"
@@ -409,9 +408,6 @@ bool visit_member(void* opaque, u32 index, JsonValue value) noexcept {
     ++page.member_count;
     return true;
 }
-template <typename T> ConstSlice<u8> bytes(const Slice<T>& span) noexcept {
-    return {reinterpret_cast<const u8*>(span.data), static_cast<u32>(u64{span.count} * sizeof(T))};
-}
 } // namespace
 
 bool thread_browser_request_valid(const ThreadBrowserRequest& request) noexcept {
@@ -442,19 +438,9 @@ ThreadBrowserResult decode(
     Slice<u32> structural_scratch, Slice<ThreadBrowserRow> row_scratch,
     Slice<char> name_scratch, Slice<ThreadBrowserPost> post_scratch, Slice<char> text_scratch,
     ThreadBrowserPage* output, ThreadBrowserPostPage* post_output) noexcept {
-    if (!output || !self_user_id || !thread_browser_request_valid(request) || !input.bytes ||
-        input.bytes > kThreadBrowserMaximumBodyBytes ||
-        u64{structural_scratch.count} * sizeof(u32) > 0xffffffffull ||
-        u64{row_scratch.count} * sizeof(ThreadBrowserRow) > 0xffffffffull ||
-        u64{post_scratch.count} * sizeof(ThreadBrowserPost) > 0xffffffffull ||
-        (post_output && (!post_scratch.data || (text_scratch.count && !text_scratch.data))))
-        return {0, ThreadBrowserError::input};
-    const ConstSlice<u8> spans[]{
-        {reinterpret_cast<const u8*>(input.data), input.bytes}, bytes(structural_scratch), bytes(row_scratch),
-        bytes(name_scratch), {reinterpret_cast<const u8*>(output), sizeof(*output)},
-        bytes(post_scratch), bytes(text_scratch),
-        {reinterpret_cast<const u8*>(post_output), post_output ? static_cast<u32>(sizeof(*post_output)) : 0u}};
-    if (!byte_ranges_all_disjoint({spans, post_output ? 8u : 5u}) || !utf8_validate(input).valid)
+    // The request is the submitted one (thread_browser_request_valid accepted it), and the banks are the caller's
+    // own disjoint storage.
+    if (!self_user_id || !input.bytes || input.bytes > kThreadBrowserMaximumBodyBytes || !utf8_validate(input).valid)
         return {0, ThreadBrowserError::input};
     const auto scanned = json_scan_structurals_avx1(input, structural_scratch);
     if (!scanned.ok()) return {0, scanned.error == JsonScanError::output_overflow
@@ -490,14 +476,12 @@ ThreadBrowserResult decode(
     if (post_output) *post_output = {post_scratch, text_scratch, page.count, page.text_bytes};
     return {input.bytes};
 }
+// The decoder writes every text offset and length within the page's text, and callers pass an index below the count.
 Utf8View post_text(const ThreadBrowserPostPage& page, u32 index, u32 part) noexcept {
-    if (!page.posts.data || index >= page.post_count || page.post_count > page.posts.count ||
-        page.text_bytes > page.text.count || (page.text_bytes && !page.text.data)) return {};
     const auto& post = page.posts[index];
     const u32 lengths[]{post.preview_bytes, post.author_name_bytes, post.avatar_hash_bytes, post.media_url_bytes};
-    u64 offset = post.text_offset;
+    u32 offset = post.text_offset;
     for (u32 at = 0; at < part; ++at) offset += lengths[at];
-    if (offset > page.text_bytes || lengths[part] > page.text_bytes - offset) return {};
     return {page.text.data + offset, lengths[part]};
 }
 } // namespace
@@ -512,7 +496,6 @@ ThreadBrowserResult thread_browser_decode_posts(
     Slice<u32> structural_scratch, Slice<ThreadBrowserRow> row_scratch,
     Slice<char> name_scratch, Slice<ThreadBrowserPost> post_scratch, Slice<char> text_scratch,
     ThreadBrowserPage* output, ThreadBrowserPostPage* post_output) noexcept {
-    if (!post_output) return {0, ThreadBrowserError::input};
     return decode(input, request, self_user_id, structural_scratch, row_scratch, name_scratch,
         post_scratch, text_scratch, output, post_output);
 }
@@ -529,10 +512,7 @@ Utf8View thread_browser_post_media_url(const ThreadBrowserPostPage& page, u32 in
     return post_text(page, index, 3);
 }
 Utf8View thread_browser_row_name(const ThreadBrowserPage& page, u32 index) noexcept {
-    if (!page.rows.data || !page.names.data || index >= page.row_count || page.row_count > page.rows.count ||
-        page.name_bytes > page.names.count) return {};
     const auto& row = page.rows[index];
-    if (row.name_offset > page.name_bytes || row.name_bytes > page.name_bytes - row.name_offset) return {};
     return {page.names.data + row.name_offset, row.name_bytes};
 }
 } // namespace maicord

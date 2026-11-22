@@ -36,7 +36,6 @@ struct MessageTextCoordinatorTrace {
 
 enum class MessageTextCoordinatorError : u8 {
     none,
-    invalid_input,
     scene,
     projection,
     measurement,

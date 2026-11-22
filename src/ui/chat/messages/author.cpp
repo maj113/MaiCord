@@ -10,6 +10,13 @@
 
 namespace maicord {
 
+// Plugin decoration tones are theme roles; MC_TONE_ROLE keeps the author colour.
+static Color message_author_decoration_color(const Theme& theme, u8 tone, const Color& author) noexcept {
+    if (tone == kUiPluginToneRole)
+        return author;
+    return tone ? ui_icon_role_color(theme, ui_plugin_slot_role(tone)) : ui_background_muted_text_color(theme);
+}
+
 // One author-line measurement (a name, a badge or a decoration label), keyed by the author; `salt` tells the runs apart.
 static bool measure_author_text(UiTextMeasureCache* cache, u64 author_id, Utf8View text,
                                 const ConstSlice<TextStyleSpan>& spans, float width, u16 salt, UiTextFace face,

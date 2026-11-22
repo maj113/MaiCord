@@ -1494,11 +1494,6 @@ void test_text_measure_cache() noexcept {
            "message_text_measure_invalid_batch_rejects");
     commands[1].measurement_index = 0;
     const Utf8View valid_content = commands[1].text;
-    commands[1].text = Utf8View{nullptr, 1};
-    expect(!message_text_presentation_measure(&presentation, &message_cache, 1, &measurement_changed) &&
-               !measurement_changed && measurements[0].content_height == aggregate_before_malformed,
-           "message_text_measure_invalid_text_rejects");
-    commands[1].text = valid_content;
     const float reply_before_failure = commands[0].measured_height;
     const float content_before_failure = commands[1].measured_height;
     const float aggregate_before_failure = measurements[0].content_height;

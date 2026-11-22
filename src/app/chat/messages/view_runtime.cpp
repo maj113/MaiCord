@@ -48,11 +48,6 @@ inline bool prepare_owned_storage(MessageViewRuntime* runtime) noexcept {
 
 MessageViewRuntimeResult message_view_runtime_reindex(MessageViewRuntime* runtime, u32 default_item_units,
                                                       u64 viewport_units, bool follow_bottom) noexcept {
-    if (!runtime || !runtime->initialized || !runtime->store.records ||
-        runtime->store.records != runtime->records || runtime->store.order != runtime->order ||
-        runtime->store.text != runtime->text_storage.base || default_item_units == 0 || viewport_units == 0) {
-        return runtime_error(MessageViewRuntimeError::invalid_input);
-    }
     MessageRichStore* const rich_store = runtime->timeline.rich_store;
     if (!ui_variable_list_initialize(&runtime->list,
                                      Slice<u32>{runtime->item_units, kMessageViewItemCapacity},
@@ -75,9 +70,6 @@ MessageViewRuntimeResult message_view_runtime_reindex(MessageViewRuntime* runtim
 MessageViewRuntimeResult message_view_runtime_initialize(MessageViewRuntime* runtime,
                                                          u32 default_item_units, u64 viewport_units,
                                                          bool follow_bottom) noexcept {
-    if (!runtime || default_item_units == 0 || viewport_units == 0) {
-        return runtime_error(MessageViewRuntimeError::invalid_input);
-    }
     if (!prepare_owned_storage(runtime)) {
         return runtime_error(MessageViewRuntimeError::store);
     }
@@ -98,7 +90,7 @@ MessageViewRuntimeResult message_view_runtime_initialize(MessageViewRuntime* run
 
 MessageViewRuntimeResult message_view_runtime_bind_rich_store(MessageViewRuntime* runtime,
                                                               MessageRichStore* rich_store) noexcept {
-    if (!runtime->initialized || !rich_store) {
+    if (!runtime->initialized) {
         return runtime_error(MessageViewRuntimeError::invalid_input);
     }
     if (!message_timeline_bind_rich_store(&runtime->timeline, rich_store)) {
@@ -108,9 +100,7 @@ MessageViewRuntimeResult message_view_runtime_bind_rich_store(MessageViewRuntime
 }
 
 void message_view_runtime_unbind_rich_store(MessageViewRuntime* runtime) noexcept {
-    if (runtime->initialized) {
-        runtime->timeline.rich_store = nullptr;
-    }
+    runtime->timeline.rich_store = nullptr;
 }
 
 void message_view_runtime_release(MessageViewRuntime* runtime) noexcept {

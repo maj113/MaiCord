@@ -295,7 +295,6 @@ inline bool ensure_owner() noexcept {
     owner = commit_pages<PollOwner>();
     if (!owner)
         return false;
-    poll_controller_initialize(&owner->controller);
     if (!ui_widget_manager_initialize(&owner->widgets, {owner->widget_storage, 1},
                                       {owner->layout_storage, 1})) {
         pages_release(owner);
@@ -392,8 +391,6 @@ bool source_same(const ApplicationPollSource& a, const ApplicationPollSource& b)
 }
 bool project_state(const ApplicationPollSource& source, const MessagePollRecord& p,
                    Slice<UiPollAnswer> answers, UiPollState* out) noexcept {
-    if (!out || !answers.data || answers.count < p.answer_count || p.answer_count > kUiPollMaximumAnswers)
-        return false;
     auto& store = g_app.account_ui->message_poll_store;
     const bool selected = owner && !owner->release_pending && owner->controller.source_active &&
                           source_same(owner->source, source);
@@ -1004,7 +1001,7 @@ bool application_poll_pending(u64 now) noexcept {
     return poll_controller_prepare(owner->controller, now, clock_unix_milliseconds(), &command);
 }
 bool application_poll_submit(u64 id, u64 now) noexcept {
-    if (!id || !application_poll_synchronize() || !application_poll_active() || !connected())
+    if (!application_poll_synchronize() || !application_poll_active() || !connected())
         return false;
     auto& value = *owner;
     PollControllerCommand command{};
@@ -1110,8 +1107,7 @@ static __declspec(noinline) bool apply_poll_message(PollOwner& value, Utf8View b
     return valid;
 }
 bool application_poll_response(const RestClientResponse& response, Utf8View body) noexcept {
-    if (!owner || !owner->controller.flight.active || !response.request_id ||
-        owner->controller.flight.ticket.request_id != response.request_id)
+    if (!owner || !owner->controller.flight.active || owner->controller.flight.ticket.request_id != response.request_id)
         return false;
     auto& value = *owner;
     const auto flight = value.controller.flight;
@@ -1122,11 +1118,9 @@ bool application_poll_response(const RestClientResponse& response, Utf8View body
     ConstSlice<ReactionUser> users{};
     const u8 candidate_bank = value.bank ^ 1;
     if (fresh && flight.command.kind != PollControllerWorkKind::vote && successful) {
-        valid = body.data && body.bytes == response.body_bytes && body.bytes <= kPollMaximumResponseBytes;
-        if (valid && flight.command.kind == PollControllerWorkKind::voters)
-            valid = decode_voter_page(value, body, candidate_bank, &users);
-        else if (valid)
-            valid = apply_poll_message(value, body);
+        valid = flight.command.kind == PollControllerWorkKind::voters
+                    ? decode_voter_page(value, body, candidate_bank, &users)
+                    : apply_poll_message(value, body);
     }
     // The official client applies an accepted vote locally and waits for the
     // gateway echo instead of refetching the message; the store update is
@@ -1373,7 +1367,7 @@ bool application_poll_input(UiInputKind kind, u32 code, bool repeated) noexcept 
     return true;
 }
 bool application_poll_cursor(UiPoint point, UiCursor* cursor) noexcept {
-    if (!cursor || !front())
+    if (!front())
         return false;
     // The selected timeline card carries live pending/vote state.
     if (owner && owner->card.active && owner->card.surface == UiPollSourceSurface::timeline &&

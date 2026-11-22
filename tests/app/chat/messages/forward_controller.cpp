@@ -170,11 +170,11 @@ void test_message_forward_controller(void (*check)(bool, const char*) noexcept) 
     check(many.open() && many.forward.candidates.count == kQuickSwitcherMaximumResults && many.forward.candidates.overflow,
         "forwarding search scans authoritative channels but publishes at most one hundred ranked rows");
     const auto committed = many.forward.revision;
-    check(!message_forward_set_caption(&many.forward, {nullptr, 1}) && many.forward.revision != committed && !many.forward.caption_bytes,
-        "malformed caption input cannot enter the retained forwarding payload");
-    check(many.toggle(101) && !message_forward_confirm(&many.forward, many.scope, many.sources(), &many.outbox, 1725012296792ull, 108) &&
+    check(!message_forward_set_caption(&many.forward, {long_caption, sizeof(long_caption)}) &&
+        many.forward.revision != committed && many.toggle(101) &&
+        !message_forward_confirm(&many.forward, many.scope, many.sources(), &many.outbox, 1725012296792ull, 108) &&
         !many.outbox.request_count && !many.forward.committed && message_forward_set_caption(&many.forward, {}),
-        "invalid caption input blocks confirmation until corrected even when a previous caption was retained");
+        "an invalid caption blocks confirmation until corrected");
 
     PrivateChannelStore private_channels{}; PrivateChannelRecord private_records[2]{}; u64 recipients[4]{};
     RelationshipStore relationships{}; RelationshipRecord relations[2]{};

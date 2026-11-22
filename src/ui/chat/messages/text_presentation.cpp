@@ -24,9 +24,6 @@ MessageTextPresentationResult result(const MessageTextPresentation& presentation
 }
 
 void reject_atomically(MessageTextPresentation* presentation, MessageTextPresentationError error) noexcept {
-    if (!presentation) {
-        return;
-    }
     presentation->command_count = 0;
     presentation->utf8_count = 0;
     presentation->style_count = 0;
@@ -227,13 +224,6 @@ bool message_text_presentation_initialize(MessageTextPresentation* presentation,
                                           const Slice<MessageTextMeasurement>& measurements,
                                           const Slice<MessageTextSpoilerReveal>& spoiler_reveals,
                                           const Slice<u32>& byte_style_scratch) noexcept {
-    if (!presentation || !commands.data || commands.count == 0 || !utf8.data || utf8.count == 0 ||
-        !styles.data || styles.count == 0 || !semantics.data || semantics.count == 0 ||
-        !measurements.data || measurements.count == 0 || measurements.count > 0xFFFFu ||
-        !spoiler_reveals.data || spoiler_reveals.count == 0 || !byte_style_scratch.data ||
-        byte_style_scratch.count == 0) {
-        return false;
-    }
     reset_value<MessageTextPresentation>(presentation);
     presentation->commands = commands;
     presentation->utf8 = utf8;
@@ -248,9 +238,6 @@ bool message_text_presentation_initialize(MessageTextPresentation* presentation,
 
 bool message_markdown_cache_initialize(MessageMarkdownCache* cache, Slice<MessageMarkdownCacheEntry> entries,
                                        Slice<u8> arena) noexcept {
-    if (!entries.data || entries.count == 0 || (entries.count & (entries.count - 1u)) != 0 ||
-        !arena.data || arena.count < 64 || arena.count % 8u != 0 || reinterpret_cast<usize>(arena.data) % 8u != 0)
-        return false;
     reset_value<MessageMarkdownCache>(cache);
     cache->entries = entries.data;
     cache->arena = arena.data;
@@ -268,7 +255,7 @@ void message_markdown_cache_clear(MessageMarkdownCache* cache) noexcept {
 
 bool message_text_presentation_bind_markdown_cache(MessageTextPresentation* presentation,
                                                    MessageMarkdownCache* cache) noexcept {
-    if (!presentation || (cache && (!cache->entries || !cache->arena)))
+    if (cache && (!cache->entries || !cache->arena))
         return false;
     presentation->markdown_cache = cache;
     return true;
@@ -276,7 +263,7 @@ bool message_text_presentation_bind_markdown_cache(MessageTextPresentation* pres
 
 bool message_text_presentation_bind_guild_members(MessageTextPresentation* presentation,
                                                   const GuildMemberStore* members) noexcept {
-    if (!presentation || (members && (!members->records || !members->order))) {
+    if (members && (!members->records || !members->order)) {
         return false;
     }
     presentation->guild_members = members;
@@ -284,8 +271,6 @@ bool message_text_presentation_bind_guild_members(MessageTextPresentation* prese
 }
 
 bool message_text_presentation_bind_games(MessageTextPresentation* presentation, const GameStore* games) noexcept {
-    if (!presentation)
-        return false;
     presentation->games = games;
     return true;
 }
@@ -294,17 +279,11 @@ MessageTextPresentationResult message_text_presentation_build(
     MessageTextPresentation* presentation, const MessageScene& scene, const ChatStateStore& state,
     const UserStore* users, const NavigationView& navigation, const Theme& theme,
     u64 now_unix_seconds) noexcept {
-    if (presentation)
-        clear_failure_context(presentation);
-    if (!presentation || !presentation->commands.data || !presentation->utf8.data ||
-        !presentation->styles.data || !presentation->semantics.data || !presentation->measurements.data ||
-        !presentation->spoiler_reveals.data || !presentation->byte_style_scratch.data || !scene.active ||
-        !scene.timeline || !scene.timeline->store || scene.count > scene.rows.count ||
+    clear_failure_context(presentation);
+    if (!scene.active || !scene.timeline || !scene.timeline->store || scene.count > scene.rows.count ||
         !ui_rect_has_area(scene.viewport) || navigation.channel_count > navigation.channel_capacity) {
         reject_atomically(presentation, MessageTextPresentationError::invalid_input);
-        return presentation
-                   ? result(*presentation, presentation->last_error)
-                   : MessageTextPresentationResult{0, 0, MessageTextPresentationError::invalid_input};
+        return result(*presentation, presentation->last_error);
     }
     const u32 previous_count = presentation->command_count;
     if (previous_count > presentation->commands.count ||
@@ -378,25 +357,20 @@ void message_text_presentation_shift(MessageTextPresentation* presentation, floa
 
 bool message_text_presentation_measure(MessageTextPresentation* presentation, UiTextMeasureCache* cache,
                                        u16 backend_revision, bool* changed) noexcept {
-    if (changed) {
-        *changed = false;
-    }
-    if (!presentation || !cache || !changed || !presentation->active ||
+    *changed = false;
+    if (!presentation->active ||
         presentation->command_count > presentation->commands.count ||
         presentation->measurement_count > presentation->measurements.count ||
         presentation->command_count > presentation->byte_style_scratch.count / 2u ||
         presentation->command_count > 0xFFFFu) {
-        if (presentation)
-            presentation->last_error = MessageTextPresentationError::measurement;
+        presentation->last_error = MessageTextPresentationError::measurement;
         return false;
     }
     for (u32 index = 0; index < presentation->command_count; ++index) {
         const MessageTextCommand& command = presentation->commands[index];
         if ((command.message_id == 0 && (command.measurement_kind != MessageTextMeasurementKind::none ||
                                          command.semantics.count != 0)) ||
-            !ui_rect_has_area(command.rectangle) || (!command.text.data && command.text.bytes != 0) ||
-            (!command.styles.data && command.styles.count != 0) ||
-            command.styles.count > kTextStyleSpanMaximum ||
+            !ui_rect_has_area(command.rectangle) || command.styles.count > kTextStyleSpanMaximum ||
             command.measurement_kind > MessageTextMeasurementKind::notice ||
             (command.measurement_kind != MessageTextMeasurementKind::none &&
              command.measurement_index >= presentation->measurement_count)) {
@@ -487,10 +461,8 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
 bool message_text_presentation_apply_measurements(MessageScene* scene,
                                                   const MessageTextPresentation& presentation,
                                                   bool* changed) noexcept {
-    if (changed) {
-        *changed = false;
-    }
-    if (!scene || !changed || !presentation.active ||
+    *changed = false;
+    if (!presentation.active ||
         presentation.measurement_count > presentation.measurements.count) {
         return false;
     }
@@ -525,9 +497,6 @@ bool message_text_presentation_apply_measurements(MessageScene* scene,
 
 bool message_text_presentation_set_hover(MessageTextPresentation* presentation, const MessageTextHit& hit,
                                          bool* changed) noexcept {
-    if (!presentation || !changed) {
-        return false;
-    }
     // Emoji and flags restyle nothing on hover, so they count as no hover and
     // moving over them rebuilds no text.
     const bool has_hover = hit.valid && hit.kind != MessageMarkdownSemanticKind::none &&
@@ -601,7 +570,7 @@ MessageTextCopyProjectionResult message_text_project_selection_for_copy(const Me
                                                                         Slice<char> output) noexcept {
     if ((!command.text.data && command.text.bytes != 0) ||
         (!command.semantics.data && command.semantics.count != 0) || (!source.data && source.bytes != 0) ||
-        (!output.data && output.count != 0) || first >= last || last > command.text.bytes) {
+        first >= last || last > command.text.bytes) {
         return MessageTextCopyProjectionResult{};
     }
     u32 cursor = first;
@@ -665,12 +634,10 @@ u32 message_text_command_copy_end(const MessageTextCommand& command) noexcept {
 bool message_text_presentation_toggle_spoiler(MessageTextPresentation* presentation,
                                               const MessageStore& store, const MessageRichStore* rich_store,
                                               const MessageTextHit& hit, bool* changed) noexcept {
-    if (changed) {
-        *changed = false;
-    }
-    if (!presentation || !changed || !hit.valid || hit.kind != MessageMarkdownSemanticKind::spoiler ||
+    *changed = false;
+    if (!hit.valid || hit.kind != MessageMarkdownSemanticKind::spoiler ||
         message_text_presentation_hit_source(store, rich_store, hit).bytes == 0 ||
-        presentation->spoiler_reveals.count == 0 || !presentation->spoiler_reveals.data) {
+        presentation->spoiler_reveals.count == 0) {
         return false;
     }
     for (u32 index = 0; index < presentation->spoiler_reveal_count; ++index) {

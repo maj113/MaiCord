@@ -985,7 +985,6 @@ bool probe_media_underlay_and_quick_reactions() noexcept {
     const u64 prefix_hash =
         bytes_hash(1469598103934665603ull, g_probe.text.quads, prefix_quads * sizeof(GlyphQuad));
     const u32 measurements = text_measure_calls(&g_probe.text_measure_cache);
-    const u32 preparations = g_probe.message_scene.preparation_passes;
     const u32 layouts = g_probe.message_scene.layout_passes;
     const auto row_rectangle = message_scene_layout_node(g_probe.message_scene, row.widget)->rectangle;
     if (!message_context_menu_build(&model, *record, false, false, false).ok() ||
@@ -1004,7 +1003,6 @@ bool probe_media_underlay_and_quick_reactions() noexcept {
                bytes_hash(1469598103934665603ull, g_probe.text.quads, prefix_quads * sizeof(GlyphQuad)) ==
                    prefix_hash &&
                text_measure_calls(&g_probe.text_measure_cache) == measurements &&
-               g_probe.message_scene.preparation_passes == preparations &&
                g_probe.message_scene.layout_passes == layouts &&
                ui_rect_equal(message_scene_layout_node(g_probe.message_scene, row.widget)->rectangle,
                              row_rectangle);

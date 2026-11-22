@@ -164,8 +164,6 @@ bool application_interaction_card_pending(u64) noexcept {
 }
 
 bool application_interaction_card_submit(u64 request_id, u64) noexcept {
-    if (!request_id || !application_interaction_card_pending(0))
-        return false;
     if (!available()) {
         g_card.phase = Phase::done;
         return false;

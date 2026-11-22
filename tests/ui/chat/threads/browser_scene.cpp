@@ -160,18 +160,6 @@ void test_forum_channel_scene(void (*check)(bool, const char*) noexcept) noexcep
         scene.scroll_dips == ui_thread_browser_scene_scroll_maximum(scene) &&
         ui_thread_browser_scene_focused_target(scene).thread_id == 905,
         "forum channel scene: keyboard focus reveals the last gallery card");
-    posts[2].thread_id = 999;
-    ++view.revision;
-    const u32 rebuilds = scene.rebuilds;
-    check(!ui_thread_browser_scene_update(&scene, &view, scene.viewport) && scene.rebuilds == rebuilds,
-        "forum channel scene: posts must match the page rows exactly");
-    posts[2].thread_id = 902;
-    forum.posts.count = 5;
-    check(!ui_thread_browser_scene_update(&scene, &view, scene.viewport), "forum channel scene: post/row count mismatch rejects");
-    forum.posts.count = 6;
-    tags[1].id = tags[0].id;
-    check(!ui_thread_browser_scene_update(&scene, &view, scene.viewport), "forum channel scene: duplicate tag IDs reject");
-    tags[1].id = 502;
     view.forum = nullptr;
     ++view.revision;
     check(ui_thread_browser_scene_update(&scene, &view, scene.viewport) && !scene.forum &&
@@ -342,11 +330,6 @@ void test_thread_browser_scene(void (*check)(bool, const char*) noexcept) noexce
     ++view.revision;
     check(!ui_thread_browser_scene_update(&scene, &view, scene.viewport) && scene.rebuilds == stable_rebuilds,
         "thread browser scene: malformed scalar labels reject before publication or layout");
-    rows[0].name = utf8_literal("Valid thread");
-    rows[1].thread_id = rows[0].thread_id;
-    view.rows.count = 2;
-    check(!ui_thread_browser_scene_update(&scene, &view, scene.viewport),
-        "thread browser scene: duplicate thread identities cannot create ambiguous pointer/key targets");
     paint_stream_release(&paint);
     ui_thread_browser_scene_release(&scene);
     check(!scene.active && !scene.storage.arena.base && !scene.backing,

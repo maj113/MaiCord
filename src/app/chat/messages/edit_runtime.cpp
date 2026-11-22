@@ -4,10 +4,6 @@
 
 namespace maicord {
 bool message_edit_runtime_initialize(MessageEditRuntime* runtime) noexcept {
-    if (runtime->content_storage.arena.base ||
-        runtime->saved_draft_storage.arena.base) {
-        return false;
-    }
     reset_value<MessageEditRuntime>(runtime);
     if (!stable_storage_initialize(
             &runtime->content_storage, kMessageComposerMaximumBytes, 0,

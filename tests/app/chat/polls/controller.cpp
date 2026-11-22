@@ -17,7 +17,7 @@ RestClientResponse receipt(u64 id,u16 status=200) noexcept {
 }
 }
 void test_poll_controller(void (*check)(bool,const char*) noexcept) noexcept {
-    PollController c{}; poll_controller_initialize(&c);
+    PollController c{};
     auto p=source();
     check(poll_controller_observe(&c,p).ok() && poll_controller_queue_vote(&c,3,1,1).ok(),
           "poll multiselect queues exact desired IDs without projecting aggregate counts");

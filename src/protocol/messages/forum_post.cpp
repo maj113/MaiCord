@@ -47,16 +47,10 @@ bool unique_ids(ConstSlice<u64> ids, u32 maximum_count) noexcept {
     }
     return true;
 }
-bool ranges_valid(const Utf8View& input, const Slice<u32>& scratch, const void* output,
-                  u32 output_bytes) noexcept {
-    if (!output || !input.bytes || input.bytes > kForumPostMaximumResponseBytes || !scratch.count ||
-        u64{scratch.count} * sizeof(u32) > 0xffffffffull)
-        return false;
-    const ConstSlice<u8> ranges[]{
-        {reinterpret_cast<const u8*>(input.data), input.bytes},
-        {reinterpret_cast<const u8*>(scratch.data), static_cast<u32>(u64{scratch.count} * sizeof(u32))},
-        {reinterpret_cast<const u8*>(output), output_bytes}};
-    return byte_ranges_all_disjoint({ranges, 3}) && utf8_validate(input).valid;
+// A response body within the size limit, in UTF-8. The release callers pass an HTTP response body, the account's
+// structural index and an owner-held output: three separate objects.
+bool input_valid(const Utf8View& input) noexcept {
+    return input.bytes && input.bytes <= kForumPostMaximumResponseBytes && utf8_validate(input).valid;
 }
 ForumPostResult scan_document(Utf8View input, Slice<u32> scratch, JsonIndexedDocument* document) noexcept {
     const auto scanned = json_scan_structurals_avx1(input, scratch);
@@ -527,27 +521,19 @@ bool forum_post_request_valid(const ForumPostRequest& request) noexcept {
            text_valid(request.content, 8000, 2000, true, !request.attachments.count);
 }
 ForumPostResult forum_post_write_target(const ForumPostRequest& request, Slice<u8> output) noexcept {
-    if (!forum_post_request_valid(request) || !byte_range_valid({output.data, output.count}))
-        return {0, ForumPostError::input};
-    u8 temporary[kForumPostMaximumTargetBytes];
     if (request.operation == ForumPostOperation::attachment_url) {
         u8 body[2304];
         const auto written = attachment_upload_write(request.parent_id, request.upload_id,
-                                                     request.upload_filename, request.upload_bytes,
-                                                     {temporary, sizeof(temporary)}, {body, sizeof(body)});
-        if (!written.ok || written.target_bytes > output.count)
-            return {written.target_bytes, ForumPostError::capacity};
-        copy_bytes(output.data, temporary, written.target_bytes);
-        return {written.target_bytes};
+                                                     request.upload_filename, request.upload_bytes, output,
+                                                     {body, sizeof(body)});
+        return written.ok ? ForumPostResult{written.target_bytes}
+                          : ForumPostResult{0, ForumPostError::capacity};
     }
-    ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
+    ProtocolWriter writer{output, 0};
     if (!protocol_write(&writer, "/api/v9/channels/", request.parent_id) ||
         (request.operation == ForumPostOperation::create &&
          !protocol_write(&writer, "/threads?use_nested_fields=true")))
         return {0, ForumPostError::capacity};
-    if (writer.used > output.count)
-        return {writer.used, ForumPostError::capacity};
-    copy_bytes(output.data, temporary, writer.used);
     return {writer.used};
 }
 namespace {
@@ -589,31 +575,8 @@ bool emit_body(const ForumPostRequest& request, Writer& writer) noexcept {
     writer.put("}}");
     return writer.ok;
 }
-bool writer_inputs_disjoint(const ForumPostRequest& request, const Slice<u8>& output) noexcept {
-    const ConstSlice<u8> destination{output.data, output.count};
-    const ConstSlice<u8> fixed[]{
-        {reinterpret_cast<const u8*>(&request), sizeof(request)},
-        {reinterpret_cast<const u8*>(request.title.data), request.title.bytes},
-        {reinterpret_cast<const u8*>(request.content.data), request.content.bytes},
-        {reinterpret_cast<const u8*>(request.upload_filename.data), request.upload_filename.bytes},
-        {reinterpret_cast<const u8*>(request.attachments.data),
-         request.attachments.count * static_cast<u32>(sizeof(UploadedAttachment))}};
-    for (auto range : fixed)
-        if (byte_ranges_overlap(destination, range))
-            return false;
-    for (u32 index = 0; index < request.attachments.count; ++index) {
-        const auto& file = request.attachments[index];
-        const Utf8View texts[]{file.filename, file.uploaded_filename, file.description};
-        for (auto text : texts)
-            if (byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(text.data), text.bytes}))
-                return false;
-    }
-    return true;
-}
 } // namespace
 ForumPostResult forum_post_body_bytes(const ForumPostRequest& request) noexcept {
-    if (!forum_post_request_valid(request))
-        return {0, ForumPostError::input};
     Writer writer{};
     if (!emit_body(request, writer))
         return {0, ForumPostError::input};
@@ -624,8 +587,6 @@ ForumPostResult forum_post_write_body(const ForumPostRequest& request, Slice<u8>
     const auto size = forum_post_body_bytes(request);
     if (!size.ok())
         return size;
-    if (!byte_range_valid({output.data, output.count}) || !writer_inputs_disjoint(request, output))
-        return {0, ForumPostError::input};
     if (size.bytes > output.count)
         return {size.bytes, ForumPostError::capacity};
     if (!size.bytes)
@@ -646,8 +607,7 @@ ForumPostResult forum_post_write_body(const ForumPostRequest& request, Slice<u8>
 }
 ForumPostResult forum_parent_decode(Utf8View input, const ForumPostRequest& request, Slice<u32> scratch,
                                     ForumParentSnapshot* output) noexcept {
-    if (!forum_post_request_valid(request) || request.operation != ForumPostOperation::parent_metadata ||
-        !ranges_valid(input, scratch, output, sizeof(*output)))
+    if (request.operation != ForumPostOperation::parent_metadata || !input_valid(input))
         return {0, ForumPostError::input};
     const auto intent = request;
     ParentParse parse{};
@@ -672,8 +632,7 @@ namespace {
 // `document` receives the scanned input; the scratch still holds that index afterwards.
 ForumPostResult decode_post(Utf8View input, const ForumPostRequest& request, u64 self, Slice<u32> scratch,
                             ForumPostSnapshot* output, JsonIndexedDocument* document) noexcept {
-    if (!self || !forum_post_request_valid(request) || request.operation != ForumPostOperation::create ||
-        !ranges_valid(input, scratch, output, sizeof(*output)))
+    if (!self || request.operation != ForumPostOperation::create || !input_valid(input))
         return {0, ForumPostError::input};
     const auto intent = request;
     PostParse parse{};
@@ -772,16 +731,7 @@ Utf8View attachment_text(const ForumPostMediaSnapshot& media, ForumPostTextRange
 ForumPostResult forum_post_media_decode(Utf8View input, const ForumPostRequest& request, u64 self,
                                         Slice<u32> scratch, ForumPostMediaSnapshot* temporary,
                                         ForumPostMediaSnapshot* output) noexcept {
-    if (!self || !forum_post_request_valid(request) || request.operation != ForumPostOperation::create ||
-        !ranges_valid(input, scratch, output, sizeof(*output)) || !temporary ||
-        !ranges_valid(input, scratch, temporary, sizeof(*temporary)) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(temporary), sizeof(*temporary)},
-                            {reinterpret_cast<const u8*>(output), sizeof(*output)}) ||
-        !writer_inputs_disjoint(request, {reinterpret_cast<u8*>(temporary), sizeof(*temporary)}) ||
-        !writer_inputs_disjoint(request, {reinterpret_cast<u8*>(output), sizeof(*output)}) ||
-        !writer_inputs_disjoint(request, {reinterpret_cast<u8*>(scratch.data),
-                                          static_cast<u32>(u64{scratch.count} * sizeof(u32))}))
-        return {0, ForumPostError::input};
+    // decode_post checks the request and the input first.
     clear_bytes(temporary, sizeof(*temporary));
     JsonIndexedDocument document{};
     const auto core = decode_post(input, request, self, scratch, &temporary->post, &document);

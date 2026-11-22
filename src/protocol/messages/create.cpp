@@ -13,7 +13,7 @@ MessageCreateWriteResult error(MessageCreateWriteError value) noexcept {
 
 MessageCreateWriteResult write_message_create_target(u64 channel_id,
                                                      Slice<u8> output) noexcept {
-    if (channel_id == 0 || !output.data) {
+    if (channel_id == 0) {
         return error(MessageCreateWriteError::invalid_input);
     }
     ProtocolWriter writer{output, 0};
@@ -140,7 +140,7 @@ bool poll_create_valid(const PollCreate& poll) noexcept {
 
 MessageCreateWriteResult write_message_poll_body(const PollCreate& poll, u64 nonce,
                                                  Slice<u8> output) noexcept {
-    if (!output.data || !nonce || !poll_create_valid(poll))
+    if (!nonce || !poll_create_valid(poll))
         return error(MessageCreateWriteError::invalid_input);
     ProtocolWriter writer{output, 0};
     bool ok = protocol_write(&writer, "{\"content\":\"\",\"nonce\":", snowflake_text(nonce),
@@ -166,7 +166,7 @@ MessageCreateWriteResult write_message_poll_body(const PollCreate& poll, u64 non
 
 MessageCreateWriteResult write_message_forward_body(Utf8View caption, u64 nonce,
     MessageForwardReference source, Slice<u8> output) noexcept {
-    if (!output.data || (!caption.data && caption.bytes) ||
+    if ((!caption.data && caption.bytes) ||
         caption.bytes > kMessageCreateMaximumContentBytes || !nonce ||
         !message_forward_reference_valid(source))
         return error(MessageCreateWriteError::invalid_input);

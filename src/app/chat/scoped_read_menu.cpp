@@ -45,8 +45,6 @@ bool scene_row(const Scene& scene, u64 id, UiWidgetHandle* row, u32* revision, u
 }
 bool navigation_row(ReadScopeKind kind, u64 id, UiWidgetHandle* row, u32* revision,
                     u16* generation) noexcept {
-    if (!g_app.account_ui)
-        return false;
     const auto& navigation = g_app.account_ui->navigation_view;
     if (kind == ReadScopeKind::guild)
         return guild_context_row_current(navigation, g_app.guild_rail_scene, id) &&
@@ -77,8 +75,6 @@ inline bool activation_current(u32 action) noexcept {
     if (view.publication_revision != menu.publication_revision)
         return false;
     bool enabled = false;
-    if (!g_app.popup_scene.items.data || g_app.popup_scene.item_count > g_app.popup_scene.items.count)
-        return false;
     for (u32 i = 0; i < g_app.popup_scene.item_count; ++i)
         if (g_app.popup_scene.items[i].action == action &&
             (g_app.popup_scene.items[i].flags & popup_item_enabled))

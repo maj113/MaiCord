@@ -376,13 +376,13 @@ inline bool rich_search_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache& mea
         const auto* scene = ui_search_scene_message_scene(f.scene);
         if (!scene) return false;
         const u32 calls = f.calls,layout = f.scene.widgets.layout.revision,native_layout = scene->layout_passes,
-            prepare = scene->preparation_passes,resolve_count = scene->rebuilds,shape = text_measure_calls(&measure),
+            resolve_count = scene->rebuilds,shape = text_measure_calls(&measure),
             builds = renderer.content_text->rebuilds,raster = renderer.glyph_text.cache_builds,
             paint_upload = renderer.paint_instance_uploads,text_upload = renderer.text_instance_uploads,
             media_upload = renderer.media_instance_uploads,draws = renderer.painted_frames;
         for (u32 i = 0; i < 64; ++i) if (!project() || !probe_present(&renderer,theme)) return false;
         return f.calls == calls && f.scene.widgets.layout.revision == layout && scene->layout_passes == native_layout &&
-            scene->preparation_passes == prepare && scene->rebuilds == resolve_count && text_measure_calls(&measure) == shape &&
+            scene->rebuilds == resolve_count && text_measure_calls(&measure) == shape &&
             renderer.content_text->rebuilds == builds && renderer.glyph_text.cache_builds == raster &&
             renderer.paint_instance_uploads == paint_upload && renderer.text_instance_uploads == text_upload &&
             renderer.media_instance_uploads == media_upload && renderer.painted_frames == draws;

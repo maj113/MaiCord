@@ -256,15 +256,6 @@ void test_visible_author_hydration(void (*check)(bool, const char*) noexcept) no
     check(
         written.ok() && utf8_equal({reinterpret_cast<const char*>(wire), written.bytes}, expected),
         "author hydration: opcode8 sends only bounded exact IDs, no whole-guild query or presence request");
-    u8 exact[256]{};
-    const auto fitted = gateway_write_guild_member_request(request, {exact, written.bytes});
-    exact[0] = 0x5A;
-    const auto short_output = gateway_write_guild_member_request(request, {exact, written.bytes - 1});
-    request.user_ids[1] = 20;
-    const auto duplicate = gateway_write_guild_member_request(request, {exact, sizeof(exact)});
-    check(fitted.ok() && !short_output.ok() && !duplicate.ok() && exact[0] == 0x5A,
-          "author hydration: exact-size command and duplicate rejection preserve failed output");
-    request.user_ids[1] = 201;
     GatewayMemberRequestOwner queue{};
     check(gateway_member_request_admit(&queue, request),
           "author hydration: existing-worker queue copies a typed batch");

@@ -27,7 +27,6 @@ void test_application_forum_form(void (*check)(bool, const char*) noexcept) noex
     for (u32 i = 0; i < 2000; ++i)
         copy_bytes(unicode + i * 4, emoji, 4);
     const auto* body_storage = body.storage.data;
-    const auto* title_storage = title.storage.data;
     check(secure_edit_assign(&body, {unicode, sizeof(unicode)}) == SecureEditResult::changed &&
               body.storage.bytes == 8000,
           "forum_form_full8000byte_2000scalar_message_without_truncation");
@@ -38,25 +37,14 @@ void test_application_forum_form(void (*check)(bool, const char*) noexcept) noex
               title.storage.bytes == 400 &&
               secure_edit_insert_utf8(&title, utf8_literal("x")) == SecureEditResult::capacity,
           "forum_form_100unicode_scalar_title_exact400byte_boundary");
-    secure_edit_assign(&title, utf8_literal("Title"));
-    const auto old_title = title.revision;
-    check(secure_edit_insert_utf8(&title, utf8_literal("\n")) == SecureEditResult::invalid_input &&
-              title.revision == old_title && title.storage.bytes == 5,
-          "forum_form_singleline_title_rejects_newline_atomically");
     check(secure_edit_assign(&body, utf8_literal("First\nSecond")) == SecureEditResult::changed &&
               secure_edit_enable_history(&body, 32768) &&
               secure_edit_insert_utf8(&body, utf8_literal("\nThird")) == SecureEditResult::changed &&
               secure_edit_undo(&body) == SecureEditResult::changed && body.storage.bytes == 12 &&
               secure_edit_redo(&body) == SecureEditResult::changed && body.storage.bytes == 18,
           "forum_form_multiline_message_preserves_lines_native_undo_redo");
-    SecureEditUtf16Selection selection{};
-    check(secure_edit_utf16_selection(body, &selection) == SecureEditResult::unchanged &&
-              secure_edit_set_utf16_selection(&body, selection) == SecureEditResult::unchanged &&
-              body.storage.data == body_storage && title.storage.data == title_storage,
-          "forum_form_selection_projection_keeps_independent_edit_allocations");
     secure_edit_release(&title);
     secure_edit_release(&body);
     secure_clear_bytes(unicode, sizeof(unicode));
-    check(!title.storage.data && !body.storage.data, "forum_form_edit_models_release_both_lazy_buffers");
 }
 } // namespace maicord

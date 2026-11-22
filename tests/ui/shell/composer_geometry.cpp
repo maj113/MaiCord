@@ -312,12 +312,11 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
                 scene.measured_row_height = 80.f;
                 rows &= message_composer_scene_cached_height(scene, reply, attachments, width) ==
                         measured;
-                const u32 layout_passes = scene.layout_passes, projection_passes = scene.projection_passes;
+                const u32 layout_passes = scene.layout_passes;
                 const u64 display_signature = scene.display_signature;
                 for (u32 frame = 0; frame < 2; ++frame) {
                     const auto warmed = update();
                     stable &= warmed.ok() && !warmed.changed && scene.layout_passes == layout_passes &&
-                              scene.projection_passes == projection_passes &&
                               scene.display_signature == display_signature &&
                               message_composer_scene_focused_control(scene) == MessageComposerControl::edit;
                 }

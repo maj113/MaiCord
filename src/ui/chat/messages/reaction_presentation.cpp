@@ -8,20 +8,14 @@
 namespace maicord {
 namespace {
 
-bool label_bytes(const MessageRichStore& store, const MessageRichReaction& reaction, u32* bytes) noexcept {
+// Store strings are views of the rich store's text or empty, and a name holds at most 0xFFFF bytes.
+u32 label_bytes(const MessageRichStore& store, const MessageRichReaction& reaction) noexcept {
     u32 required = decimal_digits(reaction.count);
     if (reaction.emoji_id == 0 && !regional_flag_sequence(message_rich_store_string(store, reaction.name))) {
         const Utf8View name = message_rich_store_string(store, reaction.name);
-        if (!name.data && name.bytes != 0) {
-            return false;
-        }
-        if (name.bytes > ~0u - required - (name.bytes != 0 ? 1u : 0u)) {
-            return false;
-        }
         required += name.bytes + (name.bytes != 0 ? 1u : 0u);
     }
-    *bytes = required;
-    return true;
+    return required;
 }
 
 bool append_label(const MessageRichStore& store, const MessageRichReaction& reaction, Slice<char> output,
@@ -29,9 +23,6 @@ bool append_label(const MessageRichStore& store, const MessageRichReaction& reac
     TextWriter writer{{output.data + *cursor, output.count - *cursor}};
     if (reaction.emoji_id == 0 && !regional_flag_sequence(message_rich_store_string(store, reaction.name))) {
         const Utf8View name = message_rich_store_string(store, reaction.name);
-        if (!name.data && name.bytes != 0) {
-            return false;
-        }
         writer.add(name);
         if (name.bytes != 0)
             writer.add(" ");
@@ -53,7 +44,7 @@ MessageReactionPresentationResult error(MessageReactionPresentationError value) 
 bool message_reaction_presentation_resolve(const MessageScene& scene, const MessageSceneRowWidget& row,
                                            const MessageRichRecord& rich, u32 index,
                                            MessageReactionVisualItem* item) noexcept {
-    if (!item || row.message_id == 0 || row.message_id != rich.message_id ||
+    if (row.message_id == 0 || row.message_id != rich.message_id ||
         row.message_revision != rich.message_revision || row.reaction_button_count != rich.reaction_count ||
         index >= rich.reaction_count) {
         return false;
@@ -112,10 +103,6 @@ bool message_reaction_presentation_resolve(const MessageScene& scene, const Mess
 MessageReactionPresentationResult message_reaction_presentation_build(
     const MessageScene& scene, const MessageSceneRowWidget& row, const MessageRichStore& store,
     const MessageRichRecord& rich, Slice<char> utf8, Slice<MessageReactionTextItem> items) noexcept {
-    if ((!utf8.data && utf8.count != 0) || (!items.data && items.count != 0) ||
-        rich.reaction_count > kGatewayMessageReactionMaximum) {
-        return error(MessageReactionPresentationError::invalid_input);
-    }
     if (row.message_id == 0 || row.message_id != rich.message_id ||
         row.message_revision != rich.message_revision) {
         return error(MessageReactionPresentationError::model);
@@ -129,10 +116,7 @@ MessageReactionPresentationResult message_reaction_presentation_build(
         if (!message_reaction_presentation_resolve(scene, row, rich, index, &visual)) {
             return error(MessageReactionPresentationError::layout);
         }
-        u32 item_bytes = 0;
-        if (!label_bytes(store, rich.reactions[index], &item_bytes)) {
-            return error(MessageReactionPresentationError::model);
-        }
+        const u32 item_bytes = label_bytes(store, rich.reactions[index]);
         if (required_bytes > utf8.count || item_bytes > utf8.count - required_bytes) {
             return error(MessageReactionPresentationError::capacity);
         }

@@ -20,7 +20,8 @@ bool application_composer_emoji_query_active() noexcept;
 bool application_composer_emoji_query_clear() noexcept;
 bool focus_message_composer_control(MessageComposerControl control) noexcept;
 // Replaces the active draft with "/<name> " (a clicked command mention) and
-// focuses it through one undoable edit. True unless an internal failure.
+// focuses it through one undoable edit. True unless an internal failure. name
+// fits Commands::insert_name (under 128 bytes).
 bool application_composer_fill_command(Utf8View name) noexcept;
 void reset_message_composer_caret_timing(bool edit_active) noexcept;
 void application_tick_message_composer_caret(u64 now_ms) noexcept;

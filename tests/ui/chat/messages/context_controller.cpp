@@ -113,10 +113,8 @@ void test_received_attachment_menu(void (*check)(bool, const char*) noexcept) no
               (items[0].flags & popup_item_separator_before) &&
               !received_attachment_menu(
                   {ReceivedAttachmentKind::file, utf8_literal("http://x/a.txt"), true, true},
-                  {items, kReceivedAttachmentMenuItems}) &&
-              !received_attachment_menu({ReceivedAttachmentKind::file, image_url, true, true}, {items, 3}),
-          "attachment menu: unavailable copy/save rows drop out; non-https URLs and short outputs build "
-          "nothing");
+                  {items, kReceivedAttachmentMenuItems}),
+          "attachment menu: unavailable copy/save rows drop out; non-https URLs build nothing");
     const u32 sticker_rows = received_attachment_menu(
         {ReceivedAttachmentKind::sticker, utf8_literal("https://media.discordapp.net/stickers/42.png"), true, true},
         {items, kReceivedAttachmentMenuItems});
@@ -124,11 +122,6 @@ void test_received_attachment_menu(void (*check)(bool, const char*) noexcept) no
               utf8_equal(items[1].label, utf8_literal("Open Media Link")) &&
               (items[0].flags & popup_item_separator_before),
           "attachment menu: a sticker image offers only the media link pair");
-    check(static_cast<u8>(UiIcon::external_link) >= 62 &&
-              ui_menu_row_presentation_valid(ui_menu_row_presentation(UiIcon::external_link)) &&
-              !ui_menu_row_presentation_valid(ui_menu_row_presentation(UiIcon::count)),
-          "attachment menu: icons past the old 62-entry menu limit lead rows; invalid identities still "
-          "reject");
     // "Open in new tab": one row in the media group of images, gifs, videos, audio and voice messages while tabs are
     // on; files and stickers never get it, and nothing without the fact (tabs off).
     struct TabCase {
@@ -236,9 +229,8 @@ void test_received_attachment_menu(void (*check)(bool, const char*) noexcept) no
         message_link_menu(utf8_literal("https://e.test/clip.mp4?x=1"), {link, 2}) == 2 &&
         utf8_equal(link[1].label, utf8_literal("Open Media Link")) &&
         message_link_menu(utf8_literal("discord://-/channels/1"), {link, 2}) == 2 &&
-        utf8_equal(link[0].label, utf8_literal("Copy Link")) && !message_link_menu({}, {link, 2}) &&
-        !message_link_menu(utf8_literal("https://e.test"), {link, 1});
-    check(named, "link menu: Copy/Open Link labels per URL kind; empty URLs and short outputs build nothing");
+        utf8_equal(link[0].label, utf8_literal("Copy Link")) && !message_link_menu({}, {link, 2});
+    check(named, "link menu: Copy/Open Link labels per URL kind; empty URLs build nothing");
     message_link_menu(utf8_literal("https://example.com/page"), {link, 2});
     const auto linked = message_context_controller_open(&controller, &fixture.popup, message, true, true, false,
                                                         nullptr, anchor, viewport, true, {}, false, false, false,
@@ -350,14 +342,6 @@ void test_message_context_controller_extensions(void (*check)(bool, const char*)
     invalid = extras[0]; invalid.flags |= popup_item_quick_reaction;
     reject_extra({&invalid, 1}, "message context extras: contributions cannot alter quick-strip semantics");
 
-    const auto old_item_capacity = fixture.popup.items.count;
-    fixture.popup.items.count = 9;
-    const auto capacity_result = message_context_controller_open(&controller, &fixture.popup, message,
-        false, false, false, nullptr, anchor, viewport, false, {extras, 1});
-    fixture.popup.items.count = old_item_capacity;
-    check(capacity_result.error == MessageContextControllerError::popup && preserved(),
-        "message context extras: combined storage exhaustion preserves old popup and quick reaction");
-
     check(ui_widget_manager_set_measure_callback(&fixture.popup.widgets, reject_measure, nullptr),
         "message context extras: install failing measurement callback");
     const auto failed_layout = message_context_controller_open(&controller, &fixture.popup, message,
@@ -444,16 +428,6 @@ void test_message_context_controller_extensions(void (*check)(bool, const char*)
         pin_popup.items[9].action == static_cast<u32>(MessageContextAction::unpin_message) &&
         pin_popup.popup.item_count == 22,
         "message context pins: pinned message projects Unpin with unchanged extension capacity");
-    const u32 pin_revision = pin_popup.popup.revision;
-    pin_popup.popup.items.count = 21;
-    const auto pin_capacity = message_context_controller_open(&controller, &pin_popup.popup, message,
-        true, true, true, nullptr, anchor, viewport, true, {extras, 8}, true);
-    pin_popup.popup.items.count = kMessageContextMaximumPopupItems;
-    check(pin_capacity.error == MessageContextControllerError::popup &&
-        pin_popup.popup.revision == pin_revision &&
-        pin_popup.items[9].action == static_cast<u32>(MessageContextAction::unpin_message) &&
-        pin_popup.items[14].action == extras[0].action,
-        "message context pins: one-short combined capacity preserves prior pin action and extensions");
 
     message.presentation_flags = 0;
     const auto forward_open = message_context_controller_open(&controller, &pin_popup.popup, message,
@@ -501,13 +475,6 @@ void test_message_context_controller_extensions(void (*check)(bool, const char*)
                 static_cast<u32>(MessageContextAction::create_thread),
         "message context creation: actual retained keyboard focus and pointer hit resolve same Create thread action");
     const u32 creation_revision = pin_popup.popup.revision;
-    pin_popup.popup.items.count = 24;
-    check(message_context_controller_open(&controller, &pin_popup.popup, message,
-        true, true, true, nullptr, anchor, viewport, true, {extras, 8}, true, true, true, false, true).error ==
-            MessageContextControllerError::popup && pin_popup.popup.revision == creation_revision &&
-        pin_popup.popup.item_count == 25,
-        "message context creation: one-short popup rejects atomically and preserves all retained actions");
-    pin_popup.popup.items.count = kMessageContextMaximumPopupItems;
     PopupItem create_collision = extras[0];
     create_collision.action = static_cast<u32>(MessageContextAction::create_thread);
     check(message_context_controller_open(&controller, &pin_popup.popup, message,

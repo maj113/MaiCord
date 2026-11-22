@@ -545,9 +545,7 @@ bool application_plugin_surfaces_text_click(const MessageTextHit& hit) noexcept 
         return false;
     // The plugin that wrote the link is gone: it means nothing now.
     if (!g_plugin_surfaces_active) return true;
-    const MessageStore& store = g_app.message_view.store;
-    const MessageStoreResult found = message_store_find(store, hit.message_id);
-    const MessageRecord* record = found.ok() ? message_store_resolve(store, found.handle) : nullptr;
+    const MessageRecord* record = message_store_find_record(g_app.message_view.store, hit.message_id);
     if (!record || record->revision != hit.message_revision) return true;
     if (hit.target == kUiPluginRenderShowTarget) {
         if (plugin_surfaces_reveal(record->id)) {

@@ -4,20 +4,10 @@
 
 namespace maicord {
 namespace {
-bool overlap(const void* a, usize an, const void* b, usize bn) noexcept {
-    const auto av = reinterpret_cast<usize>(a), bv = reinterpret_cast<usize>(b);
-    return an && bn && (av > ~usize{0} - an || bv > ~usize{0} - bn || (av < bv + bn && bv < av + an));
-}
-bool overlaps_storage(const BulkReadAckController& c, const BulkReadAckIntent* data, u32 count) noexcept {
-    const usize bytes = usize{count} * sizeof(BulkReadAckIntent);
-    return overlap(data, bytes, c.pending.data, usize{c.pending.count} * sizeof(BulkReadAckIntent)) ||
-           overlap(data, bytes, c.flight.data, usize{c.flight.count} * sizeof(BulkReadAckIntent));
-}
+// Initialization sets the storage and a nonzero generation, and the controller keeps its counts within them.
+// The callers pass their own candidate bank, never the controller's storage.
 bool valid(const BulkReadAckController& c) noexcept {
-    return c.pending.data && c.pending.count && c.pending.count <= kBulkReadAckMaximumTargets &&
-           c.flight.data && c.flight.count >= kBulkReadAckMaximumBatch && c.count <= c.pending.count &&
-           c.count <= c.pending_backed_count && c.flight_count <= c.flight_backed_count &&
-           c.flight_count <= kBulkReadAckMaximumBatch && c.generation;
+    return c.generation != 0;
 }
 void refresh_due(BulkReadAckController& c) noexcept {
     c.next_due_ms = 0;
@@ -49,12 +39,9 @@ void erase(BulkReadAckController& c, u32 at) noexcept {
     --c.count;
 }
 } // namespace
-bool bulk_read_ack_initialize(BulkReadAckController* c, Slice<BulkReadAckIntent> pending,
+void bulk_read_ack_initialize(BulkReadAckController* c, Slice<BulkReadAckIntent> pending,
                               Slice<BulkReadAckIntent> flight, BulkReadAckReserve pending_reserve,
                               BulkReadAckReserve flight_reserve, void* context) noexcept {
-    if (!c || !pending.data || !pending.count || pending.count > kBulkReadAckMaximumTargets ||
-        !flight.data || flight.count < kBulkReadAckMaximumBatch)
-        return false;
     reset_value(c);
     c->pending = pending;
     c->flight = flight;
@@ -64,12 +51,9 @@ bool bulk_read_ack_initialize(BulkReadAckController* c, Slice<BulkReadAckIntent>
     c->pending_backed_count = pending_reserve ? 0 : pending.count;
     c->flight_backed_count = flight_reserve ? 0 : kBulkReadAckMaximumBatch;
     c->generation = 1;
-    return true;
 }
 bool bulk_read_ack_prepare(BulkReadAckController* c, ConstSlice<BulkReadAckIntent> entries) noexcept {
     if (!c || !valid(*c) || (!entries.data && entries.count) || entries.count > c->pending.count)
-        return false;
-    if (overlaps_storage(*c, entries.data, entries.count))
         return false;
     u32 required = c->count;
     for (u32 i = 0; i < entries.count; ++i) {
@@ -118,9 +102,7 @@ u64 bulk_read_ack_next_wake(const BulkReadAckController& c) noexcept {
 }
 bool bulk_read_ack_peek(BulkReadAckController* c, u64 now, Slice<BulkReadAckIntent> output,
                         u32* count) noexcept {
-    if (!valid(*c) || c->inflight || now < c->not_before_ms || !output.data ||
-        output.count < kBulkReadAckMaximumBatch ||
-        overlaps_storage(*c, output.data, output.count))
+    if (!valid(*c) || c->inflight || now < c->not_before_ms || output.count < kBulkReadAckMaximumBatch)
         return false;
     u32 found{};
     for (u32 i = 0; i < c->count && found < kBulkReadAckMaximumBatch; ++i)
@@ -133,9 +115,8 @@ bool bulk_read_ack_peek(BulkReadAckController* c, u64 now, Slice<BulkReadAckInte
 }
 bool bulk_read_ack_admit(BulkReadAckController* c, ConstSlice<BulkReadAckIntent> entries, u64 id,
                          BulkReadAckTicket* ticket) noexcept {
-    if (!valid(*c) || c->inflight || !id || !entries.data || !entries.count ||
-        entries.count > kBulkReadAckMaximumBatch || entries.count > c->flight_backed_count ||
-        overlaps_storage(*c, entries.data, entries.count))
+    if (!valid(*c) || c->inflight || !id || !entries.count ||
+        entries.count > kBulkReadAckMaximumBatch || entries.count > c->flight_backed_count)
         return false;
     for (u32 i = 0; i < entries.count; ++i) {
         const u32 at = position(*c, entries[i].channel_id);

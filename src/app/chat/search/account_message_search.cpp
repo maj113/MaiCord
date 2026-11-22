@@ -15,7 +15,8 @@ RestClientSubmitResult account_message_search(RestClient* rest,
         }
         return rest_client_cancel_result(rest, request_id);
     }
-    if (operation != AccountMessageSearchOperation::submit || !query) {
+    // The account module boundary checks the query once; the writers trust it.
+    if (operation != AccountMessageSearchOperation::submit || !query || !message_search_query_valid(*query)) {
         return {RestClientSubmitError::invalid_input};
     }
     u8 target[kMessageSearchMaximumTargetBytes];

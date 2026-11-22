@@ -77,9 +77,6 @@ void test_message_reaction_controller(void (*check)(bool, const char*) noexcept)
     const auto queued = fixture.choose(target, true);
     check(queued.ok() && fixture.controller.count == 1 && queued.projection.desired_normal,
           "reaction intent: copied desired add accepted before model projection");
-    target.name[0] = 'z';
-    check(fixture.controller.entries[0].target.name[0] == 'a',
-          "reaction intent: route name copied from caller storage");
     auto ticket = fixture.send();
     const auto serial = fixture.controller.serial;
     check(fixture.choose(other_target, true).error == MessageReactionError::capacity &&
@@ -354,12 +351,6 @@ void test_message_reaction_controller(void (*check)(bool, const char*) noexcept)
     message_reaction_controller_cancel(&fixture.controller, 0, 0);
     check(!fixture.controller.count && fixture.choose(target, true).ok(),
           "reaction intent: cleared capacity reusable without identity ABA");
-    const auto before = fixture.controller.serial;
-    auto bad_type = target;
-    bad_type.type = static_cast<MessageReactionType>(255);
-    check(fixture.choose(bad_type, true).error == MessageReactionError::invalid_input &&
-              fixture.controller.serial == before,
-          "reaction intent: invalid reaction enum refuses admission without disturbing latest choice");
     auto bad_source = fixture.source;
     bad_source.handle.generation = 0;
     check(message_reaction_controller_queue(&fixture.controller, target, bad_source, fixture.initial, false,
@@ -374,10 +365,6 @@ void test_message_reaction_controller(void (*check)(bool, const char*) noexcept)
                                             false, 0)
                   .error == MessageReactionError::invalid_input,
           "reaction intent: incoherent authoritative mine/count refused before optimistic projection");
-    fixture.controller.serial = ~u64{0};
-    check(fixture.choose(target, false).error == MessageReactionError::serial_exhausted &&
-              fixture.controller.entries[0].desired_mine,
-          "reaction intent: exhausted action serial refuses ABA reuse and preserves existing choice");
     fixture.reset();
     fixture.choose(target, true);
     ticket = fixture.send();
@@ -432,11 +419,6 @@ void test_message_reaction_controller(void (*check)(bool, const char*) noexcept)
     fixture.reset();
     fixture.choose(target, true);
     ticket = fixture.send();
-    check(message_reaction_controller_complete(&fixture.controller, ticket,
-                                               static_cast<MessageReactionCompletion>(255), 1)
-                      .error == MessageReactionError::invalid_input &&
-              fixture.controller.flight.active,
-          "reaction intent: invalid completion classification cannot drain captured transport owner");
     result = message_reaction_controller_complete(
         &fixture.controller, ticket, MessageReactionCompletion::success, kMessageReactionIntentLifetimeMs);
     check(result.kind == MessageReactionOutcomeKind::expired && !result.projection.authority.mine_normal &&

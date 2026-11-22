@@ -70,10 +70,6 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
                   thread.route.major_key == 9 && thread.route.route_id == kThreadCreationRouteId && thread.json_body &&
                   write_rest_request_head(head, {request_head, sizeof(request_head)}).ok(),
               "built-in /thread posts to the channel's threads with the thread creation bucket");
-        check(!app_detail::builtin_command_request(app_detail::kBuiltinCommandNick, 0, 9, {}, 5, {target, sizeof(target)})
-                   .target.count &&
-                  !app_detail::builtin_command_request(2, 55, 9, {}, 5, {target, sizeof(target)}).target.count,
-              "built-in requests need their server or channel and a built-in operation");
     }
     // The request body: key order, guild only in servers, the
     // analytics location on executions and never on autocomplete.
@@ -282,9 +278,8 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
               "pending command uses round-trip through their record");
         record[7] ^= 1;
         u32 untouched = 9;
-        check(!command_frecency_pending_decode({record, bytes}, {read, 16}, &untouched) && untouched == 9 &&
-                  !command_frecency_pending_encode({uses, kCommandFrecencyPendingUses + 1}, {record, sizeof(record)}),
-              "a damaged pending-use record is ignored and an oversized list is not written");
+        check(!command_frecency_pending_decode({record, bytes}, {read, 16}, &untouched) && untouched == 9,
+              "a damaged pending-use record is ignored");
     }
     const auto video = media_asset_attachment(70, MediaAttachmentFormat::mp4);
     check(media_asset_key_valid(video) && (video.flags & media_asset_flag_animated),

@@ -8,9 +8,6 @@ namespace maicord {
 MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                                                          const GatewayClientEvent& input_event,
                                                          ConstSlice<u8> input_payload) noexcept {
-    if (!pump || !pump->timeline || (!input_payload.data && input_payload.count != 0)) {
-        return consume_error(MessageEventPumpError::invalid_input);
-    }
     if (input_event.dispatch_kind == GatewayClientDispatchKind::unknown &&
         input_event.kind == GatewayClientEventKind::dispatch &&
         input_event.notification_payload_bytes == 0 &&
@@ -23,7 +20,6 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
     GatewayClientEvent event;
     ConstSlice<u8> payload{};
     if (!gateway_client_notification_trim(input_event, input_payload, &event, &payload)) {
-        ++pump->rejected;
         pump->resync_required = true;
         // A descriptor whose byte count disagrees with the mailbox payload is
         // a producer defect, reported apart from a malformed sidecar.
@@ -104,7 +100,6 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             result.repaint = true;
             pump->resync_required = true;
         }
-        ++pump->rejected;
         result.kind = MessageEventPumpConsumeKind::rejected;
         return result;
     }
@@ -189,7 +184,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                 valid = false;
         }
         if (!valid) {
-            reject(pump, &result, MessageEventPumpRejectReason::guild_state);
+            reject(&result, MessageEventPumpRejectReason::guild_state);
             return result;
         }
         const auto* guild = pump->state
@@ -260,11 +255,10 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                 gateway_client_read_state_record(bytes, 0, &record) && !(record.fields & ~ack_fields)) {
                 manual = (record.fields & gateway_read_state_manual) != 0;
                 const bool mentions_known = (record.fields & gateway_read_state_mentions) != 0;
-                u32 count = record.mention_count;
-                if (mentions_known || cached_mentions(*pump, record.channel_id, record.message_id, &count))
-                    accepted =
-                        read_state_apply_ack(pump->state, record.channel_id, record.message_id,
-                                                     manual, count, mentions_known, version);
+                const u32 count = mentions_known ? record.mention_count
+                                                 : cached_mentions(*pump, record.channel_id, record.message_id);
+                accepted = read_state_apply_ack(pump->state, record.channel_id, record.message_id, manual, count,
+                                                mentions_known, version);
             }
         }
         if (!accepted) {
@@ -331,7 +325,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
         event.dispatch_kind == GatewayClientDispatchKind::guild_ban_remove) {
         u64 guild_id = 0, user_id = 0;
         if (!gateway_client_event_guild_membership(event, payload, &guild_id, &user_id, nullptr)) {
-            reject(pump, &result, MessageEventPumpRejectReason::guild_membership);
+            reject(&result, MessageEventPumpRejectReason::guild_membership);
             return result;
         }
         // A positioned row belongs to the lazy member list, which removes it
@@ -390,7 +384,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                 pump->private_state_incomplete = true;
             else
                 pump->resync_required = true;
-            reject(pump, &result, MessageEventPumpRejectReason::guild_state, state_detail(applied));
+            reject(&result, MessageEventPumpRejectReason::guild_state, state_detail(applied));
             // Private failures have their own bounded recovery (private_state_incomplete).
             if (private_event)
                 result.error = MessageEventPumpError::none;
@@ -456,7 +450,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
         }
         GatewayTypingStartEvent typing{};
         if (!gateway_client_event_as_typing_start(event, payload, &typing)) {
-            reject(pump, &result, MessageEventPumpRejectReason::typing, 1);
+            reject(&result, MessageEventPumpRejectReason::typing, 1);
             return result;
         }
         const TypingStoreResult observed = typing_store_start(
@@ -466,7 +460,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             return result;
         }
         if (!observed.ok()) {
-            reject(pump, &result, MessageEventPumpRejectReason::typing, 2);
+            reject(&result, MessageEventPumpRejectReason::typing, 2);
             return result;
         }
         result.kind = MessageEventPumpConsumeKind::state_applied;
@@ -477,7 +471,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
         event.dispatch_kind == GatewayClientDispatchKind::message_poll_vote_remove) {
         GatewayMessagePollVoteEvent vote{};
         if (!gateway_client_event_as_message_poll_vote(event, payload, &vote)) {
-            reject(pump, &result, MessageEventPumpRejectReason::poll_vote);
+            reject(&result, MessageEventPumpRejectReason::poll_vote);
             return result;
         }
         result.repaint = pump->poll_vote_observe && pump->poll_vote_observe(pump->poll_vote_context, vote);
@@ -540,7 +534,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             const TypingStoreResult stopped = typing_store_note_message(
                 pump->typing, event.message.channel_id, event.message.author_id, false);
             if (!stopped.ok()) {
-                reject(pump, &result, MessageEventPumpRejectReason::message_typing);
+                reject(&result, MessageEventPumpRejectReason::message_typing);
                 return result;
             }
             result.repaint = result.repaint || stopped.changed;
@@ -759,7 +753,7 @@ MessageEventPumpDrainResult message_event_pump_drain(MessageEventPump* pump, voi
                                                      MessageEventPopFunction pop,
                                                      u32 maximum_events) noexcept {
     MessageEventPumpDrainResult result{};
-    if (!pump->timeline || !source || !pop || maximum_events == 0) {
+    if (!pump->timeline) {
         result.error = MessageEventPumpError::invalid_input;
         return result;
     }

@@ -231,11 +231,12 @@ inline bool block_prefix(Parser* parser) noexcept {
     if (!parser->line_start || parser->depth != 0) {
         return true;
     }
-    const bool bio = parser->options && parser->options->profile_bio;
-    const bool lists = !bio && !(parser->options && parser->options->no_lists);
-    const bool headings = !bio && !(parser->options && parser->options->no_headings);
+    const auto& options = *parser->options;
+    const bool bio = options.profile_bio;
+    const bool lists = !bio && !options.no_lists;
+    const bool headings = !bio && !options.no_headings;
     // Reply previews drop block quotes; headings and lists render inline.
-    const bool inline_reply = parser->options && parser->options->inline_reply;
+    const bool inline_reply = options.inline_reply;
     const auto leading_spaces = [&]() noexcept {
         u32 lead = 0;
         while (parser->input_offset + lead < parser->input.bytes &&
@@ -407,8 +408,8 @@ MessageMarkdownResult finish(Parser* parser) noexcept {
     }
     u32 span_count = 0;
     u32 offset = 0;
-    const u32 base_style = parser->options ? parser->options->base_style : 0;
-    const bool sized = parser->options && parser->options->text_sizes;
+    const u32 base_style = parser->options->base_style;
+    const bool sized = parser->options->text_sizes;
     const u8 base_size = sized && parser->options->base_size < text_size_count ? parser->options->base_size : u8{0};
     u32 run = 0;
     while (offset < parser->output_bytes) {
@@ -856,7 +857,7 @@ MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_ou
 }
 
 u32 message_markdown_source_styles(Utf8View input, Slice<TextStyleSpan> output) noexcept {
-    if ((!input.data && input.bytes) || !output.data || !utf8_validate(input).valid) return 0;
+    if ((!input.data && input.bytes) || !utf8_validate(input).valid) return 0;
     MessageMarkdownOptions options{};
     options.preserve_entities = true;
     options.spoiler_revealed = +[](void*, u32) noexcept { return true; };

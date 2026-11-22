@@ -41,6 +41,8 @@ struct MessageDraftPersistenceResult {
 // write-through sibling before replacement. Load validates the entire file
 // before modifying the caller-owned store. Only the current version loads;
 // any other version fails with `version` and is treated as an absent store.
+// Callers give a nonzero profile, a path that message_draft_session_configure accepted and an
+// empty image to encode.
 MessageDraftPersistenceResult message_drafts_save_file(
     const wchar_t* path, u64 profile_id,
     const MessageDraftStore& store) noexcept;

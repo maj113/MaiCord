@@ -29,7 +29,6 @@ bool commit(MessageAttachmentDraftStore* store, MessageAttachmentDraft* record, 
 }
 }
 bool message_attachment_drafts_initialize(MessageAttachmentDraftStore* store) noexcept {
-    if (store->payload) return false;
     reset_value(store);
     store->payload = static_cast<u8*>(pages_reserve(kPayloadBytes * kMessageAttachmentDraftCapacity));
     return store->payload != nullptr;
@@ -42,7 +41,7 @@ void message_attachment_drafts_release(MessageAttachmentDraftStore* store) noexc
 }
 MessageAttachmentDraft* message_attachment_drafts_get(MessageAttachmentDraftStore* store, u64 id) noexcept {
     const u32 slot = static_cast<u32>(id);
-    if (!store || !store->payload || !slot || slot > kMessageAttachmentDraftCapacity) return nullptr;
+    if (!slot || slot > kMessageAttachmentDraftCapacity) return nullptr;
     auto& record = store->records[slot - 1];
     return record.occupied && record.generation == static_cast<u32>(id >> 32) ? &record : nullptr;
 }
@@ -50,7 +49,7 @@ const MessageAttachmentDraft* message_attachment_drafts_get(const MessageAttachm
     return message_attachment_drafts_get(const_cast<MessageAttachmentDraftStore*>(store), id);
 }
 u32 message_attachment_drafts_channel(const MessageAttachmentDraftStore* store, u64 channel_id, Slice<u64> ids) noexcept {
-    if (!store || !store->payload || !channel_id || (!ids.data && ids.count)) return 0;
+    if (!channel_id) return 0;
     u32 count = 0;
     for (u32 i = 0; i < store->count; ++i) {
         const u32 slot = store->order[i];
@@ -70,8 +69,7 @@ u32 message_attachment_file_name(const MessageAttachmentFile& file, Slice<char> 
 }
 MessageAttachmentDraftError message_attachment_drafts_add(MessageAttachmentDraftStore* store, u64 channel_id,
     ConstSlice<MessageAttachmentFile> files, Slice<u64> ids) noexcept {
-    if (!store || !store->payload || !channel_id || !files.data || !files.count ||
-        files.count > kAttachmentUploadMaximumCount || !ids.data || ids.count < files.count) return MessageAttachmentDraftError::invalid_input;
+    if (!channel_id || !files.count) return MessageAttachmentDraftError::invalid_input;
     if (files.count > kAttachmentUploadMaximumCount - minimum(kAttachmentUploadMaximumCount,
         message_attachment_drafts_channel(store, channel_id, {}))) return MessageAttachmentDraftError::channel_capacity;
     if (files.count > kMessageAttachmentDraftCapacity - store->count) return MessageAttachmentDraftError::capacity;
@@ -111,7 +109,7 @@ MessageAttachmentDraftError message_attachment_drafts_add(MessageAttachmentDraft
 }
 MessageAttachmentDraftError message_attachment_drafts_add_voice(MessageAttachmentDraftStore* store, u64 channel_id,
     ConstSlice<wchar_t> filename, UploadSource content, Utf8View waveform, u32 duration_ms, u64* id) noexcept {
-    if (!id || !content.context || !waveform.bytes || waveform.bytes > 4096 || !duration_ms)
+    if (!content.context || !waveform.bytes || waveform.bytes > 4096 || !duration_ms)
         return MessageAttachmentDraftError::invalid_input;
     const MessageAttachmentFile file{{}, {{}, content.bytes}, filename, content};
     const auto added = message_attachment_drafts_add(store, channel_id, {&file, 1}, {id, 1});
@@ -162,7 +160,7 @@ bool message_attachment_drafts_uploaded(MessageAttachmentDraftStore* store, u64 
 bool message_attachment_drafts_reference(const MessageAttachmentDraftStore* store, u64 id, u32 attachment_id,
     UploadedAttachment* output) noexcept {
     const auto* record = message_attachment_drafts_get(store, id);
-    if (!record || !output || (record->phase != MessageAttachmentDraftPhase::ready && record->phase != MessageAttachmentDraftPhase::queued)) return false;
+    if (!record || (record->phase != MessageAttachmentDraftPhase::ready && record->phase != MessageAttachmentDraftPhase::queued)) return false;
     const char* strings = reinterpret_cast<const char*>(payload(store, id) + name_offset(*record));
     const Utf8View trailing = record->description_bytes ? Utf8View{strings + record->filename_bytes +
         kAttachmentUploadMaximumUploadedFilenameBytes, record->description_bytes} : Utf8View{};

@@ -98,8 +98,6 @@ struct MessageHistoryRichCursor {
     u32 snapshot_attachments, snapshot_embeds, snapshot_embed_fields, snapshot_stickers;
     u32 snapshot_components, snapshot_mentions, poll_answers, poll_counts;
 
-    // No array claims capacity without storage.
-    bool valid() const noexcept;
     // Some array has storage: messages decode with rich capture.
     bool present() const noexcept;
     Slice<u64> remaining_member_roles() const noexcept;

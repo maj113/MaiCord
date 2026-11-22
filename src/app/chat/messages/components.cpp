@@ -265,7 +265,7 @@ void collect_choices(const Resolved& message, u16 index) noexcept {
         const auto& messages = g_app.message_view.store;
         for (u32 i = messages.count; i != 0 && owner->choice_count < kSelectMaximumChoices; --i) {
             const auto* record = message_store_ordered_record(messages, i - 1u);
-            if (!record || !record->author_id || record->channel_id != message.record->channel_id)
+            if (record->channel_id != message.record->channel_id)
                 continue;
             bool seen = false;
             for (u32 c = 0; c < owner->choice_count && !seen; ++c) {

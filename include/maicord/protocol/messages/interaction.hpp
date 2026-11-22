@@ -34,6 +34,7 @@ bool message_interaction_request_valid(const MessageInteractionRequest& request)
 // {"type":3,"nonce":"..","guild_id":"..","channel_id":"..","message_flags":0,
 //  "message_id":"..","application_id":"..","session_id":"..","data":{..}}.
 // Modal submits omit the message fields.
+// The caller validates the request first (message_interaction_request_valid).
 bool message_interaction_write_body(const MessageInteractionRequest& request, Utf8View session_id,
                                     ProtocolWriter* output) noexcept;
 // {"component_type":2,"custom_id":".."}; selects add "type" and "values".
@@ -91,7 +92,8 @@ bool message_modal_decode(Utf8View json, Slice<u32> structurals, Slice<char> poo
 bool message_modal_value_valid(const MessageModalField& field, Utf8View value, Utf8View* reason) noexcept;
 // {"id":"..","custom_id":"..","components":[{"type":1,"components":[{"type":4,
 // "custom_id":"..","value":".."}]}]} with Label wrappers kept as
-// {"type":18,"component":{..}}.
+// {"type":18,"component":{..}}. Takes a decoded supported modal and one value per field that
+// message_modal_value_valid accepted.
 bool message_modal_write_submit_data(const MessageModal& modal, ConstSlice<Utf8View> values,
                                      ProtocolWriter* output) noexcept;
 

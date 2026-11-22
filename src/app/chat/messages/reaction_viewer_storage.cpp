@@ -6,34 +6,19 @@ namespace maicord {
 
 void reaction_viewer_storage_release(ReactionViewerStorage* storage, ReactionViewer* viewer,
                                      ReactionViewerController* controller) noexcept {
-    if (storage) {
-        stable_storage_release(&storage->page_users);
-        stable_storage_release(&storage->text);
-        stable_storage_release(&storage->users);
-        reset_value<ReactionViewerStorage>(storage);
-    }
-    if (controller) {
-        reset_value<ReactionViewerController>(controller);
-    }
-    if (viewer) {
-        reset_value<ReactionViewer>(viewer);
-    }
+    stable_storage_release(&storage->page_users);
+    stable_storage_release(&storage->text);
+    stable_storage_release(&storage->users);
+    reset_value<ReactionViewerStorage>(storage);
+    reset_value<ReactionViewerController>(controller);
+    reset_value<ReactionViewer>(viewer);
 }
 
 bool reaction_viewer_storage_materialize(ReactionViewerStorage* storage, ReactionViewer* viewer,
                                          ReactionViewerController* controller) noexcept {
-    if (!storage || !viewer || !controller) {
-        return false;
-    }
-    if (storage->ready) {
-        return controller->initialized && controller->viewer == viewer &&
-               viewer->users == stable_storage_data<ReactionViewerUser>(storage->users) &&
-               viewer->text == stable_storage_data<char>(storage->text) &&
-               controller->page_users == stable_storage_data<ReactionUser>(storage->page_users);
-    }
-    if (storage->users.arena.base || storage->text.arena.base || storage->page_users.arena.base) {
-        reaction_viewer_storage_release(storage, viewer, controller);
-    }
+    // Ready storage stays bound to the one viewer and controller; a failed materialize releases what it took.
+    if (storage->ready)
+        return true;
     if (!stable_storage_initialize(&storage->users, kReactionViewerUserCapacity,
                                    kReactionViewerUserCapacity, sizeof(ReactionViewerUser),
                                    alignof(ReactionViewerUser)) ||

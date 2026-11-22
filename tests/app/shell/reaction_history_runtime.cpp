@@ -1082,9 +1082,7 @@ bool application_message_reaction_response(const RestClientResponse& response) n
         queued_reactions = 0;
     return true;
 }
-bool application_message_reaction_synchronize() noexcept {
-    return true;
-}
+void application_message_reaction_synchronize() noexcept {}
 bool application_commands_tick(u64) noexcept {
     return true;
 }

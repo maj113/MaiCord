@@ -152,17 +152,12 @@ VoteObservation* admit_observation(MessagePollStore& store) noexcept {
 } // namespace
 
 bool message_poll_store_initialize_owned(MessagePollStore* store, u32 capacity, u32 text_bytes) noexcept {
-    if (!store || store->owned || !capacity || capacity > 65535 || !text_bytes ||
-        text_bytes > 16 * 1024 * 1024)
-        return false;
     reset_value(store);
     store->capacity = capacity;
     store->text_capacity = text_bytes;
     return true;
 }
 void message_poll_store_release(MessagePollStore* store) noexcept {
-    if (!store)
-        return;
     if (store->owned) {
         stable_storage_release(&store->owned->records);
         for (auto& bank : store->owned->text_banks)
@@ -199,7 +194,7 @@ MessagePollResultTicket message_poll_store_result_ticket(const MessagePollStore&
 MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id, u64 channel,
                                                 const GatewayMessagePoll& input, u64 serial,
                                                 const MessagePollResultTicket* ticket) noexcept {
-    if (!store || !store->capacity || !id || !channel || (input.fields & ~kKnownFields))
+    if (!store->capacity || !id || !channel || (input.fields & ~kKnownFields))
         return failure(MessagePollStoreError::invalid_input);
     const auto* old = message_poll_store_find(*store, id);
     if ((old && old->channel_id != channel) ||
@@ -399,7 +394,7 @@ MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id,
 MessagePollStoreResult message_poll_store_vote(MessagePollStore* store,
                                                const GatewayMessagePollVoteEvent& event, u64 actor,
                                                u64 serial) noexcept {
-    if (!store || !event.message_id || !event.channel_id || !event.user_id || !event.answer_id || !actor ||
+    if (!event.message_id || !event.channel_id || !event.user_id || !event.answer_id || !actor ||
         !serial)
         return failure(MessagePollStoreError::invalid_input);
     auto* poll = find(*store, event.message_id);
@@ -445,7 +440,7 @@ MessagePollStoreResult message_poll_store_vote(MessagePollStore* store,
 }
 MessagePollStoreResult message_poll_store_own_vote(MessagePollStore* store, u64 message_id, u64 channel_id,
                                                    u64 actor, u16 mask) noexcept {
-    if (!store || !message_id || !channel_id || !actor)
+    if (!message_id || !channel_id || !actor)
         return failure(MessagePollStoreError::invalid_input);
     auto* poll = find(*store, message_id);
     if (!poll)
@@ -503,7 +498,7 @@ bool message_poll_store_delete(MessagePollStore* store, u64 id) noexcept {
 }
 MessagePollPageResult message_poll_store_apply_page(MessagePollStore* store,
                                                     ConstSlice<MessagePollPageInput> inputs) noexcept {
-    if (!store || inputs.count > kMessagePollPageMaximum || (inputs.count && !inputs.data))
+    if (inputs.count > kMessagePollPageMaximum)
         return {MessagePollStoreError::invalid_input, 0, 0, false};
     if (!inputs.count)
         return {};

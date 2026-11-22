@@ -251,7 +251,7 @@ bool message_interaction_request_valid(const MessageInteractionRequest& request)
 
 bool message_interaction_write_body(const MessageInteractionRequest& request, Utf8View session_id,
                                     ProtocolWriter* output) noexcept {
-    if (!output || !message_interaction_request_valid(request) || !session_id.bytes)
+    if (!session_id.bytes)
         return false;
     const bool component = request.type == MessageInteractionType::message_component;
     bool ok = protocol_write(output, "{\"type\":", static_cast<u64>(request.type), ",\"nonce\":",
@@ -268,7 +268,7 @@ bool message_interaction_write_body(const MessageInteractionRequest& request, Ut
 
 bool message_interaction_write_component_data(u16 component_type, Utf8View custom_id,
                                               ConstSlice<Utf8View> values, ProtocolWriter* output) noexcept {
-    if (!output || !component_type || !custom_id.bytes || custom_id.bytes > kMessageInteractionCustomIdMaximumBytes ||
+    if (!component_type || !custom_id.bytes || custom_id.bytes > kMessageInteractionCustomIdMaximumBytes ||
         values.count > kMessageInteractionMaximumValues || (!values.data && values.count))
         return false;
     const bool select = component_type == 3 || (component_type >= 5 && component_type <= 8);
@@ -286,7 +286,7 @@ bool message_interaction_write_component_data(u16 component_type, Utf8View custo
 
 bool message_interaction_event_decode(const Utf8View& json, const Slice<u32>& structurals,
                                       MessageInteractionEvent* output) noexcept {
-    if (!output || !json.data || !json.bytes || !structurals.data)
+    if (!json.data || !json.bytes)
         return false;
     const auto scan = json_scan_structurals_avx1(json, structurals);
     if (!scan.ok())
@@ -301,7 +301,7 @@ bool message_interaction_event_decode(const Utf8View& json, const Slice<u32>& st
 
 bool message_modal_decode(Utf8View json, Slice<u32> structurals, Slice<char> pool,
                           MessageModal* output) noexcept {
-    if (!output || !json.data || !json.bytes || !structurals.data || !pool.data)
+    if (!json.data || !json.bytes)
         return false;
     const auto scan = json_scan_structurals_avx1(json, structurals);
     if (!scan.ok())
@@ -355,15 +355,10 @@ bool message_modal_value_valid(const MessageModalField& field, Utf8View value, U
 
 bool message_modal_write_submit_data(const MessageModal& modal, ConstSlice<Utf8View> values,
                                      ProtocolWriter* output) noexcept {
-    if (!output || modal.unsupported || !modal.interaction_id || !modal.custom_id.bytes ||
-        values.count != modal.field_count || (!values.data && values.count))
-        return false;
     bool ok = protocol_write(output, "{\"id\":", snowflake_text(modal.interaction_id), ",\"custom_id\":",
                              json_text(modal.custom_id), ",\"components\":[");
     for (u32 i = 0; ok && i < modal.field_count; ++i) {
         const MessageModalField& field = modal.fields[i];
-        if (!message_modal_value_valid(field, values[i], nullptr))
-            return false;
         ok = (i == 0 || protocol_write(output, ',')) &&
              protocol_write(output, field.labelled ? "{\"type\":18,\"component\":" : "{\"type\":1,\"components\":[",
                             "{\"type\":4,") &&

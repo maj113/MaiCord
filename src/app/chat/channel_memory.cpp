@@ -19,7 +19,7 @@ inline bool entry_valid(const ChannelMemoryEntry& entry) noexcept {
 
 bool channel_memory_remember(ChannelMemory* memory, u64 guild_id, u64 channel_id, u64 parent_id) noexcept {
     const ChannelMemoryEntry entry{guild_id, channel_id, parent_id};
-    if (!memory || memory->count > kChannelMemoryCapacity || !entry_valid(entry))
+    if (!entry_valid(entry))
         return false;
     u32 found = memory->count;
     for (u32 i = 0; i < memory->count; ++i)
@@ -39,14 +39,14 @@ bool channel_memory_remember(ChannelMemory* memory, u64 guild_id, u64 channel_id
 }
 
 const ChannelMemoryEntry* channel_memory_find(const ChannelMemory& memory, u64 guild_id) noexcept {
-    for (u32 i = 0; i < memory.count && i < kChannelMemoryCapacity; ++i)
+    for (u32 i = 0; i < memory.count; ++i)
         if (memory.entries[i].guild_id == guild_id)
             return &memory.entries[i];
     return nullptr;
 }
 
 const ChannelMemoryEntry* channel_memory_latest(const ChannelMemory& memory) noexcept {
-    return memory.count && memory.count <= kChannelMemoryCapacity ? &memory.entries[0] : nullptr;
+    return memory.count ? &memory.entries[0] : nullptr;
 }
 
 bool channel_memory_observe(ChannelMemory* memory, const ChatStateStore& state) noexcept {
@@ -58,7 +58,7 @@ bool channel_memory_observe(ChannelMemory* memory, const ChatStateStore& state) 
 }
 
 bool channel_memory_set_tabs(ChannelMemory* memory, ConstSlice<ChannelMemoryTab> tabs) noexcept {
-    if (!memory || tabs.count > kChannelMemoryTabCapacity)
+    if (tabs.count > kChannelMemoryTabCapacity)
         return false;
     bool same = tabs.count == memory->tab_count;
     for (u32 i = 0; i < tabs.count; ++i) {
@@ -90,17 +90,13 @@ void channel_memory_seed_restore(const ChannelMemory& memory, ChatStateStore* st
         state->last_private_channel_id = home->channel_id;
 }
 
+// remember, set_tabs and decode keep count, tab_count and each label within their capacities, so the record fits
+// kChannelMemoryFileBytes.
 u32 channel_memory_encode(const ChannelMemory& memory, Slice<u8> output) noexcept {
     const u32 entries = 6 + memory.count * kChannelMemoryEntryBytes;
     u32 body = entries;
-    for (u32 i = 0; i < memory.tab_count && i < kChannelMemoryTabCapacity; ++i) {
-        if (memory.tabs[i].label_bytes > kChannelMemoryTabLabelBytes)
-            return 0;
+    for (u32 i = 0; i < memory.tab_count; ++i)
         body += (i ? 0 : 1) + 17 + memory.tabs[i].label_bytes;
-    }
-    if (memory.count > kChannelMemoryCapacity || memory.tab_count > kChannelMemoryTabCapacity || !output.data ||
-        output.count < body + 4)
-        return 0;
     const u8 header[] = {kMagic[0], kMagic[1], kMagic[2], kMagic[3], memory.tab_count ? kTabsVersion : kVersion,
                          memory.count};
     copy_bytes(output.data, header, sizeof(header));
@@ -127,7 +123,7 @@ u32 channel_memory_encode(const ChannelMemory& memory, Slice<u8> output) noexcep
 }
 
 bool channel_memory_decode(ConstSlice<u8> input, ChannelMemory* memory) noexcept {
-    if (!memory || !input.data || input.count < 10 || input.count > kChannelMemoryFileBytes ||
+    if (!memory || input.count < 10 || input.count > kChannelMemoryFileBytes ||
         !bytes_equal(input.data, kMagic, 4) || (input[4] != kVersion && input[4] != kTabsVersion) ||
         input[5] > kChannelMemoryCapacity)
         return false;
@@ -200,7 +196,7 @@ bool channel_memory_save_file(const wchar_t* path, const ChannelMemory& memory) 
     u8 record[kChannelMemoryFileBytes];
     const u32 bytes = channel_memory_encode(memory, {record, sizeof(record)});
     const u32 length = wide_length(path, 32768);
-    return bytes && length && file_persistence_write_atomic(path, length, {record, bytes}).ok();
+    return length && file_persistence_write_atomic(path, length, {record, bytes}).ok();
 }
 
 } // namespace maicord

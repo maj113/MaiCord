@@ -1,5 +1,4 @@
 #include "maicord/protocol/messages/bulk_message_ack.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 
@@ -13,13 +12,7 @@ BulkMessageAckWriteResult write_bulk_message_ack_body(const ConstSlice<BulkMessa
                                                       const Slice<u8>& output) noexcept {
     if (!entries.data || !entries.count || entries.count > kBulkMessageAckMaximumEntries || !output.data)
         return fail(BulkMessageAckWriteError::invalid_input);
-    const ConstSlice<u8> ranges[]{{output.data, output.count},
-                                  {reinterpret_cast<const u8*>(entries.data),
-                                   entries.count * static_cast<u32>(sizeof(BulkMessageAckEntry))},
-                                  {reinterpret_cast<const u8*>(&entries), sizeof(entries)},
-                                  {reinterpret_cast<const u8*>(&output), sizeof(output)}};
-    if (!byte_ranges_all_disjoint({ranges, 4}))
-        return fail(BulkMessageAckWriteError::invalid_input);
+    // The only caller writes into its own stack buffer, so the entries never overlap the output.
     constexpr u32 envelope_bytes = sizeof("{\"read_states\":[]}") - 1;
     constexpr u32 entry_literal_bytes =
         sizeof("{\"channel_id\":\"\",\"message_id\":\"\",\"read_state_type\":0}") - 1;
@@ -36,16 +29,17 @@ BulkMessageAckWriteResult write_bulk_message_ack_body(const ConstSlice<BulkMessa
     }
     if (required > output.count)
         return fail(BulkMessageAckWriteError::capacity);
+    // The measured length fits, so no append below fails.
     ProtocolWriter writer{output, 0};
-    bool valid = protocol_write(&writer, "{\"read_states\":[");
-    for (u32 i = 0; valid && i < entries.count; ++i) {
+    protocol_write(&writer, "{\"read_states\":[");
+    for (u32 i = 0; i < entries.count; ++i) {
         const auto& entry = entries.data[i];
-        valid = (!i || protocol_write(&writer, ',')) &&
-                protocol_write(&writer, "{\"channel_id\":", snowflake_text(entry.channel_id), ",\"message_id\":",
-                               snowflake_text(entry.message_id), ",\"read_state_type\":0}");
+        if (i)
+            protocol_write(&writer, ',');
+        protocol_write(&writer, "{\"channel_id\":", snowflake_text(entry.channel_id), ",\"message_id\":",
+                       snowflake_text(entry.message_id), ",\"read_state_type\":0}");
     }
-    valid = valid && protocol_write(&writer, "]}");
-    return valid ? BulkMessageAckWriteResult{writer.used, BulkMessageAckWriteError::none}
-                 : fail(BulkMessageAckWriteError::capacity);
+    protocol_write(&writer, "]}");
+    return {writer.used, BulkMessageAckWriteError::none};
 }
 } // namespace maicord

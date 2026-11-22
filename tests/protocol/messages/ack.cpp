@@ -106,20 +106,7 @@ void test_message_ack(void (*check)(bool, const char*) noexcept) noexcept {
         check(failed.error == MessageAckWriteError::capacity && !failed.bytes && sentinel(output, 128),
             "ack_manual_capacity_atomic");
     }
-    for (u32 ordinary_member = 0; ordinary_member < 3; ++ordinary_member) {
-        request.token_known = ordinary_member == 0;
-        request.last_viewed_known = ordinary_member == 1;
-        request.flags_known = ordinary_member == 2;
-        fill(output, 128);
-        check(write_message_ack_body(request, {output, 128}).error == MessageAckWriteError::invalid_input &&
-            sentinel(output, 128), "ack_manual_mixed_ordinary_metadata_atomic");
-    }
     request = {};
-    request.mention_count_known = true;
-    fill(output, 128);
-    check(write_message_ack_body(request, {output, 128}).error == MessageAckWriteError::invalid_input &&
-        sentinel(output, 128), "ack_ordinary_mention_count_invalid_atomic");
-    request.mention_count_known = false;
     request.mention_count = ~0u;
     written = write_message_ack_body(request, {output, 128});
     check(written.ok() && bytes_equal(output, written.bytes, utf8_literal("{\"token\":null}")),

@@ -502,10 +502,7 @@ bool application_initialize_account_ui(Application& application) noexcept {
             Slice<u8>{runtime->message_request_text, kMessageRequestTextCapacity}) ||
         !message_edit_runtime_initialize(&application.message_edit) ||
         !message_media_controller_initialize_owned(&application.message_media, kMessageSceneRowCapacity,
-                                                   kMessageMediaAssetMarkCapacity) ||
-        !message_event_pump_set_send_tracker(
-            &application.message_pump,
-            message_composer_controller_send_tracker(&runtime->message_composer_controller))) {
+                                                   kMessageMediaAssetMarkCapacity)) {
         message_event_pump_set_send_tracker(&application.message_pump, nullptr);
         message_event_pump_set_typing_store(&application.message_pump, nullptr);
         message_event_pump_set_voice_state_store(&application.message_pump, nullptr);
@@ -528,6 +525,9 @@ bool application_initialize_account_ui(Application& application) noexcept {
         pages_release(runtime);
         return false;
     }
+    message_event_pump_set_send_tracker(
+        &application.message_pump,
+        message_composer_controller_send_tracker(&runtime->message_composer_controller));
     application.account_ui = runtime;
     message_event_pump_set_guild_detail_store(&application.message_pump, &runtime->guild_details);
     runtime->message_poll_binding = {

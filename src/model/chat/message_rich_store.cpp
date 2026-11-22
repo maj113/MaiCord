@@ -807,15 +807,11 @@ bool erase_slot(MessageRichStore* store, u32 order_index, u16 slot) noexcept {
 
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // `keep_side` reuses the store's live side slabs (reset); otherwise they are created, replacing any
-// the same store object held before.
+// the same store object held before. Callers give fixed buffers: order covers capacity, the text is
+// even and at least 2 bytes, and the physical capacity is at most 0xFFFF.
 bool initialize_store(MessageRichStore* store, MessageRichRecord* records, StableStorage* record_storage,
                       u32 capacity, u32 record_extent, Slice<u16> order, Slice<u8> text,
                       u32 physical_capacity, bool sparse_text, bool keep_side) noexcept {
-    if (!store || !records || capacity == 0 || physical_capacity > 0xFFFFu ||
-        capacity > physical_capacity || record_extent > physical_capacity || !order.data ||
-        order.count < capacity || !text.data || text.count < 2 || (text.count & 1u) != 0) {
-        return false;
-    }
     MessageRichSide side = store->side;
     if (!keep_side)
         side_release(&side);
@@ -874,13 +870,9 @@ bool message_rich_store_initialize(MessageRichStore* store, Slice<MessageRichRec
 bool message_rich_store_initialize_owned_sparse(MessageRichStore* store, StableStorage* record_storage,
                                                 u32 record_capacity, Slice<u16> order,
                                                 Slice<u8> reserved_text) noexcept {
-    if (!store || !record_storage || record_storage->arena.base || record_capacity == 0 ||
-        record_capacity > 0xFFFFu || !order.data || order.count < record_capacity || !reserved_text.data ||
-        reserved_text.count < 2 || (reserved_text.count & 1u) != 0 ||
-        !stable_storage_initialize(record_storage, minimum<u32>(record_capacity * 2u, 0xFFFFu), 0,
-                                   sizeof(MessageRichRecord), alignof(MessageRichRecord), false)) {
+    if (!stable_storage_initialize(record_storage, minimum<u32>(record_capacity * 2u, 0xFFFFu), 0,
+                                   sizeof(MessageRichRecord), alignof(MessageRichRecord), false))
         return false;
-    }
     if (!initialize_store(store, stable_storage_data<MessageRichRecord>(*record_storage), record_storage,
                           record_capacity, 0, order, reserved_text, minimum<u32>(record_capacity * 2u, 0xFFFFu),
                           true)) {
@@ -891,9 +883,6 @@ bool message_rich_store_initialize_owned_sparse(MessageRichStore* store, StableS
 }
 
 void message_rich_store_release(MessageRichStore* store) noexcept {
-    if (!store) {
-        return;
-    }
     side_release(&store->side);
     if (store->record_storage) {
         stable_storage_release(store->record_storage);
@@ -992,7 +981,7 @@ bool message_rich_store_validate_attachments(ConstSlice<GatewayMessageAttachment
 }
 bool message_rich_store_advance_revision(MessageRichStore* store, u64 message_id, u32 expected_revision,
                                          u32 next_revision) noexcept {
-    if (!store || !store->records || !store->order || !message_id || !expected_revision || !next_revision)
+    if (!message_id || !expected_revision || !next_revision)
         return false;
     const auto found = find_record(*store, message_id);
     if (!found.found || store->records[found.slot].message_revision != expected_revision)
@@ -1146,8 +1135,6 @@ const MessageRichRecord* message_rich_store_snapshot_of(const MessageRichStore& 
 
 const MessageRichRecord* message_rich_store_snapshot(const MessageRichStore& store,
                                                      u64 outer_message_id) noexcept {
-    if (!store.records || !store.order)
-        return nullptr;
     const auto found = find_record(store, outer_message_id);
     return found.found ? message_rich_store_snapshot_of(store, store.records[found.slot]) : nullptr;
 }
@@ -1155,8 +1142,9 @@ const MessageRichRecord* message_rich_store_snapshot(const MessageRichStore& sto
 MessageRichStoreResult message_rich_store_apply(MessageRichStore* store, u64 message_id,
                                                 u32 message_revision,
                                                 const GatewayMessageEvent& input) noexcept {
-    if (!store || !store->records || !store->order || !message_id || !message_revision ||
-        input.id != message_id)
+    // Every caller passes a bound or initialized store: a timeline holds a rich store only after
+    // message_timeline_bind_rich_store checked its records, order and text.
+    if (!message_id || !message_revision || input.id != message_id)
         return {nullptr, MessageRichStoreError::invalid_input, false, false};
     const auto found = find_record(*store, message_id);
     const auto* outer = found.found ? &store->records[found.slot] : nullptr;
@@ -1279,8 +1267,7 @@ MessageRichStoreResult message_rich_store_mutate_reaction(
         return result;
     };
     const bool needs_emoji = mutation.kind != MessageRichReactionMutationKind::remove_all;
-    if (!store || !store->records || !store->order || !store->text || message_id == 0 ||
-        message_revision == 0 ||
+    if (message_id == 0 || message_revision == 0 ||
         (needs_emoji && ((!mutation.name.data && mutation.name.bytes != 0) ||
                          (mutation.name.bytes == 0 && mutation.emoji_id == 0) ||
                          mutation.name.bytes > kMessageReactionMaximumEmojiNameBytes)))

@@ -70,8 +70,8 @@ inline void resident_counts(const ChatStateStore& store, u64 guild_id, u32* emoj
 
 bool chat_state_store_bind_emojis_sparse(ChatStateStore* store, Slice<CustomEmojiRecord> emojis,
                                             Slice<u64> emoji_roles) noexcept {
-    if (!store || !store->guilds || store->emojis || store->emoji_roles || !emojis.data ||
-        emojis.count == 0 || !emoji_roles.data || emoji_roles.count == 0 || store->emoji_count ||
+    if (!store->guilds || store->emojis || store->emoji_roles || emojis.count == 0 || emoji_roles.count == 0 ||
+        store->emoji_count ||
         store->emoji_role_count) {
         return false;
     }
@@ -187,7 +187,7 @@ void chat_state_store_remove_guild_emojis(ChatStateStore* store, u64 guild_id) n
 
 bool chat_state_store_replace_guild_emojis(ChatStateStore* store, u64 guild_id,
                                               ConstSlice<CustomEmojiInput> emojis) noexcept {
-    if (!store || guild_id == 0 || (!emojis.data && emojis.count != 0) ||
+    if (!store || guild_id == 0 ||
         emojis.count > kGuildEmojiMaximum) {
         return false;
     }

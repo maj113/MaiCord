@@ -783,7 +783,7 @@ bool application_thread_browser_pending(u64 now) noexcept {
                                            now >= maximum(value->due, value->actor_floor));
 }
 bool application_thread_browser_submit(u64 id, u64 now) noexcept {
-    if (!id || !application_thread_browser_pending(now)) return false;
+    if (!application_thread_browser_pending(now)) return false;
     auto& value = *browser_owner;
     if (forum_meta_due(value, now)) return forum_submit_meta(value, id, now);
     ThreadBrowserRequest request{value.scope.parent, value.scope.guild,
@@ -808,10 +808,10 @@ bool application_thread_browser_submit(u64 id, u64 now) noexcept {
     repaint(); return true;
 }
 bool application_thread_browser_response(const RestClientResponse& response, Utf8View body) noexcept {
-    if (browser_owner && response.request_id && forum_meta_active(*browser_owner) &&
+    if (browser_owner && forum_meta_active(*browser_owner) &&
         response.request_id == browser_owner->forum->meta_flight.id)
         return forum_meta_response(*browser_owner, response, body);
-    if (!browser_owner || !browser_owner->flight.active || !response.request_id || response.request_id != browser_owner->flight.id) return false;
+    if (!browser_owner || !browser_owner->flight.active || response.request_id != browser_owner->flight.id) return false;
     auto& value = *browser_owner;
     auto flight = value.flight;
     flight.request.name = {flight.name, flight.request.name.bytes};
@@ -996,7 +996,7 @@ bool application_thread_browser_search_scope(ApplicationThreadBrowserSearchScope
     return true;
 }
 bool application_thread_browser_search(Utf8View name) noexcept {
-    if (!application_thread_browser_active() || (name.bytes && !name.data)) return false;
+    if (!application_thread_browser_active()) return false;
     auto& value = *browser_owner;
     while (name.bytes && (name.data[0] == ' ' || name.data[0] == '\t')) { ++name.data; --name.bytes; }
     while (name.bytes && (name.data[name.bytes - 1] == ' ' || name.data[name.bytes - 1] == '\t')) --name.bytes;
@@ -1017,7 +1017,7 @@ bool application_thread_browser_search(Utf8View name) noexcept {
     return repaint();
 }
 bool application_thread_browser_scroll_range(UiScrollRange* out) noexcept {
-    if (!out || !front()) return false;
+    if (!front()) return false;
     *out = {browser_owner->scene.body, browser_owner->scene.scroll_dips,
         ui_thread_browser_scene_scroll_maximum(browser_owner->scene), 56, 1, 0, browser_owner->publication};
     return true;

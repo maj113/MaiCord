@@ -245,11 +245,10 @@ const UiLayoutNode* forum_post_node(const ForumPostScene& s, ForumPostElement e)
 }
 bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect viewport,
                        UiTextMeasureCache* cache) noexcept {
+    // The form (forum_form.cpp) gives literal labels, named tags (forum_post_tag_label) and at most
+    // kForumPostTagCapacity tags and kUiAttachmentDraftMaximum files from its own arrays.
     if (!cache || !cache->backend || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 96 ||
-        ui_rect_height(viewport) < 64 || !c.heading.bytes || !c.title_label.bytes || !c.body_label.bytes ||
-        !c.cancel.bytes || !c.accept.bytes || c.tags.count > kForumPostTagCapacity ||
-        (!c.tags.data && c.tags.count) || c.attachments.count > kUiAttachmentDraftMaximum ||
-        (!c.attachments.data && c.attachments.count))
+        ui_rect_height(viewport) < 64)
         return false;
     const auto& style = c.style;
     u64 layout = hash64_bytes(kHash64Seed, &viewport, sizeof(viewport));
@@ -267,7 +266,7 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
     }
     for (u32 i = 0; i < c.tags.count; ++i) {
         const auto& tag = c.tags[i];
-        if (!tag.id || !tag.name.bytes)
+        if (!tag.id)
             return false;
         for (u32 j = 0; j < i; ++j)
             if (c.tags[j].id == tag.id)

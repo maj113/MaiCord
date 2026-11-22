@@ -25,8 +25,7 @@ bool focus_message_composer_control(MessageComposerControl control) noexcept {
 
 bool application_composer_fill_command(Utf8View name) noexcept {
     char text[1 + 3 * 32 * 4 + 2 + 1];
-    if (!g_app.account_ui || !g_app.message_composer_scene.active || !name.data || !name.bytes ||
-        name.bytes + 2 > sizeof(text))
+    if (!g_app.account_ui || !g_app.message_composer_scene.active || !name.bytes)
         return true;
     MessageComposer& composer = g_app.message_composer;
     const u64 channel_id = g_app.account_ui->active_channel_id;

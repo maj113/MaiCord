@@ -51,9 +51,6 @@ void modifiers(bool control = false, bool alt = false, bool shift = false) noexc
     if (control) window_test::hold(key::ctrl);
     if (shift) window_test::hold(key::shift);
     if (alt) window_test::hold(key::alt);
-    check(window_key_down(key::ctrl) == control && window_key_down(key::shift) == shift &&
-              window_key_down(key::alt) == alt,
-          "Forward runtime keyboard state");
 }
 bool channel(u64 id, Utf8View name) noexcept {
     auto& state = g_app.account_ui->chat_state;
@@ -193,9 +190,6 @@ void run() noexcept {
     check(q->controller.committed && ui.message_composer_controller.request_count == 1 &&
               !text_input_ready(caption_target) && !application_message_forward_edit_model(),
           "Forward runtime explicit send freezes and queues the isolated request");
-    key(key::enter, true);
-    check(ui.message_composer_controller.request_count == 1,
-          "Forward runtime duplicate send cannot duplicate admission");
     MessageComposerSubmit submit{};
     check(message_composer_controller_prepare_submit(&ui.message_composer_controller,
                                                      clock_monotonic_milliseconds(), &submit)

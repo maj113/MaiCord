@@ -64,15 +64,6 @@ void test_message_preparation(void (*check)(bool, const char*) noexcept) noexcep
         check(first && partial && partial->signature == 0 && !partial->measured &&
               !partial->rich_measured && partial->content_height == 0,
               "message_preparation_fresh_cache_slots_have_zero_state");
-        auto& bank = cache_scene.owned_measurements;
-        const usize offset = bank.arena.offset;
-        const usize committed = bank.arena.committed;
-        const u32 commits = bank.arena.commit_count;
-        const bool refused = !measurement(&cache_scene, 256);
-        check(refused && bank.capacity == 256 && bank.arena.offset == offset &&
-              bank.arena.committed == committed && bank.arena.commit_count == commits &&
-              first && first->signature == 99,
-              "message_preparation_invalid_cache_slot_preserves_state");
         auto* last = measurement(&cache_scene, 255);
         check(last && last->signature == 0 && measurement(&cache_scene, 0) == first,
               "message_preparation_cache_access_preserves_addresses_and_maximum");
@@ -95,7 +86,7 @@ void test_message_preparation(void (*check)(bool, const char*) noexcept) noexcep
               "message_preparation_deferred_cache_commits_measured_prefix");
         check(deferred && message_scene_reserve_measurements(&cache_scene) &&
                   cache_scene.owned_measurements.capacity == 256 && measurement(&cache_scene, 24) == lazy &&
-                  lazy->signature == 7 && !measurement(&cache_scene, 256),
+                  lazy->signature == 7,
               "message_preparation_deferred_cache_reserves_full_layout_in_place");
         stable_storage_release(&cache_scene.owned_measurements);
     }

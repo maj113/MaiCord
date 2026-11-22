@@ -287,9 +287,10 @@ bool message_text_selection_nonempty(const MessageTextSelectionRange& range) noe
     return message_text_selection_active(range) && !points_equal(range.anchor, range.focus);
 }
 
-bool message_text_selection_point(const MessageTextPresentation& presentation, u32 command_index, u32 byte_offset,
-                                  MessageTextSelectionPoint* point) noexcept {
-    if (!point || !presentation_valid(presentation) || command_index >= presentation.command_count)
+// The point at a byte offset of a presented command; false for a command no selection takes part in.
+static bool message_text_selection_point(const MessageTextPresentation& presentation, u32 command_index,
+                                         u32 byte_offset, MessageTextSelectionPoint* point) noexcept {
+    if (!presentation_valid(presentation) || command_index >= presentation.command_count)
         return false;
     const MessageTextCommand& command = presentation.commands[command_index];
     if (!message_text_command_selectable(command) || byte_offset > command.text.bytes)
@@ -310,8 +311,9 @@ bool message_text_selection_point(const MessageTextPresentation& presentation, u
     return true;
 }
 
-u32 message_text_selection_find(const MessageTextPresentation& presentation,
-                                const MessageTextSelectionPoint& point) noexcept {
+// The command a point names, or kMessageTextSelectionNoCommand when its message is not presented or changed.
+static u32 message_text_selection_find(const MessageTextPresentation& presentation,
+                                       const MessageTextSelectionPoint& point) noexcept {
     if (point.message_id == 0 || !presentation_valid(presentation))
         return kMessageTextSelectionNoCommand;
     const u32 begin = first_command_after(presentation, point.message_id, true);
@@ -337,7 +339,7 @@ bool message_text_selection_begin(MessageTextSelectionRange* range, UiTextPointe
                                   const MessageTextPresentation& presentation, u32 command_index, u32 byte_offset,
                                   u8 clicks) noexcept {
     MessageTextSelectionPoint point{};
-    if (!range || !unit || !message_text_selection_point(presentation, command_index, byte_offset, &point))
+    if (!message_text_selection_point(presentation, command_index, byte_offset, &point))
         return false;
     u32 anchor = byte_offset, caret = byte_offset;
     *unit = {byte_offset, byte_offset, UiTextSelectionUnit::character};
@@ -359,7 +361,7 @@ bool message_text_selection_extend(MessageTextSelectionRange* range, const UiTex
                                    const MessageTextPresentation& presentation, const MessageStore& store,
                                    u32 command_index, u32 byte_offset) noexcept {
     MessageTextSelectionPoint point{};
-    if (!range || !message_text_selection_active(*range) ||
+    if (!message_text_selection_active(*range) ||
         !message_text_selection_point(presentation, command_index, byte_offset, &point))
         return false;
     // At most kMessageTextSelectionMaximumMessages messages from the anchor's (or where it was) to the focus's.
@@ -455,8 +457,6 @@ float message_text_selection_autoscroll(const UiRect& viewport, float y, u64 ela
 
 bool message_text_selection_note(MessageTextSelectionText* text, const MessageTextSelectionRange& range,
                                  const MessageTextPresentation& presentation) noexcept {
-    if (!text)
-        return false;
     rewind_copy(text);
     // A collapsed selection keeps its message too: a scroll away before the drag must not lose the anchor's text.
     if (!message_text_selection_active(range) || !presentation_valid(presentation))
@@ -489,8 +489,6 @@ bool message_text_selection_note(MessageTextSelectionText* text, const MessageTe
 }
 
 void message_text_selection_text_release(MessageTextSelectionText* text) noexcept {
-    if (!text)
-        return;
     if (text->messages.base)
         arena_release(&text->messages);
     if (text->data.base)
@@ -503,17 +501,13 @@ void message_text_selection_text_release(MessageTextSelectionText* text) noexcep
 Utf8View message_text_selection_copy(MessageTextSelectionText* text, const MessageTextSelectionRange& range,
                                      const MessageStore& store, const MessageRichStore* rich_store,
                                      const MessageScene* scene, bool* overflowed) noexcept {
-    if (overflowed)
-        *overflowed = false;
-    if (!text)
-        return {};
+    *overflowed = false;
     rewind_copy(text);
     if (!message_text_selection_nonempty(range) || !text->messages.base || !store.records || !store.order)
         return {};
     // A selected message whose text did not fit: nothing rather than less than the selection shows.
     if (text->incomplete) {
-        if (overflowed)
-            *overflowed = true;
+        *overflowed = true;
         return {};
     }
     // Order the ends: by message, within one message by its commands as presented.
@@ -623,8 +617,7 @@ Utf8View message_text_selection_copy(MessageTextSelectionText* text, const Messa
     }
     if (overflow || written == 0) {
         arena_rewind(&text->data, ArenaMark{origin});
-        if (overflowed)
-            *overflowed = overflow;
+        *overflowed = overflow;
         return {};
     }
     text->copy_mark = origin + 1;

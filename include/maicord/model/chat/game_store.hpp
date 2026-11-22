@@ -64,7 +64,7 @@ struct GameStore {
     u64 clock;
 };
 
-bool game_store_initialize(GameStore* store, Slice<GameRecord> records, Slice<GameSearchEntry> searches) noexcept;
+void game_store_initialize(GameStore* store, Slice<GameRecord> records, Slice<GameSearchEntry> searches) noexcept;
 const GameRecord* game_store_find(const GameStore& store, u64 id) noexcept;
 // The known game's name, empty for any other state.
 Utf8View game_store_name(const GameStore& store, u64 id) noexcept;

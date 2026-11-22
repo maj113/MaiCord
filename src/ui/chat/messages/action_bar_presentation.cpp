@@ -26,11 +26,10 @@ bool message_action_bar_presentation_build(const MessageActionBar& bar, const Th
         return true;
     }
     // Clipped to the timeline viewport minus the overlays above it (unread
-    // banner, jump pill), so the toolbar slides under them.
+    // banner, jump pill), so the toolbar slides under them. An open bar has a
+    // message, its owner and at most kMessageActionBarCapacity items (message_action_bar_open).
     const UiRect visible = message_action_bar_visible_rectangle(bar);
-    if (!paint || bar.message_id == 0 || bar.item_count == 0 || bar.item_count > kMessageActionBarCapacity ||
-        !bar.owner.manager || !ui_rect_has_area(bar.rectangle) || !ui_rect_has_area(visible) ||
-        !paint_stream_push_clip(paint, visible)) {
+    if (!ui_rect_has_area(visible) || !paint_stream_push_clip(paint, visible)) {
         return false;
     }
     UiPluginSlotNode plugins[kMessageActionBarPluginItems];
@@ -71,8 +70,7 @@ bool message_action_bar_text_presentation_build_output(const MessageActionBar& b
         return true;
     }
     const UiRect visible = message_action_bar_visible_rectangle(bar);
-    if (bar.message_id == 0 || bar.item_count == 0 ||
-        bar.item_count > kMessageActionBarCapacity || !ui_rect_has_area(visible)) {
+    if (!ui_rect_has_area(visible)) {
         return false;
     }
     for (u32 index = 0; index < bar.item_count; ++index) {

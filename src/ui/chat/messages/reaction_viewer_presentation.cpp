@@ -21,7 +21,7 @@ bool reaction_viewer_presentation_build(const ReactionViewer& viewer, const Them
     if (!viewer.active) {
         return true;
     }
-    if (!paint || !ui_rect_has_area(viewer.viewport) || !ui_rect_has_area(viewer.panel)) {
+    if (!ui_rect_has_area(viewer.viewport) || !ui_rect_has_area(viewer.panel)) {
         return false;
     }
     UiPaint p{paint, theme};

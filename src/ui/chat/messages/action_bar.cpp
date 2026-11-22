@@ -192,7 +192,7 @@ MessageActionBarResult message_action_bar_open(MessageActionBar* bar, const Mess
                                                MessageSceneHit hit, const MessageRecord& message,
                                                const ReactionPreferenceStore* preferences,
                                                MessageActionBarOptions options) noexcept {
-    if (!bar || !scene.active || hit.message_id == 0 || hit.message_id != message.id ||
+    if (!scene.active || hit.message_id == 0 || hit.message_id != message.id ||
         !supported_delivery(message)) {
         return reject(hit.message_id != 0 && message.id != 0 ? MessageActionBarError::unsupported_message
                                                              : MessageActionBarError::invalid_input);
@@ -258,8 +258,6 @@ bool message_action_bar_reconfigure(MessageActionBar* bar, const MessageScene& s
                                     bool* changed) noexcept {
     if (changed)
         *changed = false;
-    if (!bar)
-        return false;
     if (!bar->active)
         return true;
     const MessageRecord* record = scene.timeline && scene.timeline->store
@@ -281,9 +279,6 @@ bool message_action_bar_synchronize(MessageActionBar* bar, const MessageScene& s
                                     bool* changed) noexcept {
     if (changed) {
         *changed = false;
-    }
-    if (!bar) {
-        return false;
     }
     if (!bar->active) {
         return true;
@@ -324,9 +319,6 @@ bool message_action_bar_close(MessageActionBar* bar, bool* changed) noexcept {
     if (changed) {
         *changed = false;
     }
-    if (!bar) {
-        return false;
-    }
     if (!bar->active) {
         return true;
     }
@@ -352,8 +344,6 @@ bool message_action_bar_set_occluders(MessageActionBar* bar, const UiRect* occlu
                                       bool* changed) noexcept {
     if (changed)
         *changed = false;
-    if (!bar || (count && !occluders) || count > kMessageActionBarOccluderCount)
-        return false;
     for (u32 index = 0; index < kMessageActionBarOccluderCount; ++index) {
         const UiRect next = index < count && ui_rect_has_area(occluders[index]) ? occluders[index] : UiRect{};
         bar->occluders[index] = next;
@@ -372,12 +362,12 @@ bool message_action_bar_set_occluders(MessageActionBar* bar, const UiRect* occlu
     return true;
 }
 
+// An open bar has a message and its items (at most kMessageActionBarCapacity, message_action_bar_open); a closed
+// one has no visible rectangle.
 MessageActionBarHit message_action_bar_hit_test(const MessageActionBar& bar, float x, float y) noexcept {
     const UiRect visible = message_action_bar_visible_rectangle(bar);
-    if (!bar.active || bar.message_id == 0 || bar.item_count == 0 ||
-        bar.item_count > kMessageActionBarCapacity || !ui_rect_contains(visible, x, y)) {
+    if (!ui_rect_contains(visible, x, y))
         return MessageActionBarHit{};
-    }
     for (u32 index = 0; index < bar.item_count; ++index) {
         const MessageActionBarItem& item = bar.items[index];
         if (ui_rect_contains(item.rectangle, x, y)) {
@@ -390,8 +380,6 @@ MessageActionBarHit message_action_bar_hit_test(const MessageActionBar& bar, flo
 }
 
 bool message_hover_scroll_gate_observe(MessageHoverScrollGate* gate, u32 generation, double scroll) noexcept {
-    if (!gate)
-        return false;
     const bool moved = gate->scroll_known && (gate->generation != generation || gate->scroll - scroll > .5 ||
                                               scroll - gate->scroll > .5);
     gate->scroll = scroll;
@@ -404,8 +392,6 @@ bool message_hover_scroll_gate_observe(MessageHoverScrollGate* gate, u32 generat
 }
 
 bool message_hover_scroll_gate_pointer(MessageHoverScrollGate* gate, float x, float y) noexcept {
-    if (!gate)
-        return false;
     // Windows repeats WM_MOUSEMOVE at an unchanged position (activation,
     // capture changes); only a real move ends the scroll suppression.
     if (!gate->pointer_known || gate->pointer_x != x || gate->pointer_y != y)
@@ -430,7 +416,7 @@ static bool set_hover(MessageActionBar* bar, float x, float y) noexcept {
 MessageActionBarPointerResult message_action_bar_track_pointer(
     MessageActionBar* bar, MessageScene* scene, float x, float y, const ReactionPreferenceStore* preferences,
     MessageActionBarPolicy policy, void* policy_context) noexcept {
-    if (!bar || !scene || !scene->active || !scene->timeline || !scene->timeline->store) {
+    if (!scene->active || !scene->timeline || !scene->timeline->store) {
         return MessageActionBarPointerResult{{}, 0, MessageActionBarError::invalid_input, false};
     }
     const UiWidgetHandle prior = scene->widgets.hovered;

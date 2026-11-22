@@ -781,18 +781,6 @@ void run() noexcept {
     g_app.message_catchup.state = MessageHistoryCatchupState::idle;
     check(!application_read_state_eligible(),
           "read runtime: noncurrent history remains ineligible for automatic read");
-    fresh_owner();
-    ReadScopeTarget invalid_plan[2]{};
-    invalid_plan[0].channel_id = invalid_plan[1].channel_id = channel().id;
-    invalid_plan[0].generation = invalid_plan[1].generation = channel().generation;
-    invalid_plan[0].message_id = invalid_plan[1].message_id = channel().last_message_id;
-    invalid_plan[0].outbound = invalid_plan[1].outbound = true;
-    const u64 before_plan_cursor = channel().last_read_message_id;
-    u64 first_serial = 999;
-    check(!application_read_state_scoped_prepare({invalid_plan, 2}, true, &first_serial) &&
-              first_serial == 999 && channel().last_read_message_id == before_plan_cursor &&
-              !application_read_state_next_wake(),
-          "read runtime: duplicate whole scoped plan fails before cursor queue or authority mutation");
     manual_tests();
     release();
 }

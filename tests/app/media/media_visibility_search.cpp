@@ -99,7 +99,7 @@ void run_forward_identity_test(AccountUiRuntime& ui, ApplicationMediaPump& pump)
         const ChatStateStore* saved_state = g_app.renderer.chat_state;
         NavigationView navigation = saved_navigation ? *saved_navigation : NavigationView{};
         TypingStore typing{};
-        const UiPrivateRowSource rows{&ui.chat_state, nullptr, nullptr, &typing};
+        const UiPrivateRowSource rows{&ui.chat_state, &ui.user_store, nullptr, &typing};
         navigation.private_rows = &rows;
         g_app.renderer.navigation_view = &navigation;
         g_app.renderer.chat_state = &ui.chat_state;

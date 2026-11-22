@@ -55,8 +55,6 @@ bool bind_rich(UiSearchScene& s) noexcept;
 bool chooser_open(const UiSearchScene& s) noexcept;
 bool recent_shown(const UiSearchScene& s) noexcept;
 float recent_top(const UiSearchScene& s) noexcept;
-bool choices_authorized(const UiSearchFilterChoiceSource* source) noexcept;
-bool choices_valid(const UiSearchFilterChoiceSource* source) noexcept;
 UiIcon choice_icon(const UiSearchFilterChoiceSource& source, const UiSearchFilterChoiceView& row) noexcept;
 bool choices_current(const UiSearchScene& scene) noexcept;
 float choice_heading_height(const UiSearchScene& scene) noexcept;

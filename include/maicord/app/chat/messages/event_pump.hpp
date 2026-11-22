@@ -202,7 +202,6 @@ struct MessageEventPump {
     Slice<u64> bulk_id_scratch;
     Slice<u64> guild_id_scratch;
     u64 last_sequence;
-    u32 rejected;
     // Message authors or members the user/member caches could not take; the
     // message itself still applied.
     u32 hydration_skipped;
@@ -251,7 +250,7 @@ bool message_event_pump_set_thread_member_store(MessageEventPump* pump,
 bool message_event_pump_synchronize_thread_scope(MessageEventPump* pump) noexcept;
 bool message_event_pump_set_typing_store(MessageEventPump* pump, TypingStore* typing) noexcept;
 bool message_event_pump_set_voice_state_store(MessageEventPump* pump, VoiceStateStore* voice_states) noexcept;
-bool message_event_pump_set_send_tracker(MessageEventPump* pump, MessageSendTracker* sends) noexcept;
+void message_event_pump_set_send_tracker(MessageEventPump* pump, MessageSendTracker* sends) noexcept;
 void message_event_pump_set_read_ack_cancel(MessageEventPump* pump, MessageReadAckCancelFunction cancel,
                                             void* context) noexcept;
 // Called after a validated Gateway ACK commits its model state, for ordinary

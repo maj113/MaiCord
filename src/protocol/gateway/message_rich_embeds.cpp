@@ -177,7 +177,7 @@ bool visit_embed_component_member(void* opaque, JsonString name, JsonValue value
     case 0:
         node.type = json_value_to_u64(value, &number) && number < 256 ? static_cast<u32>(number) : 0;
         break;
-    case 1: node.content_seen = value.kind == JsonValueKind::string && json_value_as_string(value, &node.content); break;
+    case 1: node.content_seen = json_value_as_string(value, &node.content); break;
     case 2:
         node.components_seen = value.kind == JsonValueKind::array;
         node.components = value;
@@ -270,7 +270,7 @@ bool embed_component_description(const EmbedComponentWalk& walk, const RichText&
         if (!bounded_string(walk.texts[i], kRichEmbedDescriptionMaximumBytes - (*used - begin), text, &piece))
             return false;
     }
-    if (*used > begin && output.data)
+    if (*used > begin)
         *description = {output.data + begin, *used - begin};
     return true;
 }

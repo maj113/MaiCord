@@ -168,22 +168,21 @@ bool ui_thread_browser_scene_spinner_visible(const UiThreadBrowserScene& s) noex
 }
 bool ui_thread_browser_scene_update(UiThreadBrowserScene* s, const UiThreadBrowserView* view,
     const UiRect& viewport) noexcept {
-    if (!s || !view || !view->source_publication || view->rows.count > kUiThreadBrowserPageCapacity ||
+    if (!view->source_publication || view->rows.count > kUiThreadBrowserPageCapacity ||
         (view->rows.count && !view->rows.data) || view->tab > UiThreadBrowserTab::search ||
         !utf8_validate(view->title).valid || !utf8_validate(view->status).valid || !ui_rect_valid(viewport) ||
         ui_rect_width(viewport) < 180 || ui_rect_height(viewport) < style.header_height +
             style.tabs_height + style.status_height + style.footer_height + 24) return false;
     if (current(*s) && s->view == view && ui_rect_equal(s->viewport, viewport)) return true;
+    // The browser builds the forum posts with its rows, one each and in the same order, and its sources hold each
+    // thread once (app/chat/threads/browser.cpp project_forum, chat-state walk, decoded pages).
+    if (view->forum && !ui_forum_view_valid(*view->forum))
+        return false;
     for (u32 i = 0; i < view->rows.count; ++i) {
         const auto& row = view->rows[i];
         if (!row.thread_id || !utf8_validate(row.name).valid || (row.type != 10 && row.type != 11 && row.type != 12))
             return false;
-        for (u32 j = 0; j < i; ++j) if (view->rows[j].thread_id == row.thread_id) return false;
-        if (view->forum && (view->forum->posts.count != view->rows.count ||
-            view->forum->posts[i].thread_id != row.thread_id)) return false;
     }
-    if (view->forum && (!ui_forum_view_valid(*view->forum) || view->forum->posts.count != view->rows.count))
-        return false;
     if (!s->storage.arena.base) {
         if (!ui_scene_open(&s->storage, &s->widgets, kUiThreadBrowserWidgetCapacity, sizeof(UiThreadBrowserBacking),
                            alignof(UiThreadBrowserBacking))) return false;
@@ -251,18 +250,18 @@ UiThreadBrowserTarget ui_thread_browser_scene_focused_target(const UiThreadBrows
     return ui_thread_browser_scene_target(s, s.widgets.focused);
 }
 bool ui_thread_browser_scene_set_hover(UiThreadBrowserScene* s, float x, float y, bool* changed) noexcept {
-    return s && current(*s) && ui_scene_hover(&s->widgets, &s->revision, x, y, changed);
+    return current(*s) && ui_scene_hover(&s->widgets, &s->revision, x, y, changed);
 }
 float ui_thread_browser_scene_scroll_maximum(const UiThreadBrowserScene& s) noexcept {
     return maximum(0.f, content_height(s) - ui_rect_height(s.body));
 }
 bool ui_thread_browser_scene_scroll(UiThreadBrowserScene* s, float offset) noexcept {
-    if (!s || !current(*s) || !ui_coordinate_valid(offset)) return false;
+    if (!current(*s) || !ui_coordinate_valid(offset)) return false;
     return !ui_scroll_offset_store(&s->scroll_dips, offset, ui_thread_browser_scene_scroll_maximum(*s)) ||
            rebuild(*s);
 }
 bool ui_thread_browser_scene_focus(UiThreadBrowserScene* s, UiThreadBrowserTarget value) noexcept {
-    if (!s || !eligible(*s, value) ||
+    if (!eligible(*s, value) ||
         (value.widget.generation && !ui_thread_browser_scene_target_current(*s, value))) return false;
     if (value.action == UiThreadBrowserAction::open_thread) {
         for (u32 i = 0; i < s->count; ++i) {

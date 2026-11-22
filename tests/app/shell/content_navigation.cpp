@@ -649,7 +649,7 @@ Utf8View application_message_mutation_notice_text() noexcept {
 }
 void application_message_mutation_notice_begin(ApplicationMessageMutationKind, u64, u64) noexcept {
 }
-void application_message_mutation_notice_pending(ApplicationMessageMutationKind, u64, u64) noexcept {
+void application_message_mutation_notice_pending(ApplicationMessageMutationKind, u64, u64, u16) noexcept {
 }
 void application_message_mutation_notice_succeeded(ApplicationMessageMutationKind, u64, u64) noexcept {
 }

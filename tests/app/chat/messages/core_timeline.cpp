@@ -75,9 +75,6 @@ struct PumpFixtureSource {
 
 GatewayClientPopResult pump_fixture_pop(void* source_pointer, GatewayClientEvent* event,
                                         Slice<u8> payload_output) noexcept {
-    if (!source_pointer || !event || (!payload_output.data && payload_output.count != 0)) {
-        return GatewayClientPopResult{0, GatewayClientPopError::invalid_input};
-    }
     auto* source = static_cast<PumpFixtureSource*>(source_pointer);
     source->largest_output = maximum(source->largest_output, static_cast<u32>(payload_output.count));
     if (source->cursor >= source->count) {
@@ -99,13 +96,6 @@ GatewayClientPopResult pump_fixture_pop(void* source_pointer, GatewayClientEvent
 
 void test_message_view_runtime() noexcept {
     g_message_view_runtime = MessageViewRuntime{};
-    expect(message_view_runtime_initialize(nullptr, 120, 320, false).error ==
-                   MessageViewRuntimeError::invalid_input &&
-               message_view_runtime_initialize(&g_message_view_runtime, 0, 320, false).error ==
-                   MessageViewRuntimeError::invalid_input &&
-               !g_message_view_runtime.initialized,
-           "message_view_runtime_invalid_initialize");
-
     expect(message_view_runtime_initialize(&g_message_view_runtime, 120, 320, true).ok() &&
                g_message_view_runtime.initialized &&
                g_message_view_runtime.timeline.rich_store == nullptr &&
@@ -555,15 +545,13 @@ void test_message_send_tracker() noexcept {
     expect(message_store_initialize(&store, Slice<MessageRecord>{records, 8}, Slice<u32>{order, 8},
                                     Slice<u8>{text, 512}) &&
                ui_variable_list_initialize(&list, Slice<u32>{heights, 8}, Slice<u64>{fenwick, 8}, 0, 100) &&
-               message_timeline_initialize(&timeline, &store, &list, 100, 100, true) &&
-               message_send_tracker_initialize(&tracker),
-           "message_send_tracker_initialize");
+               message_timeline_initialize(&timeline, &store, &list, 100, 100, true),
+           "message_send_tracker_fixture");
 
     const MessageSendBeginResult http_first = message_send_tracker_begin(
         &tracker, &timeline, 7, 11, utf8_literal("hello"), 1'725'012'296'789ull, 100);
-    const MessageStoreResult http_first_local = message_store_find(store, http_first.nonce);
-    const MessageRecord* http_first_record = message_store_resolve(store, http_first_local.handle);
-    expect(http_first.ok() && http_first.nonce != 0 && http_first_local.ok() && http_first_record &&
+    const MessageRecord* http_first_record = message_store_find_record(store, http_first.nonce);
+    expect(http_first.ok() && http_first.nonce != 0 && http_first_record &&
                http_first_record->delivery == MessageDeliveryState::pending && store.count == 1 &&
                list.count == 1 && http_first.invalidation.structural,
            "message_send_tracker_inserts_pending_local_row");
@@ -608,15 +596,13 @@ void test_message_send_tracker() noexcept {
         &tracker, &timeline, 7, 11, utf8_literal("retry"), 1'725'012'296'791ull, 300);
     const MessageSendObserveResult failed = message_send_tracker_observe_http(
         &tracker, &timeline, retry_send.nonce, 400, MessageSendHttpDisposition::terminal_failure, 310);
-    const MessageStoreResult failed_local = message_store_find(store, retry_send.nonce);
-    const MessageRecord* failed_record = message_store_resolve(store, failed_local.handle);
+    const MessageRecord* failed_record = message_store_find_record(store, retry_send.nonce);
     expect(retry_send.ok() && failed.ok() && !failed.completed && failed.changed && failed_record &&
                failed_record->delivery == MessageDeliveryState::failed,
            "message_send_tracker_terminal_failure_marks_row");
     const MessageSendObserveResult retried =
         message_send_tracker_retry(&tracker, &timeline, retry_send.nonce, 320);
-    const MessageStoreResult retried_local = message_store_find(store, retry_send.nonce);
-    const MessageRecord* retried_record = message_store_resolve(store, retried_local.handle);
+    const MessageRecord* retried_record = message_store_find_record(store, retry_send.nonce);
     bool expiry_changed = false;
     expect(retried.ok() && retried.changed && retried_record &&
                retried_record->delivery == MessageDeliveryState::pending &&
@@ -626,8 +612,7 @@ void test_message_send_tracker() noexcept {
                message_send_tracker_take_completion(&tracker, &completion) &&
                completion.kind == MessageSendCompletionKind::expired && completion.retries == 1,
            "message_send_tracker_retry_and_expiry");
-    const MessageStoreResult expired_local = message_store_find(store, retry_send.nonce);
-    const MessageRecord* expired_record = message_store_resolve(store, expired_local.handle);
+    const MessageRecord* expired_record = message_store_find_record(store, retry_send.nonce);
     const bool expiry_left_failed_row =
         expired_record && expired_record->delivery == MessageDeliveryState::failed;
     const MessageSendObserveResult retry_after_expiry = message_send_tracker_retry(
@@ -871,10 +856,6 @@ void test_message_event_pump() noexcept {
                    normalization_pump.resync_required &&
                    normalization_pump.last_sequence == 41,
                "message_event_pump_length_rejection_precedes_sequence_observation");
-        const auto null_body = message_event_pump_consume(&normalization_pump, input, {nullptr, 1});
-        expect(null_body.error == MessageEventPumpError::invalid_input &&
-                   normalization_pump.last_sequence == 41,
-               "message_event_pump_null_body_preserves_sequence");
 
         GatewayClientNotificationSidecar sidecar{};
         sidecar.guild_id = 10;
@@ -979,12 +960,9 @@ void test_message_event_pump() noexcept {
            "message_event_pump_bounded_drain_and_damage_merge");
 
     MessageSendTracker drain_sends{};
-    const MessageSendBeginResult optimistic =
-        message_send_tracker_initialize(&drain_sends) &&
-                message_event_pump_set_send_tracker(&drain_pump, &drain_sends)
-            ? message_send_tracker_begin(&drain_sends, &drain_timeline, 7, 11, utf8_literal("echo"),
-                                         1'725'012'296'900ull, 100)
-            : MessageSendBeginResult{};
+    message_event_pump_set_send_tracker(&drain_pump, &drain_sends);
+    const MessageSendBeginResult optimistic = message_send_tracker_begin(
+        &drain_sends, &drain_timeline, 7, 11, utf8_literal("echo"), 1'725'012'296'900ull, 100);
     const MessageSendObserveResult optimistic_http = message_send_tracker_observe_http(
         &drain_sends, &drain_timeline, optimistic.nonce, 200, MessageSendHttpDisposition::success, 110);
     GatewayClientEvent optimistic_echo =
@@ -1006,16 +984,17 @@ void test_message_event_pump() noexcept {
                echo_completion.gateway_elapsed_ms == 15,
            "message_event_pump_reconciles_optimistic_nonce_echo");
 
-    expect(message_timeline_reset(&drain_timeline), "message_event_pump_collision_fixture_reset");
+    message_timeline_reset(&drain_timeline);
     const auto collision_send = message_send_tracker_begin(&drain_sends, &drain_timeline, 7, 11,
         utf8_literal("ours"), 1'725'012'296'901ull, 200);
-    expect(collision_send.ok() && message_send_tracker_observe_http(&drain_sends, &drain_timeline, collision_send.nonce,
-        200, MessageSendHttpDisposition::success, 210).ok(), "message_event_pump_collision_send_submitted");
+    const bool collision_submitted = message_send_tracker_observe_http(&drain_sends, &drain_timeline,
+        collision_send.nonce, 200, MessageSendHttpDisposition::success, 210).ok();
     auto unrelated_echo = timeline_message_event(GatewayClientDispatchKind::message_create, 500, 7, 12,
         create_fields | gateway_message_field_nonce, 4);
     unrelated_echo.message.nonce = collision_send.nonce; unrelated_echo.timestamp_ms = 215;
     const auto unrelated_applied = message_event_pump_consume(&drain_pump, unrelated_echo, byte_literal("them"));
-    expect(unrelated_applied.ok() && unrelated_applied.kind == MessageEventPumpConsumeKind::applied &&
+    expect(collision_send.ok() && collision_submitted && unrelated_applied.ok() &&
+        unrelated_applied.kind == MessageEventPumpConsumeKind::applied &&
         !drain_pump.resync_required && message_store_find(drain_store, collision_send.nonce).ok() &&
         message_store_find(drain_store, 500).ok() && send_tracker_active(drain_sends) == 1 &&
         !message_send_tracker_take_completion(&drain_sends, &echo_completion),
@@ -1833,11 +1812,9 @@ void test_message_history_sync() noexcept {
     const MessageHistoryApplyResult first_older = message_history_older_apply_page(
         &older_pager, &catchup_timeline, MessageHistoryPage{7, 15, 10, 2, 14},
         ConstSlice<GatewayMessageEvent>{first_older_page, 2}, MessageContentAvailability::available);
-    expect(first_older.ok(), "message_history_older_full_page_applies");
-    expect(first_older.inserted == 2 && first_older.evicted == 2, "message_history_older_full_page_counts");
-    expect(older_pager.state == MessageHistoryOlderState::idle && older_pager.cursor_before == 10,
-           "message_history_older_full_page_stops");
-    expect(catchup_timeline.scroll_units == 200 && catchup_timeline.newer_refetch_required &&
+    expect(first_older.ok() && first_older.inserted == 2 && first_older.evicted == 2 &&
+               older_pager.state == MessageHistoryOlderState::idle && older_pager.cursor_before == 10 &&
+               catchup_timeline.scroll_units == 200 && catchup_timeline.newer_refetch_required &&
                message_store_find(catchup_store, 20).ok() &&
                message_store_find(catchup_store, 50).error == MessageStoreError::not_found,
            "message_history_older_full_page_preserves_anchor_and_marks_newer_gap");

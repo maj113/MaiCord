@@ -23,11 +23,6 @@ void test_command_autocomplete(void (*check)(bool, const char*) noexcept) noexce
                     R"([{"name":"scope","type":3,"value":"all"},{"name":"query","type":3,"value":"in progress","focused":true}])")),
         "autocomplete includes completed context and skips unfilled required options");
     writer.used = 0;
-    check(command_arguments(index, index.commands[0], {}, &writer, &error, utf8_literal("query"), {}) &&
-              utf8_equal({reinterpret_cast<const char*>(output), writer.used},
-                         utf8_literal(R"([{"name":"query","type":3,"value":"","focused":true}])")),
-          "autocomplete requests suggestions for an empty newly focused option");
-    writer.used = 0;
     check(command_arguments(index, index.commands[0], {}, &writer, &error, utf8_literal("number"),
                             utf8_literal("-1.")) &&
               utf8_equal({reinterpret_cast<const char*>(output), writer.used},

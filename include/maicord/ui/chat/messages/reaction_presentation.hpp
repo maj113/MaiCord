@@ -24,7 +24,6 @@ struct MessageReactionVisualItem {
 
 enum class MessageReactionPresentationError : u8 {
     none,
-    invalid_input,
     model,
     layout,
     capacity,

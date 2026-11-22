@@ -20,6 +20,7 @@ bool search(ReactionPickerModel* picker, Utf8View text) noexcept {
 // The emoji picker model shared by the expression picker's Emoji tab and the
 // reaction popout: section spans, preferences and capacity.
 void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept {
+    const ChatStateStore no_state{};
     ReactionPreferenceStore preferences{};
     ReactionPickerModel picker{};
     // The picker searches its owner's composer (the expression picker's field).
@@ -30,7 +31,7 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
                  reaction_preferences_track_emoji(&preferences, ReactionPreferenceKind::reaction,
                                                   reaction_emoji_unicode(4), 1000).ok() &&
                  reaction_preferences_toggle_favorite_emoji(&preferences, reaction_emoji_unicode(4)).ok() &&
-                 reaction_picker_open(&picker, 77, &preferences, 1000, nullptr, 0, &edit).ok();
+                 reaction_picker_open(&picker, 77, &preferences, 1000, &no_state, 0, &edit).ok();
     const u32 favorite = find_section(picker, kReactionPickerSectionFavorites),
               recent = find_section(picker, kReactionPickerSectionFrequent);
     check(valid && favorite == 0 && recent == 1 && picker.sections[favorite].count == 1 &&
@@ -57,7 +58,7 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
               picker.storage.committed == committed_before_toggle,
           "reaction sections: toggle performs no arena allocation or page commitment");
     reaction_picker_release(&picker);
-    valid = valid && reaction_picker_open(&picker, 77, &preferences, 1000, nullptr, 0, &edit).ok();
+    valid = valid && reaction_picker_open(&picker, 77, &preferences, 1000, &no_state, 0, &edit).ok();
     check(valid && picker.sections[find_section(picker, kReactionPickerSectionFavorites)].collapsed,
           "reaction sections: account collapse state survives picker release and reopen");
     valid = valid && search(&picker, utf8_literal("s"));

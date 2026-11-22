@@ -123,7 +123,6 @@ struct MessageComposerController {
     bool mention_reply_author;
     u32 queued;
     u32 compactions;
-    bool initialized;
 };
 
 // Requires zero-filled request storage (a fresh committed allocation) and

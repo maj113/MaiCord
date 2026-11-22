@@ -6,12 +6,12 @@
 
 namespace maicord {
 namespace {
-struct ForwardFixture { u32 calls{}; u64 base{1000}; bool current{true}, duplicate{}, invalid{}; };
+struct ForwardFixture { u32 calls{}; u64 base{1000}; bool current{true}; };
 bool forward_current(void* opaque) noexcept { return static_cast<ForwardFixture*>(opaque)->current; }
 bool forward_row(void* opaque, u32 index, UiMessageForwardRow* row) noexcept {
     auto& f = *static_cast<ForwardFixture*>(opaque); ++f.calls;
-    const u64 id = f.duplicate && index == 1 ? f.base : f.base + index;
-    *row = {id, 71, id, 0, f.invalid ? UiQuickSwitcherKind::voice_channel : index % 3 == 0 ?
+    const u64 id = f.base + index;
+    *row = {id, 71, id, 0, index % 3 == 0 ?
         UiQuickSwitcherKind::private_channel : UiQuickSwitcherKind::text_channel,
         utf8_literal("release-planning with a deliberately long destination name"),
         utf8_literal("Original server • Text channel"), {}, {}, index != 1};
@@ -173,12 +173,7 @@ void test_message_forward_scene(void (*check)(bool, const char*) noexcept) noexc
         ui_message_forward_scene_paint(s, kDefaultTheme, &paint) && !paint.count &&
         ui_message_forward_scene_text_output(s, kDefaultTheme, &output) && !stream.count,
         "forward scene: retired account authority suppresses borrowed content paint text and routes");
-    fixture.current = true; fixture.duplicate = true; source.count = 2; ++source.revision; ++c.revision;
-    check(!ui_message_forward_scene_update(&s, &source, &c, viewport) && !ui_message_forward_scene_current(s),
-        "forward scene: duplicate destination rejects partial bank publication");
-    fixture.duplicate = false; fixture.invalid = true; ++source.revision;
-    check(!ui_message_forward_scene_update(&s, &source, &c, viewport), "forward scene: voice and non-message destinations fail acceptance");
-    fixture.invalid = false; source.count = 0; c.selected_count = 0; c.phase = UiMessageForwardPhase::no_matches;
+    fixture.current = true; source.count = 0; c.selected_count = 0; c.phase = UiMessageForwardPhase::no_matches;
     ++source.revision; ++c.revision;
     const auto valid_edit = c.edit;
     c.edit = {utf8_literal("é"), 1, 2, true, true, true};

@@ -404,7 +404,7 @@ bool application_thread_creation_pending(u64 now) noexcept {
         now >= maximum(creation_owner->due, creation_owner->actor_floor);
 }
 bool application_thread_creation_submit(u64 id, u64 now) noexcept {
-    if (!id || !application_thread_creation_pending(now)) return false;
+    if (!application_thread_creation_pending(now)) return false;
     auto& owner = *creation_owner;
     ThreadCreationRequest request{owner.source.parent, owner.source.guild, owner.source.message,
         {owner.name, owner.name_bytes}, kThreadCreationDefaultArchiveDuration, owner.source.thread_type, owner.operation, {}};
@@ -430,7 +430,7 @@ bool application_thread_creation_submit(u64 id, u64 now) noexcept {
     return true;
 }
 bool application_thread_creation_response(const RestClientResponse& response, Utf8View body) noexcept {
-    if (!creation_owner || !creation_owner->flight.active || !response.request_id || creation_owner->flight.id != response.request_id) return false;
+    if (!creation_owner || !creation_owner->flight.active || creation_owner->flight.id != response.request_id) return false;
     auto& owner = *creation_owner;
     auto flight = owner.flight;
     flight.request.name = {flight.name, flight.request.name.bytes};

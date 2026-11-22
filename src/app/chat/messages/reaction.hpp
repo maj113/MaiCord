@@ -49,7 +49,7 @@ Utf8View application_message_reaction_status(u64 message_id, bool* error) noexce
 bool application_message_reaction_pending(u64 now_ms) noexcept;
 bool application_message_reaction_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_message_reaction_response(const RestClientResponse&) noexcept;
-bool application_message_reaction_synchronize() noexcept;
+void application_message_reaction_synchronize() noexcept;
 bool application_message_reaction_observation_needed() noexcept;
 u64 application_message_reaction_next_wake() noexcept;
 void application_message_reaction_observe(const GatewayMessageReactionEvent&, MessageHandle source,

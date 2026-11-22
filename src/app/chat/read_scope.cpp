@@ -1,5 +1,4 @@
 #include "maicord/app/chat/read_scope.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 
@@ -24,7 +23,7 @@ bool eligible(const ChatStateStore& state, const ReadScopeSource& source,
         return false;
     const auto* parent =
         channel.parent_id ? chat_state_store_find_channel(state, channel.parent_id) : nullptr;
-    if (channel.parent_id && (!parent || !parent->occupied || parent->guild_id != channel.guild_id ||
+    if (channel.parent_id && (!parent || parent->guild_id != channel.guild_id ||
                               (parent->flags & kChannelObfuscatedFlag)))
         return false;
     if (channel_is_thread(channel.type)) {
@@ -88,7 +87,7 @@ bool read_scope_source(const ChatStateStore& state, ReadScopeKind kind, u64 id,
          !(category->actions & channel_action_view)))
         return false;
     const auto* guild = chat_state_store_find_guild(state, category ? category->guild_id : id);
-    if (!guild || !guild->occupied || guild->unavailable || !guild->permissions_resolved)
+    if (!guild || guild->unavailable || !guild->permissions_resolved)
         return false;
     ReadScopeSource source{};
     source.id = id;
@@ -140,13 +139,8 @@ ReadScopePlanResult read_scope_plan_size(const ChatStateStore& state, ReadScopeK
 ReadScopePlanResult read_scope_plan(const ChatStateStore& state, ReadScopeKind kind, u64 id,
                                     u64 action_time_ms, Slice<ReadScopeTarget> output) noexcept {
     const auto result = read_scope_plan_size(state, kind, id, action_time_ms);
-    const u64 output_bytes = static_cast<u64>(output.count) * sizeof(ReadScopeTarget);
-    if (!result.valid || (result.count && (!output.data || output.count < result.count)) ||
-        byte_ranges_overlap_or_wrap(output.data, output_bytes, state.channels,
-                                    static_cast<u64>(state.channel_capacity) * sizeof(ChannelRecord)) ||
-        byte_ranges_overlap_or_wrap(output.data, output_bytes, state.guilds,
-                                    static_cast<u64>(state.guild_capacity) * sizeof(GuildRecord)) ||
-        byte_ranges_overlap_or_wrap(output.data, output_bytes, &state, sizeof(state)))
+    // The only caller (scoped_read.cpp) writes into its own plan storage, never the chat state.
+    if (!result.valid || (result.count && (!output.data || output.count < result.count)))
         return {};
     const u64 cursor = clock_cursor(action_time_ms);
     u32 used = 0;

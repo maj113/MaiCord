@@ -41,10 +41,11 @@ struct MessageAttachmentDraftStore {
     u32 revision;
     u32 committed_bytes;
 };
+// The other functions take a store that initialize set up and release has not freed, and output addresses.
 bool message_attachment_drafts_initialize(MessageAttachmentDraftStore* store) noexcept;
 void message_attachment_drafts_release(MessageAttachmentDraftStore* store) noexcept;
 // Batch is atomic and copied. No file/Shell operations run here. Per-channel
-// admission excludes queued sends, while all retained records share one bound.
+// admission excludes queued sends, while all retained records share one bound. ids has room for every file.
 MessageAttachmentDraftError message_attachment_drafts_add(MessageAttachmentDraftStore* store, u64 channel_id,
     ConstSlice<MessageAttachmentFile> files, Slice<u64> ids) noexcept;
 MessageAttachmentDraft* message_attachment_drafts_get(MessageAttachmentDraftStore* store, u64 id) noexcept;

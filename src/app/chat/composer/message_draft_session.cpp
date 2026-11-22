@@ -193,7 +193,7 @@ void message_draft_session_persist(MessageDraftSession& session, const MessageDr
 
 bool message_draft_session_configure(MessageDraftSession& session, MessageDraftStore& drafts,
                                      const wchar_t* path, u64 profile_id, u64 now_ms) noexcept {
-    if (!path || profile_id == 0) {
+    if (profile_id == 0) {
         return false;
     }
     u32 characters = 0;

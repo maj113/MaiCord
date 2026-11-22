@@ -269,7 +269,6 @@ struct MessageScene {
     u32 snapshot_storage_offset;
     u32 snapshot_count;
     u64 prepared_signature;
-    u32 preparation_passes;
     MessageTimeline* timeline;
     UiWidgetHandle root;
     UiRect viewport;

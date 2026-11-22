@@ -1074,7 +1074,7 @@ bool bind_context_channel() noexcept {
 
 u32 application_commands_context(u8 type, Slice<ApplicationContextCommand> output, bool* loading) noexcept {
     *loading = false;
-    if (!bind_context_channel() || !output.data)
+    if (!bind_context_channel())
         return 0;
     auto& c = *commands;
     *loading = c.pending != 0 && (!c.loaded[0] || !c.loaded[1]);
@@ -1194,7 +1194,7 @@ void application_commands_message_created(u64 nonce) noexcept {
 u32 application_commands_for_application(u64 channel_id, u64 application_id, Slice<ApplicationRootCommand> output,
                                          bool* loading) noexcept {
     *loading = false;
-    if (!channel_id || !application_id || !output.data || !g_app.account_ui ||
+    if (!channel_id || !application_id || !g_app.account_ui ||
         g_app.account_ui->active_channel_id != channel_id || !bind_context_channel())
         return 0;
     auto& c = *commands;

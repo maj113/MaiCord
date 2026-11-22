@@ -172,12 +172,6 @@ void test_read_scope(void (*check)(bool, const char*) noexcept) noexcept {
     check(!read_scope_plan(state, ReadScopeKind::guild, 1, epoch, {entries, 1}).valid &&
               entries[0].channel_id == 888,
           "insufficient capacity leaves the complete caller plan unchanged");
-    const auto channel_before = channels[0];
-    check(!read_scope_plan(state, ReadScopeKind::guild, 1, epoch,
-                           {reinterpret_cast<ReadScopeTarget*>(channels), 24})
-                  .valid &&
-              channels[0].id == channel_before.id && channels[0].generation == channel_before.generation,
-          "output aliasing Core inventory is rejected before writes");
     const u64 prior_id = channels[1].id;
     channels[1].id = channels[0].id;
     check(!read_scope_plan(state, ReadScopeKind::guild, 1, epoch, {entries, 24}).valid &&

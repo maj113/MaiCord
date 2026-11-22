@@ -111,6 +111,7 @@ struct ForumPostMediaSnapshot {
     u8 attachment_count, reserved[3];
 };
 bool forum_post_request_valid(const ForumPostRequest&) noexcept;
+// The functions below take a request that forum_post_request_valid accepted (the decoders take the submitted one).
 // Encoded body size. A capacity failure also reports the required byte count.
 ForumPostResult forum_post_body_bytes(const ForumPostRequest&) noexcept;
 ForumPostResult forum_post_write_target(const ForumPostRequest&, Slice<u8>) noexcept;

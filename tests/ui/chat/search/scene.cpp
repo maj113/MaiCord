@@ -717,16 +717,14 @@ void rich_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
           "search rich: native rich geometry emits scoped outer and snapshot media commands without a "
           "duplicate renderer");
     ui_search_scene_refresh_rich(&search);
-    const u32 resolves = f.resolves, layouts = native->layout_passes,
-              preparations = native->preparation_passes, widgets = native->widgets.count,
+    const u32 resolves = f.resolves, layouts = native->layout_passes, widgets = native->widgets.count,
               revision = search.revision;
     bool warm = true;
     for (u32 i = 0; i < 2; ++i)
         warm &= ui_search_scene_update(&search, &source, &content, {0, 0, 1200, 800}, {0, 0, 1200, 48}) &&
                 ui_search_scene_refresh_rich(&search);
     check(warm && resolves == f.resolves && layouts == native->layout_passes &&
-              preparations == native->preparation_passes && widgets == native->widgets.count &&
-              revision == search.revision,
+              widgets == native->widgets.count && revision == search.revision,
           "search rich: unchanged frames resolve, allocate and relayout no result projection");
     f.current = false;
     check(!ui_search_scene_target_current(search, image_target) && !ui_search_scene_message_scene(search) &&

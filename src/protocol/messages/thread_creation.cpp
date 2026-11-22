@@ -151,7 +151,7 @@ ThreadCreationResult decode_bounded_response(Utf8View input, const ThreadCreatio
                                              u64 self_user_id, Slice<u32> structural_scratch,
                                              ThreadCreationSnapshot* output,
                                              u32 maximum_response_bytes) noexcept {
-    if (!output || !self_user_id || !thread_creation_request_valid(request) || !input.bytes ||
+    if (!self_user_id || !thread_creation_request_valid(request) || !input.bytes ||
         input.bytes > maximum_response_bytes || !structural_scratch.count ||
         u64{structural_scratch.count} * sizeof(u32) > 0xffffffffull)
         return {0, ThreadCreationError::input};

@@ -17,7 +17,7 @@ using namespace message_scene_detail;
 namespace {
 inline constexpr u32 kMessageRootWidgetId = 1;
 MessageSceneResult scene_error(MessageScene* scene, MessageSceneError error) noexcept {
-    return MessageSceneResult{error, scene ? scene->first : 0, scene ? scene->count : 0, false};
+    return MessageSceneResult{error, scene->first, scene->count, false};
 }
 } // namespace
 
@@ -148,7 +148,7 @@ bool message_scene_set_interaction(MessageScene* scene, const MessageSceneIntera
 
 u32 message_scene_invite_codes(const MessageScene& scene, const MessageRecord& record,
                                const Slice<InviteLink>& output) noexcept {
-    if (!scene.invite_cards || !scene.timeline || !scene.timeline->store || !output.data ||
+    if (!scene.invite_cards || !scene.timeline || !scene.timeline->store ||
         record.content_availability != MessageContentAvailability::available || record.content_bytes < 12 ||
         message_type_is_system(record.type) || plugin_folded(scene, record))
         return 0;
@@ -169,7 +169,7 @@ bool message_scene_set_content_gated(MessageScene* scene, bool gated) noexcept {
 }
 
 bool message_scene_bind_invite_cards(MessageScene* scene, const InviteCardCache* cache) noexcept {
-    if (!scene || scene->invite_cards == cache)
+    if (scene->invite_cards == cache)
         return false;
     scene->invite_cards = cache;
     message_scene_invalidate_geometry(scene);
@@ -239,14 +239,10 @@ bool message_scene_poll_projection(const MessageScene& scene, const MessageScene
 bool message_scene_initialize_owned(MessageScene* scene, MessageTimeline* timeline, u32 maximum_rows,
                                     u32 initial_rows, const Slice<UiWidget>& widget_storage,
                                     const Slice<UiLayoutNode>& layout_storage, bool defer_measurements) noexcept {
-    if (scene->owned_rows.arena.base || !timeline || !timeline->store || !timeline->list ||
-        !widget_storage.data || !layout_storage.data || widget_storage.count == 0 ||
-        layout_storage.count == 0 || maximum_rows == 0 || initial_rows == 0 || initial_rows > maximum_rows) {
-        return false;
-    }
+    // Callers: the app's scene once at startup after its timeline, and the search projection after it checked
+    // its timeline and released its previous scene. Both pass constant row counts far below a widget slot.
     StableStorage owned_rows{};
-    if (maximum_rows > kInvalidUiWidgetSlot || maximum_rows > ~0u / 2u ||
-        !stable_storage_initialize(&owned_rows, 2u * maximum_rows, initial_rows,
+    if (!stable_storage_initialize(&owned_rows, 2u * maximum_rows, initial_rows,
                                    sizeof(MessageSceneRowWidget), alignof(MessageSceneRowWidget), false)) {
         return false;
     }
@@ -308,7 +304,7 @@ bool message_scene_set_highlight(MessageScene* scene, u64 message_id, float leve
 
 bool message_scene_set_unread_cursor(MessageScene* scene, u64 channel_id, u64 last_read_message_id,
                                      bool known) noexcept {
-    if (!scene || !scene->timeline || !scene->timeline->store || (known && !channel_id))
+    if (!scene->timeline || !scene->timeline->store || (known && !channel_id))
         return false;
     if (!known) {
         channel_id = 0;
@@ -660,7 +656,7 @@ UiRect message_scene_message_rectangle(const MessageScene& scene,
 
 MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewport_view) noexcept {
     const UiRect viewport = viewport_view; // the scene is written below
-    if (!scene || !scene->timeline || !scene->timeline->store || !scene->timeline->list ||
+    if (!scene->timeline || !scene->timeline->store || !scene->timeline->list ||
         !scene->rows.data || !scene->widgets.storage.data || !ui_rect_valid_or_empty(viewport) ||
         message_scene_source_count(*scene) != scene->timeline->list->count) {
         return scene_error(scene, MessageSceneError::invalid_input);

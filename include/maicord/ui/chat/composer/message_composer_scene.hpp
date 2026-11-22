@@ -122,7 +122,6 @@ enum class MessageComposerControl : u8 {
 enum class MessageComposerSceneError : u8 {
     none,
     invalid_input,
-    widget,
     layout,
 };
 
@@ -259,7 +258,6 @@ struct MessageComposerScene {
     u16 command_bar_name_bytes, command_bar_detail_bytes;
     bool command_bar_error;
     u32 layout_passes;
-    u32 projection_passes;
     bool channel_allows_send;
     bool attachments_ready;
     bool can_attach;
@@ -297,6 +295,8 @@ struct MessageComposerScene {
 // Bot identity replaces the attachment button for a selected command.
 UiRect message_composer_scene_command_avatar(const MessageComposerScene&) noexcept;
 
+// scene is zeroed: never initialized, or released. Update and the functions that read the scene's widgets, strip
+// or strings take an initialized scene.
 bool message_composer_scene_initialize_owned(MessageComposerScene* scene) noexcept;
 // Returns true when geometry must be measured again. An unready bank is rejected;
 // nullptr restores the defaults. Paint-only changes do not invalidate layout.

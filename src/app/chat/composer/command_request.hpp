@@ -59,8 +59,8 @@ inline RestClientSubmitResult submit_command_index(RestClient* rest, bool user, 
 // The built-in /nick and /thread requests:
 // PATCH /guilds/{guild}/members/@me/nick {"nick"} and
 // POST /channels/{channel}/threads {"name","type","auto_archive_duration",
-// "location"}. The target is written into target_storage; zero target bytes
-// mark an invalid request.
+// "location"}. operation is kBuiltinCommandNick or kBuiltinCommandThread and its guild or channel is
+// set. The target is written into target_storage; zero target bytes mark a target that does not fit.
 inline constexpr u8 kBuiltinCommandNick = 7, kBuiltinCommandThread = 8;
 inline constexpr u64 kBuiltinNickRouteId = 0x4E49434B4E414D45ull;
 inline RestClientRequest builtin_command_request(u8 operation, u64 guild, u64 channel, ConstSlice<u8> body,
@@ -68,8 +68,7 @@ inline RestClientRequest builtin_command_request(u8 operation, u64 guild, u64 ch
     ProtocolWriter path{target_storage, 0};
     const bool nick = operation == kBuiltinCommandNick;
     const u64 major = nick ? guild : channel;
-    const bool ok = major && (nick || operation == kBuiltinCommandThread) &&
-                    protocol_writer_append_c_string(&path, nick ? "/api/v9/guilds/" : "/api/v9/channels/") &&
+    const bool ok = protocol_writer_append_c_string(&path, nick ? "/api/v9/guilds/" : "/api/v9/channels/") &&
                     protocol_writer_append_u64(&path, major) &&
                     protocol_writer_append_c_string(&path, nick ? "/members/@me/nick" : "/threads");
     return {{target_storage.data, ok ? path.used : 0u}, body,

@@ -155,8 +155,6 @@ Admission queue(u64 id, Operation operation, ApplicationThreadActionTicket* outp
     const auto* value = actor_live() ? application_channel_record(id) : nullptr;
     if (!value || !channel_is_thread(value->type))
         return Admission::stale;
-    if (!flag(operation))
-        return Admission::invalid;
     if (!(available(*value) & flag(operation)))
         return Admission::permission;
     if (owner && owner->closing)
@@ -369,7 +367,7 @@ bool application_thread_actions_pending(u64 now) noexcept {
            now >= maximum(owner->due, owner->actor_floor);
 }
 bool application_thread_actions_submit(u64 id, u64 now) noexcept {
-    if (!id || !application_thread_actions_pending(now))
+    if (!application_thread_actions_pending(now))
         return false;
     const auto* value = application_channel_record(owner->source.thread_id);
     if (!value || !(available(*value) & flag(owner->operation)))
@@ -396,8 +394,7 @@ bool application_thread_actions_submit(u64 id, u64 now) noexcept {
 }
 bool application_thread_actions_response(const RestClientResponse& response,
                                          Utf8View body) noexcept {
-    if (!owner || !owner->flight.active || !response.request_id ||
-        response.request_id != owner->flight.request_id)
+    if (!owner || !owner->flight.active || response.request_id != owner->flight.request_id)
         return false;
     const auto flight = owner->flight;
     reset_value(&owner->flight);

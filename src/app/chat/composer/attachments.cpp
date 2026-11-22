@@ -603,7 +603,6 @@ bool application_attachment_prepare_send(u64 channel_id, Slice<UploadedAttachmen
     auto* state = g_app.attachments; if (!current(state)) return true;
     if (preparing(state, channel_id)) return false;
     const u32 found = message_attachment_drafts_channel(&state->drafts, channel_id, ids);
-    if (found > references.count || found > ids.count || (sizes.count && (!sizes.data || found > sizes.count))) return false;
     for (u32 i = 0; i < found; ++i) {
         if (!message_attachment_drafts_reference(&state->drafts, ids[i], i, &references[i])) return false;
         if (sizes.count) sizes[i] = message_attachment_drafts_get(&state->drafts, ids[i])->source.bytes;
@@ -625,7 +624,7 @@ bool application_attachment_channel_pending(u64 channel_id) noexcept {
 bool application_attachment_add_voice(u64 channel_id, UploadSource content, Utf8View waveform, u32 duration_ms,
                                       u64* id) noexcept {
     auto* state = ensure();
-    if (!state || !id)
+    if (!state)
         return false;
     const ConstSlice<wchar_t> filename{kVoiceMessageFilenameWide, sizeof(kVoiceMessageFilenameWide) / sizeof(wchar_t) - 1};
     return message_attachment_drafts_add_voice(&state->drafts, channel_id, filename, content, waveform, duration_ms,

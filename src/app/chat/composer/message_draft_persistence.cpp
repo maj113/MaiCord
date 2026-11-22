@@ -106,15 +106,13 @@ bool records_duplicate(const u8* records, u32 record_index, u64 channel_id) noex
 } // namespace
 
 void message_drafts_image_release(MessageDraftImage* image) noexcept {
-    if (image) {
-        file_persistence_secure_release(image->bytes, image->count);
-        reset_value<MessageDraftImage>(image);
-    }
+    file_persistence_secure_release(image->bytes, image->count);
+    reset_value<MessageDraftImage>(image);
 }
 
 MessageDraftPersistenceResult message_drafts_encode(u64 profile_id, const MessageDraftStore& store,
                                                     MessageDraftImage* image) noexcept {
-    if (image->bytes || profile_id == 0 || !store_valid(store)) {
+    if (!store_valid(store)) {
         return failure(MessageDraftPersistenceError::invalid_input);
     }
     u32 text_bytes = 0;
@@ -176,8 +174,7 @@ MessageDraftPersistenceResult message_drafts_encode(u64 profile_id, const Messag
 MessageDraftPersistenceResult message_drafts_commit(const wchar_t* path, MessageDraftImage* image,
                                                     bool write_through) noexcept {
     const u32 characters = path_length(path);
-    if (!image->bytes || characters == 0 ||
-        characters + 4 >= kAccountProfileMaximumPathCharacters) {
+    if (characters == 0 || characters + 4 >= kAccountProfileMaximumPathCharacters) {
         message_drafts_image_release(image);
         return failure(MessageDraftPersistenceError::invalid_input);
     }
@@ -200,10 +197,6 @@ MessageDraftPersistenceResult message_drafts_commit(const wchar_t* path, Message
 
 MessageDraftPersistenceResult message_drafts_save_file(const wchar_t* path, u64 profile_id,
                                                        const MessageDraftStore& store) noexcept {
-    const u32 characters = path_length(path);
-    if (characters == 0 || characters + 4 >= kAccountProfileMaximumPathCharacters) {
-        return failure(MessageDraftPersistenceError::invalid_input);
-    }
     MessageDraftImage image{};
     const MessageDraftPersistenceResult encoded = message_drafts_encode(profile_id, store, &image);
     return encoded.ok() ? message_drafts_commit(path, &image, true) : encoded;
@@ -211,9 +204,7 @@ MessageDraftPersistenceResult message_drafts_save_file(const wchar_t* path, u64 
 
 MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 expected_profile_id,
                                                        MessageDraftStore* store) noexcept {
-    const u32 characters = path_length(path);
-    if (characters == 0 || characters >= kAccountProfileMaximumPathCharacters || expected_profile_id == 0 ||
-        !store_valid(*store)) {
+    if (!store_valid(*store)) {
         return failure(MessageDraftPersistenceError::invalid_input);
     }
     auto* file_bytes = static_cast<u8*>(commit_pages(kMessageDraftPersistenceMaximumFileBytes));

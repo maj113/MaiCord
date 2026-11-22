@@ -183,10 +183,6 @@ bool message_composer_initialize(MessageComposer* composer, Slice<char> storage)
 }
 
 bool message_composer_initialize_owned(MessageComposer* composer, u32 capacity) noexcept {
-    if (!composer || composer->owned_storage.base || capacity == 0 ||
-        capacity > kMessageComposerMaximumBytes) {
-        return false;
-    }
     reset_value<MessageComposer>(composer);
     if (!arena_initialize(&composer->owned_storage, capacity, 0, 4 * 1024, ArenaTag::model)) {
         return false;

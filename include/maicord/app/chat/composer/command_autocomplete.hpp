@@ -20,6 +20,7 @@ struct CommandAutocomplete {
 // Owns only the current query/result. A changed draft invalidates old nonces
 // immediately, independently of the REST completion and Gateway arrival order.
 bool command_autocomplete_observe(CommandAutocomplete*, CommandAutocompleteQuery, u64 now) noexcept;
+// nonce is nonzero.
 bool command_autocomplete_begin(CommandAutocomplete*, u64 nonce, u64 now) noexcept;
 bool command_autocomplete_transport(CommandAutocomplete*, u64 nonce, bool success) noexcept;
 bool command_autocomplete_accept(CommandAutocomplete*, Utf8View body, Slice<u32> scratch) noexcept;

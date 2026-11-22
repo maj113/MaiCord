@@ -50,8 +50,6 @@ UiComposerVoiceBarGeometry ui_composer_voice_bar_geometry(const UiRect& bar, con
 
 bool ui_composer_voice_bar_paint(const UiComposerVoiceView& view, UiRect bar, const Theme& theme,
                                  PaintStream* paint) noexcept {
-    if (!paint)
-        return false;
     if (!ui_composer_voice_bar_visible(view.mode) || !ui_rect_has_area(bar))
         return true;
     const auto g = ui_composer_voice_bar_geometry(bar, view);
@@ -104,8 +102,6 @@ bool ui_composer_voice_bar_paint(const UiComposerVoiceView& view, UiRect bar, co
 
 bool ui_composer_voice_bar_text(const UiComposerVoiceView& view, UiRect bar, UiRect clip, UiWidgetReference owner,
                                 const Theme& theme, UiTextOutput* output) noexcept {
-    if (!output)
-        return false;
     if (!ui_composer_voice_bar_visible(view.mode) || !ui_rect_has_area(bar))
         return true;
     const auto g = ui_composer_voice_bar_geometry(bar, view);

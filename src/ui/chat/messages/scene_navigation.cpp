@@ -15,7 +15,7 @@ UiListRowBounds bounds(void* context, u32 index) noexcept {
 } // namespace
 
 bool message_scene_reveal_message(MessageScene* scene, u64 message_id) noexcept {
-    if (!scene || !scene->active || !scene->timeline || !scene->timeline->store ||
+    if (!scene->active || !scene->timeline || !scene->timeline->store ||
         !scene->timeline->list || !message_id) return false;
     auto& timeline = *scene->timeline;
     if (timeline.list->count != timeline.store->count) return false;
@@ -46,7 +46,7 @@ MessageSceneHit message_scene_navigate(MessageScene* scene, UiListMove move) noe
 }
 
 MessageSceneHit message_scene_page(MessageScene* scene, bool reverse) noexcept {
-    if (!scene || !scene->active || !scene->timeline || !scene->timeline->store ||
+    if (!scene->active || !scene->timeline || !scene->timeline->store ||
         !scene->timeline->list || !scene->timeline->list->item_units || !scene->timeline->list->fenwick ||
         scene->timeline->list->count > scene->timeline->list->capacity ||
         scene->timeline->list->count != scene->timeline->store->count) return {};

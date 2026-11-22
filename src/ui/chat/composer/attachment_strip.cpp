@@ -63,8 +63,6 @@ u32 append_unsigned(const Slice<char>& output, u32 used, u64 value, u32 minimum_
 // Binary units: one decimal below ten units (always, with `always_decimal`; a zero decimal is dropped), whole
 // numbers above.
 u32 format_size(u64 bytes, const Slice<char>& output, bool always_decimal) noexcept {
-    if (!output.data || !output.count)
-        return 0;
     static constexpr const char* units[]{" KB", " MB", " GB", " TB"};
     if (bytes < 1024)
         return append(output, append_unsigned(output, 0, bytes), " B");
@@ -153,8 +151,6 @@ float status_width(u32 bytes) noexcept {
 } // namespace
 
 u32 ui_attachment_file_extension(const Utf8View& filename, const Slice<char>& output) noexcept {
-    if (!filename.data || !filename.bytes || !output.data)
-        return 0;
     u32 dot = filename.bytes;
     while (dot && filename.data[dot - 1] != '.' && filename.data[dot - 1] != '/' && filename.data[dot - 1] != '\\')
         --dot;
@@ -242,12 +238,10 @@ u32 ui_attachment_format_size(u64 bytes, Slice<char> output) noexcept {
 }
 
 u32 ui_attachment_over_limit_text(Utf8View name, u64 bytes, u64 limit, Slice<char> output) noexcept {
-    if (!output.data || !output.count)
-        return 0;
     char size[24], cap[24];
     const u32 size_bytes = format_size(bytes, {size, 24}, true);
     const u32 cap_bytes = limit ? format_size(limit, {cap, 24}, true) : 0;
-    const u32 name_bytes = name.data ? utf8_truncated_length(name, kUiAttachmentOverLimitNameBytes) : 0;
+    const u32 name_bytes = utf8_truncated_length(name, kUiAttachmentOverLimitNameBytes);
     u32 used = name_bytes ? append_bytes(output, 0, name.data, name_bytes) : append(output, 0, "This file");
     if (!bytes) {
         used = append(output, used, " is over ");
@@ -273,8 +267,6 @@ u32 ui_attachment_over_limit_text(Utf8View name, u64 bytes, u64 limit, Slice<cha
 }
 
 u32 ui_attachment_format_duration(u32 milliseconds, Slice<char> output) noexcept {
-    if (!output.data || !output.count)
-        return 0;
     const u32 seconds = (milliseconds + 500) / 1000;
     const u32 hours = seconds / 3600, minutes = seconds / 60 % 60, remainder = seconds % 60;
     u32 used = 0;
@@ -373,11 +365,11 @@ float ui_composer_attachment_thumbnail_blur(const UiComposerAttachmentTile& tile
 
 u32 ui_composer_attachment_tile_tags(const UiComposerAttachmentTile& tile, const UiRect& media,
                                      const Slice<UiComposerAttachmentTag>& output, const Slice<char>& duration_storage) noexcept {
-    if (!output.data || tile.phase == UiComposerAttachmentPhase::preparing)
+    if (tile.phase == UiComposerAttachmentPhase::preparing)
         return 0;
     Utf8View labels[kUiComposerAttachmentTags]{};
     u32 count = 0;
-    if (tile.kind == UiAttachmentFileKind::video && tile.duration_ms && duration_storage.data) {
+    if (tile.kind == UiAttachmentFileKind::video && tile.duration_ms) {
         const u32 bytes = ui_attachment_format_duration(tile.duration_ms, duration_storage);
         if (bytes)
             labels[count++] = {duration_storage.data, bytes};
@@ -406,7 +398,7 @@ u32 ui_composer_attachment_tile_tags(const UiComposerAttachmentTile& tile, const
 
 UiComposerAttachmentHit ui_composer_attachment_strip_hit(UiRect strip, ConstSlice<UiComposerAttachmentTile> tiles,
                                                          float scroll, float x, float y) noexcept {
-    if (!tiles.data || !ui_rect_contains(strip, x, y))
+    if (!ui_rect_contains(strip, x, y))
         return {kUiComposerAttachmentNoTile, UiComposerAttachmentPart::none};
     // Later action bars overlap earlier gaps; buttons take precedence over cards.
     for (u32 i = 0; i < tiles.count; ++i) {
@@ -440,8 +432,6 @@ bool ui_composer_attachment_thumbnail_visible(const UiComposerAttachmentStripVie
 
 bool ui_composer_attachment_strip_paint_base(const UiComposerAttachmentStripView& view, const Theme& theme,
                                              PaintStream* paint) noexcept {
-    if (!paint || (!view.tiles.data && view.tiles.count))
-        return false;
     if (!view.tiles.count || !ui_rect_has_area(view.strip))
         return true;
     if (!paint_stream_push_clip(paint, view.strip))
@@ -471,8 +461,6 @@ bool ui_composer_attachment_strip_paint_base(const UiComposerAttachmentStripView
 
 bool ui_composer_attachment_strip_paint_overlay(const UiComposerAttachmentStripView& view, const Theme& theme,
                                                 PaintStream* paint) noexcept {
-    if (!paint || (!view.tiles.data && view.tiles.count))
-        return false;
     if (!view.tiles.count || !ui_rect_has_area(view.strip))
         return true;
     if (!paint_stream_push_clip(paint, view.strip))
@@ -532,8 +520,6 @@ bool ui_composer_attachment_strip_paint_overlay(const UiComposerAttachmentStripV
 
 bool ui_composer_attachment_strip_text(const UiComposerAttachmentStripView& view, const Theme& theme,
                                        UiTextOutput* output) noexcept {
-    if (!output || (!view.tiles.data && view.tiles.count))
-        return false;
     for (u32 i = 0; i < view.tiles.count; ++i) {
         const auto& tile = view.tiles[i];
         const auto geometry = ui_composer_attachment_tile_geometry(view.strip, tile, i, view.scroll);

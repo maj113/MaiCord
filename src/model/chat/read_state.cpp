@@ -47,19 +47,18 @@ bool stage(ReadStateStore* reads, const ReadStateEntry& entry) noexcept {
 }
 
 bool read_state_initialize(ReadStateStore* reads, Slice<ReadStateEntry> pending) noexcept {
-    if (!reads || !pending.data || !pending.count || pending.count > 65'535) return false;
     reset_value(reads); reads->pending = pending; reads->backed_count = pending.count; return true;
 }
 bool read_state_set_reserve(ReadStateStore* reads, ReadStateReserve reserve,
     void* context) noexcept {
-    if (!reads || !reads->pending.data || reads->count || reads->preparing_ready) return false;
+    if (!reads->pending.data || reads->count || reads->preparing_ready) return false;
     reads->reserve = reserve; reads->reserve_context = context;
     reads->backed_count = reserve ? 0 : reads->pending.count;
     return true;
 }
 bool read_state_bind(ChatStateStore* state, ReadStateStore* reads) noexcept {
-    if (!state || (reads && (!reads->pending.data || reads->pending.count < state->channel_capacity ||
-        reads->count > reads->backed_count || reads->backed_count > reads->pending.count))) return false;
+    if (reads && (!reads->pending.data || reads->pending.count < state->channel_capacity ||
+        reads->count > reads->backed_count || reads->backed_count > reads->pending.count)) return false;
     state->read_state = reads;
     return true;
 }
@@ -74,13 +73,11 @@ bool read_state_reserve_pending(ReadStateStore* reads, u32 required_count) noexc
     return true;
 }
 void read_state_clear(ReadStateStore* reads) noexcept {
-    if (!reads) return;
     reads->count = 0; reads->version = 0; reads->incomplete = false;
     reads->preparing_ready = reads->retaining_ready = false;
     saturating_increment(reads->revision); next_generation(reads);
 }
 bool read_state_prepare_ready(ChatStateStore* state, bool partial, u64 version) noexcept {
-    if (!state || !state->read_state) return false;
     auto& reads = *state->read_state;
     if (reads.preparing_ready) return false;
     if (partial) {
@@ -101,8 +98,8 @@ void read_state_finish_ready(ChatStateStore* state) noexcept {
         state->read_state->retaining_ready = false;
     }
 }
+// Stage keeps count within backed_count and stores no zero channel ID.
 const ReadStateEntry* read_state_pending(const ReadStateStore& reads, u64 channel_id) noexcept {
-    if (!reads.pending.data || reads.count > reads.backed_count || !channel_id) return nullptr;
     const u32 position = lower_bound(reads, channel_id);
     return position < reads.count && reads.pending[position].channel_id == channel_id ? &reads.pending[position] : nullptr;
 }
@@ -122,7 +119,7 @@ bool read_state_assign_record(ChannelRecord* channel, const ReadStateEntry& entr
     return true;
 }
 bool read_state_upsert(ChatStateStore* state, const ReadStateEntry& entry, u64 version) noexcept {
-    if (!state || !state->read_state || !valid_entry(entry)) return false;
+    if (!valid_entry(entry)) return false;
     auto& reads = *state->read_state;
     if (chat_state_store_find_channel(*state, entry.channel_id)) {
         if (!chat_state_store_apply_read_state(state, entry)) return false;
@@ -145,7 +142,7 @@ bool read_state_apply_ack(ChatStateStore* state, u64 channel_id, u64 message_id,
 }
 bool read_state_mark_local(ChatStateStore* state, u64 channel_id, u64 message_id,
     u32 last_viewed, u32 flags) noexcept {
-    if (!state || !chat_state_store_find_channel(*state, channel_id)) return false;
+    if (!chat_state_store_find_channel(*state, channel_id)) return false;
     ReadStateEntry entry{};
     entry.channel_id = channel_id; entry.message_id = message_id; entry.last_viewed = last_viewed; entry.flags = flags;
     entry.fields = read_state_cursor | read_state_mentions | read_state_last_viewed | read_state_flags;
@@ -154,13 +151,12 @@ bool read_state_mark_local(ChatStateStore* state, u64 channel_id, u64 message_id
     return true;
 }
 void read_state_leave_channel(ChatStateStore* state, u64 channel_id) noexcept {
-    if (!state) return;
     const auto* found = chat_state_store_find_channel(*state, channel_id);
     if (found) state->channels[found - state->channels].read_auto_ack_suppressed = false;
 }
 bool read_state_mark_unread_local(ChatStateStore* state, u64 channel_id,
     u64 cursor, u32 mention_count, bool mentions_known) noexcept {
-    if (!state || !chat_state_store_find_channel(*state, channel_id)) return false;
+    if (!chat_state_store_find_channel(*state, channel_id)) return false;
     ReadStateEntry entry{};
     entry.channel_id = channel_id; entry.message_id = cursor; entry.mention_count = mention_count;
     entry.fields = static_cast<u8>(read_state_cursor | read_state_mentions | read_state_manual |
@@ -168,7 +164,6 @@ bool read_state_mark_unread_local(ChatStateStore* state, u64 channel_id,
     return chat_state_store_apply_read_state(state, entry);
 }
 bool read_state_apply_pending(ChatStateStore* state, ChannelRecord* channel) noexcept {
-    if (!state || !channel) return false;
     if (!state->read_state) return true;
     auto& reads = *state->read_state;
     const u32 position = lower_bound(reads, channel->id);
@@ -177,7 +172,7 @@ bool read_state_apply_pending(ChatStateStore* state, ChannelRecord* channel) noe
     erase(&reads, position); return true;
 }
 bool read_state_remove_channel(ChatStateStore* state, const ChannelRecord& channel) noexcept {
-    if (!state || !state->read_state) return true;
+    if (!state->read_state) return true;
     auto& reads = *state->read_state;
     if (reads.preparing_ready && reads.retaining_ready && channel.read_state_known) {
         ReadStateEntry entry{};

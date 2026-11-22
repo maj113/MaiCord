@@ -10,7 +10,7 @@ namespace maicord {
 inline bool pinned_messages_avatar_media_resolve(const UiPinnedMessagesScene& scene, u32 slot,
                                                  AvatarMedia* out) noexcept {
     UiRect rectangle{}, clip{};
-    if (!out || !ui_pinned_messages_scene_avatar(scene, slot, &rectangle, &clip))
+    if (!ui_pinned_messages_scene_avatar(scene, slot, &rectangle, &clip))
         return false;
     const auto& row = scene.visible[slot];
     MediaAssetKey key;

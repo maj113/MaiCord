@@ -27,11 +27,10 @@ bool view_valid(UiEditView view, u32 maximum_bytes) noexcept {
     };
     return boundary(view.anchor) && boundary(view.caret);
 }
+// The forward source lists text channels and conversations only (quick_switcher_channel_forwardable), with
+// labels and details of at most 128 bytes; an empty name can still occur.
 bool row_valid(const UiMessageForwardRow& r) noexcept {
-    return r.key && r.channel_id && (r.kind == UiQuickSwitcherKind::text_channel ||
-        r.kind == UiQuickSwitcherKind::private_channel || r.kind == UiQuickSwitcherKind::group_private) &&
-        r.label.bytes && r.label.bytes <= 256 && r.detail.bytes <= 512 && utf8_validate(r.label).valid &&
-        utf8_validate(r.detail).valid;
+    return r.key && r.channel_id && r.label.bytes && utf8_validate(r.label).valid && utf8_validate(r.detail).valid;
 }
 const UiMessageForwardSelection* find_selection(const UiMessageForwardScene& s, u64 channel_id) noexcept {
     for (u32 i = 0; i < s.content->selected_count; ++i)
@@ -175,20 +174,20 @@ float ui_message_forward_scene_scroll_maximum(const UiMessageForwardScene& s) no
 }
 bool ui_message_forward_scene_update(UiMessageForwardScene* s, const UiMessageForwardSource* source,
     const UiMessageForwardContent* content, UiRect viewport) noexcept {
-    if (!s || !content || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 240 || ui_rect_height(viewport) < 300) return false;
+    if (!ui_rect_valid(viewport) || ui_rect_width(viewport) < 240 || ui_rect_height(viewport) < 300) return false;
     if (current(*s) && s->source == source && s->content == content && ui_rect_equal(s->viewport, viewport)) return true;
-    if (content->phase > UiMessageForwardPhase::unavailable || content->selected_count > kUiMessageForwardMaximumTargets ||
+    if (content->selected_count > kUiMessageForwardMaximumTargets ||
         !view_valid(content->edit, 512) || !view_valid(content->caption, 8000) ||
         content->author.bytes > 256 || content->preview.bytes > 2048 || content->media_summary.bytes > 256 ||
         content->status.bytes > 512 || !utf8_validate(content->author).valid || !utf8_validate(content->preview).valid ||
         !utf8_validate(content->media_summary).valid || !utf8_validate(content->status).valid ||
         (source && (source->count > kUiMessageForwardMaximumRows || !source->resolve ||
         (source->current && !source->current(source->context))))) return false;
+    // The forward controller toggles a destination instead of adding it twice, and its states map to known ones.
     for (u32 i = 0; i < content->selected_count; ++i) {
         const auto& r = content->selected[i];
-        if (!r.channel_id || r.state > UiMessageForwardState::cancelled || !r.label.bytes || r.label.bytes > 256 ||
-            r.detail.bytes > 512 || !utf8_validate(r.label).valid || !utf8_validate(r.detail).valid) return false;
-        for (u32 j = 0; j < i; ++j) if (content->selected[j].channel_id == r.channel_id) return false;
+        if (!r.channel_id || !r.label.bytes || r.detail.bytes > 512 || !utf8_validate(r.label).valid ||
+            !utf8_validate(r.detail).valid) return false;
     }
     const bool republished = !s->active || s->source != source || s->source_revision != (source ? source->revision : 0) ||
         s->accepted_count != (source ? source->count : 0);
@@ -199,14 +198,11 @@ bool ui_message_forward_scene_update(UiMessageForwardScene* s, const UiMessageFo
         // Rows resolve once, straight into the scene's bank (only ids are kept on the side), so a
         // rejected source retires the scene instead of keeping a half-replaced bank.
         if (!initialize(*s)) return false;
-        u64 ids[kUiMessageForwardMaximumRows];
+        // The source visits each channel once, so no destination repeats.
         u32 selected = ~0u;
         for (u32 i = 0; i < count; ++i) {
             auto& row = s->accepted[i];
-            bool ok = source->resolve(source->context, i, &row) && row_valid(row);
-            for (u32 j = 0; ok && j < i; ++j) ok = ids[j] != row.channel_id;
-            if (!ok) { s->active = false; return false; }
-            ids[i] = row.channel_id;
+            if (!source->resolve(source->context, i, &row) || !row_valid(row)) { s->active = false; return false; }
             if (row.enabled && (selected == ~0u || row.channel_id == selected_id)) selected = i;
         }
         if (source && (source->revision != source_revision || source->count != count ||
@@ -305,7 +301,7 @@ UiMessageForwardTarget ui_message_forward_scene_selected(const UiMessageForwardS
     return current(s) ? row_target(s, s.selected) : UiMessageForwardTarget{};
 }
 bool ui_message_forward_scene_scroll(UiMessageForwardScene* s, float offset) noexcept {
-    if (!s || !current(*s) || !is_finite(offset)) return false;
+    if (!current(*s) || !is_finite(offset)) return false;
     offset = minimum(maximum(0.f, offset), ui_message_forward_scene_scroll_maximum(*s));
     if (offset == s->scroll_dips) return true;
     ui_widget_manager_release_pointer(&s->widgets); s->scroll_dips = offset;
@@ -354,7 +350,7 @@ bool ui_message_forward_scene_set_hover(UiMessageForwardScene* s, float x, float
 
 bool ui_message_forward_scene_media(const UiMessageForwardScene& s, u32 slot, const ChatStateStore* state,
                                     UiMessageForwardMedia* output) noexcept {
-    if (!output || !current(s) || slot >= s.count || slot >= kUiMessageForwardVisibleRows)
+    if (!current(s) || slot >= s.count)
         return false;
     const auto& row = s.visible[slot];
     MediaAssetKey key{};

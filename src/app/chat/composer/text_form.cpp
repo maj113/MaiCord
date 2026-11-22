@@ -120,10 +120,7 @@ bool project(ApplicationTextForm* form) noexcept {
     SecureEditUtf16Selection selection{};
     if (!confirmation) {
         // Only ordinary fields may lend their stable model bytes to presentation; a secret field shows its bullets.
-        // The scene/renderer are detached before this model is released.
-        if (form->edit.password != request.secret || form->edit.storage.bytes > form->edit.storage.capacity ||
-            form->edit.storage.capacity > kApplicationTextFormBytes)
-            return false;
+        // The scene/renderer are detached before this model is released. Open sized the edit for this request.
         if (request.secret) {
             SecureEditRenderWindow window{};
             if (secure_edit_render_window(form->edit, kApplicationTextFormSecretCodepoints,
@@ -134,8 +131,7 @@ bool project(ApplicationTextForm* form) noexcept {
             selection = {window.anchor, window.caret};
         } else {
             const auto text = secure_edit_view(form->edit);
-            if (text.count != form->edit.storage.bytes || (!text.data && text.count) ||
-                secure_edit_utf16_selection(form->edit, &selection) != SecureEditResult::unchanged)
+            if (secure_edit_utf16_selection(form->edit, &selection) != SecureEditResult::unchanged)
                 return false;
             shown = {reinterpret_cast<const char*>(text.data), text.count};
             secure_text_store_composition(form->store, &form->composition);
@@ -796,7 +792,7 @@ bool save_color(TextFormOwnerKey key, Utf8View text) noexcept {
 } // namespace
 
 bool application_color_picker_open(const ApplicationColorPickerRequest& picker) noexcept {
-    if (!picker.save || picker.rgb > 0xFFFFFF)
+    if (picker.rgb > 0xFFFFFF)
         return false;
     char hex[8];
     const u32 bytes = color_hex_format(picker.rgb << 8 | 0xFF, false, {hex, sizeof(hex)});
@@ -824,7 +820,7 @@ bool application_color_picker_open(const ApplicationColorPickerRequest& picker) 
 
 bool application_text_form_set_slider(UiPoint point, double value) noexcept {
     auto* form = g_app.text_form;
-    if (!form || !valid(form) || !form->editable)
+    if (!valid(form) || !form->editable)
         return false;
     const auto element = text_form_hit_test(form->scene, point.x, point.y);
     const bool hue = element == TextFormElement::color_hue;

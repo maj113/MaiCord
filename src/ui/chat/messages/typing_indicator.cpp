@@ -53,8 +53,6 @@ void ui_typing_dots_quads(const UiRect& row_view, const Color& color_view, u16 p
     }
 }
 bool ui_typing_dots_paint(PaintStream* paint, const UiRect& row, const Color& color, u16 phase) noexcept {
-    if (!paint)
-        return false;
     PaintQuad quads[kUiTypingDotCount];
     ui_typing_dots_quads(row, color, phase, quads);
     for (const auto& q : quads)
@@ -63,8 +61,6 @@ bool ui_typing_dots_paint(PaintStream* paint, const UiRect& row, const Color& co
     return true;
 }
 bool ui_typing_dots_clock_tick(UiTypingDotsClock* clock, u64 now_ms, bool visible, bool animate) noexcept {
-    if (!clock)
-        return false;
     animate = visible && animate;
     const u16 phase = ui_typing_dots_phase(now_ms, animate);
     const bool changed = visible && (!clock->visible || clock->phase != phase);

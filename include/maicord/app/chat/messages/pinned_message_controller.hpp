@@ -15,7 +15,7 @@ struct PinnedMessageScope {
 };
 enum class PinnedMessagePhase : u8 { empty, loading, ready, mutating, failed, retired };
 enum class PinnedMessageFailure : u8 {
-    none, permissions, response, rejected, ambiguous, rate_limited, cancelled, admission, exhausted, capacity
+    none, permissions, response, rejected, ambiguous, rate_limited, cancelled, admission, capacity
 };
 enum class PinnedMessageCompletionKind : u8 {
     success, rejected, permission_lost, ambiguous, rate_limited, cancelled
@@ -43,7 +43,6 @@ Utf8View pinned_message_content(const PinnedMessageRow&) noexcept;
 struct PinnedMessageRequest {
     PinnedMessageScope scope{};
     MessagePinsRequest payload{};
-    u64 revision{};
     bool ready{};
 };
 // One complete page of at most twenty-five pins, with Older/Newer navigation
@@ -81,12 +80,11 @@ bool pinned_message_controller_retry(PinnedMessageController*) noexcept;
 // An unsent initial fetch can be replaced by a mutation, which always repages.
 bool pinned_message_controller_mutate(PinnedMessageController*, u64 message_id, bool pin) noexcept;
 PinnedMessageRequest pinned_message_controller_request(const PinnedMessageController&, u64 now_ms) noexcept;
-bool pinned_message_controller_submitted(PinnedMessageController*, const PinnedMessageRequest&,
-                                         u64 request_id) noexcept;
+// Call either directly after pinned_message_controller_request gave a ready request, with a nonzero id.
+void pinned_message_controller_submitted(PinnedMessageController*, u64 request_id) noexcept;
 // A busy shared REST worker leaves the queued request intact.
-bool pinned_message_controller_admission_failed(PinnedMessageController*, const PinnedMessageRequest&,
-                                                bool busy) noexcept;
-bool pinned_message_controller_invalidate(PinnedMessageController*, PinnedMessageScope) noexcept;
+void pinned_message_controller_admission_failed(PinnedMessageController*, bool busy) noexcept;
+bool pinned_message_controller_invalidate(PinnedMessageController*) noexcept;
 // Reports response consumption, separately from server mutation success.
 // Page/items are required only for a successfully decoded fetch response.
 bool pinned_message_controller_complete(PinnedMessageController*, PinnedMessageScope, u64 request_id,

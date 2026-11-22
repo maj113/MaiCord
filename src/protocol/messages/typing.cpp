@@ -22,7 +22,7 @@ bool cooldown_member(void* context, JsonString name, JsonValue value) noexcept {
 } // namespace
 
 MessageTypingWriteResult write_message_typing_target(u64 channel_id, Slice<u8> output) noexcept {
-    if (channel_id == 0 || !output.data || output.count == 0) {
+    if (channel_id == 0 || output.count == 0) {
         return failure(MessageTypingWriteError::invalid_input);
     }
     ProtocolWriter writer{output, 0};
@@ -34,7 +34,7 @@ MessageTypingWriteResult write_message_typing_target(u64 channel_id, Slice<u8> o
 
 bool decode_message_typing_cooldowns(Utf8View body, Slice<u32> structural_scratch,
                                      MessageTypingCooldowns* output) noexcept {
-    if (!body.data || !body.bytes || body.bytes > kMessageTypingMaximumResponseBytes || !output) return false;
+    if (!body.data || !body.bytes || body.bytes > kMessageTypingMaximumResponseBytes) return false;
     const auto scanned = json_scan_structurals_avx1(body, structural_scratch);
     if (!scanned.ok()) return false;
     MessageTypingCooldowns cooldowns{};

@@ -81,7 +81,7 @@ bool application_commands_context_invoke(u8 type, u64 command_id, u64 target_id)
 // the active channel only and only with Use Application Commands. Starts
 // loading missing indexes without refetching loaded ones; *loading reports an
 // index on its way. Views borrow the index until the catalog revision changes;
-// a command with subcommands has no description.
+// a command with subcommands has no description. output has storage.
 struct ApplicationRootCommand {
     Utf8View name, description;
     u64 command_id;

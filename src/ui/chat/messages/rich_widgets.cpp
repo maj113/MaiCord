@@ -162,7 +162,7 @@ bool build_preflight(UiWidgetManager& manager, UiWidgetHandle parent, u32 row_wi
 
 } // namespace
 
-void message_rich_widgets_reset_handles(MessageSceneRowWidget* row) noexcept {
+static void message_rich_widgets_reset_handles(MessageSceneRowWidget* row) noexcept {
     row->attachments = ui_widget_invalid_handle();
     row->embeds = ui_widget_invalid_handle();
     row->stickers = ui_widget_invalid_handle();

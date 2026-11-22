@@ -69,11 +69,10 @@ struct PollController {
     PollControllerVotePhase vote_phase;
     PollControllerError last_error;
     PollControllerError vote_barrier;
-    bool initialized, source_active, pending_ready, desired_active;
+    bool source_active, pending_ready, desired_active;
     bool refresh_required, voters_more, voters_failed;
 };
 bool poll_controller_source_equal(const PollControllerSource&, const PollControllerSource&) noexcept;
-void poll_controller_initialize(PollController*) noexcept;
 // Actor/source reset keeps the copied old in-flight request until its response arrives.
 PollControllerResult poll_controller_observe(PollController*, const PollControllerSnapshot&,
                                             bool authoritative_refresh = false) noexcept;

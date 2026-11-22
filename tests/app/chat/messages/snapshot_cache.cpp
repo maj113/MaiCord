@@ -103,6 +103,22 @@ bool write_message(ProtocolWriter* w, u64 id, u64 channel, u32 n) noexcept {
     return ok && append(w, "}");
 }
 
+// Raw REST page body decoded through the shipping rich history decoder.
+ConstSlice<GatewayMessageEvent> decode_body(Utf8View body, u32* degraded) noexcept {
+    const MessageHistoryRichScratch rich{
+        {g_page.reactions, 256}, {g_page.attachments, 256}, {g_page.embeds, 128}, {g_page.fields, 512},
+        {g_page.stickers, 32}, {g_page.components, 256}, {},
+        {{g_page.child_attachments, 128}, {g_page.child_embeds, 64}, {g_page.child_fields, 128},
+         {g_page.child_stickers, 16}, {g_page.child_components, 64}, {g_page.child_mentions, 64}}, {}};
+    const auto decoded = decode_message_history_page(
+        body, {g_page.page_structurals, 32768}, 64,
+        {g_page.text, sizeof(g_page.text)}, {g_page.messages, 100}, {g_page.mentions, 256}, rich);
+    if (degraded)
+        *degraded = decoded.degraded_messages;
+    return decoded.ok() ? ConstSlice<GatewayMessageEvent>{g_page.messages, decoded.page.count}
+                        : ConstSlice<GatewayMessageEvent>{};
+}
+
 // Newest-first page of count messages ending at newest.
 ConstSlice<GatewayMessageEvent> decode_page(u64 newest, u32 count, u64 channel = kChannel) noexcept {
     ProtocolWriter writer{{g_page.body, sizeof(g_page.body)}, 0};
@@ -111,17 +127,7 @@ ConstSlice<GatewayMessageEvent> decode_page(u64 newest, u32 count, u64 channel =
         ok = (!i || append(&writer, ",")) && write_message(&writer, newest - i, channel, static_cast<u32>(newest - i));
     if (!ok || !append(&writer, "]"))
         return {};
-    const MessageHistoryRichScratch rich{
-        {g_page.reactions, 256}, {g_page.attachments, 256}, {g_page.embeds, 128}, {g_page.fields, 512},
-        {g_page.stickers, 32}, {g_page.components, 256}, {},
-        {{g_page.child_attachments, 128}, {g_page.child_embeds, 64}, {g_page.child_fields, 128},
-         {g_page.child_stickers, 16}, {g_page.child_components, 64}, {g_page.child_mentions, 64}}, {}};
-    const auto decoded = decode_message_history_page(
-        {reinterpret_cast<const char*>(g_page.body), writer.used}, {g_page.page_structurals, 32768},
-        64, {g_page.text, sizeof(g_page.text)}, {g_page.messages, 100},
-        {g_page.mentions, 256}, rich);
-    return decoded.ok() ? ConstSlice<GatewayMessageEvent>{g_page.messages, decoded.page.count}
-                        : ConstSlice<GatewayMessageEvent>{};
+    return decode_body({reinterpret_cast<const char*>(g_page.body), writer.used}, nullptr);
 }
 
 bool load(SnapshotTimeline& t, u64 newest, u32 count) noexcept {
@@ -201,22 +207,6 @@ ConstSlice<u8> bytes_of(Utf8View text) noexcept {
 
 MessageSnapshotCaptureInput live_input(u64 channel = kChannel) noexcept {
     return {channel, 0, false, true, false};
-}
-
-// Raw REST page body decoded through the shipping rich history decoder.
-ConstSlice<GatewayMessageEvent> decode_body(Utf8View body, u32* degraded) noexcept {
-    const MessageHistoryRichScratch rich{
-        {g_page.reactions, 256}, {g_page.attachments, 256}, {g_page.embeds, 128}, {g_page.fields, 512},
-        {g_page.stickers, 32}, {g_page.components, 256}, {},
-        {{g_page.child_attachments, 128}, {g_page.child_embeds, 64}, {g_page.child_fields, 128},
-         {g_page.child_stickers, 16}, {g_page.child_components, 64}, {g_page.child_mentions, 64}}, {}};
-    const auto decoded = decode_message_history_page(
-        body, {g_page.page_structurals, 32768}, 64,
-        {g_page.text, sizeof(g_page.text)}, {g_page.messages, 100}, {g_page.mentions, 256}, rich);
-    if (degraded)
-        *degraded = decoded.degraded_messages;
-    return decoded.ok() ? ConstSlice<GatewayMessageEvent>{g_page.messages, decoded.page.count}
-                        : ConstSlice<GatewayMessageEvent>{};
 }
 
 #define THREAD_AUTHOR R"("author":{"id":"12","username":"starter","global_name":"Starter","avatar":null,"discriminator":"0","public_flags":0})"

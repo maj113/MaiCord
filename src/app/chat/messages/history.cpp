@@ -119,9 +119,7 @@ struct MessageHistoryResponseErase {
     bool favorites = false;
 
     ~MessageHistoryResponseErase() noexcept {
-        if (data && bytes != 0) {
-            secure_clear_bytes(data, bytes);
-        }
+        secure_clear_bytes(data, bytes);
         if (favorites) {
             application_gif_favorites_response_drained();
             application_emoji_preferences_response_drained();
@@ -399,8 +397,7 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
         return true;
     }
 
-    if (g_app.message_delete.message_id != 0 &&
-        (g_app.message_delete.retry_at_ms == 0 || g_app.message_delete.retry_at_ms <= now_ms)) {
+    if (g_app.message_delete.message_id != 0 && g_app.message_delete.retry_at_ms <= now_ms) {
         const u64 channel_id = g_app.message_delete.channel_id, message_id = g_app.message_delete.message_id;
         if (!application_message_delete_pending_available()) {
             notice_mutation_refused(ApplicationMessageMutationKind::erase, channel_id, message_id, nullptr, {});
@@ -1061,8 +1058,7 @@ static bool pump_message_history_main(bool admit) noexcept {
                             return false;
                         }
                     } else {
-                        if (response.transport_ok() && response.status_code == 200 && body.data &&
-                            body.bytes && body.bytes == response.body_bytes &&
+                        if (response.transport_ok() && response.status_code == 200 && body.bytes &&
                             !application_message_decode_scratch(*g_app.account_ui, &scratch, body)) {
                             if (owner == MessageHistoryRequestOwner::message_jump) {
                                 fail_message_jump(response, MessageHistoryRestError::decode);
@@ -1356,8 +1352,7 @@ static bool pump_message_history_main(bool admit) noexcept {
 }
 
 bool pump_message_history() noexcept {
-    if (!application_message_reaction_synchronize())
-        return false;
+    application_message_reaction_synchronize();
     if (!g_app.account_ui || !g_app.account.instance)
         return true;
     if (!g_app.account.status.running)
@@ -1395,7 +1390,7 @@ bool pump_message_history() noexcept {
 }
 
 bool scroll_to_resident_message(u64 message_id) noexcept {
-    if (!g_app.account_ui || message_id == 0 || !g_app.message_view.timeline.list) {
+    if (!g_app.message_view.timeline.list) {
         return false;
     }
     const MessageStoreResult found = message_store_find(g_app.message_view.store, message_id);

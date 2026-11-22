@@ -338,7 +338,7 @@ bool thread_scope(const ApplicationSearch& s, ApplicationThreadBrowserSearchScop
 
 bool resolve(void* context, u32 index, UiSearchRow* out) noexcept {
     const auto& s = *static_cast<ApplicationSearch*>(context);
-    if (!out || !s.bank || index >= s.bank->page.message_count)
+    if (!s.bank || index >= s.bank->page.message_count)
         return false;
     const auto& item = s.bank->messages[index];
     const ChannelRecord* channel;
@@ -453,7 +453,7 @@ bool selected_scope(MessageSearchScope* kind, u64* id) noexcept {
         return false;
     const auto& state = g_app.account_ui->chat_state;
     const auto* channel = chat_state_store_find_channel(state, g_app.account_ui->active_channel_id);
-    if (!channel || !channel->occupied || !channel_is_message_capable(channel->type) ||
+    if (!channel || !channel_is_message_capable(channel->type) ||
         (state.selected_channel_id && state.selected_channel_id != channel->id))
         return false;
     if (channel_is_private(channel->type)) {
@@ -464,7 +464,7 @@ bool selected_scope(MessageSearchScope* kind, u64* id) noexcept {
     } else {
         const auto* guild = chat_state_store_find_guild(state, channel->guild_id);
         if (!channel->guild_id || state.selected_guild_id != channel->guild_id || !guild ||
-            !guild->occupied || guild->unavailable)
+            guild->unavailable)
             return false;
         *kind = MessageSearchScope::guild;
         *id = channel->guild_id;

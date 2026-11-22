@@ -149,7 +149,7 @@ void test_composer_attachments(void (*check)(bool, const char*) noexcept) noexce
     GatewayMessageAttachment invalid_local{};
     invalid_local.filename = utf8_literal("broken.txt");
     const auto rejected_local = message_send_tracker_begin(&controller.sends, &timeline, 8, 11,
-        {}, 1725012296799ull, 539, true, {&invalid_local, 1});
+        {}, 1725012296799ull, 539, {&invalid_local, 1});
     check(!rejected_local.ok() && !store.count && !list.count && !rich.count && !send_tracker_active(controller.sends),
         "failed local rich insertion cannot leave an orphan send or timeline row");
     bool full_history = true;
@@ -157,7 +157,7 @@ void test_composer_attachments(void (*check)(bool, const char*) noexcept) noexce
         {1000 + i, 8, 11, 1725012296800ull + i, 0, utf8_literal("retained"), 0,
             MessageContentAvailability::available, MessageDeliveryState::pending}).ok() && full_history;
     const auto invalid_full = message_send_tracker_begin(&controller.sends, &timeline, 8, 11,
-        {}, 1725012296899ull, 540, true, {&invalid_local, 1});
+        {}, 1725012296899ull, 540, {&invalid_local, 1});
     check(full_history && !invalid_full.ok() && store.count == 8 && list.count == 8 &&
         message_store_find(store, 1000).ok() && !send_tracker_active(controller.sends),
         "invalid attachment metadata is rejected before resident history eviction");

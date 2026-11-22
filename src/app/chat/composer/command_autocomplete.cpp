@@ -20,7 +20,7 @@ bool command_autocomplete_observe(CommandAutocomplete* state, CommandAutocomplet
     return true;
 }
 bool command_autocomplete_begin(CommandAutocomplete* state, u64 nonce, u64 now) noexcept {
-    if (!nonce || state->phase != CommandAutocompletePhase::debounce || now < state->due_at)
+    if (state->phase != CommandAutocompletePhase::debounce || now < state->due_at)
         return false;
     state->nonce = nonce;
     state->due_at = 0;

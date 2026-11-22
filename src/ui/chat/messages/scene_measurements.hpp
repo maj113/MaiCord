@@ -21,6 +21,7 @@ struct Measurement {
 };
 
 bool initialize_measurements(MessageScene* scene, bool deferred = false) noexcept;
+// `slot` is a message store slot (below the store's capacity); null only when the bank cannot grow.
 Measurement* measurement(MessageScene* scene, u32 slot, bool snapshot = false) noexcept;
 // Zeroes every slot measurement() handed out (geometry invalidation).
 void clear_measurements(MessageScene* scene) noexcept;

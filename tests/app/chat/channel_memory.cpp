@@ -280,10 +280,6 @@ void test_channel_memory(void (*check)(bool, const char*) noexcept) noexcept {
     check(channel_memory_decode({tab_record, cut_bytes}, &survivors) && survivors.count == 1 && survivors.tab_count == 2 &&
               survivors.tabs[1].channel_id == 211,
           "a tab record that runs past the file ends the tabs and keeps the earlier ones");
-    bad_tabs = tabbed;
-    bad_tabs.tab_count = kChannelMemoryTabCapacity + 1;
-    check(!channel_memory_encode(bad_tabs, {tab_record, sizeof(tab_record)}) && untouched.count == 1,
-          "a tab count past the capacity is not written");
     ChannelMemoryTab too_many[kChannelMemoryTabCapacity + 1]{};
     for (u32 i = 0; i <= kChannelMemoryTabCapacity; ++i)
         too_many[i] = make_tab(1 + i, 20, "x");

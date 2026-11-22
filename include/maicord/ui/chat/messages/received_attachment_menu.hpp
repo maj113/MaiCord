@@ -45,8 +45,8 @@ struct ReceivedAttachmentMenuFacts {
     bool tab = false; // tabs are on and a media page can show this item: images, videos and audio get "Open in new tab"
 };
 inline constexpr u32 kReceivedAttachmentMenuItems = 5;
-// Returns the item count (zero when the URL is not an https URL or the output
-// is too small). Group starts carry popup_item_separator_before.
+// output holds kReceivedAttachmentMenuItems. Returns the item count (zero when the URL is not an https
+// URL). Group starts carry popup_item_separator_before.
 u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, const Slice<PopupItem>& output) noexcept;
 
 // A right-clicked link in message text, an embed or a forward gets the link
@@ -60,7 +60,7 @@ constexpr bool message_link_menu_action(u32 action) noexcept {
     return action >= kMessageLinkActionCopy && action <= kMessageLinkActionCopyText;
 }
 inline constexpr u32 kMessageLinkMenuItems = 2;
-// Returns the item count (zero for an empty URL or a too-small output).
+// output holds kMessageLinkMenuItems. Returns the item count (zero for an empty URL).
 u32 message_link_menu(Utf8View url, Slice<PopupItem> output) noexcept;
 // An attachment chip (a CDN attachment URL shown by its file name) offers the
 // official pair instead: Copy Media Link and Copy Text (the file name).

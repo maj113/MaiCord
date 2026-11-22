@@ -65,6 +65,7 @@ constexpr u64 snowflake_at(u64 unix_ms, u64 low) noexcept {
 }
 
 bool setup_send(Fixture& f, u64 previous_author) noexcept {
+    tracker = {};
     return message_store_initialize(&f.store, {f.records, count}, {f.order, count}, {f.text, sizeof(f.text)}) &&
         message_rich_store_initialize(&f.rich, {f.rich_records, count}, {f.rich_order, count},
                                       {f.rich_text, sizeof(f.rich_text)}) &&
@@ -74,8 +75,7 @@ bool setup_send(Fixture& f, u64 previous_author) noexcept {
         message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(1000), true) &&
         message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
         message_scene_initialize_owned(&f.scene, &f.timeline, count, count, {f.widget_storage, widgets},
-                                       {f.nodes, widgets}) &&
-        message_send_tracker_initialize(&tracker);
+                                       {f.nodes, widgets});
 }
 
 // One converged frame: layout, simulated text measurement, relayout.
@@ -402,7 +402,7 @@ void test_reply_grouping(void (*check)(bool, const char*) noexcept) noexcept {
     }
     check(painted, "unread_divider_paint_uses_semantic_theme_notification_in_existing_clipped_stream");
     paint_stream_release(&paint);
-    const u32 layouts = f.scene.layout_passes, rebuilds = f.scene.rebuilds, preparations = f.scene.preparation_passes;
+    const u32 layouts = f.scene.layout_passes, rebuilds = f.scene.rebuilds;
     bool warm = marked;
     for (u32 i = 0; i < 2; ++i) { // the second frame repeats the first's already-clean state
         const u32 revision = f.scene.unread_revision;
@@ -410,8 +410,7 @@ void test_reply_grouping(void (*check)(bool, const char*) noexcept) noexcept {
         const auto update = message_scene_update(&f.scene, viewport);
         warm &= same && f.scene.unread_revision == revision && update.ok() && !update.changed;
     }
-    check(warm && layouts == f.scene.layout_passes && rebuilds == f.scene.rebuilds &&
-        preparations == f.scene.preparation_passes,
+    check(warm && layouts == f.scene.layout_passes && rebuilds == f.scene.rebuilds,
         "unread_divider_unchanged_cursor_frames_do_not_reprepare_or_relayout");
     const u32 known_revision = f.scene.unread_revision;
     check(message_scene_set_unread_cursor(&f.scene, 7, 0, false) && f.scene.unread_revision != known_revision &&

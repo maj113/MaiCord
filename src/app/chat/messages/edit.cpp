@@ -32,7 +32,7 @@ const MessageRecord* editable_record(u64 message_id) noexcept {
     return record && record->delivery == MessageDeliveryState::authoritative &&
                    record->content_availability == MessageContentAvailability::available &&
                    record->channel_id == g_app.message_composer.channel_id &&
-                   record->channel_id == g_app.account_ui->active_channel_id && record->author_id != 0 &&
+                   record->channel_id == g_app.account_ui->active_channel_id &&
                    application_thread_actions_channel_sendable(record->channel_id) &&
                    record->author_id == g_app.account_ui->chat_state.self_user_id &&
                    (record->type == 0 || record->type == 19) && !(record->flags & unsupported_flags)
@@ -44,8 +44,7 @@ bool retained_rich_content(const MessageRecord& record) noexcept {
     const auto* rich = message_rich_store_find(g_app.account_ui->message_rich_store, record.id);
     // Reactions and a quoted reply header alone cannot keep an empty message.
     // A rich entry from an earlier content revision is not authoritative proof.
-    return rich && rich->occupied && rich->message_id == record.id &&
-           rich->message_revision == record.revision &&
+    return rich && rich->message_revision == record.revision &&
            (rich->attachment_count || rich->embed_count || rich->sticker_count || rich->component_count);
 }
 
@@ -189,7 +188,7 @@ u64 application_message_edit_latest_own() noexcept {
     const MessageStore& store = g_app.message_view.store;
     for (u32 index = store.count; index-- > 0;) {
         const MessageRecord* record = message_store_ordered_record(store, index);
-        if (record && application_message_edit_available(record->id))
+        if (application_message_edit_available(record->id))
             return record->id;
     }
     return 0;

@@ -109,7 +109,7 @@ u32 ui_unread_banner_format_label(u32 count, bool estimated, Utf8View since, Sli
         writer.add(since);
     }
     const u32 used = writer.finish();
-    if (!used || !output.data || used > output.count)
+    if (!used || used > output.count)
         return 0;
     copy_bytes(output.data, text, used);
     return used;
@@ -134,8 +134,6 @@ Utf8View ui_unread_banner_since_text(UiUnreadBannerSince* cache, u64 since_secon
 }
 
 bool ui_unread_banner_set_notice(UiUnreadBannerScene* scene, const UiBannerNotice* notice) noexcept {
-    if (!scene)
-        return false;
     const UiBannerNotice none{};
     const auto& n = notice && notice->id && notice->title.bytes ? *notice : none;
     char title[kUiBannerNoticeTitleBytes], text[kUiBannerNoticeTextBytes];
@@ -188,8 +186,6 @@ void ui_unread_banner_clear(UiUnreadBannerScene* scene) noexcept {
 
 bool ui_unread_banner_update(UiUnreadBannerScene* scene, const UiUnreadBannerView& view, Utf8View label,
                              UiRect viewport, UiWidgetReference text_owner, u64 now_ms, bool animate) noexcept {
-    if (!scene)
-        return false;
     const bool usable = ui_rect_valid(viewport) && ui_rect_width(viewport) >= 160 &&
                         ui_rect_height(viewport) >= 96 && owner_valid(text_owner) && view.channel_id;
     UiUnreadBannerView next = usable ? view : UiUnreadBannerView{};
@@ -335,7 +331,7 @@ UiUnreadBannerAction ui_unread_banner_hit_test(const UiUnreadBannerScene& scene,
 }
 
 bool ui_unread_banner_set_hover(UiUnreadBannerScene* scene, UiUnreadBannerAction action) noexcept {
-    if (!scene || scene->hovered == action)
+    if (scene->hovered == action)
         return false;
     scene->hovered = action;
     ++scene->revision;

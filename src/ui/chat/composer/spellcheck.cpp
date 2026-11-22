@@ -246,11 +246,10 @@ u32 composer_spellcheck_menu_build(ComposerSpellcheck* s, Utf8View text, u32 tex
     if (!word_at(*s, text, offset, &word, text_revision == s->span_text_revision))
         return 0;
     const Utf8View value{text.data + word.first, word.last - word.first};
-    if (s->backend.suggest)
-        s->suggestion_count = minimum(
-            s->backend.suggest(s->backend.context, value, {s->suggestion_text, sizeof(s->suggestion_text)},
-                               {s->suggestions, kComposerSpellcheckSuggestions}),
-            kComposerSpellcheckSuggestions);
+    s->suggestion_count = minimum(s->backend.suggest(s->backend.context, value,
+                                                     {s->suggestion_text, sizeof(s->suggestion_text)},
+                                                     {s->suggestions, kComposerSpellcheckSuggestions}),
+                                  kComposerSpellcheckSuggestions);
     s->menu_word = true;
     s->menu_first = word.first;
     s->menu_last = word.last;
@@ -270,8 +269,8 @@ u32 composer_spellcheck_menu_build(ComposerSpellcheck* s, Utf8View text, u32 tex
 
 ComposerSpellcheckActivation composer_spellcheck_menu_activate(ComposerSpellcheck* s, Utf8View text,
                                                                u32 text_revision, u32 action) noexcept {
-    if (!composer_spellcheck_menu_action(action) || !s->menu_word || s->menu_text_revision != text_revision ||
-        s->menu_last > text.bytes || s->menu_first >= s->menu_last)
+    // The text revision names the text the menu was built over, so the word still lies inside it.
+    if (!composer_spellcheck_menu_action(action) || !s->menu_word || s->menu_text_revision != text_revision)
         return {};
     s->menu_word = false;
     const u32 first = s->menu_first, last = s->menu_last;
@@ -282,8 +281,7 @@ ComposerSpellcheckActivation composer_spellcheck_menu_activate(ComposerSpellchec
             return {};
         return {ComposerSpellcheckEffect::replace, first, last, s->suggestions[index]};
     }
-    if (s->backend.learn)
-        s->backend.learn(s->backend.context, word, action == kComposerSpellcheckActionAdd);
+    s->backend.learn(s->backend.context, word, action == kComposerSpellcheckActionAdd);
     const u64 hash = key(word);
     for (u32 i = 0; i < s->span_count; ++i)
         if (s->span_hashes[i] == (hash | kMisspelled))

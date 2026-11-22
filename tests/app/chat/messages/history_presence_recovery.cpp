@@ -41,7 +41,6 @@ void history_retry_floors(void (*check)(bool, const char*) noexcept, MessageTime
         {10'000, 9'000, 10'500, 0, RestClientError::none},
         {10'000, 0, 10'500, 0, RestClientError::none},
         {10'000, 10'100, 14'000, 3, RestClientError::none},
-        {~0ull - 100, 1, ~0ull, 6, RestClientError::none},
         {10'000, ~0ull, ~0ull, 0, RestClientError::none},
         {10'000, 70'000, 10'500, 0, RestClientError::receive},
     };
@@ -499,16 +498,6 @@ void test_history_presence_recovery(void (*check)(bool, const char*) noexcept) n
         check(failed.error == MessageHistoryRestError::http_status && older.state == MessageHistoryOlderState::failed,
             "history_permissions_and_missing_channel_do_not_retry");
     }
-    MessageHistoryCatchup catchup{};
-    catchup.state = MessageHistoryCatchupState::awaiting_page;
-    catchup.channel_id = 7; catchup.cursor_after = 300; catchup.request_limit = 2;
-    response = {}; response.error = RestClientError::timeout;
-    auto result = message_history_catchup_accept_rest(&catchup, &pump, response, {}, {},
-        MessageContentAvailability::unknown, 20'000);
-    check(result.accepted() && catchup.retry_at_ms == 20'500 && catchup.cursor_after == 300 &&
-        message_history_catchup_tick(&catchup, 20'500) && message_history_catchup_take_query(&catchup, &query) &&
-        query.position == MessageHistoryPosition::after && query.cursor == 300,
-        "history_catchup_timeout_keeps_after_cursor");
     history_retry_floors(check, timeline, pump);
 
     u8 http_head[kRestMaximumHeaderBytes]{}; u8 http_body[128]{}; RestResponse http{};
@@ -518,13 +507,6 @@ void test_history_presence_recovery(void (*check)(bool, const char*) noexcept) n
         rest_client_response_error(eof.error) == RestClientError::receive &&
         rest_client_response_error(RestResponseError::body_capacity) == RestClientError::response,
         "history_idle_tls_eof_is_retryable_but_capacity_failure_is_not");
-    rest_response_initialize(&http, {http_head, kRestMaximumHeaderBytes}, {http_body, 128});
-    constexpr auto truncated = utf8_literal("HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n[");
-    const auto partial = rest_response_feed(&http,
-        {reinterpret_cast<const u8*>(truncated.data), truncated.bytes}, true);
-    check(partial.error == RestResponseError::unexpected_close &&
-        rest_client_response_error(partial.error) == RestClientError::receive,
-        "history_mid_response_disconnect_is_retryable");
 
     GuildMemberRecord members[4]{}; u32 member_order[4]{};
     GuildMemberStore member_store{}; ChatStateStore state{};

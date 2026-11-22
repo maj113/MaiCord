@@ -9,7 +9,7 @@ inline constexpr u32 kSearchAvatarMediaSlots = kUiSearchVisibleRows + kUiSearchF
 inline bool search_choice_avatar_media_resolve(const UiSearchScene& scene, u32 index,
                                                AvatarMedia* out) noexcept {
     const auto* source = scene.choice_source;
-    if (!out || !source || index >= source->rows.count)
+    if (!source || index >= source->rows.count)
         return false;
     const auto& row = source->rows[index];
     MediaAssetKey key;
@@ -25,7 +25,7 @@ inline bool search_avatar_media_resolve(const UiSearchScene& scene, u32 slot,
     if (slot >= kUiSearchVisibleRows)
         return search_choice_avatar_media_resolve(scene, slot - kUiSearchVisibleRows, out);
     UiRect rectangle{}, clip{};
-    if (!out || !ui_search_scene_avatar(scene, slot, &rectangle, &clip))
+    if (!ui_search_scene_avatar(scene, slot, &rectangle, &clip))
         return false;
     const auto& row = scene.visible[slot];
     MediaAssetKey key;

@@ -144,7 +144,7 @@ bool message_forward_synchronize(MessageForwardController* c, QuickSwitcherScope
     return did_change;
 }
 bool message_forward_remove(MessageForwardController* c, u64 channel_id) noexcept {
-    if (!c || !c->initialized || c->committed) return fail(c, MessageForwardError::busy);
+    if (!c->initialized || c->committed) return fail(c, MessageForwardError::busy);
     for (u32 i = 0; i < c->destination_count; ++i) if (c->destinations[i].row.target.channel_id == channel_id) {
         for (u32 j = i + 1; j < c->destination_count; ++j) c->destinations[j - 1] = c->destinations[j];
         reset_value(&c->destinations[--c->destination_count]); c->error = MessageForwardError::none; changed(c); return true;
@@ -187,7 +187,7 @@ bool message_forward_confirm(MessageForwardController* c, QuickSwitcherScope sco
     if (!message_forward_current(*c, scope, sources)) return fail(c, MessageForwardError::stale_scope);
     if (c->committed) return fail(c, MessageForwardError::busy);
     if (!c->caption_valid) return fail(c, MessageForwardError::invalid_caption);
-    if (!outbox->initialized || !unix_ms || !monotonic_ms) return fail(c, MessageForwardError::queue_failed);
+    if (!unix_ms || !monotonic_ms) return fail(c, MessageForwardError::queue_failed);
     if (!c->destination_count) return fail(c, MessageForwardError::no_destinations);
     // Validate the whole selection before sending to its first destination.
     for (u32 i = 0; i < c->destination_count; ++i) if (!eligible(sources, c->destinations[i].row.target, source_age_restricted(sources, c->source)))
@@ -200,7 +200,7 @@ bool message_forward_confirm(MessageForwardController* c, QuickSwitcherScope sco
 bool message_forward_retry_failed(MessageForwardController* c, QuickSwitcherScope scope, QuickSwitcherSources sources,
     MessageComposerController* outbox, u64 unix_ms, u64 monotonic_ms, u64 channel_id) noexcept {
     if (!message_forward_current(*c, scope, sources)) return fail(c, MessageForwardError::stale_scope);
-    if (!c->committed || !outbox->initialized || !unix_ms || !monotonic_ms) return fail(c, MessageForwardError::busy);
+    if (!c->committed || !unix_ms || !monotonic_ms) return fail(c, MessageForwardError::busy);
     message_forward_refresh(c, *outbox); bool admitted = false, all = true;
     for (u32 i = 0; i < c->destination_count; ++i) {
         auto& d = c->destinations[i];
@@ -212,7 +212,7 @@ bool message_forward_retry_failed(MessageForwardController* c, QuickSwitcherScop
     c->error = all ? MessageForwardError::none : MessageForwardError::queue_failed; changed(c); return all;
 }
 bool message_forward_observe_completion(MessageForwardController* c, const MessageSendCompletion& completion) noexcept {
-    if (!c || (!c->initialized && !c->committed) || !completion.nonce) return false;
+    if ((!c->initialized && !c->committed) || !completion.nonce) return false;
     for (u32 i = 0; i < c->destination_count; ++i) {
         auto& d = c->destinations[i];
         if (d.nonce != completion.nonce || d.row.target.channel_id != completion.channel_id) continue;
@@ -223,7 +223,7 @@ bool message_forward_observe_completion(MessageForwardController* c, const Messa
     return false;
 }
 bool message_forward_refresh(MessageForwardController* c, const MessageComposerController& outbox) noexcept {
-    if (!c || (!c->initialized && !c->committed)) return false;
+    if (!c->initialized && !c->committed) return false;
     bool did_change = false;
     for (u32 i = 0; i < c->destination_count; ++i) {
         auto& d = c->destinations[i];
@@ -246,7 +246,6 @@ bool message_forward_refresh(MessageForwardController* c, const MessageComposerC
     if (did_change) changed(c); return did_change;
 }
 bool message_forward_cancel_pending(MessageForwardController* c, MessageComposerController* outbox) noexcept {
-    if (!c || !outbox) return false;
     bool did_change = false;
     for (u32 i = 0; i < c->destination_count; ++i) {
         auto& d = c->destinations[i];

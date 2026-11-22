@@ -239,7 +239,7 @@ inline bool forwarded_messages_ui_probe(D3D11Renderer& renderer, UiTextMeasureCa
     if (!require(snapshot_link.valid && message_text_presentation_hit_source(fixture.store, &fixture.rich,
         snapshot_link).bytes != 0 && renderer.media_quad_count >= 4, 5)) return false;
     const u32 layout = fixture.scene.layout_passes, rebuilds = fixture.scene.rebuilds,
-        prepare = fixture.scene.preparation_passes, shape = text_measure_calls(&measure),
+        shape = text_measure_calls(&measure),
         text_builds = renderer.content_text->rebuilds, raster = renderer.glyph_text.cache_builds,
         paint_uploads = renderer.paint_instance_uploads, text_uploads = renderer.text_instance_uploads,
         media_uploads = renderer.media_instance_uploads, draws = renderer.painted_frames;
@@ -247,7 +247,7 @@ inline bool forwarded_messages_ui_probe(D3D11Renderer& renderer, UiTextMeasureCa
         if (!message_scene_update(&fixture.scene, fixture.scene.viewport).ok() ||
             !renderer_rebuild_content_text(&renderer, theme) || !probe_present(&renderer, theme)) return false;
     if (!require(fixture.scene.layout_passes == layout && fixture.scene.rebuilds == rebuilds &&
-        fixture.scene.preparation_passes == prepare && text_measure_calls(&measure) == shape &&
+        text_measure_calls(&measure) == shape &&
         renderer.content_text->rebuilds == text_builds && renderer.glyph_text.cache_builds == raster &&
         renderer.paint_instance_uploads == paint_uploads && renderer.text_instance_uploads == text_uploads &&
         renderer.media_instance_uploads == media_uploads && renderer.painted_frames == draws, 6)) return false;

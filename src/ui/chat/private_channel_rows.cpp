@@ -38,8 +38,8 @@ struct PrivateRow {
 };
 PrivateRow find_row(const ChatStateStore* state, u64 channel_id) noexcept {
     PrivateRow row{};
-    row.channel = state ? chat_state_store_find_channel(*state, channel_id) : nullptr;
-    row.metadata = state ? record(*state, row.channel) : nullptr;
+    row.channel = chat_state_store_find_channel(*state, channel_id);
+    row.metadata = record(*state, row.channel);
     if (!row.metadata)
         return row;
     const auto recipients = private_channel_store_recipients(*state->private_channels, *row.metadata);
@@ -53,7 +53,7 @@ PrivateRow find_row(const ChatStateStore* state, u64 channel_id) noexcept {
 }
 // The peer is online on mobile only; the caller knows the row is online.
 inline bool mobile_peer(const UiPrivateRowSource& source, const PrivateRow& row) noexcept {
-    return source.users && client_status_mobile_online(user_store_client_status(*source.users, row.peer));
+    return client_status_mobile_online(user_store_client_status(*source.users, row.peer));
 }
 // Where a conversation row's text ends: before its plugin badge, else its label's end (shell_text_presentation).
 float row_text_right(const ShellNavigationScene& scene, u32 index, const UiRect& content) noexcept {
@@ -77,7 +77,7 @@ UiPresence ui_user_presence(const UiPrivateRowSource& source, u64 user) noexcept
         return kPresence[static_cast<u8>(relation->presence)];
     // Everyone else: the latest presence of any scope (a guild presence of an
     // open DM's recipient included) left its platforms on the user record.
-    return source.users && user
+    return user
                ? kPresence[static_cast<u8>(client_status_overall(user_store_client_status(*source.users, user)))]
                : UiPresence::offline;
 }
@@ -101,7 +101,7 @@ Utf8View peer_activity(const UiPrivateRowSource& source, const PrivateRow& row, 
                        UiActivityGlyph* glyph) noexcept {
     if (glyph) *glyph = UiActivityGlyph::none;
     // The online peer's activity line (activity_status.hpp).
-    if (!source.users || !storage.data || !row.metadata || row.channel->type != 1 || !row.member ||
+    if (!row.metadata || row.channel->type != 1 || !row.member ||
         row_status(source, row) == UiPrivateRowStatus::offline)
         return {};
     char line[kAppearanceActivityBytes];
@@ -131,11 +131,11 @@ Utf8View row_subtitle(const UiPrivateRowSource& source, const PrivateRow& row, c
     if (metadata->request_flags & private_request_pending) return utf8_literal("Message request");
     if (row.channel->type == 1) {
         const auto* peer_appearance =
-            row.peer && source.users ? user_appearance_find(source.users->appearance, row.peer) : nullptr;
+            row.peer ? user_appearance_find(source.users->appearance, row.peer) : nullptr;
         if (peer_appearance && peer_appearance->system) return utf8_literal("Official Discord Message");
         return peer_activity(source, row, storage, glyph);
     }
-    if (row.channel->type != 3 || !storage.data) return {};
+    if (row.channel->type != 3) return {};
     const auto recipients = private_channel_store_recipients(*source.state->private_channels, *metadata);
     u64 members = 1;
     for (u32 i = 0; i < recipients.count; ++i) members += recipients[i] != source.state->self_user_id;
@@ -187,7 +187,7 @@ bool row_chip(const UiPrivateRowSource& source, const PrivateRow& row, UiWidgetH
     reset_value(output);
     output->name = ui_private_row_name_rectangle(content, subtitle, right);
     const u64 peer = row.peer;
-    const auto* appearance = peer && source.users ? user_appearance_find(source.users->appearance, peer) : nullptr;
+    const auto* appearance = peer ? user_appearance_find(source.users->appearance, peer) : nullptr;
     if (!appearance) return false;
     auto& badge = output->badge;
     badge.owner = owner;
@@ -240,14 +240,15 @@ bool ui_private_row_chip(const UiPrivateRowSource& source, u64 channel_id, UiWid
 u64 ui_private_row_menu_channel(const UiPrivateRowSource& source) noexcept {
     return source.menu && source.menu->active && source.menu->kind == PopupKind::context_menu ? source.menu->owner_id : 0;
 }
-UiRect ui_private_row_highlight(const UiRect& row, const UiRect& avatar) noexcept {
-    // As the navigation chrome paints a conversation's hover and selection (shell_presentation_build_chrome).
+// Where a hovered or selected row shows its peer's nameplate: the row's highlight, as the navigation chrome paints a
+// conversation's hover and selection (shell_presentation_build_chrome).
+static UiRect ui_private_row_highlight(const UiRect& row, const UiRect& avatar) noexcept {
     const float right = row.right - kShellChannelHighlightRight;
     return {minimum(right - 1.f, maximum(row.left + 8.f, avatar.left - 8.f)), row.top + 1.f, right, row.bottom - 1.f};
 }
 bool ui_private_row_media(const ShellNavigationScene& scene, u32 index, const UiPrivateRowSource& source,
                           u64 selected_channel_id, bool animate, UiPrivateRowMedia layer, ProfileMedia* output) noexcept {
-    if (!output || !scene.active || !source.users || index >= scene.count) return false;
+    if (!scene.active || index >= scene.count) return false;
     const auto& row = scene.rows[index];
     const PrivateRow private_row = row.view.type == 1 ? find_row(source.state, row.view.id) : PrivateRow{};
     const auto* appearance = private_row.peer ? user_appearance_find(source.users->appearance, private_row.peer) : nullptr;
@@ -344,7 +345,7 @@ bool ui_private_avatar_placeholder_paint(PaintStream* stream, u8 type, const UiR
 }
 bool ui_private_rows_overlay_paint(const ShellNavigationScene& scene, const UiRect& clip, const UiPrivateRowSource& source,
                                    u64 selected_channel_id, const Theme& theme, PaintStream* stream) noexcept {
-    if (!scene.active || !source.state || !ui_rect_has_area(clip)) return true;
+    if (!scene.active || !ui_rect_has_area(clip)) return true;
     if (!paint_stream_push_clip(stream, clip)) return false;
     const auto* hovered = shell_navigation_scene_resolve(scene, scene.widgets.hovered);
     bool ok = true;
@@ -360,7 +361,7 @@ bool ui_private_rows_overlay_paint(const ShellNavigationScene& scene, const UiRe
                                                           selected ? .28f : .20f);
         const PrivateRow private_row = find_row(source.state, row.view.id);
         // A nameplate replaces the highlight, so the status dot's ring is cut from the plate instead.
-        const auto* appearance = row.view.type == 1 && source.users
+        const auto* appearance = row.view.type == 1
                                      ? user_appearance_find(source.users->appearance, private_row.peer)
                                      : nullptr;
         const bool plate = appearance && appearance->nameplate_sku &&
@@ -462,7 +463,7 @@ static bool header_name_width(const UiPrivateRowSource& source, u64 channel_id, 
                               u64* peer_out) noexcept {
     const PrivateRow row = find_row(source.state, channel_id);
     const auto* channel = row.channel;
-    if (!channel || channel->type != 1 || !source.measure || !source.users || room <= 0 || !row.member)
+    if (!channel || channel->type != 1 || !source.measure || room <= 0 || !row.member)
         return false;
     // The name as the header shows it (shell_text_presentation): after the avatar, one line.
     char name_storage[512];

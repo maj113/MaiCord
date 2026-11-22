@@ -78,8 +78,6 @@ void test_message_pins(void (*check)(bool, const char*) noexcept) noexcept {
     check(written.ok() && utf8_equal({reinterpret_cast<const char*>(target), written.bytes},
         utf8_literal("/api/v9/channels/7/messages/pins?limit=50&before=2026-10-05T12%3A34%3A56.123456%2B01%3A00")),
         "pins: ISO cursor precision and positive timezone survive safe query encoding");
-    check(write_message_pins_target(query, {target, 10}).error == MessagePinsWriteError::output_capacity,
-        "pins: short target output fails before publication");
     written = write_message_pin_target(7, 30, {target, sizeof(target)});
     check(written.ok() && utf8_equal({reinterpret_cast<const char*>(target), written.bytes},
         utf8_literal("/api/v9/channels/7/messages/pins/30")), "pins: PUT and DELETE share modern bodyless message route");

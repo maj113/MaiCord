@@ -332,7 +332,7 @@ bool application_forum_attachments_prepare(const ApplicationForumPostTicket& tic
     auto& owner = *forum_attachments;
     u64 ids[kAttachmentUploadMaximumCount]{};
     const auto found = message_attachment_drafts_channel(&owner.drafts, ticket.parent_id, {ids, kAttachmentUploadMaximumCount});
-    if (found > refs.count || found > sizes.count || owner.picker.runtime || owner.active_id || owner.url_id || (found && !authorized(ticket))) return false;
+    if (owner.picker.runtime || owner.active_id || owner.url_id || (found && !authorized(ticket))) return false;
     for (u32 i = 0; i < found; ++i) {
         const auto* row = message_attachment_drafts_get(&owner.drafts, ids[i]);
         if (!message_attachment_drafts_reference(&owner.drafts, ids[i], i, &refs[i])) return false;

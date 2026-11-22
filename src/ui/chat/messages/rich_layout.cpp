@@ -108,8 +108,6 @@ bool message_rich_set_display(const MessageRichDisplay& display) noexcept {
 }
 
 u32 message_thread_card_detail(const MessageRichThread& thread, Slice<char> output) noexcept {
-    if (!output.data)
-        return 0;
     TextWriter w{output};
     const auto separator = [&]() noexcept {
         if (w.used)
@@ -273,7 +271,7 @@ bool message_rich_embed_gif_favorite(const MessageRichStore& store, const Messag
 bool message_rich_attachment_preview_extent(const MessageRichStore& store,
                                             const MessageRichAttachment& attachment, float available_width,
                                             float* width, float* height) noexcept {
-    if (!width || !height || available_width <= 0.0f) {
+    if (available_width <= 0.0f) {
         return false;
     }
     const auto format = message_rich_attachment_format(store, attachment);
@@ -445,9 +443,6 @@ Utf8View message_rich_embed_provider_label(const MessageRichStore& store, const 
 }
 bool message_rich_embed_media_select(const MessageRichStore& store, const MessageRichEmbed& embed,
                                      MessageRichEmbedMediaSelection* selection) noexcept {
-    if (!selection) {
-        return false;
-    }
     reset_value<MessageRichEmbedMediaSelection>(selection);
     if (!g_display.embed_media)
         return false;
@@ -469,7 +464,6 @@ bool message_rich_embed_media_select(const MessageRichStore& store, const Messag
 
 bool message_rich_embed_playback_select(const MessageRichStore& store, const MessageRichEmbed& embed,
                                        MessageRichEmbedMediaSelection* out) noexcept {
-    if (!out) return false;
     reset_value(out);
     if (!g_display.embed_media || embed.type == GatewayMessageEmbedType::gifv) return false;
     const EmbedPages urls = embed_pages(store, embed);
@@ -696,8 +690,6 @@ const MessageRichEmbedMedia* gallery_image(const MessageRichEmbed& embed) noexce
 
 bool message_rich_embed_gallery(const MessageRichStore& store, const MessageRichRecord& rich, u32 host,
                                 MessageRichEmbedGallery* out) noexcept {
-    if (!out)
-        return false;
     reset_value(out);
     if (host >= rich.embed_count || !g_display.embed_media || !rich.embeds[host].url.bytes ||
         message_rich_embed_merge_host(store, rich, host) != host)
@@ -763,8 +755,6 @@ UiRect message_rich_embed_gallery_tile(const UiRect& gallery, u32 count, u32 ord
 
 bool message_rich_embed_gallery_place(const MessageRichStore& store, const MessageRichRecord& rich, u32 index,
                                       MessageRichEmbedGalleryPlace* out) noexcept {
-    if (!out)
-        return false;
     reset_value(out);
     const u32 host = message_rich_embed_merge_host(store, rich, index);
     MessageRichEmbedGallery gallery{};
@@ -801,7 +791,7 @@ bool message_rich_embed_suppresses_content(const MessageRichStore& store, const 
 
 bool message_rich_embed_media_extent(const MessageRichEmbedMediaSelection& selection, float available_width,
                                      float* width, float* height) noexcept {
-    if (!selection.media || !width || !height || available_width <= 0.0f ||
+    if (!selection.media || available_width <= 0.0f ||
         selection.format == MediaAttachmentFormat::unknown) {
         return false;
     }

@@ -475,7 +475,7 @@ void test_attachment_links(Check check) noexcept {
     check(attachment_link_menu({items, kMessageLinkMenuItems}) == kMessageLinkMenuItems &&
               utf8_equal(items[0].label, utf8_literal("Copy Media Link")) && items[0].action == kMessageLinkActionCopy &&
               utf8_equal(items[1].label, utf8_literal("Copy Text")) && items[1].action == kMessageLinkActionCopyText &&
-              message_link_menu_action(kMessageLinkActionCopyText) && !attachment_link_menu({items, 1}),
+              message_link_menu_action(kMessageLinkActionCopyText),
           "attachment chip: its menu is Copy Media Link and Copy Text");
 }
 

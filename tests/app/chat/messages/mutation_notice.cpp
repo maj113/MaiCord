@@ -261,7 +261,7 @@ void notice_tests() noexcept {
               g_app.message_mutation_notice.requests[static_cast<u32>(Kind::reaction)].message_id == 900,
           "mutation notice: wrong message or channel receipt cannot consume another pending action");
 
-    for (u32 fence = 0; fence < 9; ++fence) {
+    for (u32 fence = 0; fence < 8; ++fence) {
         g_app.message_mutation_notice = {};
         application_message_mutation_notice_begin(Kind::edit, 70, 900);
         const auto serial = g_app.plugin_account_scope_serial;
@@ -294,9 +294,6 @@ void notice_tests() noexcept {
         case 7:
             g_app.login.visible = true;
             break;
-        case 8:
-            observed_channel->occupied = false;
-            break;
         }
         application_message_mutation_notice_failed(Kind::edit, 70, 900, forbidden);
         check(!application_message_mutation_notice_text().bytes &&
@@ -309,7 +306,6 @@ void notice_tests() noexcept {
         g_app.account_ui->chat_state.self_user_id = self;
         g_app.account_ui->active_channel_id = 70;
         observed_channel->generation = generation;
-        observed_channel->occupied = true;
         g_app.account.instance = &account_marker;
         g_app.account.stop_failed = g_app.login.visible = false;
     }

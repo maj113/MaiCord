@@ -802,7 +802,7 @@ void test_message_navigation_lifecycle() noexcept {
                                                       &source) &&
                 application_message_navigation_link(source, {7, 999, 1001}) &&
                 application_search_navigation_submit(500 + scenario, clock_monotonic_milliseconds()) &&
-                navigation_fetches == 1 && application_message_navigation_observation_needed(),
+                navigation_fetches == 1,
             "timeline permalink actual shared owner admits one metadata GET from readable resident source");
         if (scenario == 10) {
             RestClientResponse limited{};
@@ -874,8 +874,7 @@ void test_message_navigation_lifecycle() noexcept {
         const bool pumped = application_pump_account();
         if (scenario <= 3) {
             check(navigation_cancels == 1 && navigation_cancelled_id == 500 + scenario &&
-                      !application_message_navigation_active() &&
-                      application_message_navigation_observation_needed(),
+                      !application_message_navigation_active(),
                   "validated Gateway deletion or fresh READY cancels exact hydration but retains matching "
                   "completion fence");
             if (scenario == 0)
@@ -933,15 +932,13 @@ void test_message_navigation_lifecycle() noexcept {
         } else
             check(consumed && !navigation_moves &&
                       !chat_state_store_find_channel(ui.chat_state, 999) &&
-                      ui.chat_state.channel_mutations == mutations &&
-                      !application_message_navigation_observation_needed(),
+                      ui.chat_state.channel_mutations == mutations,
                   "held exact 200 after retirement drains without resurrecting destination or selecting "
                   "timeline");
         reset_counts();
         check(application_pump_account() && g_app.message_pump.reaction_delete_observe &&
                   g_app.message_pump.reaction_observe_context == &g_app &&
-                  g_app.message_pump.source_observe_poll_only &&
-                  !application_message_navigation_observation_needed(),
+                  g_app.message_pump.source_observe_poll_only,
               "drained navigation intent retains only lazy poll model observers on next account pump");
     }
     application_message_navigation_release();
@@ -1119,6 +1116,9 @@ u32 run_account_pump_tests() noexcept {
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!g_app.account_ui)
         return 1;
+    message_composer_controller_initialize(&g_app.account_ui->message_composer_controller,
+        &g_app.message_composer, &g_app.account_ui->message_drafts, &g_app.message_view.timeline,
+        Slice<u8>{g_app.account_ui->message_request_text, kMessageRequestTextCapacity});
     g_app.account.module = reinterpret_cast<HMODULE>(1);
     g_app.account.instance = reinterpret_cast<void*>(1);
     g_account_fake.pump = pump;

@@ -288,7 +288,8 @@ void test_menu(Check check) noexcept {
     static ComposerSpellcheck bare{};
     bare = {};
     FakeChecker quiet{};
-    bare.backend = {&quiet, fake_check, nullptr, fake_learn};
+    bare.backend = {&quiet, fake_check, [](void*, Utf8View, Slice<char>, Slice<Utf8View>) noexcept { return 0u; },
+                    fake_learn};
     composer_spellcheck_tick(&bare, document(text, 12, 1, 12, 8), true, 1);
     check(composer_spellcheck_menu_build(&bare, view, 1, 5, {items, kComposerSpellcheckMenuItems}) == 3 &&
               utf8_equal(items[0].label, utf8_literal("No suggestions")) && !(items[0].flags & popup_item_enabled),

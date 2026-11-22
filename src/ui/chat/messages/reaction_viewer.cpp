@@ -15,10 +15,10 @@ inline u8 format_count(u32 value, char* output, u32 capacity) noexcept {
     return digits > capacity ? u8{0} : static_cast<u8>(decimal_write(output, value));
 }
 
+// The accepted page lies inside the text bank: reaction_viewer_accept_page checks it.
 inline bool range_in_page(const ReactionViewer& viewer, const Utf8View& value, u32 page_begin, u32 page_bytes,
                           u32* offset) noexcept {
-    if ((!value.data && value.bytes != 0) || !viewer.text || page_begin > viewer.text_capacity ||
-        page_bytes > viewer.text_capacity - page_begin) {
+    if (!value.data && value.bytes != 0) {
         return false;
     }
     if (value.bytes == 0) {
@@ -46,10 +46,6 @@ bool initialize_text_owner(ReactionViewer* viewer) noexcept {
 
 bool reaction_viewer_initialize(ReactionViewer* viewer, Slice<ReactionViewerUser> users,
                                 Slice<char> text) noexcept {
-    if (!viewer || !users.data || users.count == 0 || users.count > kReactionViewerUserCapacity ||
-        !text.data || text.count == 0 || text.count > kReactionViewerTextCapacity) {
-        return false;
-    }
     reset_value<ReactionViewer>(viewer);
     viewer->users = users.data;
     viewer->user_capacity = users.count;
@@ -69,7 +65,7 @@ bool reaction_viewer_initialize(ReactionViewer* viewer, Slice<ReactionViewerUser
 }
 
 bool reaction_viewer_layout(ReactionViewer* viewer, const UiRect& viewport) noexcept {
-    if (!viewer || !ui_rect_has_area(viewport)) {
+    if (!ui_rect_has_area(viewport)) {
         return false;
     }
     const float available_width = ui_rect_width(viewport) - kReactionViewerViewportMargin * 2.0f;
@@ -109,7 +105,7 @@ bool reaction_viewer_layout(ReactionViewer* viewer, const UiRect& viewport) noex
 ReactionViewerResult reaction_viewer_open(ReactionViewer* viewer, u64 guild_id, u64 channel_id,
                                           u64 message_id, const MessageRichStore& rich_store,
                                           const MessageRichRecord& rich, UiRect viewport) noexcept {
-    if (!viewer || !viewer->users || !viewer->text || channel_id == 0 || message_id == 0 ||
+    if (!viewer->users || !viewer->text || channel_id == 0 || message_id == 0 ||
         !rich.occupied || rich.message_id != message_id) {
         return reject(ReactionViewerError::invalid_input);
     }
@@ -168,30 +164,21 @@ ReactionViewerResult reaction_viewer_open(ReactionViewer* viewer, u64 guild_id, 
     return ReactionViewerResult{ReactionViewerError::none, true};
 }
 
-bool reaction_viewer_close(ReactionViewer* viewer, bool* changed) noexcept {
-    if (changed) {
-        *changed = false;
-    }
-    if (!viewer) {
-        return false;
-    }
+bool reaction_viewer_close(ReactionViewer* viewer) noexcept {
     if (!viewer->active) {
-        return true;
+        return false;
     }
     viewer->active = false;
     viewer->loading = false;
     viewer->hovered_user = kReactionViewerNoIndex;
     viewer->hovered_aggregate = kReactionViewerNoIndex;
     saturating_increment(viewer->revision);
-    if (changed) {
-        *changed = true;
-    }
     return true;
 }
 
 ReactionViewerResult reaction_viewer_select_aggregate(ReactionViewer* viewer,
                                                       u32 aggregate_index) noexcept {
-    if (!viewer || !viewer->active || aggregate_index >= viewer->aggregate_count) {
+    if (!viewer->active || aggregate_index >= viewer->aggregate_count) {
         return reject(ReactionViewerError::invalid_input);
     }
     if (viewer->selected_aggregate == aggregate_index) {
@@ -214,19 +201,17 @@ ReactionViewerResult reaction_viewer_select_aggregate(ReactionViewer* viewer,
 }
 
 Slice<char> reaction_viewer_page_text_output(ReactionViewer& viewer) noexcept {
-    return viewer.active && viewer.text && viewer.text_used <= viewer.text_capacity
-               ? Slice<char>{viewer.text + viewer.text_used, viewer.text_capacity - viewer.text_used}
-               : Slice<char>{};
+    return viewer.active ? Slice<char>{viewer.text + viewer.text_used, viewer.text_capacity - viewer.text_used}
+                         : Slice<char>{};
 }
 
 ReactionViewerResult reaction_viewer_accept_page(ReactionViewer* viewer,
                                                  ConstSlice<ReactionUser> users,
                                                  u32 text_bytes) noexcept {
-    if (!viewer || !viewer->active || !users.data || users.count > kReactionUsersMaximumPage ||
-        viewer->selected_aggregate >= viewer->aggregate_count ||
-        viewer->user_count > viewer->user_capacity ||
+    // An open viewer keeps selected_aggregate < aggregate_count, user_count <= user_capacity and
+    // text_used <= text_capacity.
+    if (!viewer->active || users.count > kReactionUsersMaximumPage ||
         users.count > viewer->user_capacity - viewer->user_count ||
-        viewer->text_used > viewer->text_capacity ||
         text_bytes > viewer->text_capacity - viewer->text_used) {
         return reject(ReactionViewerError::capacity);
     }
@@ -266,7 +251,7 @@ ReactionViewerResult reaction_viewer_accept_page(ReactionViewer* viewer,
 }
 
 void reaction_viewer_set_loading(ReactionViewer* viewer, bool loading) noexcept {
-    if (!viewer || !viewer->active || viewer->loading == loading) {
+    if (!viewer->active || viewer->loading == loading) {
         return;
     }
     viewer->loading = loading;
@@ -277,7 +262,7 @@ void reaction_viewer_set_loading(ReactionViewer* viewer, bool loading) noexcept 
 }
 
 void reaction_viewer_set_failed(ReactionViewer* viewer) noexcept {
-    if (!viewer || !viewer->active) {
+    if (!viewer->active) {
         return;
     }
     viewer->loading = false;
@@ -285,25 +270,18 @@ void reaction_viewer_set_failed(ReactionViewer* viewer) noexcept {
     saturating_increment(viewer->revision);
 }
 
-bool reaction_viewer_request_more(ReactionViewer* viewer, bool* requested) noexcept {
-    if (!viewer || !requested) {
-        return false;
-    }
-    *requested = false;
+bool reaction_viewer_request_more(ReactionViewer* viewer) noexcept {
     if (!viewer->active || viewer->loading || viewer->failed || viewer->complete) {
-        return true;
+        return false;
     }
     if (viewer->user_count >= viewer->user_capacity) {
         viewer->complete = true;
         viewer->truncated = viewer->user_count < viewer->expected_user_count;
         saturating_increment(viewer->revision);
-        return true;
+        return false;
     }
     const u32 visible = reaction_viewer_visible_user_count(*viewer);
-    if (viewer->user_count == 0 || viewer->first_user + visible + 2 >= viewer->user_count) {
-        *requested = true;
-    }
-    return true;
+    return viewer->user_count == 0 || viewer->first_user + visible + 2 >= viewer->user_count;
 }
 
 float reaction_viewer_scroll_maximum(const ReactionViewer& viewer, bool users) noexcept {
@@ -313,7 +291,7 @@ float reaction_viewer_scroll_maximum(const ReactionViewer& viewer, bool users) n
 }
 
 bool reaction_viewer_set_scroll(ReactionViewer* viewer, bool users, float offset, bool* changed) noexcept {
-    if (!viewer || !changed || !viewer->active || !ui_coordinate_valid(offset)) return false;
+    if (!changed || !viewer->active || !ui_coordinate_valid(offset)) return false;
     float& position = users ? viewer->user_scroll : viewer->aggregate_scroll;
     const float next = minimum(maximum(0.0f, offset), reaction_viewer_scroll_maximum(*viewer, users));
     *changed = next != position;
@@ -403,7 +381,7 @@ ReactionViewerHit reaction_viewer_hit_test(const ReactionViewer& viewer, float x
 }
 
 bool reaction_viewer_set_hover(ReactionViewer* viewer, float x, float y, bool* changed) noexcept {
-    if (!viewer || !changed || !viewer->active) {
+    if (!viewer->active) {
         return false;
     }
     const ReactionViewerHit hit = reaction_viewer_hit_test(*viewer, x, y);
@@ -423,13 +401,11 @@ Utf8View reaction_viewer_aggregate_name(const ReactionViewer& viewer, u32 aggreg
         return Utf8View{};
     }
     const ReactionViewerAggregate& aggregate = viewer.aggregates[aggregate_index];
-    return aggregate.name_offset + aggregate.name_bytes <= sizeof(viewer.aggregate_names)
-               ? Utf8View{viewer.aggregate_names + aggregate.name_offset, aggregate.name_bytes}
-               : Utf8View{};
+    return Utf8View{viewer.aggregate_names + aggregate.name_offset, aggregate.name_bytes};
 }
 
 Utf8View reaction_viewer_user_name(const ReactionViewer& viewer, const ReactionViewerUser& user) noexcept {
-    return viewer.text && user.display_name_bytes != 0 &&
+    return user.display_name_bytes != 0 &&
                    user.display_name_offset + user.display_name_bytes <= viewer.text_used
                ? Utf8View{viewer.text + user.display_name_offset, user.display_name_bytes}
                : Utf8View{};
@@ -437,16 +413,14 @@ Utf8View reaction_viewer_user_name(const ReactionViewer& viewer, const ReactionV
 
 Utf8View reaction_viewer_user_username(const ReactionViewer& viewer,
                                        const ReactionViewerUser& user) noexcept {
-    return viewer.text && user.username_bytes != 0 &&
+    return user.username_bytes != 0 &&
                    user.username_offset + user.username_bytes <= viewer.text_used
                ? Utf8View{viewer.text + user.username_offset, user.username_bytes}
                : Utf8View{};
 }
 
 Utf8View reaction_viewer_user_avatar_hash(const ReactionViewerUser& user) noexcept {
-    return user.avatar_hash_bytes <= sizeof(user.avatar_hash)
-               ? Utf8View{user.avatar_hash, user.avatar_hash_bytes}
-               : Utf8View{};
+    return Utf8View{user.avatar_hash, user.avatar_hash_bytes};
 }
 
 } // namespace maicord

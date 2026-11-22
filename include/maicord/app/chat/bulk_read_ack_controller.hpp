@@ -2,7 +2,6 @@
 #include "maicord/core/slice.hpp"
 
 namespace maicord {
-inline constexpr u32 kBulkReadAckMaximumTargets = 4096;
 inline constexpr u32 kBulkReadAckMaximumBatch = 100;
 struct BulkReadAckIntent {
     u64 channel_id, message_id, action_serial, scope_serial, due_at_ms;
@@ -23,7 +22,7 @@ struct BulkReadAckController {
     u32 count, flight_count, pending_backed_count, flight_backed_count, generation, revision;
     bool inflight;
 };
-bool bulk_read_ack_initialize(BulkReadAckController*, Slice<BulkReadAckIntent> pending,
+void bulk_read_ack_initialize(BulkReadAckController*, Slice<BulkReadAckIntent> pending,
                               Slice<BulkReadAckIntent> flight, BulkReadAckReserve pending_reserve,
                               BulkReadAckReserve flight_reserve, void* context) noexcept;
 // Reserves the entire merged queue before changing any logical state.

@@ -823,9 +823,8 @@ bool warm(u32 sample) noexcept {
     auto& r = g_app.renderer;
     auto& scene = g_app.message_composer_scene;
     auto& controller = g_app.account_ui->message_composer_controller;
-    const auto counters = [&](u32 (&out)[15]) noexcept {
-        const u32 values[]{scene.projection_passes,
-                           scene.layout_passes,
+    const auto counters = [&](u32 (&out)[14]) noexcept {
+        const u32 values[]{scene.layout_passes,
                            g_app.shell_scene.layout_passes,
                            r.composer_layout.builds,
                            r.content_text->rebuilds,
@@ -841,7 +840,7 @@ bool warm(u32 sample) noexcept {
                            fixture->frame_requests};
         copy_bytes(out, values, sizeof(values));
     };
-    u32 before[15];
+    u32 before[14];
     counters(before);
     const u64 signature = scene.display_signature;
     const auto arena = scene.owned_storage.committed;
@@ -851,9 +850,9 @@ bool warm(u32 sample) noexcept {
         if (!project() || !probe_present(&r, fixture->theme))
             return false;
     }
-    u32 after[15];
+    u32 after[14];
     counters(after);
-    constexpr const char* names[]{"projection_delta",   "composer_layout_delta", "shell_layout_delta",
+    constexpr const char* names[]{"composer_layout_delta", "shell_layout_delta",
                                   "edit_shape_delta",   "text_build_delta",      "glyph_cache_delta",
                                   "paint_build_delta",  "paint_upload_delta",    "text_upload_delta",
                                   "media_upload_delta", "painted_delta",         "measure_delta",
@@ -863,7 +862,7 @@ bool warm(u32 sample) noexcept {
                  r.composer_layout.storage.arena.committed == edit_arena && arena > 0 &&
                  arena <= scene.owned_storage.reserved;
     log_u64(LogLevel::info, "composer_warm", "sample", sample);
-    for (u32 i = 0; i < 15; ++i) {
+    for (u32 i = 0; i < 14; ++i) {
         log_u64(LogLevel::info, "composer_warm", names[i], after[i] - before[i]);
         valid = valid && after[i] == before[i];
     }

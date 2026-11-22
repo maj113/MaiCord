@@ -16,9 +16,6 @@ bool value_u32(const JsonValue& value, u32* output) noexcept {
 bool bounded_string(const JsonString& source, u32 maximum_bytes, const RichText& text, Utf8View* value) noexcept {
     const Slice<char> output = text.output; // *value/*used are written before output is last read
     u32* const used = text.used;
-    if (*used > output.count) {
-        return false;
-    }
     reset_value<Utf8View>(value);
     const u32 remaining = output.count - *used;
     const JsonStringDecodeResult decoded =

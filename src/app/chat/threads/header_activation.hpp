@@ -5,7 +5,8 @@
 namespace maicord::app_detail {
 // Shared by production native dispatch and its test/probe adapters. Callbacks
 // borrow the UI-thread host only for this call. The host independently admits
-// the exact source ticket before queueing work.
+// the exact source ticket before queueing work. Every callback is set. Header activation needs
+// header and menu activation needs popup.
 struct ApplicationThreadHeaderActivationSource {
     void* context;
     UiThreadHeader* header;

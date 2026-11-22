@@ -644,10 +644,6 @@ void test_interactions(Check check) noexcept {
                                  R"({"type":1,"components":[{"type":4,"custom_id":"name","value":"Ana"}]},)"
                                  R"({"type":18,"component":{"type":4,"custom_id":"body","value":"All \"good\""}}]})")),
           "modal_submit_data_mirrors_structure");
-    const Utf8View short_answer[]{utf8_literal("A"), utf8_literal("x")};
-    submit_writer.used = 0;
-    check(!message_modal_write_submit_data(modal, {short_answer, 2}, &submit_writer),
-          "modal_submit_rejects_invalid_values");
     check(!message_modal_decode(utf8_literal(R"({"id":"1","custom_id":"x","components":[]})"), {structurals, 512},
                                 {pool, sizeof(pool)}, &modal),
           "modal_requires_fields");

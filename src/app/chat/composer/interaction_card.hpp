@@ -17,7 +17,7 @@ void application_interaction_card_close() noexcept;
 void application_interaction_card_press() noexcept;
 // The pinned tooltip while open: the chip's current rectangle and the text.
 bool application_interaction_card_target(u64 scope, UiTooltipTarget* target, UiTooltipStyle* style) noexcept;
-// The interaction-data request lane.
+// The interaction-data request lane: submit runs with a nonzero request id after pending reported work.
 bool application_interaction_card_pending(u64 now) noexcept;
 bool application_interaction_card_submit(u64 request_id, u64 now) noexcept;
 bool application_interaction_card_response(const RestClientResponse& response, Utf8View body) noexcept;

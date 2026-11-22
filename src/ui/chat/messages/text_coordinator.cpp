@@ -18,10 +18,6 @@ MessageTextCoordinatorResult message_text_coordinator_converge(
     if (request.trace) {
         request.trace->count = 0;
     }
-    if (!request.scene || !request.presentation || !request.measure_cache || !request.state ||
-        !request.navigation || !request.theme || !request.finalize) {
-        return result(MessageTextCoordinatorError::invalid_input);
-    }
     u64 previous_projection = 0;
     u64 previous_scroll_units = 0;
     u64 previous_total_units = 0;

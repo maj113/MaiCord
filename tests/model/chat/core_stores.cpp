@@ -268,13 +268,14 @@ void test_message_store() noexcept {
         "message_store_in_place_fixture");
     const MessageHandle in_place_10 = message_store_find(in_place_store, 10).handle;
     const MessageHandle in_place_20 = message_store_find(in_place_store, 20).handle;
-    expect(message_store_upsert(&in_place_store, MessageInput{10, 1, 1, 1, 4, utf8_literal("bb"), 1,
-                                                              MessageContentAvailability::restricted})
-                   .ok() &&
-               message_store_delete(&in_place_store, 30) &&
-               message_store_upsert(&in_place_store, MessageInput{40, 1, 1, 4, 0, utf8_literal("dddd"), 0})
-                   .ok() &&
-               message_store_compact_in_place(&in_place_store) && message_store_resolve(in_place_store, in_place_10) &&
+    const bool mutated =
+        message_store_upsert(&in_place_store, MessageInput{10, 1, 1, 1, 4, utf8_literal("bb"), 1,
+                                                           MessageContentAvailability::restricted})
+            .ok() &&
+        message_store_delete(&in_place_store, 30) &&
+        message_store_upsert(&in_place_store, MessageInput{40, 1, 1, 4, 0, utf8_literal("dddd"), 0}).ok();
+    message_store_compact_in_place(&in_place_store);
+    expect(mutated && in_place_store.text_used == 6 && message_store_resolve(in_place_store, in_place_10) &&
                message_store_resolve(in_place_store, in_place_20) &&
                message_store_resolve(in_place_store, in_place_10)->content_availability ==
                    MessageContentAvailability::restricted &&
@@ -327,6 +328,22 @@ void test_message_store() noexcept {
                 message_store_content(replace_store, message_store_find(replace_store, 1).handle),
                 utf8_literal("123456")),
         "message_store_replacement_compacts_without_scratch");
+    // An edit that grows moves its text past a newer message's text; compaction still keeps every message's text.
+    MessageRecord moved_records[3]{};
+    u32 moved_order[3]{};
+    u8 moved_text[12]{};
+    MessageStore moved_store{};
+    const auto moved = [&](u64 id) noexcept {
+        return message_store_content(moved_store, message_store_find(moved_store, id).handle);
+    };
+    expect(message_store_initialize(&moved_store, {moved_records, 3}, {moved_order, 3}, {moved_text, 12}) &&
+               message_store_upsert(&moved_store, MessageInput{1, 1, 1, 1, 0, utf8_literal("aa"), 0}).ok() &&
+               message_store_upsert(&moved_store, MessageInput{2, 1, 1, 2, 0, utf8_literal("bb"), 0}).ok() &&
+               message_store_upsert(&moved_store, MessageInput{1, 1, 1, 1, 3, utf8_literal("cccc"), 0}).ok() &&
+               message_store_upsert(&moved_store, MessageInput{3, 1, 1, 3, 0, utf8_literal("dddddd"), 0}).ok() &&
+               moved_store.text_used == 12 && utf8_equal(moved(1), utf8_literal("cccc")) &&
+               utf8_equal(moved(2), utf8_literal("bb")) && utf8_equal(moved(3), utf8_literal("dddddd")),
+           "message_store_compaction_keeps_text_an_edit_moved");
 
     MessageRecord overlap_records[3]{};
     u32 overlap_order[3]{};

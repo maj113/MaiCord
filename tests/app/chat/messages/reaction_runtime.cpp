@@ -462,8 +462,9 @@ void thread_reaction_tests() noexcept {
                   ApplicationMessageReactionEnqueueResult::accepted && send_next() && !submitted_add,
           "reaction runtime: own removal holds exact transport request");
     const auto before_cancel = cancellations;
-    check(chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, 70, 5, true) &&
-              application_message_reaction_synchronize() && !application_message_reaction_pending(now_ms) &&
+    const bool archived = chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, 70, 5, true);
+    application_message_reaction_synchronize();
+    check(archived && !application_message_reaction_pending(now_ms) &&
               cancellations == before_cancel + 1 && reaction()->count == 5 && (reaction()->flags & 1) &&
               complete() && !send_next() && reaction()->count == 5 && (reaction()->flags & 1),
           "reaction runtime: archive retires removal flight once and late success cannot replay inverse state");
@@ -548,8 +549,8 @@ void run() noexcept {
     check(reaction(900, 1) && reaction(900, 1)->count == 1,
           "reaction runtime: new queued emoji initially owns only its optimistic contribution");
     channel()->actions &= ~channel_action_add_reactions;
-    check(application_message_reaction_synchronize() && !reaction(900, 1) && reaction()->count == 5 &&
-              (reaction()->flags & 1),
+    application_message_reaction_synchronize();
+    check(!reaction(900, 1) && reaction()->count == 5 && (reaction()->flags & 1),
           "reaction runtime: Add reactions revocation removes only unavailable new emoji while existing "
           "flight remains eligible");
     bool permission_error{};
@@ -595,6 +596,21 @@ void run() noexcept {
           "reaction runtime: proved fresh content revision rolls back unavailable new emoji without ghost "
           "or content loss");
 
+    check(seed(), "reaction runtime: edit response fixture resets");
+    application_queue_message_reaction_emoji(900, 0, glyph(), false);
+    GatewayMessageEvent edited{};
+    edited.id = 900;
+    edited.channel_id = 70;
+    edited.fields = gateway_message_field_id | gateway_message_field_channel_id | gateway_message_field_content;
+    edited.content = utf8_literal("Edited before the next pump");
+    check(message_timeline_apply_updated(&g_app.message_view.timeline, edited).ok() &&
+              application_queue_message_reaction(900, reaction_index()) ==
+                  ApplicationMessageReactionEnqueueResult::coalesced &&
+              reaction()->count == 4 && !(reaction()->flags & 1) &&
+              !application_message_reaction_pending(now_ms),
+          "reaction runtime: a click right after an edit response, with no pump between, undoes the "
+          "unsent add");
+
     check(seed(), "reaction runtime: API admission fixture resets");
     application_queue_message_reaction_emoji(900, 0, glyph(), false);
     transport_busy = true;
@@ -613,18 +629,19 @@ void run() noexcept {
     check(!application_message_reaction_response(stale),
           "reaction runtime: unrelated response cannot drain actual submitted request ID");
     channel()->actions &= ~channel_action_read_history;
-    check(
-        application_message_reaction_synchronize() && !application_message_reaction_pending(now_ms) &&
-            cancellations,
-        "reaction runtime: source permission revocation cancels intent while retaining exact flight drain");
+    application_message_reaction_synchronize();
+    check(!application_message_reaction_pending(now_ms) && cancellations,
+          "reaction runtime: source permission revocation cancels intent while retaining exact flight drain");
     check(complete() && !application_message_reaction_pending(now_ms),
           "reaction runtime: revoked source successful response drains without resurrection");
 
     check(seed(), "reaction runtime: source reuse fixture resets");
     application_queue_message_reaction_emoji(900, 0, glyph(), false);
     send_next();
-    check(message_timeline_remove_local(&g_app.message_view.timeline, 900).ok() && create_message() &&
-              application_message_reaction_synchronize() && !application_message_reaction_pending(now_ms),
+    const bool recycled =
+        message_timeline_remove_local(&g_app.message_view.timeline, 900).ok() && create_message();
+    application_message_reaction_synchronize();
+    check(recycled && !application_message_reaction_pending(now_ms),
           "reaction runtime: actual resident slot recycle retires old source generation");
     check(complete() && reaction()->count == 4 && !(reaction()->flags & 1),
           "reaction runtime: old successful response cannot project into recycled same message ID");
@@ -653,7 +670,9 @@ void run() noexcept {
           "reaction runtime: channel navigation clears actual message and rich history stores");
     ui.active_channel_id = 70;
     chat_state_store_select_channel(&ui.chat_state, 70);
-    check(create_message() && application_message_reaction_synchronize() && reaction() &&
+    const bool created = create_message();
+    application_message_reaction_synchronize();
+    check(created && reaction() &&
               reaction()->count == 5 && (reaction()->flags & 1) && reaction(900, 1) &&
               reaction(900, 1)->count == 1 && (reaction(900, 1)->flags & 1),
           "reaction runtime: hydrated source receives both latest retained emoji choices before frame "

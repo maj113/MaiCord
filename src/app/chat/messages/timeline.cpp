@@ -233,9 +233,8 @@ u64 message_timeline_maximum_scroll(const MessageTimeline& timeline) noexcept {
 
 const MessageRecord* message_timeline_authoritative_edge(const MessageStore& store, bool newest) noexcept {
     for (u32 i = 0; i < store.count; ++i) {
-        const MessageRecord* record =
-            message_store_ordered_record(store, newest ? store.count - 1 - i : i);
-        if (record && record->delivery == MessageDeliveryState::authoritative)
+        const MessageRecord* record = message_store_ordered_record(store, newest ? store.count - 1 - i : i);
+        if (record->delivery == MessageDeliveryState::authoritative)
             return record;
     }
     return nullptr;

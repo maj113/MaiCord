@@ -50,7 +50,7 @@ bool timeline_current(const ApplicationMessageNavigationSource& source) noexcept
     const auto* channel = chat_state_store_find_channel(state, source.channel_id);
     const auto* message = message_store_resolve(g_app.message_view.store, source.handle);
     return channel && application_channel_record_readable(state, *channel) &&
-        channel->generation == source.channel_generation && message && message->occupied &&
+        channel->generation == source.channel_generation && message &&
         message->id == source.message_id && message->channel_id == source.channel_id && message->revision == source.revision &&
         message->delivery == MessageDeliveryState::authoritative;
 }
@@ -75,7 +75,7 @@ bool current() noexcept {
     if (!actor || deleted(navigation.target_channel) || deleted(navigation.parent)) return false;
     if (navigation.target_guild) {
         const auto* guild = chat_state_store_find_guild(g_app.account_ui->chat_state, navigation.target_guild);
-        if (!guild || !guild->occupied || guild->unavailable) return false;
+        if (!guild || guild->unavailable) return false;
     }
     if (navigation.admitted) {
         const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, navigation.target_channel);
@@ -256,7 +256,7 @@ bool begin_navigation(const ApplicationSearchNavigationSource& source, const Mes
     if (!target.channel_id || !target.message_id) { finish(utf8_literal("This message link is invalid."), ApplicationMessageNavigationStage::error); return true; }
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, target.channel_id);
     const auto* target_guild = target.guild_id ? chat_state_store_find_guild(g_app.account_ui->chat_state, target.guild_id) : nullptr;
-    if ((target.guild_id && (!target_guild || !target_guild->occupied || target_guild->unavailable)) ||
+    if ((target.guild_id && (!target_guild || target_guild->unavailable)) ||
         (channel && channel->guild_id != target.guild_id)) {
         finish(utf8_literal("This channel isn't available on this account."), ApplicationMessageNavigationStage::message_missing, 404);
         return true;
@@ -282,7 +282,7 @@ bool application_search_navigation_link(const ApplicationSearchSourceTicket& tic
 }
 bool application_message_navigation_source(u64 channel, u64 message, MessageHandle handle, u32 revision,
     ApplicationMessageNavigationSource* output) noexcept {
-    if (!output || !g_app.account_ui || !g_app.account.instance) return false;
+    if (!g_app.account_ui || !g_app.account.instance) return false;
     const auto* row = chat_state_store_find_channel(g_app.account_ui->chat_state, channel);
     if (!row) return false;
     ApplicationMessageNavigationSource source{channel, message, handle, revision,
@@ -355,7 +355,6 @@ void application_search_navigation_release() noexcept {
 }
 void application_message_navigation_release() noexcept { retire(); }
 bool application_message_navigation_active() noexcept { return navigation.phase != MessageNavigationPhase::idle; }
-bool application_message_navigation_observation_needed() noexcept { return application_message_navigation_active() || navigation.request_id; }
 bool application_message_navigation_cancel() noexcept {
     if (!application_message_navigation_active()) return false;
     notice(utf8_literal("Opening the message was cancelled."), ApplicationMessageNavigationStage::cancelled);

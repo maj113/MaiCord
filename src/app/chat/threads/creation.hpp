@@ -56,6 +56,7 @@ bool application_thread_creation_current(const ApplicationThreadCreationTicket&)
 bool application_thread_creation_name_submit(const ApplicationThreadCreationTicket&, Utf8View) noexcept;
 bool application_thread_creation_retry(const ApplicationThreadCreationTicket&) noexcept;
 bool application_thread_creation_pending(u64 now_ms) noexcept;
+// The request lanes give a nonzero request id.
 bool application_thread_creation_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_thread_creation_response(const RestClientResponse&, Utf8View) noexcept;
 bool application_thread_creation_synchronize() noexcept;

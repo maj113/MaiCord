@@ -120,6 +120,7 @@ ThreadBrowserResult thread_browser_decode_posts(
     Slice<u32> structural_scratch, Slice<ThreadBrowserRow> row_scratch,
     Slice<char> name_scratch, Slice<ThreadBrowserPost> post_scratch, Slice<char> text_scratch,
     ThreadBrowserPage* output, ThreadBrowserPostPage* post_output) noexcept;
+// Text views of a decoded page; index must be below its row_count (post_count for the posts).
 Utf8View thread_browser_row_name(const ThreadBrowserPage&, u32 index) noexcept;
 Utf8View thread_browser_post_preview(const ThreadBrowserPostPage&, u32 index) noexcept;
 Utf8View thread_browser_post_author_name(const ThreadBrowserPostPage&, u32 index) noexcept;

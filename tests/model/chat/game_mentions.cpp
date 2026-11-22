@@ -29,8 +29,8 @@ struct Store {
     GameRecord records[4]{};
     GameSearchEntry searches[2]{};
     GameStore store{};
-    bool initialize() noexcept {
-        return game_store_initialize(&store, {records, 4}, {searches, 2});
+    void initialize() noexcept {
+        game_store_initialize(&store, {records, 4}, {searches, 2});
     }
 };
 
@@ -45,7 +45,7 @@ GuildAdminGame game(u64 id, const char* name) noexcept {
 void test_store(Check check) noexcept {
     static Store s;
     s = Store{};
-    check(s.initialize(), "game store: initializes over caller storage");
+    s.initialize();
     auto& store = s.store;
     check(game_store_want(&store, 10, 0) && game_store_want(&store, 11, 0) && !game_store_want(&store, 10, 0) &&
               game_store_batch_due(store),

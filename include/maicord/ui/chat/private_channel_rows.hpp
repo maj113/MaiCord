@@ -117,8 +117,6 @@ constexpr UiPrivateRowPlate ui_private_row_plate(bool selected, bool hovered, bo
 }
 // The conversation whose context menu is open (the source's popup), else zero.
 u64 ui_private_row_menu_channel(const UiPrivateRowSource& source) noexcept;
-// Where a hovered or selected row shows its peer's nameplate: the row's highlight.
-UiRect ui_private_row_highlight(const UiRect& row, const UiRect& avatar) noexcept;
 // A one-to-one row's pictures: the peer's nameplate while the row is hovered or selected (animated under the
 // pointer when `animate`, with the still behind it, as the member list) and the server tag's badge.
 enum class UiPrivateRowMedia : u8 { nameplate, nameplate_still, tag };

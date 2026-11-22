@@ -1,7 +1,7 @@
 #include "maicord/ui/chat/composer/attachment_menu.hpp"
 namespace maicord {
 u32 attachment_file_menu(Utf8View filename, bool spoiler, Slice<PopupItem> output) noexcept {
-    if (!filename.data || !filename.bytes || !output.data || output.count < kAttachmentFileMenuItems) return 0;
+    if (!filename.bytes) return 0;
     popup_item_set(&output[0], filename, popup_action_attachment_title);
     popup_item_set(&output[1], spoiler ? utf8_literal("Remove spoiler") : utf8_literal("Mark as spoiler"),
         popup_action_attachment_spoiler, static_cast<u16>(popup_item_enabled | (spoiler ? popup_item_checked : 0)));
@@ -13,7 +13,7 @@ u32 attachment_file_menu(Utf8View filename, bool spoiler, Slice<PopupItem> outpu
     return kAttachmentFileMenuItems;
 }
 u32 attachment_modify_menu(Utf8View filename, bool described, Slice<PopupItem> output) noexcept {
-    if (!filename.data || !filename.bytes || !output.data || output.count < kAttachmentModifyMenuItems) return 0;
+    if (!filename.bytes) return 0;
     popup_item_set(&output[0], filename, popup_action_attachment_title);
     popup_item_set(&output[1], utf8_literal("Rename file"), popup_action_attachment_rename, popup_item_enabled);
     output[1].presentation = ui_menu_row_presentation(UiIcon::edit);

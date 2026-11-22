@@ -20,9 +20,8 @@ struct PollRequest {
     u32 answer_id, limit;
     u8 answer_count;
     PollOperation operation;
-    u8 reserved[6];
 };
-enum class PollWriteError : u8 { none, invalid_input, output_capacity };
+enum class PollWriteError : u8 { none, output_capacity };
 struct PollWriteResult {
     u64 route_id;
     u32 target_bytes, body_bytes;
@@ -30,6 +29,7 @@ struct PollWriteResult {
     PollWriteError error;
     bool ok() const noexcept { return error==PollWriteError::none; }
 };
+// Writes straight into the caller's kPollMaximumTargetBytes / kPollMaximumRequestBodyBytes buffers.
 PollWriteResult write_poll_request(const PollRequest&,
     Slice<u8> target, Slice<u8> body) noexcept;
 enum class PollDecodeError : u8 { none, invalid_input, scan, json, identity, poll, users };

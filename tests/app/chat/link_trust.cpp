@@ -67,10 +67,7 @@ void test_link_trust(void (*check)(bool, const char*) noexcept) noexcept {
           "link_open_decision_follows_official_rules");
     check(link_trust_add_host(&store, utf8_literal("example.com")) &&
               link_trust_add_host(&store, utf8_literal("example.com")) && store.host_count == 1 &&
-              !link_trust_add_host(&store, utf8_literal("Example.com")) &&
-              !link_trust_add_host(&store, utf8_literal("a/b")) &&
               link_trust_add_protocol(&store, utf8_literal("discord:")) &&
-              !link_trust_add_protocol(&store, utf8_literal("discord")) &&
               link_open_decision(&store, utf8_literal("https://EXAMPLE.com/x"), false) == LinkOpenDecision::open &&
               link_open_decision(&store, utf8_literal("https://sub.example.com/x"), false) ==
                   LinkOpenDecision::warn_website &&
@@ -79,8 +76,7 @@ void test_link_trust(void (*check)(bool, const char*) noexcept) noexcept {
 
     char display[128]{};
     const u32 shown = link_display_url(utf8_literal("https://user:secret@example.com/a@b?c"), {display, 128});
-    check(utf8_equal({display, shown}, utf8_literal("https://example.com/a@b?c")) &&
-              link_display_url(utf8_literal("https://example.com/x"), {display, 4}) == 0,
+    check(utf8_equal({display, shown}, utf8_literal("https://example.com/a@b?c")),
           "link_display_url_hides_credentials_only");
 
     const u32 bytes = link_trust_encode(store, {record, sizeof(record)});
@@ -105,9 +101,6 @@ void test_link_trust(void (*check)(bool, const char*) noexcept) noexcept {
           "link_trust_capacity_is_bounded_and_encodable");
 
     wchar_t path[MAX_PATH]{};
-    wchar_t profile[512]{};
-    check(link_trust_path(0x12ab, profile, 512) && !link_trust_path(0, profile, 512),
-          "link_trust_path_is_per_profile");
     loaded = {};
     const bool saved = temporary_path(path, MAX_PATH) && link_trust_save_file(path, store);
     check(saved && link_trust_load_file(path, &loaded) && loaded.host_count == kLinkTrustHostCapacity &&

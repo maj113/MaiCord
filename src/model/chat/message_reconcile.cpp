@@ -209,7 +209,7 @@ MessageReconcileResult message_reconcile_validate_update(
 
 MessageReconcileResult message_reconcile_delete(
     MessageStore* store, const GatewayMessageDeleteEvent& event) noexcept {
-    if (!store || event.id == 0 || event.channel_id == 0) {
+    if (event.id == 0 || event.channel_id == 0) {
         return reconcile_error(MessageReconcileError::invalid_input);
     }
     const MessageRecord* record = nullptr;

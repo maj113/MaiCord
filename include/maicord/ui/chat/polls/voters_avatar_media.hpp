@@ -9,7 +9,7 @@ namespace maicord {
 inline bool poll_voters_avatar_media_resolve(const UiPollVotersScene& scene, u32 index,
                                              AvatarMedia* out) noexcept {
     UiRect rectangle{}, clip{};
-    if (!out || !ui_poll_voters_avatar(scene, index, &rectangle, &clip))
+    if (!ui_poll_voters_avatar(scene, index, &rectangle, &clip))
         return false;
     const auto& voter = scene.state.voters[index];
     MediaAssetKey key;

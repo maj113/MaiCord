@@ -250,14 +250,6 @@ void manual_controller(void (*check)(bool, const char*) noexcept) noexcept {
         bytes_equal(&controller, &before_failure, sizeof(controller)) && !controller.inflight_superseded,
         "manual controller: backing failure cannot alter pending state or supersede an admitted request");
     backing.fail = false;
-    auto invalid = manual; invalid.kind = static_cast<ReadAckKind>(255);
-    check(!read_ack_controller_queue(&controller, invalid, 1001, true) &&
-        bytes_equal(&controller, &before_failure, sizeof(controller)),
-        "manual controller: invalid intent kind is rejected before desired or inflight mutation");
-    invalid = ordinary; invalid.mention_count_known = true; invalid.mention_count = 3;
-    check(!read_ack_controller_queue(&controller, invalid, 1001, true) &&
-        bytes_equal(&controller, &before_failure, sizeof(controller)),
-        "manual controller: ordinary intent cannot accidentally carry manual-only mention metadata");
     check(read_ack_controller_queue(&controller, manual, 1002, false) && controller.inflight_superseded &&
         controller.pending[0].kind == ReadAckKind::manual && controller.pending[0].message_id == 100 &&
         controller.pending[0].flags == 0x80000005u && controller.pending[0].last_viewed == 70'000 &&

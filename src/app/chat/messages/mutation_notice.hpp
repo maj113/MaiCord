@@ -38,9 +38,7 @@ static_assert(sizeof(ApplicationMessageMutationNotice) == 352);
 void application_message_mutation_notice_begin(ApplicationMessageMutationKind kind, u64 channel_id,
                                                u64 message_id) noexcept;
 void application_message_mutation_notice_pending(ApplicationMessageMutationKind kind, u64 channel_id,
-                                                 u64 message_id) noexcept;
-void application_message_mutation_notice_pending(ApplicationMessageMutationKind kind, u64 channel_id,
-                                                 u64 message_id, u16 status_code) noexcept;
+                                                 u64 message_id, u16 status_code = 0) noexcept;
 void application_message_mutation_notice_navigation_pending(u64 channel_id, u64 message_id,
                                                             ApplicationMessageNavigationStage stage,
                                                             u16 status_code = 0) noexcept;

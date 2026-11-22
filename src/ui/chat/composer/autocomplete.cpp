@@ -92,9 +92,9 @@ bool set_emoji_insertion(ComposerAutocompleteSuggestion* suggestion, Utf8View gl
     return true;
 }
 
+// The caller appended `name` as the label and drops the row when set_emoji_insertion refuses `glyph`.
 bool set_emoji_label(ComposerAutocompleteSuggestion* suggestion, Utf8View name, Utf8View glyph) noexcept {
-    if (!name.data || !glyph.data || name.bytes == 0 || glyph.bytes == 0 ||
-        glyph.bytes + name.bytes + 4u > sizeof(suggestion->label_storage)) {
+    if (glyph.bytes + name.bytes + 4u > sizeof(suggestion->label_storage)) {
         return false;
     }
     u32 cursor = 0;
@@ -575,8 +575,6 @@ bool emoji_query_word(Utf8View name, Utf8View query, bool fold) noexcept {
 
 // `query` is lowercased.
 u32 emoji_match_points(Utf8View name, Utf8View query) noexcept {
-    if (!name.data)
-        return 1;
     return 1 + (name.bytes == query.bytes && ascii_equal_ignore_case(name, query) ? 4 : 0) +
            (emoji_query_word(name, query, true) || emoji_query_word(name, query, false) ? 2 : 0) +
            (starts_with_folded_ascii(name, query) ? 1 : 0);
@@ -760,9 +758,6 @@ bool composer_autocomplete_build(ComposerAutocomplete* autocomplete, const Messa
                                  const ChatStateStore& state, const GuildMemberStore* member_store,
                                  const MessageStore* messages, const ReactionPreferenceStore* preferences,
                                  bool game_mentions) noexcept {
-    if (!autocomplete) {
-        return false;
-    }
     autocomplete->count = 0;
     autocomplete->token_begin = 0;
     autocomplete->token_end = 0;

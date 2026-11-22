@@ -57,6 +57,7 @@ bool application_forum_post_retry(const ApplicationForumPostTicket&,
 bool application_forum_post_inspect(const ApplicationForumPostTicket&) noexcept;
 bool application_forum_post_cancel(const ApplicationForumPostTicket&) noexcept;
 bool application_forum_post_pending(u64 now_ms) noexcept;
+// The request lanes give a nonzero request id.
 bool application_forum_post_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_forum_post_response(const RestClientResponse&, Utf8View) noexcept;
 bool application_forum_post_synchronize() noexcept;

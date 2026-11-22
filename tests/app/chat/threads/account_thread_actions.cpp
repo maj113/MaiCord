@@ -85,7 +85,6 @@ void run() noexcept {
         !thread_member_decode({}, 20, 30, &member).ok() &&
         !thread_member_decode(utf8_literal("{}"), 0, 30, &member).ok() &&
         !thread_member_decode(utf8_literal("{}"), 20, 0, &member).ok() &&
-        !thread_member_decode(utf8_literal("{}"), 20, 30, nullptr).ok() &&
         member.thread_id == 99 && member.flags == 96,
         "thread protocol: invalid UTF-8 absent input and unbound actor refuse atomically");
     constexpr Utf8View invalid_members[] = {

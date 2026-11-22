@@ -79,13 +79,13 @@ ApplicationScopedRead* ensure_owner(const ApplicationScopedReadTicket& actor) no
         !stable_storage_initialize(&o->plan, 4096, 0, sizeof(ReadScopeTarget), alignof(ReadScopeTarget)) ||
         !stable_storage_initialize(&o->candidates, 4096, 0, sizeof(BulkReadAckIntent),
                                    alignof(BulkReadAckIntent)) ||
-        !stable_storage_initialize(&o->jobs, 4096, 0, sizeof(ScopedJob), alignof(ScopedJob)) ||
-        !bulk_read_ack_initialize(&o->queue, {stable_storage_data<BulkReadAckIntent>(o->queued), 4096},
-                                  {stable_storage_data<BulkReadAckIntent>(o->admitted), 100},
-                                  reserve_queued, reserve_admitted, o)) {
+        !stable_storage_initialize(&o->jobs, 4096, 0, sizeof(ScopedJob), alignof(ScopedJob))) {
         destroy(o);
         return nullptr;
     }
+    bulk_read_ack_initialize(&o->queue, {stable_storage_data<BulkReadAckIntent>(o->queued), 4096},
+                             {stable_storage_data<BulkReadAckIntent>(o->admitted), 100}, reserve_queued,
+                             reserve_admitted, o);
     o->actor = actor;
     g_app.scoped_read = o;
     return o;

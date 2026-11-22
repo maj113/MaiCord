@@ -61,7 +61,7 @@ ReceivedAttachmentLinkKind received_attachment_link_kind(const Utf8View& url) no
 }
 
 u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, const Slice<PopupItem>& output) noexcept {
-    if (!output.data || output.count < kReceivedAttachmentMenuItems || !secure_url(facts.url))
+    if (!secure_url(facts.url))
         return 0;
     u32 count = 0;
     const auto add = [&](Utf8View label, u32 action, UiIcon icon, bool group_start) noexcept {
@@ -92,8 +92,6 @@ u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, const Sli
 namespace {
 u32 link_pair(const Utf8View (&labels)[kMessageLinkMenuItems], const u32 (&actions)[kMessageLinkMenuItems],
               const UiIcon (&icons)[kMessageLinkMenuItems], const Slice<PopupItem>& output) noexcept {
-    if (!output.data || output.count < kMessageLinkMenuItems)
-        return 0;
     for (u32 i = 0; i < kMessageLinkMenuItems; ++i) {
         PopupItem item{labels[i], actions[i],
                        static_cast<u16>(popup_item_enabled | (i == 0 ? popup_item_separator_before : 0)), 0};
@@ -105,7 +103,7 @@ u32 link_pair(const Utf8View (&labels)[kMessageLinkMenuItems], const u32 (&actio
 } // namespace
 
 u32 message_link_menu(Utf8View url, Slice<PopupItem> output) noexcept {
-    if (!url.data || !url.bytes)
+    if (!url.bytes)
         return 0;
     const auto link = received_attachment_link_kind(url);
     const Utf8View labels[]{link_label(link, false), link_label(link, true)};

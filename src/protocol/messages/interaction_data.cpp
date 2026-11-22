@@ -135,7 +135,7 @@ bool visit_option(void* opaque, u32, JsonValue value) noexcept {
 } // namespace
 
 u32 interaction_data_write_target(u64 channel_id, u64 message_id, Slice<u8> output) noexcept {
-    if (!channel_id || !message_id || !output.data)
+    if (!channel_id || !message_id)
         return 0;
     ProtocolWriter writer{output, 0};
     const bool ok = protocol_write(&writer, "/api/v9/channels/", channel_id, "/messages/", message_id,

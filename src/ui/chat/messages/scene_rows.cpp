@@ -691,17 +691,15 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
     if (!message_timeline_restore_scroll(&timeline, restored, timeline.follow_bottom))
         return false;
     scene->prepared_signature = epoch;
-    saturating_increment(scene->preparation_passes);
     return true;
 }
 
 namespace {
+// The handles are the row's, live since the materialization made them.
 bool set_fixed_height(MessageScene* scene, UiWidgetHandle handle, float height) noexcept {
-    UiLayoutNode* node = ui_widget_manager_layout_node(&scene->widgets, handle);
-    if (!node || !ui_extent_valid(height)) {
+    if (!ui_extent_valid(height))
         return false;
-    }
-    node->spec.style.height = ui_layout_fixed(height);
+    ui_widget_manager_layout_node(&scene->widgets, handle)->spec.style.height = ui_layout_fixed(height);
     return true;
 }
 
@@ -725,15 +723,13 @@ static bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row, con
                         result_card_leading(*scene) + result_card_trailing(*scene);
     const float content = maximum(0.0f, resident_height - fixed);
     UiLayoutNode* row_node = ui_widget_manager_layout_node(&scene->widgets, row->widget);
-    if (!row_node) {
-        return false;
-    }
     row_node->spec.style.height = ui_layout_fixed(resident_height);
     row_node->spec.style.gap = avatar_gap(*scene);
-    if (scene->plugin_decorations)
-        if (auto* widget = ui_widget_manager_resolve(&scene->widgets, row->widget))
-            widget->flags = row->redacted ? static_cast<u16>(widget->flags | ui_widget_block_input)
-                                          : static_cast<u16>(widget->flags & ~ui_widget_block_input);
+    if (scene->plugin_decorations) {
+        auto* widget = ui_widget_manager_resolve(&scene->widgets, row->widget);
+        widget->flags = row->redacted ? static_cast<u16>(widget->flags | ui_widget_block_input)
+                                      : static_cast<u16>(widget->flags & ~ui_widget_block_input);
+    }
     row_node->spec.style.padding =
         UiInsets{metrics(*scene).message_left,
                  row_top_padding(*scene, row->grouped) + row_leading(*scene, *row) +
@@ -741,9 +737,6 @@ static bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row, con
                  metrics(*scene).message_right,
                  row_bottom_padding(*scene, row->grouped) + result_card_trailing(*scene)};
     UiLayoutNode* avatar_node = ui_widget_manager_layout_node(&scene->widgets, row->avatar);
-    if (!avatar_node) {
-        return false;
-    }
     avatar_node->spec.style.width = ui_layout_fixed(avatar_width(*scene));
     avatar_node->spec.style.height = ui_layout_fixed(avatar_height(*scene, row->grouped));
     avatar_node->spec.style.margin.top = row->grouped && !compact(*scene) ? 0.0f : reply;

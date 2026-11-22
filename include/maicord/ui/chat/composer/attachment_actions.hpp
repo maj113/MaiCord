@@ -26,19 +26,17 @@ inline UiRect ui_attachment_save_rectangle(UiRect attachment, bool file_card) no
 }
 // Virtual child action: the attachment widget owns its hover/focus. The
 // caller passes the same action rectangle and clip that input uses, and may
-// expose the action while the containing media row is active.
+// expose the action while the containing media row is active. The rectangle is
+// ui_attachment_save_rectangle's or a laid-out button's and the clip an
+// intersection, so neither is reversed.
 inline bool ui_attachment_save_paint(PaintStream* paint, UiWidgetReference owner,
     UiRect rectangle, UiRect clip, const Theme& theme, bool file_card,
     bool parent_active = false) noexcept {
-    if (!paint || !ui_rect_valid_or_empty(rectangle) || !ui_rect_valid_or_empty(clip)) return false;
     if (!ui_rect_has_area(rectangle) || !ui_rect_has_area(clip)) return true;
     if (!owner.manager || !ui_widget_manager_input_enabled(*owner.manager,owner.handle)) return true;
-    const auto same = [](UiWidgetHandle a, UiWidgetHandle b) noexcept {
-        return a.generation && a.slot == b.slot && a.generation == b.generation;
-    };
     const auto& manager = *owner.manager;
-    const bool hover = same(manager.hovered,owner.handle);
-    const bool focus = same(manager.focused,owner.handle);
+    const bool hover = ui_widget_handle_matches(manager.hovered, owner.handle);
+    const bool focus = ui_widget_handle_matches(manager.focused, owner.handle);
     if (!file_card && !parent_active && !hover && !focus) return true;
     const auto* node = ui_widget_manager_layout_node(manager,owner.handle);
     if (!node) return true;
@@ -77,17 +75,15 @@ inline UiRect ui_gif_favorite_rectangle(const UiRect& media, const Theme& theme)
     return star;
 }
 // Shown while the media widget is hovered or focused. A saved GIF draws a
-// filled star; a change in flight dims it.
+// filled star; a change in flight dims it. The rectangle is ui_gif_favorite_rectangle's.
 inline bool ui_gif_favorite_paint(PaintStream* paint, UiWidgetReference owner, UiRect rectangle, UiRect clip,
                                   const Theme& theme, bool favorite, bool pending) noexcept {
-    if (!paint || !ui_rect_valid_or_empty(rectangle) || !ui_rect_valid_or_empty(clip)) return false;
     if (!ui_rect_has_area(rectangle) || !ui_rect_has_area(clip)) return true;
     if (!owner.manager || !ui_widget_manager_input_enabled(*owner.manager, owner.handle)) return true;
-    const auto same = [](UiWidgetHandle a, UiWidgetHandle b) noexcept {
-        return a.generation && a.slot == b.slot && a.generation == b.generation;
-    };
     const auto& manager = *owner.manager;
-    if (!same(manager.hovered, owner.handle) && !same(manager.focused, owner.handle)) return true;
+    if (!ui_widget_handle_matches(manager.hovered, owner.handle) &&
+        !ui_widget_handle_matches(manager.focused, owner.handle))
+        return true;
     const auto* node = ui_widget_manager_layout_node(manager, owner.handle);
     if (!node) return true;
     clip = ui_rect_intersection(clip, node->clip_rectangle);

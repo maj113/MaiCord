@@ -34,8 +34,7 @@ inline constexpr usize kReactionPickerStorageBytes =
     sizeof(ReactionPickerSection) * kReactionPickerSectionCapacity + 128;
 
 inline bool storage_valid(const ReactionPickerModel* picker) noexcept {
-    return picker && picker->storage.base && picker->results && picker->custom_order && picker->guilds &&
-           picker->sections;
+    return picker->storage.base && picker->results && picker->custom_order && picker->guilds && picker->sections;
 }
 
 bool initialize_storage(ReactionPickerModel* picker, const ChatStateStore* state, MessageComposer* search) noexcept {
@@ -44,9 +43,9 @@ bool initialize_storage(ReactionPickerModel* picker, const ChatStateStore* state
         return false;
     }
     const u32 emoji_capacity =
-        maximum(1u, minimum(kReactionPickerCustomEmojiCapacity, state ? state->emoji_count : 0));
+        maximum(1u, minimum(kReactionPickerCustomEmojiCapacity, state->emoji_count));
     const u32 guild_capacity =
-        maximum(1u, minimum(kReactionPickerGuildCapacity, state ? state->guild_count : 0));
+        maximum(1u, minimum(kReactionPickerGuildCapacity, state->guild_count));
     picker->search = search;
     picker->query_bytes = search->bytes;
     picker->search_revision = search->text_revision;
@@ -72,7 +71,7 @@ inline bool push_result(ReactionPickerModel* picker, u32 value) noexcept {
 // The snapshot's emoji at a chat state index; null once the array changed.
 const CustomEmojiRecord* custom_emoji(const ReactionPickerModel& picker, u32 index) noexcept {
     const auto* state = picker.state;
-    return state && state->emojis && state->emoji_mutations == picker.emoji_mutations && index < state->emoji_count
+    return state->emojis && state->emoji_mutations == picker.emoji_mutations && index < state->emoji_count
                ? &state->emojis[index]
                : nullptr;
 }
@@ -127,13 +126,10 @@ bool custom_before(const CustomEmojiRecord& left, const CustomEmojiRecord& right
 
 bool snapshot_custom_emojis(ReactionPickerModel* picker, const ChatStateStore* state,
                             u64 guild_id) noexcept {
-    if (!picker->storage.base || !picker->custom_order || !picker->guilds) {
-        return false;
-    }
     picker->custom_emoji_count = picker->guild_count = 0;
     picker->state = state;
-    picker->emoji_mutations = state ? state->emoji_mutations : 0;
-    if (!state || !state->emojis)
+    picker->emoji_mutations = state->emoji_mutations;
+    if (!state->emojis)
         return true;
     // A server's emoji are replaced together, so each forms a run of the
     // array; the runs are found once instead of scanning it per server.
@@ -397,9 +393,6 @@ ReactionPickerResult reaction_picker_open(ReactionPickerModel* picker, u64 messa
 }
 
 void reaction_picker_release(ReactionPickerModel* picker) noexcept {
-    if (!picker) {
-        return;
-    }
     arena_release(&picker->storage);
     reset_value<ReactionPickerModel>(picker);
 }
@@ -465,7 +458,7 @@ bool resolve_result(const ReactionPickerModel& picker, u32 result, ReactionPicke
 
 bool reaction_picker_result_at(const ReactionPickerModel& picker, u32 index,
                                ReactionPickerSelection* selection, Utf8View* label) noexcept {
-    return storage_valid(&picker) && selection && index < picker.result_count &&
+    return storage_valid(&picker) && index < picker.result_count &&
            resolve_result(picker, picker.results[index], selection, label);
 }
 Utf8View reaction_picker_section_label(const ReactionPickerModel& picker, u32 section) noexcept {
@@ -513,8 +506,6 @@ ReactionEmojiRef reaction_emoji_from_settings_key(const Utf8View& key) noexcept 
 
 u32 reaction_emoji_scan_message(Utf8View content, Slice<ReactionEmojiRef> output) noexcept {
     u32 count = 0;
-    if (!content.data || !output.data)
-        return 0;
     const u32 limit = minimum(content.bytes, 4'000u);
     const auto add = [&](ReactionEmojiRef emoji) noexcept {
         if (!emoji.valid() || count == output.count)

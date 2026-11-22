@@ -592,8 +592,7 @@ RestClientSubmitResult account_module_message_edit(void* instance, u64 channel_i
         return kInvalidSubmit;
     }
     u8 target[128];
-    const MessageEditWriteResult target_written =
-        write_message_edit_target(channel_id, message_id, Slice<u8>{target, sizeof(target)});
+    const auto target_written = write_message_delete_target(channel_id, message_id, {target, sizeof(target)});
     const MessageEditWriteResult body_written =
         write_message_edit_body(content, Slice<u8>{g_request_body, kMessageEditMaximumBodyBytes});
     return submit_channel_body(rest, target_written.ok() && body_written.ok(), target, target_written.bytes,

@@ -996,8 +996,7 @@ void prefix_grouped_authors(UiAccessTree* tree) noexcept {
         const u32 node = ui_access_widget_node(*tree, {&scene.widgets, row.widget});
         if (node == kUiAccessNone)
             continue;
-        const auto found = message_store_find(*scene.timeline->store, row.message_id);
-        const auto* record = found.ok() ? message_store_resolve(*scene.timeline->store, found.handle) : nullptr;
+        const auto* record = message_store_find_record(*scene.timeline->store, row.message_id);
         const auto* user = record ? user_store_find(users, record->author_id) : nullptr;
         if (!user)
             continue;

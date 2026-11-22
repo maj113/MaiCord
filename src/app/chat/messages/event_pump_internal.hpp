@@ -17,7 +17,7 @@ namespace event_pump_detail {
 ReadStateEntry read_model_entry(const GatewayClientReadStateMutation& record) noexcept;
 bool preflight_read_snapshot(const MessageEventPump& pump, const GatewayClientEvent& event,
                              ConstSlice<u8> payload, u32* required) noexcept;
-bool cached_mentions(const MessageEventPump& pump, u64 channel_id, u64 cursor, u32* count) noexcept;
+u32 cached_mentions(const MessageEventPump& pump, u64 channel_id, u64 cursor) noexcept;
 
 constexpr bool is_message_dispatch(GatewayClientDispatchKind kind) noexcept {
     return kind == GatewayClientDispatchKind::message_create ||
@@ -58,8 +58,7 @@ MessageEventPumpConsumeResult consume_error(MessageEventPumpError error,
                                             MessageEventPumpRejectReason reason = {}) noexcept;
 bool invalidate_rejected_thread_authority(MessageEventPump* pump, const GatewayClientEvent& event) noexcept;
 void ignore(MessageEventPumpConsumeResult* result) noexcept;
-void reject(MessageEventPump* pump, MessageEventPumpConsumeResult* result, MessageEventPumpRejectReason reason,
-            u8 detail = 0) noexcept;
+void reject(MessageEventPumpConsumeResult* result, MessageEventPumpRejectReason reason, u8 detail = 0) noexcept;
 void reject_resync(MessageEventPump* pump, MessageEventPumpConsumeResult* result,
                    MessageEventPumpRejectReason reason, u8 detail = 0) noexcept;
 u8 state_detail(const ChatStateApplyResult& applied) noexcept;
@@ -95,7 +94,6 @@ consume_with_message_source(MessageEventPump* pump, const GatewayClientEvent& ev
                 (checked.ok() || checked.error == MessageReconcileError::not_found);
     }
     if (!valid) {
-        ++pump->rejected;
         pump->resync_required = true;
         auto result = consume_error(MessageEventPumpError::apply, MessageEventPumpRejectReason::message_decode);
         result.kind = MessageEventPumpConsumeKind::rejected;

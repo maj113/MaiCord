@@ -7,7 +7,6 @@
 namespace maicord::app_detail {
 float application_thread_header_project(UiThreadHeader* header, UiScene* shell, u64 id,
     UiRect available, UiRect clip) noexcept {
-    if (!header || !shell) return 0;
     const bool bound = header->manager == &shell->widgets &&
         ui_widget_manager_resolve(shell->widgets, header->widgets.root);
     if (!bound && !ui_thread_header_bind_shell(header, shell)) return 0;

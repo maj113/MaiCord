@@ -103,8 +103,9 @@ bool rebuild(UiInboxScene& s) noexcept {
         const float top = s.body.top + s.offsets[i] - s.scroll_dips;
         if (top >= s.body.bottom)
             break;
+        // ui_inbox_scene_update validated every row of this source revision.
         UiInboxRow row{};
-        if (!s.source->resolve(s.source->context, i, &row) || !row_valid(row))
+        if (!s.source->resolve(s.source->context, i, &row))
             return false;
         const float height = row_height(row, ui_rect_width(s.panel));
         const bool card = row.kind == UiInboxRowKind::mention;
@@ -162,7 +163,7 @@ bool ui_inbox_scene_current(const UiInboxScene& s) noexcept {
     return current(s);
 }
 bool ui_inbox_scene_avatar(const UiInboxScene& s, u32 slot, UiRect* rectangle, UiRect* clip) noexcept {
-    if (!rectangle || !clip || !current(s) || slot >= s.count ||
+    if (!current(s) || slot >= s.count ||
         s.visible[slot].kind != UiInboxRowKind::mention)
         return false;
     *rectangle = mention_avatar(s.row_rectangles[slot]);
@@ -174,7 +175,7 @@ float ui_inbox_scene_scroll_maximum(const UiInboxScene& s) noexcept {
 }
 bool ui_inbox_scene_update(UiInboxScene* s, const UiInboxSource* source, const UiInboxContent* content,
                            UiRect viewport) noexcept {
-    if (!s || !content || content->tab > UiInboxTab::unreads || content->phase > UiInboxPhase::failed ||
+    if (content->tab > UiInboxTab::unreads || content->phase > UiInboxPhase::failed ||
         !utf8_validate(content->status).valid || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 240 ||
         ui_rect_height(viewport) < 200 ||
         (source && (!source->resolve || source->count > kUiInboxMaximumRows ||
@@ -243,10 +244,10 @@ UiInboxTarget ui_inbox_scene_focused_target(const UiInboxScene& s) noexcept {
     return current(s) ? ui_scene_target(s, s.widgets.focused) : UiInboxTarget{};
 }
 bool ui_inbox_scene_set_hover(UiInboxScene* s, float x, float y, bool* changed) noexcept {
-    return s && current(*s) && ui_scene_hover(&s->widgets, &s->revision, x, y, changed);
+    return current(*s) && ui_scene_hover(&s->widgets, &s->revision, x, y, changed);
 }
 bool ui_inbox_scene_scroll(UiInboxScene* s, float offset) noexcept {
-    if (!s || !current(*s) || !ui_coordinate_valid(offset))
+    if (!current(*s) || !ui_coordinate_valid(offset))
         return false;
     return !ui_scroll_offset_store(&s->scroll_dips, offset, ui_inbox_scene_scroll_maximum(*s)) || rebuild(*s);
 }
@@ -255,7 +256,7 @@ UiScrollbarGeometry ui_inbox_scene_scrollbar(const UiInboxScene& s) noexcept {
                       : UiScrollbarGeometry{};
 }
 bool ui_inbox_scene_focus(UiInboxScene* s, UiInboxTarget target) noexcept {
-    if (!s || !current(*s) || target.action == UiInboxAction::none)
+    if (!current(*s) || target.action == UiInboxAction::none)
         return false;
     if (target.action == UiInboxAction::jump || target.action == UiInboxAction::open_channel ||
         target.action == UiInboxAction::mark_channel || target.action == UiInboxAction::mark_guild) {

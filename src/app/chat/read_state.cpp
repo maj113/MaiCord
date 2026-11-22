@@ -122,13 +122,13 @@ const ChannelRecord* source_channel(const ApplicationReadState& o, const ReadAct
                         ? chat_state_store_find_channel(g_app.account_ui->chat_state, s.channel_id)
                         : nullptr;
     if (s.scoped) {
-        if (!c || !c->occupied || (c->flags & kChannelObfuscatedFlag) || !c->permissions_resolved ||
+        if (!c || (c->flags & kChannelObfuscatedFlag) || !c->permissions_resolved ||
             !(c->actions & channel_action_view) ||
             !(c->actions & channel_action_read_history) ||
             !chat_state_store_channel_visible(g_app.account_ui->chat_state, *c))
             return nullptr;
         const auto* guild = chat_state_store_find_guild(g_app.account_ui->chat_state, c->guild_id);
-        if (!guild || !guild->occupied || guild->unavailable)
+        if (!guild || guild->unavailable)
             return nullptr;
         if (channel_is_thread(c->type) &&
             (!c->thread_active_known || !c->thread_listed_active || !c->thread_self_joined_known ||
@@ -929,9 +929,6 @@ bool application_read_state_scoped_prepare(ConstSlice<ReadScopeTarget> targets, 
         source.scoped = true;
         if (!source_channel(*o, source) || t.outbound != (t.message_id != 0))
             return false;
-        for (u32 j = 0; j < i; ++j)
-            if (targets[j].channel_id == t.channel_id)
-                return false;
         if (!action(*o, t.channel_id))
             ++actions;
         if (t.outbound) {

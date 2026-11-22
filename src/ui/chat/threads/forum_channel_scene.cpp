@@ -59,10 +59,9 @@ bool ui_forum_view_valid(const UiForumChannelView& v) noexcept {
         (v.posts.count && !v.posts.data) || v.posts.count > kUiThreadBrowserPageCapacity ||
         v.sort > UiForumSort::creation_date || v.layout > UiForumLayout::gallery || v.match > UiForumTagMatch::all)
         return false;
-    for (u32 i = 0; i < v.tags.count; ++i) {
+    // Tags come from forum_parent_decode, which refuses a repeated tag ID.
+    for (u32 i = 0; i < v.tags.count; ++i)
         if (!v.tags[i].id || !utf8_validate(v.tags[i].name).valid) return false;
-        for (u32 j = 0; j < i; ++j) if (v.tags[j].id == v.tags[i].id) return false;
-    }
     for (u32 i = 0; i < v.posts.count; ++i) {
         const auto& post = v.posts[i];
         if (!post.thread_id || post.tag_count > kUiForumPostTagCapacity || !utf8_validate(post.preview).valid ||

@@ -5,26 +5,6 @@
 
 namespace maicord {
 namespace {
-bool request_valid(const PollRequest& r) noexcept {
-    if (!r.channel_id || !r.message_id || r.answer_count>kGatewayMessagePollMaximumAnswers) return false;
-    for (auto reserved:r.reserved) if (reserved) return false;
-    for (u32 i=0;i<kGatewayMessagePollMaximumAnswers;++i) {
-        if (i<r.answer_count) {
-            if (!r.answer_ids[i]) return false;
-            for (u32 j=0;j<i;++j) if (r.answer_ids[j]==r.answer_ids[i]) return false;
-        } else if (r.answer_ids[i]) return false;
-    }
-    switch (r.operation) {
-    case PollOperation::vote:
-        return r.answer_count && !r.answer_id && !r.after_user_id && !r.limit;
-    case PollOperation::remove_vote:
-    case PollOperation::refresh:
-        return !r.answer_count && !r.answer_id && !r.after_user_id && !r.limit;
-    case PollOperation::voters:
-        return !r.answer_count && r.answer_id && r.limit && r.limit<=kReactionUsersMaximumPage;
-    }
-    return false;
-}
 struct MessageMembers {
     JsonValue poll;
     u64 channel,message;
@@ -83,19 +63,14 @@ bool voters_member(void* opaque,JsonString name,JsonValue value) noexcept {
 PollWriteResult write_poll_request(const PollRequest& request,
     Slice<u8> target_output,Slice<u8> body_output) noexcept {
     PollWriteResult result{};
-    if (!request_valid(request) || (!target_output.data && target_output.count) ||
-        (!body_output.data && body_output.count)) {
-        result.error=PollWriteError::invalid_input; return result;
-    }
-    u8 target[kPollMaximumTargetBytes],body[kPollMaximumRequestBodyBytes];
     RouteWriter route{};
-    ProtocolWriter payload{{body,sizeof(body)},0};
+    ProtocolWriter payload{body_output,0};
     const bool refresh=request.operation==PollOperation::refresh;
     const bool voters=request.operation==PollOperation::voters;
     // GET /channels/{c}/messages/{m} is bot-only (403, code 20002). A user
     // reads one message with /messages?limit=1&around={m}, an array whose
     // element must match {m}.
-    bool okay=route_writer_initialize(&route,{target,sizeof(target)}) &&
+    bool okay=route_writer_initialize(&route,target_output) &&
         route_write(&route,"/api/v9/channels/",request.channel_id,
                     refresh ? utf8_literal("/messages?limit=1&around=") : utf8_literal("/polls/"),request.message_id);
     if (voters) {
@@ -114,12 +89,9 @@ PollWriteResult write_poll_request(const PollRequest& request,
         okay=okay && protocol_write(&payload,"]}");
         result.method=RestMethod::put; result.route_id=kPollVoteRouteId;
     }
-    if (!okay || route.bytes>target_output.count || payload.used>body_output.count ||
-        !target_output.data || (payload.used && !body_output.data)) {
+    if (!okay) {
         result.error=PollWriteError::output_capacity; return result;
     }
-    copy_bytes(target_output.data,target,route.bytes);
-    copy_bytes(body_output.data,body,payload.used);
     result.target_bytes=route.bytes; result.body_bytes=payload.used;
     return result;
 }
@@ -127,8 +99,7 @@ PollMessageDecodeResult decode_poll_message(Utf8View input,
     u64 expected_channel,u64 expected_message,Slice<u32> scratch,u32 depth,
     Slice<char> text,const GatewayMessagePollScratch& poll_scratch,GatewayMessagePoll* output) noexcept {
     PollMessageDecodeResult result{};
-    if (!output || !expected_channel || !expected_message || !input.data || !input.bytes ||
-        input.bytes>kPollMaximumResponseBytes || !scratch.data || !scratch.count || !depth) {
+    if (!input.bytes || input.bytes>kPollMaximumResponseBytes) {
         result.error=PollDecodeError::invalid_input; return result;
     }
     const auto scan=json_scan_structurals_avx1(input,scratch);
@@ -159,8 +130,7 @@ PollMessageDecodeResult decode_poll_message(Utf8View input,
 PollVotersDecodeResult decode_poll_voters(Utf8View input,Slice<u32> page_scratch,
     u32 depth,Slice<ReactionUser> users,Slice<char> text) noexcept {
     PollVotersDecodeResult result{};
-    if (!input.data || !input.bytes || input.bytes>kPollMaximumResponseBytes || !depth ||
-        !page_scratch.data || !page_scratch.count || !users.data || !users.count) {
+    if (!input.bytes || input.bytes>kPollMaximumResponseBytes) {
         result.error=PollDecodeError::invalid_input; return result;
     }
     const auto scan=json_scan_structurals_avx1(input,page_scratch);

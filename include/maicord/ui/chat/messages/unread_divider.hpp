@@ -6,10 +6,8 @@
 namespace maicord {
 inline constexpr Utf8View kUiUnreadDividerLabel = utf8_literal("New messages");
 struct UiUnreadDividerGeometry { UiRect line, label; };
-// Nearest device-pixel edge for a DIP coordinate at pixel_scale (dpi / 96).
+// Nearest device-pixel edge for a DIP coordinate at a positive, valid pixel_scale (dpi / 96).
 inline float ui_unread_divider_snap(float dip, float pixel_scale) noexcept {
-    if (!(pixel_scale > 0))
-        return dip;
     const float pixels = dip * pixel_scale;
     return static_cast<float>(static_cast<i64>(pixels + (pixels < 0 ? -.5f : .5f))) / pixel_scale;
 }

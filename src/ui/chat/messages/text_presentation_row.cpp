@@ -307,7 +307,6 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     if (!forwarded && rich && message_rich_has_header(*rich) && skip != MessageTextPresentationStage::reply) {
         set_failure_context(presentation, MessageTextPresentationStage::reply,
                             MessageTextPresentationOperation::initialize_flow);
-        const u32 reply_begin = presentation->command_count;
         UiTextFlowLayout flow{};
         const float reply_indent = message_scene_reply_indent(scene);
         if (!initialize_flow(presentation, *reply, text_left + reply_indent, maximum(1.0f, text_width - reply_indent),
@@ -406,9 +405,6 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                                                                     : kMessageReplyTextInset,
                                summary.semantics, message_scene_reply_line_height(scene))) {
             return false;
-        }
-        if (presentation->command_count == reply_begin) {
-            return fail(presentation, MessageTextPresentationError::model);
         }
         {
             const MessageTextCommand& line = presentation->commands[presentation->command_count - 1];

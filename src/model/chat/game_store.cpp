@@ -79,13 +79,10 @@ constexpr u64 kExcluded[] = {
 
 } // namespace
 
-bool game_store_initialize(GameStore* store, Slice<GameRecord> records, Slice<GameSearchEntry> searches) noexcept {
-    if (!store || !records.data || !records.count || !searches.data || !searches.count)
-        return false;
+void game_store_initialize(GameStore* store, Slice<GameRecord> records, Slice<GameSearchEntry> searches) noexcept {
     reset_value(store);
     store->records = records;
     store->searches = searches;
-    return true;
 }
 
 const GameRecord* game_store_find(const GameStore& store, u64 id) noexcept {

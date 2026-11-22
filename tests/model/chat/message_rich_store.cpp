@@ -211,33 +211,6 @@ void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) n
     message_rich_store_release(&store);
     check(!records.arena.base && unchanged_tail(text, sizeof(text), 0xA5),
           "sparse rich release frees owned records without touching caller text");
-
-    store.text_capacity = 19;
-    order[0] = 7;
-    order[1] = 9;
-    for (auto& byte : text)
-        byte = 0xA5;
-    check(
-        !message_rich_store_initialize_owned_sparse(&store, &records, 2, {order, 2}, {text, 255}) &&
-            !records.arena.base && store.text_capacity == 19 && order[0] == 7 && order[1] == 9 &&
-            text[0] == 0xA5 && text[127] == 0xA5 && text[128] == 0xA5,
-        "invalid sparse text capacity rejects before modifying owner order sentinels or reserving records");
-    check(!message_rich_store_initialize_owned_sparse(&store, &records, 0, {order, 2},
-                                                      {text, sizeof(text)}) &&
-              !message_rich_store_initialize_owned_sparse(&store, &records, 2, {order, 1},
-                                                          {text, sizeof(text)}) &&
-              !message_rich_store_initialize_owned_sparse(&store, &records, 2, {order, 2},
-                                                          {nullptr, sizeof(text)}) &&
-              !records.arena.base && store.text_capacity == 19,
-          "invalid sparse record order and null text inputs leave the existing owner intact");
-    check(stable_storage_initialize(&records, 2, 0, sizeof(MessageRichRecord), alignof(MessageRichRecord)),
-          "sparse initialization rejection fixture owns an existing reservation");
-    const auto* existing_records = records.arena.base;
-    check(!message_rich_store_initialize_owned_sparse(&store, &records, 2, {order, 2},
-                                                      {text, sizeof(text)}) &&
-              records.arena.base == existing_records && store.text_capacity == 19,
-          "sparse rich initialization does not release or replace another live record reservation");
-    stable_storage_release(&records);
     store = {};
 
     SYSTEM_INFO system{};

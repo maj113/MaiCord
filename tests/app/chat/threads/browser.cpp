@@ -234,17 +234,15 @@ void run_indexing() noexcept {
         application_thread_browser_submit(++request, now) && receipt(request, 202, indexing_payload, now + 90000) &&
         application_thread_browser_next_wake() == now + 90000,
         "browser indexing: absolute server header survives a shorter body floor");
-    constexpr Utf8View malformed[] = {{}, bad, utf8_literal(R"({"code":110000,"retry_after":-1})"),
-        utf8_literal(R"({"code":110000,"retry_after":1e999})"),
-        utf8_literal(R"({"code":110000,"retry_after":18446744073709552})"),
-        utf8_literal(R"({"code":110000,"retry_after":18446744073709551.615})"),
-        utf8_literal(R"({"code":110001,"retry_after":1})"), utf8_literal(R"({"code":1})")};
+    // The decoder's rejections are covered in search_runtime_filters; one stands for them here.
+    constexpr Utf8View malformed[] = {{}, utf8_literal(R"({"code":110000,"retry_after":18446744073709551.615})"),
+        utf8_literal(R"({"code":1})")};
     bool no_guess = true;
     for (const auto payload : malformed)
         no_guess &= application_thread_browser_search(utf8_literal("Invalid index floor")) &&
             application_thread_browser_submit(++request, now) && receipt(request, 202, payload) &&
             browser_owner->error && !browser_owner->queued && !application_thread_browser_next_wake();
-    check(no_guess, "browser indexing: missing malformed negative and overflowing sources require explicit retry");
+    check(no_guess, "browser indexing: missing malformed and overflowing sources require explicit retry");
     bool bounded = application_thread_browser_search(utf8_literal("Bound index polls"));
     for (u32 attempt = 0; attempt < 6; ++attempt) {
         bounded &= application_thread_browser_submit(++request, now) && receipt(request, 202, zero);

@@ -201,8 +201,7 @@ bool message_reaction_target_equal(const MessageReactionTarget& left,
 bool message_reaction_controller_initialize(MessageReactionController* controller,
                                             Slice<MessageReactionIntent> storage,
                                             MessageReactionActor actor) noexcept {
-    if (!storage.data || !storage.count || storage.count > kMessageReactionMaximumIntents ||
-        !actor_valid(actor))
+    if (!actor_valid(actor))
         return false;
     reset_value(controller);
     controller->entries = storage;
@@ -214,7 +213,7 @@ bool message_reaction_controller_initialize(MessageReactionController* controlle
 
 bool message_reaction_controller_grow_storage(MessageReactionController* controller,
                                               Slice<MessageReactionIntent> storage) noexcept {
-    if (!storage.data || !storage.count || storage.data != controller->entries.data ||
+    if (!storage.count || storage.data != controller->entries.data ||
         storage.count < controller->entries.count || storage.count > kMessageReactionMaximumIntents)
         return false;
     for (u32 index = controller->entries.count; index < storage.count; ++index)
@@ -236,10 +235,6 @@ void message_reaction_controller_queue(MessageReactionOutcome* out, MessageReact
     }
     const MessageReactionTarget copied_target = target;
     u32 index = find_intent(*controller, copied_target);
-    if (controller->serial == ~u64{0}) {
-        out->error = MessageReactionError::serial_exhausted;
-        return;
-    }
     u32 reclaimed = 0;
     for (u32 candidate = 0; candidate < controller->count; ++candidate)
         if (emoji_equal(controller->entries[candidate].target, copied_target) &&
@@ -451,16 +446,7 @@ void message_reaction_controller_complete(MessageReactionOutcome* out, MessageRe
                                                             MessageReactionCompletion completion,
                                                             u64 now_ms, u64 retry_at_ms,
                                                             MessageReactionRetryScope scope) noexcept {
-    if ((completion != MessageReactionCompletion::success &&
-         completion != MessageReactionCompletion::retry &&
-         completion != MessageReactionCompletion::terminal) ||
-        (scope != MessageReactionRetryScope::intent && scope != MessageReactionRetryScope::channel &&
-         scope != MessageReactionRetryScope::global)) {
-        reset_value(out);
-        out->error = MessageReactionError::invalid_input;
-        return;
-    }
-    if (!controller || !controller->flight.active || !ticket.request_id ||
+    if (!controller->flight.active || !ticket.request_id ||
         ticket.request_id != controller->flight.ticket.request_id ||
         ticket.generation != controller->flight.ticket.generation ||
         ticket.serial != controller->flight.ticket.serial)
@@ -628,8 +614,6 @@ bool message_reaction_controller_cancel(MessageReactionController* controller, u
 
 bool message_reaction_controller_expire(MessageReactionController* controller, u64 now_ms,
                                         MessageReactionOutcome* output) noexcept {
-    if (!output)
-        return false;
     for (u32 index = 0; index < controller->count; ++index)
         if (now_ms >= controller->entries[index].deadline_at_ms) {
             const MessageReactionIntent& expired = controller->entries[index];

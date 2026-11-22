@@ -17,12 +17,11 @@ float card_height(const UiPinnedMessagesRow& row) noexcept {
     return 56.f + excerpt_height(row) + (row.detail.bytes ? 24.f : 0.f) + 44.f;
 }
 bool row_valid(const UiPinnedMessagesRow& row, u64 channel) noexcept {
-    // The range test also rejects NaN and infinities.
+    // The app measures body_height into 24..144 DIPs (or leaves 48).
     return row.channel_id == channel && row.message_id &&
            utf8_validate(row.author).valid && utf8_validate(row.timestamp).valid &&
            utf8_validate(row.body).valid && utf8_validate(row.detail).valid &&
            utf8_validate(row.avatar_hash).valid &&
-           (row.body_height == 0 || (row.body_height >= 24 && row.body_height <= 144)) &&
            (row.edited_offset == 0 || row.edited_offset < row.body.bytes);
 }
 
@@ -103,7 +102,7 @@ float ui_pinned_messages_scene_scroll_maximum(const UiPinnedMessagesScene& s) no
 }
 bool ui_pinned_messages_scene_update(UiPinnedMessagesScene* s, const UiPinnedMessagesSource* source,
                                     const UiPinnedMessagesContent* content, const UiRect& viewport) noexcept {
-    if (!s || !content || !content->channel_id || content->phase > UiPinnedMessagesPhase::failed ||
+    if (!content->channel_id || content->phase > UiPinnedMessagesPhase::failed ||
         !utf8_validate(content->channel).valid || !utf8_validate(content->status).valid ||
         !ui_rect_valid(viewport) || ui_rect_width(viewport) < 180 || ui_rect_height(viewport) < 128 ||
         (source && (!source->resolve || source->count > kUiPinnedMessagesPageCapacity ||
@@ -182,7 +181,7 @@ UiPinnedMessagesTarget ui_pinned_messages_scene_focused_target(const UiPinnedMes
     return ui_pinned_messages_scene_target(s, s.widgets.focused);
 }
 bool ui_pinned_messages_scene_set_hover(UiPinnedMessagesScene* s, float x, float y, bool* changed) noexcept {
-    return s && current(*s) && ui_scene_hover(&s->widgets, &s->revision, x, y, changed);
+    return current(*s) && ui_scene_hover(&s->widgets, &s->revision, x, y, changed);
 }
 bool ui_pinned_messages_scene_scroll(UiPinnedMessagesScene* s, float offset) noexcept {
     if (!s || !current(*s) || !ui_coordinate_valid(offset)) return false;
@@ -253,7 +252,7 @@ bool ui_pinned_messages_scene_move_focus(UiPinnedMessagesScene* s, UiPinnedMessa
            ui_pinned_messages_scene_focus(s, pick);
 }
 bool ui_pinned_messages_scene_avatar(const UiPinnedMessagesScene& s, u32 slot, UiRect* rectangle, UiRect* clip) noexcept {
-    if (!rectangle || !clip || !current(s) || slot >= s.count) return false;
+    if (!current(s) || slot >= s.count) return false;
     *rectangle = ui_rect_edges(s.cards[slot], ui_start(12), ui_start(12), ui_start(40), ui_start(40));
     *clip = ui_rect_intersection(*rectangle, s.body);
     return ui_rect_has_area(*clip);

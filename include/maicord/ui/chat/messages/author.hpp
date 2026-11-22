@@ -22,13 +22,6 @@ struct MessageAuthorLayout {
     u32 decoration_count;
 };
 
-// Plugin decoration tones are theme roles; MC_TONE_ROLE keeps the author colour.
-inline Color message_author_decoration_color(const Theme& theme, u8 tone, const Color& author) noexcept {
-    if (tone == kUiPluginToneRole)
-        return author;
-    return tone ? ui_icon_role_color(theme, ui_plugin_slot_role(tone)) : ui_background_muted_text_color(theme);
-}
-
 struct MessageProfileHit {
     u64 user_id{};
     UiRect anchor{};

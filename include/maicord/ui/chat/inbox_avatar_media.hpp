@@ -9,7 +9,7 @@ namespace maicord {
 // the user cache still resolve. Culled cards never admit media.
 inline bool inbox_avatar_media_resolve(const UiInboxScene& scene, u32 slot, AvatarMedia* out) noexcept {
     UiRect rectangle{}, clip{};
-    if (!out || !ui_inbox_scene_avatar(scene, slot, &rectangle, &clip))
+    if (!ui_inbox_scene_avatar(scene, slot, &rectangle, &clip))
         return false;
     const auto& row = scene.visible[slot];
     MediaAssetKey key;

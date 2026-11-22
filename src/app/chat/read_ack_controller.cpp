@@ -10,11 +10,6 @@ bool valid(const ReadAckController& controller) noexcept {
         controller.count <= controller.backed_count && controller.backed_count <= controller.pending.count &&
         controller.generation != 0;
 }
-bool valid_intent(const ReadAckIntent& intent) noexcept {
-    return intent.channel_id && (intent.kind == ReadAckKind::manual ||
-        (intent.kind == ReadAckKind::automatic && intent.message_id &&
-         !intent.mention_count_known && !intent.mention_count));
-}
 bool same_target(const ReadAckIntent& a, const ReadAckIntent& b) noexcept {
     return a.channel_id == b.channel_id && a.message_id == b.message_id &&
         a.last_viewed == b.last_viewed && a.flags == b.flags && a.flags_known == b.flags_known && a.kind == b.kind &&
@@ -51,7 +46,6 @@ bool find_due(const ReadAckController& controller, u32* index, u64* due) noexcep
 
 bool read_ack_controller_initialize(ReadAckController* controller,
     Slice<ReadAckIntent> pending) noexcept {
-    if (!controller || !pending.data || !pending.count || pending.count > kReadAckMaximumIntents) return false;
     reset_value(controller); controller->pending = pending; controller->backed_count = pending.count;
     controller->generation = 1; return true;
 }
@@ -64,7 +58,7 @@ bool read_ack_controller_set_reserve(ReadAckController* controller,
 }
 bool read_ack_controller_queue(ReadAckController* controller,
     const ReadAckIntent& desired, u64 now_ms, bool immediate) noexcept {
-    if (!controller || !valid(*controller) || !valid_intent(desired)) return false;
+    if (!valid(*controller)) return false;
     ReadAckIntent queued = desired;
     queued.due_at_ms = deadline_after(now_ms, immediate || desired.kind == ReadAckKind::manual ? 0u : kReadAckAutomaticDelayMs);
     const bool supersede = desired.kind == ReadAckKind::manual && controller->inflight_active &&
@@ -105,7 +99,7 @@ bool read_ack_controller_peek_due(const ReadAckController& controller,
 }
 bool read_ack_controller_admit(ReadAckController* controller,
     const ReadAckIntent& intent, u64 request_id, ReadAckRequestTicket* ticket) noexcept {
-    if (!valid(*controller) || !valid_intent(intent) || !request_id ||
+    if (!valid(*controller) || !request_id ||
         controller->inflight_active) return false;
     const u32 position = lower_bound(*controller, intent.channel_id);
     if (position == controller->count || !same_target(controller->pending[position], intent) ||
@@ -141,7 +135,7 @@ ReadAckCompletionResult read_ack_controller_complete(ReadAckController* controll
     return completion == ReadAckCompletion::retry ? ReadAckCompletionResult::retry_scheduled : ReadAckCompletionResult::completed;
 }
 bool read_ack_controller_cancel(ReadAckController* controller, u64 channel_id) noexcept {
-    if (!controller || !valid(*controller) || !channel_id) return false;
+    if (!valid(*controller) || !channel_id) return false;
     bool changed = false;
     const u32 position = lower_bound(*controller, channel_id);
     if (position < controller->count && controller->pending[position].channel_id == channel_id) {

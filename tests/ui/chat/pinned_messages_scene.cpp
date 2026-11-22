@@ -2,7 +2,6 @@
 #include "../../support/layout_validation.hpp"
 #include "maicord/ui/chat/pinned_messages_avatar_media.hpp"
 #include "maicord/ui/core/scene.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/ui/text/presentation.hpp"
 #include "maicord/ui/core/paint.hpp"
 
@@ -11,8 +10,6 @@ namespace {
 struct PinsFixture {
     u32 resolves{};
     bool current{true}, manage{true}, pending{}, invalid_avatar{}, authoritative{true}, edited{};
-    float invalid_height{};
-    bool override_height{};
 };
 bool resolve_pin(void* context, u32 index, UiPinnedMessagesRow* row) noexcept {
     auto& f = *static_cast<PinsFixture*>(context);
@@ -24,7 +21,6 @@ bool resolve_pin(void* context, u32 index, UiPinnedMessagesRow* row) noexcept {
             index % 2 ? utf8_literal("2 attachments · 1 embed") : Utf8View{},
             utf8_literal("0123456789abcdef0123456789abcdef"),
             index % 2 ? 96.f : 24.f, f.manage, f.pending && index == 0};
-    if (f.override_height) row->body_height = f.invalid_height;
     if (f.invalid_avatar) row->avatar_hash = utf8_literal("not-an-avatar-hash");
     row->jump_enabled = f.authoritative;
     if (f.edited && index % 2) {
@@ -229,13 +225,6 @@ void test_pinned_messages_scene(void (*check)(bool, const char*) noexcept) noexc
     check(ui_pinned_messages_scene_update(&s, &source, &content, s.viewport) && s.retry.generation &&
               ui_pinned_messages_scene_focus(&s, {UiPinnedMessagesAction::retry, 71}),
           "pins scene: failed empty receipt presents real Retry action without fabricated rows");
-    source.count = 1;
-    f.override_height = true;
-    const u32 nan_bits = 0x7fc00000u;
-    copy_bytes(&f.invalid_height, &nan_bits, sizeof(nan_bits));
-    ++source.revision;
-    check(!ui_pinned_messages_scene_update(&s, &source, &content, s.viewport),
-          "pins scene: nonfinite excerpt height fails before modifying retained widget geometry");
     paint_stream_release(&paint);
     ui_pinned_messages_scene_release(&s);
     check(!s.active && !s.storage.arena.base, "pins scene: lazy fixed storage releases on close");

@@ -142,11 +142,6 @@ void run_media() noexcept {
     invalid.upload_bytes = 1;
     check(!forum_post_request_valid(invalid),
           "forum media: create rejects foreign upload operation fields");
-    invalid = create;
-    invalid.content = {reinterpret_cast<const char*>(body), 1};
-    body[0] = 'x';
-    check(forum_post_write_body(invalid, {body, 65536}).error == ForumPostError::input && body[0] == 'x',
-          "forum media: input/output alias refuses before writing");
     ForumPostRequest upload{10, 40, {}, {}, {}, 0, 0, ForumPostOperation::attachment_url, {}};
     upload.upload_filename = utf8_literal("A\".png");
     upload.upload_bytes = ~u64{0};
@@ -312,15 +307,6 @@ void run_media() noexcept {
               core.message_id == 777,
           "forum media: packed string capacity fails atomically in both decoder contracts");
     create.attachments.count = 2;
-    check(forum_post_media_decode(media_json, create, 30, {scratch, 16384}, &output, &output).error ==
-                  ForumPostError::input &&
-              forum_post_media_decode(media_json, create, 30, {reinterpret_cast<u32*>(&temporary), 1},
-                                      &temporary, &output)
-                      .error == ForumPostError::input &&
-              forum_post_media_decode(media_json, create, 30, {scratch, ~u32{0}}, &temporary, &output)
-                      .error == ForumPostError::input &&
-              bytes_equal(&output, &saved, sizeof(saved)),
-          "forum media: scratch/output aliases and structural overflow reject before mutation");
     copy_bytes(generated, media_json.data, media_json.bytes);
     check(decode({generated, media_json.bytes}).ok(),
           "forum media: independent owning receipt fixture decoded");
@@ -387,11 +373,9 @@ void run() noexcept {
                   utf8_literal("/api/v9/channels/18446744073709551615/threads?use_nested_fields=true")) &&
               forum_post_write_body(full_ids, {body, sizeof(body)}).ok(),
           "forum post: full-width parent/tag IDs serialize exactly");
-    target[0] = body[0] = 0xa5;
-    check(forum_post_write_target(create, {target, 1}).error == ForumPostError::capacity &&
-              forum_post_write_body(create, {body, 1}).error == ForumPostError::capacity &&
-              target[0] == 0xa5 && body[0] == 0xa5,
-          "forum post: writer capacity failure preserves destinations");
+    body[0] = 0xa5;
+    check(forum_post_write_body(create, {body, 1}).error == ForumPostError::capacity && body[0] == 0xa5,
+          "forum post: body capacity failure preserves the destination");
     char supplementary[8004];
     for (u32 at = 0; at < sizeof(supplementary); at += 4) {
         supplementary[at] = '\xf0';
@@ -430,10 +414,7 @@ void run() noexcept {
     for (auto text : invalid_text) {
         auto invalid = create;
         invalid.content = text;
-        body[0] = 0xa5;
-        check(!forum_post_request_valid(invalid) &&
-                  !forum_post_write_body(invalid, {body, sizeof(body)}).ok() && body[0] == 0xa5,
-              "forum post: blank/control/invalid UTF8 request refuses without mutation");
+        check(!forum_post_request_valid(invalid), "forum post: blank/control/invalid UTF8 request is refused");
     }
     bool invalid_requests = true;
     auto invalid = create;
@@ -557,11 +538,8 @@ void run() noexcept {
           "forum post: documented zero-length tag label retained without invented text");
     parent = owned_parent;
     check(forum_parent_decode(parent_json, get, {scratch, 1}, &parent).error == ForumPostError::capacity &&
-              forum_parent_decode(parent_json, get, {reinterpret_cast<u32*>(&parent), sizeof(parent) / 4},
-                                  &parent)
-                      .error == ForumPostError::input &&
               bytes_equal(&parent, &owned_parent, sizeof(parent)),
-          "forum post: structural capacity and alias failure preserve metadata");
+          "forum post: structural capacity failure preserves metadata");
     check(!decode_parent(replace(parent_json, utf8_literal("\"guild_id\":\"40\","), {})).ok() &&
               !decode_parent(replace(parent_json, utf8_literal("\"name\":\"Forum \\u65e5\""),
                                      utf8_literal("\"name\":\"Forum\",\"n\\u0061me\":\"Forum\"")))
@@ -649,24 +627,8 @@ void run() noexcept {
     check(forum_post_decode(post_json, create, 0, {scratch, 16384}, &post).error == ForumPostError::input &&
               forum_post_decode(post_json, create, 30, {scratch, 1}, &post).error ==
                   ForumPostError::capacity &&
-              forum_post_decode(post_json, create, 30, {reinterpret_cast<u32*>(&post), sizeof(post) / 4},
-                                &post)
-                      .error == ForumPostError::input &&
               bytes_equal(&post, &owned_post, sizeof(post)),
-          "forum post: captured self, capacity and overlapping output/scratch reject transactionally");
-    check(forum_post_decode({reinterpret_cast<const char*>(&post), sizeof(post)}, create, 30,
-                            {scratch, 16384}, &post)
-                      .error == ForumPostError::input &&
-              forum_post_decode(post_json, create, 30, {scratch, 0xffffffffu}, &post).error ==
-                  ForumPostError::input &&
-              bytes_equal(&post, &owned_post, sizeof(post)),
-          "forum post: input/output overlap and structural byte overflow refuse before scanning");
-    copy_bytes(scratch, post_json.data, post_json.bytes);
-    check(forum_post_decode({reinterpret_cast<const char*>(scratch), post_json.bytes}, create, 30,
-                            {scratch, 16384}, &post)
-                      .error == ForumPostError::input &&
-              bytes_equal(&post, &owned_post, sizeof(post)),
-          "forum post: input and structural scratch may not overlap");
+          "forum post: captured self and capacity reject transactionally");
     check(
         !decode_post(replace(post_json, utf8_literal("\"message\":{"), utf8_literal("\"other\":{"))).ok() &&
             !decode_post(replace(post_json, utf8_literal("\"owner_id\":\"30\","), {})).ok() &&

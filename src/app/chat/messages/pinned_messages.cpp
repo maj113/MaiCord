@@ -56,7 +56,7 @@ const ChannelRecord* selected_channel() noexcept {
                                                                g_app.account_ui->active_channel_id) : nullptr;
 }
 PinnedMessageScope scope_of(const ChannelRecord* channel) noexcept {
-    return channel && channel->occupied
+    return channel
         ? PinnedMessageScope{g_app.plugin_account_scope_serial, g_app.account.status.profile_id,
                              g_app.account_ui->chat_state.self_user_id, channel->id, channel->generation}
         : PinnedMessageScope{};
@@ -67,7 +67,7 @@ PinnedMessageScope scope() noexcept {
 // The pins of the selected channel can be shown (application_pinned_messages_available).
 bool available_in(const ChannelRecord* channel) noexcept {
     constexpr u32 required = channel_action_view | channel_action_read_history;
-    return channel && channel->occupied && !g_app.login.visible && !application_friends_active() &&
+    return channel && !g_app.login.visible && !application_friends_active() &&
         channel_is_message_capable(channel->type) && !(channel->flags & kChannelObfuscatedFlag) &&
         channel->permissions_resolved && (channel->actions & required) == required &&
         g_app.plugin_account_scope_serial && g_app.account.status.profile_id &&
@@ -131,7 +131,7 @@ Utf8View row_body(const PinnedMessageRow& row) noexcept {
 bool resolve(void* context, u32 index, UiPinnedMessagesRow* output) noexcept {
     auto& value = *static_cast<ApplicationPinnedMessages*>(context);
     const auto* row = pinned_message_controller_row(value.controller, index);
-    if (!output || !row) return false;
+    if (!row) return false;
     const auto author = pinned_message_author(*row);
     const bool pending = pinned_message_controller_mutation_pending(value.controller) &&
         value.controller.pending.message_id == row->message_id;
@@ -392,12 +392,10 @@ bool application_pinned_messages_submit(u64 request_id, u64 now_ms) noexcept {
     const auto request = pinned_message_controller_request(value.controller, now_ms);
     const auto admission = account_module_pinned_messages(g_app.account.instance, &request.payload, request_id);
     if (!admission.ok()) {
-        pinned_message_controller_admission_failed(&value.controller, request, admission.error == RestClientSubmitError::busy);
+        pinned_message_controller_admission_failed(&value.controller, admission.error == RestClientSubmitError::busy);
         repaint(); return false;
     }
-    if (!pinned_message_controller_submitted(&value.controller, request, request_id)) {
-        account_module_pinned_messages(g_app.account.instance, nullptr, request_id); return false;
-    }
+    pinned_message_controller_submitted(&value.controller, request_id);
     value.submitted = request;
     value.submitted_cancelled = false;
     repaint();
@@ -505,12 +503,12 @@ bool application_pinned_messages_action(u64 message_id, bool pin, bool confirm) 
 void application_pinned_messages_gateway(u64 channel_id) noexcept {
     auto* value = g_app.pinned_messages;
     if (value && current(*value) && value->controller.scope.channel_id == channel_id) {
-        pinned_message_controller_invalidate(&value->controller, value->controller.scope);
+        pinned_message_controller_invalidate(&value->controller);
         application_request_frame();
     }
 }
 bool application_pinned_messages_scroll_range(UiScrollRange* output) noexcept {
-    if (!output || !application_pinned_messages_active() || !front()) return false;
+    if (!application_pinned_messages_active() || !front()) return false;
     const auto& value = *g_app.pinned_messages;
     *output = {value.scene.body, value.scene.scroll_dips, ui_pinned_messages_scene_scroll_maximum(value.scene),
                40., 1., 0., value.source.revision};

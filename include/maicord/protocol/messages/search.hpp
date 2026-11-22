@@ -134,7 +134,6 @@ struct MessageSearchPage {
 };
 enum class MessageSearchDecodeError : u8 {
     none,
-    invalid_input,
     scan_failed,
     invalid_json,
     duplicate_field,
@@ -160,7 +159,8 @@ struct MessageSearchDecodeResult {
     }
 };
 
-// Validates a query independently of either endpoint's encoding capacity.
+// Validates a query independently of either endpoint's encoding capacity. The writers and the decoder take a query
+// that it accepted; the legacy writer refuses the private_channels scope, which has no GET form.
 bool message_search_query_valid(const MessageSearchQuery& query) noexcept;
 MessageSearchWriteResult write_message_search_target(const MessageSearchQuery& query,
                                                      Slice<u8> output) noexcept;

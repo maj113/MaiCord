@@ -700,8 +700,6 @@ void run() noexcept {
 
     reset();
     search_enabled = true;
-    check(!application_poll_search_state(900, search_publication, {}, &value, &source),
-          "poll app: Search projection rejects missing caller answer storage atomically");
     UiPollAnswer search_answers[10]{};
     check(application_poll_search_state(900, search_publication, {search_answers, 10}, &value, &source) &&
               source.source.channel_id == 70 && source.surface == UiPollSourceSurface::search &&

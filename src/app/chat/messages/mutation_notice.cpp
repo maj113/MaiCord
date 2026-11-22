@@ -21,7 +21,7 @@ ApplicationMessageMutationScope scope(u64 channel_id, u64 message_id, bool any_c
         !g_app.account_ui->chat_state.self_user_id)
         return {};
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id);
-    return channel && channel->occupied
+    return channel
                ? ApplicationMessageMutationScope{g_app.plugin_account_scope_serial,
                                                  g_app.account.status.profile_id,
                                                  g_app.account_ui->chat_state.self_user_id,
@@ -97,10 +97,6 @@ void application_message_mutation_notice_begin(ApplicationMessageMutationKind ki
                                             kind == ApplicationMessageMutationKind::navigate_message);
     // A new action dismisses the previous transient result.
     clear_shown();
-}
-void application_message_mutation_notice_pending(ApplicationMessageMutationKind kind, u64 channel_id,
-                                                 u64 message_id) noexcept {
-    application_message_mutation_notice_pending(kind, channel_id, message_id, 0);
 }
 void application_message_mutation_notice_pending(ApplicationMessageMutationKind kind, u64 channel_id,
                                                  u64 message_id, u16 status_code) noexcept {

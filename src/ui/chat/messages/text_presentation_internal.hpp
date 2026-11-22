@@ -66,7 +66,7 @@ union FloatWord {
 
 enum class MarkdownCacheMode : u8 { content = 1, reply = 2 };
 // How a command is measured, aligned and shaped. The presets are the labels
-// that recur; the defaults are a plain wrapping block.
+// that recur; the defaults are a plain wrapping block. Heights and gaps are not negative.
 struct CommandLook {
     MessageTextMeasurementKind kind;
     float minimum_height;
@@ -151,7 +151,7 @@ bool append_command(MessageTextPresentation* presentation, const Utf8View& text,
                     const UiWidgetReference& owner,
                     const UiRect& rectangle, const UiRect& clip, const Color& color,
                     const MessageRecord* record, u16 measurement_index, const CommandLook& look) noexcept;
-// append_command, then the command it appended (none for empty text) carries `inline_role_color`.
+// append_command of non-empty text, then the command carries `inline_role_color`.
 bool append_command_role(MessageTextPresentation* presentation, const Utf8View& text,
                          const ConstSlice<TextStyleSpan>& styles,
                          const ConstSlice<MessageMarkdownSemantic>& semantics, const UiWidgetReference& owner,

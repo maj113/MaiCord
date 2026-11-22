@@ -106,7 +106,7 @@ bool append_semantic(Parser* parser, MessageMarkdownSemanticKind kind, u64 targe
 }
 
 static bool semantic_hovered(const Parser& parser, MessageMarkdownSemanticKind kind, u32 source_offset) noexcept {
-    return parser.options && parser.options->has_hover && parser.options->hovered_kind == kind &&
+    return parser.options->has_hover && parser.options->hovered_kind == kind &&
            parser.options->hovered_source_offset == source_offset;
 }
 
@@ -294,7 +294,7 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
     u32 applied_style = delimiter.style;
     const u32 source_bytes = parser->input_offset + delimiter.marker_bytes - delimiter.input_offset;
     const bool reply_fence = delimiter.kind == DelimiterKind::code && delimiter.marker_bytes == 3 &&
-                             parser->options && parser->options->inline_reply;
+                             parser->options->inline_reply;
     if (reply_fence) {
         // Reply previews match /^```(?:lang\n)?\n*([^\n][^]*?)\n*```/ and render
         // group 2 as inline code; ```ansi first drops /\x1B\[\d+([:;]\d+)*m/.
@@ -312,7 +312,7 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
     }
     if (delimiter.kind == DelimiterKind::spoiler) {
         const bool revealed =
-            parser->options && parser->options->spoiler_revealed &&
+            parser->options->spoiler_revealed &&
             parser->options->spoiler_revealed(parser->options->context, delimiter.input_offset);
         if (revealed) {
             applied_style &= ~text_style_spoiler;
@@ -329,7 +329,7 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
     }
     if (delimiter.kind == DelimiterKind::code && delimiter.marker_bytes == 3) {
         // Editors (preserve_entities) keep the raw escapes.
-        if (language == CodeLanguage::ansi && !(parser->options && parser->options->preserve_entities)) {
+        if (language == CodeLanguage::ansi && !parser->options->preserve_entities) {
             transform_ansi_block(parser, delimiter.output_offset);
         } else if (language != CodeLanguage::none) {
             const u32 remaining = parser->syntax_tokens < kCodeHighlightTokenMaximum
@@ -548,7 +548,7 @@ u32 autolink_bytes(Utf8View input, u32 begin) noexcept {
 // verbatim so "_", "*" or ":" inside them never start formatting or emoji.
 bool try_emit_autolink(Parser* parser, bool* matched) noexcept {
     *matched = false;
-    if (parser->options && parser->options->no_links)
+    if (parser->options->no_links)
         return true;
     if (parser->depth != 0 && parser->delimiters[parser->depth - 1].kind == DelimiterKind::masked_link)
         return true;
@@ -671,8 +671,6 @@ bool channel_segment(Utf8View input, u32* cursor, u64* value, bool* numeric) noe
 // segment stays text. A channel URL has message_id zero; a guild-only URL and
 // one with a non-numeric channel or message segment are ordinary links.
 bool channel_link_at(Utf8View input, u32 begin, MessageLink* link) noexcept {
-    if (begin > input.bytes)
-        return false;
     u32 cursor = begin;
     if (!take_literal(input, &cursor, "https://", 8))
         return false;
@@ -901,12 +899,12 @@ bool try_emit_channel_link(Parser* parser, bool* matched) noexcept {
     if (inside_masked_link(*parser) || !channel_link_at(parser->input, source_begin, &link)) {
         return true;
     }
-    if (options && options->preserve_entities) {
+    if (options->preserve_entities) {
         *matched = true;
         parser->input_offset += link.source_bytes;
         return emit_range(parser, source_begin, parser->input_offset, text_style_link);
     }
-    if (options && options->resolve_channel) {
+    if (options->resolve_channel) {
         ChipResult result{};
         if (!emit_channel_chip(parser, link, true, source_begin, &result))
             return false;
@@ -925,7 +923,7 @@ bool try_emit_channel_link(Parser* parser, bool* matched) noexcept {
             suffix_style |= text_style_interactive_hover | text_style_underline;
         }
         Utf8View channel_name{};
-        if (options && options->resolve_entity) {
+        if (options->resolve_entity) {
             channel_name = options->resolve_entity(options->context, MessageMarkdownEntityKind::channel,
                                                    link.channel_id);
             if (!chip_view_valid(channel_name))
@@ -958,7 +956,7 @@ bool ascii_host_label(char value) noexcept {
 // Returns the matched bytes (zero: no match) and the file name range.
 u32 attachment_link_at(Utf8View input, u32 begin, u32* name_begin, u32* name_end) noexcept {
     u32 cursor = begin;
-    if (begin > input.bytes || !take_literal(input, &cursor, "https://", 8))
+    if (!take_literal(input, &cursor, "https://", 8))
         return 0;
     const u32 host = cursor;
     while (cursor < input.bytes && (ascii_host_label(input.data[cursor]) || input.data[cursor] == '.'))
@@ -1036,7 +1034,7 @@ u32 attachment_link_at(Utf8View input, u32 begin, u32* name_begin, u32* name_end
 bool try_emit_attachment_link(Parser* parser, bool* matched) noexcept {
     *matched = false;
     const MessageMarkdownOptions* options = parser->options;
-    if ((options && (options->no_links || options->preserve_entities)) || inside_masked_link(*parser))
+    if (options->no_links || options->preserve_entities || inside_masked_link(*parser))
         return true;
     const u32 begin = parser->input_offset;
     u32 name_begin = 0, name_end = 0;
@@ -1064,7 +1062,7 @@ bool output_available(const Parser& parser, u32 bytes) noexcept {
 }
 
 bool emit_view(Parser* parser, Utf8View value, u32 style) noexcept {
-    if ((!value.data && value.bytes != 0) || !output_available(*parser, value.bytes)) {
+    if (!output_available(*parser, value.bytes)) {
         return false;
     }
     for (u32 index = 0; index < value.bytes; ++index) {
@@ -1088,7 +1086,7 @@ bool emit_unknown_role(Parser* parser, u32 tag_end) noexcept {
 bool emit_entity_tag(Parser* parser, MessageMarkdownEntityKind entity_kind,
                      MessageMarkdownSemanticKind semantic_kind, u32 tag_begin, u32 digits_begin,
                      u32 digits_end, char sigil, u32 tag_end, u64 id) noexcept {
-    if (parser->options && parser->options->preserve_entities) {
+    if (parser->options->preserve_entities) {
         parser->input_offset = tag_end + 1;
         return emit_range(parser, tag_begin, tag_end + 1, text_style_mention);
     }
@@ -1098,14 +1096,14 @@ bool emit_entity_tag(Parser* parser, MessageMarkdownEntityKind entity_kind,
         style |= text_style_interactive_hover;
     }
     Utf8View resolved{};
-    if (id && parser->options && parser->options->resolve_entity) {
+    if (id && parser->options->resolve_entity) {
         resolved = parser->options->resolve_entity(parser->options->context, entity_kind, id);
         if ((!resolved.data && resolved.bytes != 0) ||
             (resolved.bytes != 0 && !utf8_validate(resolved).valid)) {
             reset_value<Utf8View>(&resolved);
         }
     }
-    if (entity_kind == MessageMarkdownEntityKind::role && id && parser->options && parser->options->resolve_entity &&
+    if (entity_kind == MessageMarkdownEntityKind::role && id && parser->options->resolve_entity &&
         resolved.bytes == 0)
         return emit_unknown_role(parser, tag_end);
     const bool use_resolved = resolved.bytes != 0 && output_available(*parser, resolved.bytes + 1);
@@ -1124,7 +1122,7 @@ bool emit_entity_tag(Parser* parser, MessageMarkdownEntityKind entity_kind,
 bool try_emit_timestamp(Parser* parser, u32 begin, u32 end, bool* matched) noexcept {
     *matched = false;
     if (begin + 3 >= end || parser->input.data[begin + 1] != 't' || parser->input.data[begin + 2] != ':' ||
-        !parser->options || !parser->options->format_timestamp) {
+        !parser->options->format_timestamp) {
         return true;
     }
     u32 digits_end = begin + 3;
@@ -1208,10 +1206,10 @@ bool command_mention_name(Utf8View input, u32 begin, u32 end) noexcept {
 bool emit_game_mention(Parser* parser, u64 id, u32 begin, u32 end) noexcept {
     const MessageMarkdownOptions* options = parser->options;
     parser->input_offset = end + 1;
-    if (options && options->preserve_entities)
+    if (options->preserve_entities)
         return emit_range(parser, begin, end + 1, text_style_mention);
     Utf8View name{};
-    if (id && options && options->resolve_entity) {
+    if (id && options->resolve_entity) {
         name = options->resolve_entity(options->context, MessageMarkdownEntityKind::game, id);
         if (!chip_view_valid(name) || !output_available(*parser, name.bytes + 8))
             reset_value<Utf8View>(&name);
@@ -1219,7 +1217,7 @@ bool emit_game_mention(Parser* parser, u64 id, u32 begin, u32 end) noexcept {
     const bool hovered = semantic_hovered(*parser, MessageMarkdownSemanticKind::game_mention, begin);
     const Chip chip{parser, text_style_mention | (hovered ? u32{text_style_interactive_hover} : 0u), begin, hovered};
     const u32 display_begin = parser->output_bytes;
-    if (!(options && options->resolve_channel
+    if (!(options->resolve_channel
               ? emit_chip_cell(chip, MessageMarkdownSemanticKind::game_icon, id, kChipCell, kChipGap3)
               : emit_byte(parser, '@', chip.style)) ||
         !emit_view(parser, name.bytes ? name : utf8_literal("unknown-game"), chip.style))
@@ -1233,7 +1231,7 @@ bool emit_game_mention(Parser* parser, u64 id, u32 begin, u32 end) noexcept {
 
 bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
     *matched = false;
-    if (parser->options && parser->options->profile_bio && starts_with(*parser, "<@", 2))
+    if (parser->options->profile_bio && starts_with(*parser, "<@", 2))
         return true;
     if (parser->input.data[parser->input_offset] != '<') {
         return true;
@@ -1282,7 +1280,7 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
             // The official client keeps a user tag that names nothing as a mention of its own text, and shows a
             // role that it cannot find as "@unknown-role" text.
             if (entity_kind == MessageMarkdownEntityKind::role &&
-                !(parser->options && parser->options->preserve_entities))
+                !parser->options->preserve_entities)
                 return emit_unknown_role(parser, end);
             parser->input_offset = end + 1;
             return emit_range(parser, begin, end + 1, text_style_mention);
@@ -1293,7 +1291,7 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
         if (!decimal_u64(parser->input, begin + 2, end, &id))
             id = 0;
         *matched = true;
-        if (parser->options && parser->options->resolve_channel && !parser->options->preserve_entities) {
+        if (parser->options->resolve_channel && !parser->options->preserve_entities) {
             ChipResult result{};
             if (!emit_channel_chip(parser, MessageLink{0, id, 0, end + 1 - begin}, false, begin, &result))
                 return false;
@@ -1319,14 +1317,14 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
             id != 0) {
             *matched = true;
             const u32 display_begin = parser->output_bytes;
-            if (parser->options && parser->options->profile_bio) {
+            if (parser->options->profile_bio) {
                 if (!emit_byte(parser, ':') || !emit_range(parser, name_begin, separator) ||
                     !emit_byte(parser, ':'))
                     return false;
                 parser->input_offset = end + 1;
                 return true;
             }
-            if (parser->options && parser->options->preserve_entities) {
+            if (parser->options->preserve_entities) {
                 parser->input_offset = end + 1;
                 return emit_range(parser, begin, end + 1);
             }
@@ -1355,11 +1353,11 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
             // A command id of 0 or past 64 bits still shows the chip, with the target 0.
             if (!decimal_u64(parser->input, separator, end, &id))
                 id = 0;
-            if (parser->options && parser->options->preserve_entities) {
+            if (parser->options->preserve_entities) {
                 parser->input_offset = end + 1;
                 return emit_range(parser, begin, end + 1, text_style_mention);
             }
-            const bool bio = parser->options && parser->options->profile_bio;
+            const bool bio = parser->options->profile_bio;
             u32 style = bio ? 0u : text_style_mention;
             if (!bio && semantic_hovered(*parser, MessageMarkdownSemanticKind::command_mention, begin))
                 style |= text_style_interactive_hover;
@@ -1524,8 +1522,6 @@ bool invite_link_at(Utf8View input, u32 begin, InviteLink* link) noexcept {
 } // namespace markdown_detail
 
 bool message_markdown_invite_link(Utf8View value, InviteLink* link) noexcept {
-    if ((!value.data && value.bytes) || !link)
-        return false;
     InviteLink parsed{};
     if (!invite_link_at(value, 0, &parsed) || parsed.source_bytes != value.bytes)
         return false;
@@ -1534,8 +1530,6 @@ bool message_markdown_invite_link(Utf8View value, InviteLink* link) noexcept {
 }
 
 u32 message_markdown_find_invites(Utf8View content, Slice<InviteLink> output) noexcept {
-    if ((!content.data && content.bytes) || (!output.data && output.count))
-        return 0;
     const u32 limit = minimum<u32>(output.count, kInviteLinksPerMessage);
     u32 count = 0;
     InviteLink link;
@@ -1559,9 +1553,6 @@ u32 message_markdown_find_invites(Utf8View content, Slice<InviteLink> output) no
 }
 
 bool message_markdown_message_link(Utf8View value, MessageLink* link) noexcept {
-    if ((!value.data && value.bytes != 0) || !link) {
-        return false;
-    }
     MessageLink parsed{};
     if (!channel_link_at(value, 0, &parsed) || !parsed.message_id || parsed.source_bytes != value.bytes) {
         return false;
@@ -1572,7 +1563,7 @@ bool message_markdown_message_link(Utf8View value, MessageLink* link) noexcept {
 
 bool message_markdown_attachment_link(Utf8View value, Utf8View* name) noexcept {
     u32 name_begin = 0, name_end = 0;
-    if (!value.data || !name || attachment_link_at(value, 0, &name_begin, &name_end) != value.bytes)
+    if (!value.data || attachment_link_at(value, 0, &name_begin, &name_end) != value.bytes)
         return false;
     *name = {value.data + name_begin, name_end - name_begin};
     return true;

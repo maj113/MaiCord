@@ -199,7 +199,7 @@ using EditInput = ForwardedInput<edit_ready, edit_forbidden, true>;
 namespace search_detail {
 
 bool scroll_read(void* opaque, u64 key, UiScrollRange* out) noexcept {
-    if (opaque != g_app.search || !out || !front())
+    if (opaque != g_app.search || !front())
         return false;
     const auto& s = *g_app.search;
     if (!s.panel || key != s.edit.document_identity)
@@ -210,7 +210,7 @@ bool scroll_read(void* opaque, u64 key, UiScrollRange* out) noexcept {
 }
 bool scroll_write(void* opaque, u64 key, double offset, bool* changed) noexcept {
     UiScrollRange range{};
-    if (!changed || !scroll_read(opaque, key, &range))
+    if (!scroll_read(opaque, key, &range))
         return false;
     auto& s = *g_app.search;
     const float old = s.scene.scroll_dips;
@@ -316,8 +316,7 @@ bool row_access_check(const ApplicationSearch& s, u32 index, const ChannelRecord
         return !s.bank->channel_generations[index] && s.scope == MessageSearchScope::guild &&
                item.guild_known && item.guild_id == s.scope_id && guild && !guild->unavailable;
     }
-    if (!channel->occupied || (channel->flags & kChannelObfuscatedFlag) ||
-        !channel_is_thread(channel->type) ||
+    if ((channel->flags & kChannelObfuscatedFlag) || !channel_is_thread(channel->type) ||
         (s.bank->channel_generations[index] && s.bank->channel_generations[index] != channel->generation))
         return false;
     if (channel->type == 12 && channel->thread_self_joined_known && !channel->thread_self_joined)
@@ -383,7 +382,7 @@ bool application_search_source_ticket(u32 index, ApplicationSearchSourceTicket* 
 bool application_search_source_resolve(const ApplicationSearchSourceTicket& ticket, bool snapshot,
                                        ApplicationSearchSourceView* out) noexcept {
     auto* s = g_app.search;
-    if (!out || !s || !ticket_current(*s, ticket) || !channel_authorized(*s, ticket.index, false))
+    if (!s || !ticket_current(*s, ticket) || !channel_authorized(*s, ticket.index, false))
         return false;
     auto& b = *s->bank;
     const auto handle = b.result_handles[ticket.index];
@@ -904,9 +903,9 @@ bool application_search_response(const RestClientResponse& response, Utf8View bo
                                                                        item.message.channel_id);
                 valid = s->scope == MessageSearchScope::guild
                             ? (!item.guild_known || item.guild_id == s->scope_id) &&
-                                  (channel ? channel->occupied && channel->guild_id == s->scope_id
+                                  (channel ? channel->guild_id == s->scope_id
                                            : item.guild_known)
-                            : (!item.guild_known || item.guild_id == 0) && channel && channel->occupied &&
+                            : (!item.guild_known || item.guild_id == 0) && channel &&
                                   channel->id == s->scope_id && channel_is_private(channel->type);
                 if (!valid)
                     decoded.error = MessageSearchDecodeError::guild_mismatch;

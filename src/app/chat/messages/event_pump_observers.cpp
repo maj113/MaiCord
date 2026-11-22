@@ -5,7 +5,7 @@
 namespace maicord {
 namespace {
 
-static_assert(sizeof(MessageEventPump) == 320 + sizeof(ReservedBytes));
+static_assert(sizeof(MessageEventPump) == 312 + sizeof(ReservedBytes));
 
 } // namespace
 namespace {
@@ -52,26 +52,22 @@ bool preflight_read_snapshot(const MessageEventPump& pump, const GatewayClientEv
     }
     return true;
 }
-bool cached_mentions(const MessageEventPump& pump, u64 channel_id, u64 cursor, u32* count) noexcept {
-    *count = 0;
+// The order of a message store names its occupied records alone (message_store_ordered_record).
+u32 cached_mentions(const MessageEventPump& pump, u64 channel_id, u64 cursor) noexcept {
     const auto* store = pump.timeline ? pump.timeline->store : nullptr;
     if (pump.state->selected_channel_id != channel_id || !store)
-        return true;
-    if (!store->records || !store->order || store->count > store->capacity)
-        return false;
+        return 0;
+    u32 count = 0;
     for (u32 i = 0; i < store->count; ++i) {
-        const u32 slot = store->order[i];
-        if (slot >= store->capacity || !store->records[slot].occupied)
-            return false;
-        const auto& message = store->records[slot];
+        const auto& message = store->records[store->order[i]];
         if (message.channel_id == channel_id && message.id > cursor &&
             message.delivery == MessageDeliveryState::authoritative &&
             (message.presentation_flags &
                 ((message.presentation_flags & message_presentation_read_badge_known)
                      ? message_presentation_read_badge : message_presentation_mentions_current_user)))
-            saturating_increment(*count);
+            saturating_increment(count);
     }
-    return true;
+    return count;
 }
 } // namespace event_pump_detail
 
@@ -592,10 +588,8 @@ void ignore(MessageEventPumpConsumeResult* result) noexcept {
     result->kind = MessageEventPumpConsumeKind::ignored_dispatch;
 }
 
-// Counts one event rejected for one apply check.
-void reject(MessageEventPump* pump, MessageEventPumpConsumeResult* result, MessageEventPumpRejectReason reason,
-            u8 detail) noexcept {
-    ++pump->rejected;
+// Marks one event rejected for one apply check.
+void reject(MessageEventPumpConsumeResult* result, MessageEventPumpRejectReason reason, u8 detail) noexcept {
     result->kind = MessageEventPumpConsumeKind::rejected;
     result->error = MessageEventPumpError::apply;
     result->reason = reason;
@@ -606,7 +600,7 @@ void reject(MessageEventPump* pump, MessageEventPumpConsumeResult* result, Messa
 void reject_resync(MessageEventPump* pump, MessageEventPumpConsumeResult* result,
                    MessageEventPumpRejectReason reason, u8 detail) noexcept {
     pump->resync_required = true;
-    reject(pump, result, reason, detail);
+    reject(result, reason, detail);
 }
 
 u8 state_detail(const ChatStateApplyResult& applied) noexcept {
@@ -622,7 +616,7 @@ MessageEventPumpConsumeResult consume_voice_states(MessageEventPump* pump, const
         return result;
     }
     if (payload.count != snapshot.record_count * sizeof(GatewayClientVoiceStateRecord)) {
-        reject(pump, &result, MessageEventPumpRejectReason::voice_states);
+        reject(&result, MessageEventPumpRejectReason::voice_states);
         return result;
     }
     // Gateway rows share VoiceState's field order.
@@ -662,7 +656,7 @@ __declspec(noinline) MessageEventPumpConsumeResult consume_presence(MessageEvent
     } else if (valid)
         valid = user_appearance_read(payload, presence.user_id, presence.guild_id, &appearance);
     if (!valid) {
-        reject(pump, &result, MessageEventPumpRejectReason::presence_payload,
+        reject(&result, MessageEventPumpRejectReason::presence_payload,
                static_cast<u8>((payload.count ? 1 : 0) | (has_activities ? 2 : 0)));
         return result;
     }
@@ -716,7 +710,7 @@ __declspec(noinline) MessageEventPumpConsumeResult consume_presence(MessageEvent
     const u32 presence_revision = pump->members->presence_revision;
     if (!guild_member_store_set_status(pump->members, presence.guild_id, presence.user_id,
                                        member_status(presence.status))) {
-        reject(pump, &result, MessageEventPumpRejectReason::presence_status);
+        reject(&result, MessageEventPumpRejectReason::presence_status);
         return result;
     }
     result.kind = MessageEventPumpConsumeKind::state_applied;
@@ -786,7 +780,7 @@ void message_event_pump_set_view_active(MessageEventPump* pump, bool view_active
 
 bool message_event_pump_set_state_store(MessageEventPump* pump, ChatStateStore* state,
                                         Slice<u64> guild_id_scratch) noexcept {
-    if (!guild_id_scratch.data || guild_id_scratch.count < state->guild_capacity) {
+    if (guild_id_scratch.count < state->guild_capacity) {
         return false;
     }
     pump->state = state;
@@ -899,12 +893,8 @@ bool message_event_pump_set_thread_member_store(MessageEventPump* pump,
     return message_event_pump_synchronize_thread_scope(pump);
 }
 
-bool message_event_pump_set_send_tracker(MessageEventPump* pump, MessageSendTracker* sends) noexcept {
-    if (sends && !sends->initialized) {
-        return false;
-    }
+void message_event_pump_set_send_tracker(MessageEventPump* pump, MessageSendTracker* sends) noexcept {
     pump->sends = sends;
-    return true;
 }
 
 } // namespace maicord

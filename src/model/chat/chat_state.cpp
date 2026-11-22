@@ -507,13 +507,6 @@ bool set_selection(ChatStateStore* store, const ChannelRecord* channel) noexcept
 bool chat_state_store_initialize(ChatStateStore* store, Slice<GuildRecord> guilds, Slice<u16> guild_order,
                                  Slice<ChannelRecord> channels, Slice<u16> channel_order,
                                  Slice<u8> double_buffered_names, bool zeroed) noexcept {
-    if (!store || !guilds.data || guilds.count == 0 || guilds.count > 65'535 || !guild_order.data ||
-        guild_order.count != guilds.count || !channels.data || channels.count == 0 ||
-        channels.count > 65'535 || !channel_order.data || channel_order.count != channels.count ||
-        !double_buffered_names.data || double_buffered_names.count < 2 ||
-        (double_buffered_names.count & 1u) != 0) {
-        return false;
-    }
     reset_value<ChatStateStore>(store);
     store->guilds = guilds.data;
     store->guild_order = guild_order.data;
@@ -540,9 +533,6 @@ bool chat_state_store_initialize(ChatStateStore* store, Slice<GuildRecord> guild
 
 bool chat_state_store_bind_backing(ChatStateStore* store, ChatStateBackingReserve reserve,
                                    void* context) noexcept {
-    if (!store || !store->channels || !store->names || !reserve || store->backing_reserve ||
-        store->guild_count || store->channel_count || store->name_used)
-        return false;
     store->backing_reserve = reserve;
     store->backing_context = context;
     store->channel_backed_count = 0;
@@ -1398,8 +1388,6 @@ bool chat_state_store_expire_restore(ChatStateStore* store, u64 now_ms) noexcept
 }
 
 ChatStateSelectionResult chat_state_store_select_home(ChatStateStore* store) noexcept {
-    if (!store)
-        return {ChatStateSelectionError::invalid_input, false};
     saturating_increment(store->navigation_intent_revision);
     const bool was_restoring = store->restore_channel_id != 0;
     store->restore_channel_id = store->restore_guild_id = store->restore_deadline_ms = 0;
@@ -1423,7 +1411,7 @@ ChatStateSelectionResult chat_state_store_select_home(ChatStateStore* store) noe
 ChatStateSelectionResult chat_state_store_select_guild(ChatStateStore* store, u64 guild_id,
                                                        u64 remembered_channel_id,
                                                        u64 remembered_parent_id) noexcept {
-    if (!store || guild_id == 0) {
+    if (guild_id == 0) {
         return ChatStateSelectionResult{ChatStateSelectionError::invalid_input, false};
     }
     const GuildRecord* guild = chat_state_store_find_guild(*store, guild_id);
@@ -1454,7 +1442,7 @@ ChatStateSelectionResult chat_state_store_select_guild(ChatStateStore* store, u6
 
 ChatStateSelectionResult chat_state_store_select_pending_guild(ChatStateStore* store, u64 guild_id,
                                                                u64 remembered_channel_id) noexcept {
-    if (!store || guild_id == 0)
+    if (guild_id == 0)
         return {ChatStateSelectionError::invalid_input, false};
     if (!chat_state_store_find_guild(*store, guild_id))
         return {ChatStateSelectionError::not_found, false};

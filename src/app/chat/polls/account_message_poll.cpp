@@ -7,8 +7,7 @@ RestClientSubmitResult account_message_poll_submit(RestClient* rest,
     const PollRequest* request,u64 request_id) noexcept {
     u8 target[kPollMaximumTargetBytes],body[kPollMaximumRequestBodyBytes];
     const auto written=write_poll_request(*request,{target,sizeof(target)},{body,sizeof(body)});
-    if (!written.ok()) return {written.error==PollWriteError::output_capacity
-        ?RestClientSubmitError::target_capacity:RestClientSubmitError::invalid_input};
+    if (!written.ok()) return {RestClientSubmitError::target_capacity};
     const auto submitted=rest_client_submit(rest,
         {{target,written.target_bytes},{body,written.body_bytes},
          {written.route_id,request->channel_id,written.method,RestMajorParameter::channel},

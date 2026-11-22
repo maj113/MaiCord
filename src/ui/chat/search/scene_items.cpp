@@ -563,13 +563,6 @@ const UiSearchItem* target_item(const UiSearchScene& s, const UiSearchTarget& ta
     }
     return nullptr;
 }
-namespace {
-bool row_text_valid(const UiSearchRow& row) noexcept {
-    return row.channel_id && row.message_id && utf8_validate(row.body).valid &&
-           utf8_validate(row.author).valid && utf8_validate(row.channel).valid &&
-           utf8_validate(row.detail).valid;
-}
-} // namespace
 bool measure_rows(UiSearchScene& s) noexcept {
     if (!rich_enabled(s)) {
         s.measured_count = 0;
@@ -997,7 +990,8 @@ bool rebuild(UiSearchScene& s) noexcept {
                 if (y >= s.body.bottom)
                     break;
                 UiSearchRow row{};
-                if (!s.source->resolve(s.source->context, i, &row) || !row_text_valid(row))
+                // The search bank holds decoded JSON text, OS-formatted dates and channel names, all valid UTF-8.
+                if (!s.source->resolve(s.source->context, i, &row) || !row.channel_id || !row.message_id)
                     return false;
                 s.visible[s.count] = row;
                 // Keep the shared 12-DIP scrollbar gutter outside the cards.

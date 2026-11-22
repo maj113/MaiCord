@@ -11,7 +11,7 @@ namespace maicord {
 inline bool forum_channel_avatar_media_resolve(const UiThreadBrowserScene& scene, u32 index,
                                                AvatarMedia* out) noexcept {
     UiRect rectangle{}, clip{};
-    if (!out || !ui_forum_channel_avatar(scene, index, &rectangle, &clip))
+    if (!ui_forum_channel_avatar(scene, index, &rectangle, &clip))
         return false;
     const auto& post = scene.view->forum->posts[index];
     MediaAssetKey key;
@@ -35,7 +35,7 @@ struct ForumChannelThumbnailMedia {
 inline bool forum_channel_thumbnail_resolve(const UiThreadBrowserScene& scene, u32 index, u32 dpi,
                                             ForumChannelThumbnailMedia* out) noexcept {
     UiRect well{}, clip{};
-    if (!out || !dpi || !ui_forum_channel_media(scene, index, &well, &clip))
+    if (!dpi || !ui_forum_channel_media(scene, index, &well, &clip))
         return false;
     const auto& post = scene.view->forum->posts[index];
     const auto format = static_cast<MediaAttachmentFormat>(post.media_format);

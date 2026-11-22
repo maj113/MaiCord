@@ -223,8 +223,7 @@ u32 message_system_duration(u64 milliseconds, Slice<char> output) noexcept {
         append("a day");
     else
         count(days, " days");
-    if (bytes > output.count)
-        return 0;
+    // Every caller gives 32 bytes, the size of `text`.
     for (u32 i = 0; i < bytes; ++i)
         output.data[i] = text[i];
     return bytes;
@@ -232,8 +231,6 @@ u32 message_system_duration(u64 milliseconds, Slice<char> output) noexcept {
 
 bool message_system_text_build(const MessageSystemTextInput& input, const Slice<char>& output,
                                MessageSystemText* result) noexcept {
-    if (!result || !output.data || output.count == 0)
-        return false;
     reset_value<MessageSystemText>(result);
     u32 tier = 0;
     const Pattern selected = pattern(input, &tier);

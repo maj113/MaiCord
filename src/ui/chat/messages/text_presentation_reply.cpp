@@ -436,8 +436,7 @@ bool append_command(MessageTextPresentation* presentation, const Utf8View& text,
         return fail(presentation, MessageTextPresentationError::capacity);
     }
     const UiWidget* owner_widget = ui_widget_manager_resolve(*owner.manager, owner.handle);
-    if (!owner_widget || !ui_rect_has_area(rectangle) || !ui_rect_has_area(clip) || look.minimum_height < 0.0f ||
-        look.gap_after < 0.0f) {
+    if (!owner_widget || !ui_rect_has_area(rectangle) || !ui_rect_has_area(clip)) {
         return fail(presentation, MessageTextPresentationError::layout);
     }
     MessageTextCommand& command = presentation->commands[presentation->command_count];
@@ -480,12 +479,10 @@ bool append_command_role(MessageTextPresentation* presentation, const Utf8View& 
                          const UiRect& rectangle, const UiRect& clip, const Color& color,
                          const MessageRecord* record, u16 measurement_index, const CommandLook& look,
                          const Color& inline_role_color) noexcept {
-    const u32 before = presentation->command_count;
     if (!append_command(presentation, text, styles, semantics, owner, rectangle, clip, color, record,
                         measurement_index, look))
         return false;
-    if (presentation->command_count != before)
-        presentation->commands[before].inline_role_color = inline_role_color;
+    presentation->commands[presentation->command_count - 1].inline_role_color = inline_role_color;
     return true;
 }
 

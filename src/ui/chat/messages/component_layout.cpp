@@ -283,8 +283,6 @@ bool message_component_hit_target(const MessageRichComponent& component) noexcep
 
 float message_component_measure_tree(const MessageRichRecord& rich, MessageRichItemLayout* items,
                                      float available_width, u32 error_host) noexcept {
-    if (!items)
-        return 0.0f;
     // Per-parent accumulators for the reverse fold.
     float sum_height[kGatewayMessageComponentMaximum]{}, max_height[kGatewayMessageComponentMaximum]{};
     float sum_width[kGatewayMessageComponentMaximum]{}, max_width[kGatewayMessageComponentMaximum]{};

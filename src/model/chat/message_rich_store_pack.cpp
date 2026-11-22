@@ -3,18 +3,14 @@
 namespace maicord {
 using namespace message_rich_store_detail;
 
+// An uninitialized store holds no records, and no stored message has id 0, so neither needs a check.
 const MessageRichRecord* message_rich_store_find(const MessageRichStore& store, u64 message_id) noexcept {
-    if (!store.records || !store.order || message_id == 0) {
-        return nullptr;
-    }
     const SearchResult search = find_record(store, message_id);
     return search.found ? &store.records[search.slot] : nullptr;
 }
 
 const MessageRichRecord* message_rich_store_find_next(const MessageRichStore& store, u64 message_id,
                                                       u32* cursor) noexcept {
-    if (!store.records || !store.order || message_id == 0)
-        return nullptr;
     const auto id_at = [&](u32 at) noexcept { return store.records[store.order[at]].message_id; };
     // Every position before low holds a smaller id. A cursor after this id (ids out of order) starts over.
     u32 low = *cursor <= store.count && (!*cursor || id_at(*cursor - 1) < message_id) ? *cursor : 0;
@@ -100,7 +96,7 @@ bool message_rich_store_set_embed_dimensions(MessageRichStore* store, u64 messag
 }
 
 bool message_rich_store_delete(MessageRichStore* store, u64 message_id) noexcept {
-    if (!store || message_id == 0) {
+    if (message_id == 0) {
         return false;
     }
     const SearchResult search = find_record(*store, message_id);
@@ -108,9 +104,6 @@ bool message_rich_store_delete(MessageRichStore* store, u64 message_id) noexcept
 }
 
 bool message_rich_store_reset(MessageRichStore* store) noexcept {
-    if (!store || !store->records || !store->order || !store->text) {
-        return false;
-    }
     MessageRichRecord* records = store->records;
     StableStorage* record_storage = store->record_storage;
     u16* order = store->order;
@@ -338,7 +331,7 @@ bool message_rich_store_pack(const MessageRichStore& store, u64 message_id, Slic
 
 bool message_rich_store_unpack(MessageRichStore* store, u64 message_id, u32 message_revision,
                                ConstSlice<u8> packed, u32* slot_hint) noexcept {
-    if (!store || !store->records || !store->order || !store->text || message_id == 0 || message_revision == 0 ||
+    if (message_id == 0 || message_revision == 0 ||
         !packed.data || packed.count < sizeof(u32))
         return false;
     const SearchResult search = find_record(*store, message_id);

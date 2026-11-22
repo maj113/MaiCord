@@ -296,13 +296,11 @@ void message_snapshot_cache_release(MessageSnapshotCache* cache) noexcept {
 }
 
 void message_snapshot_cache_drop(MessageSnapshotCache* cache, u64 channel_id) noexcept {
-    if (MessageSnapshotEntry* entry = cache && channel_id ? find_entry(cache, channel_id) : nullptr)
+    if (MessageSnapshotEntry* entry = channel_id ? find_entry(cache, channel_id) : nullptr)
         remove_entry(cache, entry);
 }
 
 void message_snapshot_cache_prune(MessageSnapshotCache* cache, bool (*keep)(void*, u64), void* context) noexcept {
-    if (!keep)
-        return;
     for (auto& entry : cache->entries)
         if (entry.occupied && !keep(context, entry.channel_id))
             remove_entry(cache, &entry);

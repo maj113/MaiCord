@@ -49,8 +49,7 @@ MediaAssetKey message_component_media_key(u64 url_hash, MediaAttachmentFormat fo
 
 bool message_component_media_resolve(const MessageRichStore& store, const MessageRichComponent& component,
                                      MessageComponentMedia* output) noexcept {
-    if (!output || (component.type != gateway_component_thumbnail &&
-                    component.type != gateway_component_gallery_item))
+    if (component.type != gateway_component_thumbnail && component.type != gateway_component_gallery_item)
         return false;
     const Utf8View url = message_rich_store_string(store, component.url);
     static constexpr char https[] = "https://";
@@ -82,7 +81,7 @@ u32 cdn_url(const Utf8View& prefix, u64 id, const Utf8View& hash, const Utf8View
 } // namespace
 
 u32 message_event_cover_url(const ScheduledEvent& event, const Slice<char>& output) noexcept {
-    if (!event.id || !event.image_bytes || !output.data)
+    if (!event.id || !event.image_bytes)
         return 0;
     for (u32 i = 0; i < event.image_bytes; ++i) {
         const char c = event.image[i];
@@ -94,7 +93,7 @@ u32 message_event_cover_url(const ScheduledEvent& event, const Slice<char>& outp
 }
 
 u32 message_invite_icon_url(const GuildInvite& invite, const Slice<char>& output) noexcept {
-    if (!invite.guild_id || !invite.icon_bytes || !output.data)
+    if (!invite.guild_id || !invite.icon_bytes)
         return 0;
     return cdn_url(utf8_literal("https://cdn.discordapp.com/icons/"), invite.guild_id,
                    {invite.icon, invite.icon_bytes}, utf8_literal(".png?size=128"), output);

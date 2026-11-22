@@ -65,19 +65,17 @@ u32 find_order_index(const MessageStore& store, u64 id, bool* found) noexcept {
     return first;
 }
 
+// The store holds fewer than `capacity` records, so a free slot exists.
 u32 find_empty_slot(const MessageStore& store) noexcept {
     // The common append-only path keeps slots [0, count) occupied. Avoid an
     // otherwise quadratic scan while seeding or catching up a large store;
-    // deletions still fall back to the bounded hole search below.
-    if (store.count < store.capacity && !store.records[store.count].occupied) {
+    // deletions still fall back to the hole search below.
+    if (!store.records[store.count].occupied)
         return store.count;
-    }
-    for (u32 index = 0; index < store.capacity; ++index) {
-        if (!store.records[index].occupied) {
-            return index;
-        }
-    }
-    return store.capacity;
+    u32 index = 0;
+    while (store.records[index].occupied)
+        ++index;
+    return index;
 }
 
 MessageStoreResult result_from_slot(const MessageStore& store, u32 slot, u32 order_index,
@@ -102,8 +100,7 @@ AppendRoom append_room(MessageStore* store, u32 bytes, Utf8View source) noexcept
     if (bytes > store->text_capacity - live || message_store_content_overlaps(*store, source))
         return AppendRoom::full;
     if (bytes <= store->text_committed - live || store->text_used + bytes > store->text_capacity) {
-        if (!message_store_compact_in_place(store))
-            return AppendRoom::failed;
+        message_store_compact_in_place(store);
         if (bytes <= store->text_committed - store->text_used)
             return AppendRoom::ready;
     }
@@ -137,10 +134,6 @@ void assign_metadata(MessageRecord& record, const MessageInput& input) noexcept 
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool message_store_initialize(MessageStore* store, Slice<MessageRecord> records, Slice<u32> order,
                               Slice<u8> text) noexcept {
-    if (!store || !records.data || records.count == 0 || records.count > kMaximumMessageRecords ||
-        !order.data || order.count != records.count || !text.data || text.count == 0) {
-        return false;
-    }
     reset_value<MessageStore>(store);
     store->records = records.data;
     store->order = order.data;
@@ -157,9 +150,7 @@ bool message_store_initialize(MessageStore* store, Slice<MessageRecord> records,
 
 bool message_store_initialize_growing(MessageStore* store, Slice<MessageRecord> records, Slice<u32> order,
                                       Arena* text_arena) noexcept {
-    if (!text_arena || !text_arena->base || text_arena->reserved < kMessageStoreTextCommitStep ||
-        text_arena->reserved > ~0u)
-        return false;
+    // The one arena (MessageViewRuntime::text_storage) reserves kMessageViewTextCapacity, a u32 above the step.
     // The first step stays committed. A trim to zero costs a decommit, a commit and four page faults at each
     // channel switch, and then the store commits the same step again.
     const usize kept = minimum<usize>(text_arena->offset, kMessageStoreTextCommitStep);
@@ -198,21 +189,15 @@ MessageStoreError message_store_validate_input(const MessageStore* store,
 MessageStoreResult message_store_upsert_located(MessageStore* store, const MessageInput& input,
                                                 MessageStoreSlot at) noexcept {
     const MessageStoreError validation = validate_fields(store, input);
-    if (validation != MessageStoreError::none) {
-        if (store) {
-            ++store->rejected;
-        }
+    if (validation != MessageStoreError::none)
         return store_error(validation);
-    }
     const u32 order_index = at.order_index;
     const bool found = at.found;
     const bool unchanged =
         found && content_equal(*store, store->records[store->order[order_index]], input.content);
     // Content equal to the stored, already validated text needs no re-check.
-    if (!unchanged && !utf8_validate(input.content).valid) {
-        ++store->rejected;
+    if (!unchanged && !utf8_validate(input.content).valid)
         return store_error(MessageStoreError::invalid_utf8);
-    }
     if (found) {
         const u32 slot = store->order[order_index];
         MessageRecord& record = store->records[slot];
@@ -238,7 +223,6 @@ MessageStoreResult message_store_upsert_located(MessageStore* store, const Messa
                 if (room == AppendRoom::full) {
                     store->text_wasted -= previous;
                     record.content_bytes = previous;
-                    ++store->rejected;
                     return store_error(message_store_content_overlaps(*store, input.content)
                                            ? MessageStoreError::invalid_input
                                            : MessageStoreError::text_capacity);
@@ -258,21 +242,11 @@ MessageStoreResult message_store_upsert_located(MessageStore* store, const Messa
         ++store->updated;
         return result_from_slot(*store, slot, order_index, false);
     }
-    if (store->count >= store->capacity) {
-        ++store->rejected;
+    if (store->count >= store->capacity)
         return store_error(MessageStoreError::record_capacity);
-    }
-    const AppendRoom room = append_room(store, input.content.bytes, input.content);
-    if (room != AppendRoom::ready) {
-        if (room == AppendRoom::full)
-            ++store->rejected;
+    if (append_room(store, input.content.bytes, input.content) != AppendRoom::ready)
         return store_error(MessageStoreError::text_capacity);
-    }
     const u32 slot = find_empty_slot(*store);
-    if (slot >= store->capacity) {
-        ++store->rejected;
-        return store_error(MessageStoreError::record_capacity);
-    }
     sorted_insert_gap(store->order, store->count, order_index);
     store->order[order_index] = slot;
     MessageRecord& record = store->records[slot];
@@ -331,29 +305,18 @@ void message_store_delete_at(MessageStore* store, u32 order_index) noexcept {
 }
 
 bool message_store_delete(MessageStore* store, u64 id) noexcept {
-    if (!store || !store->records || !store->order || id == 0) {
-        if (store) {
-            ++store->rejected;
-        }
+    if (id == 0)
         return false;
-    }
     bool found = false;
     const u32 order_index = find_order_index(*store, id, &found);
-    if (!found) {
-        ++store->rejected;
-        return false;
-    }
-    message_store_delete_at(store, order_index);
-    return true;
+    if (found)
+        message_store_delete_at(store, order_index);
+    return found;
 }
 
 bool message_store_set_delivery(MessageStore* store, u64 id, MessageDeliveryState delivery) noexcept {
-    if (!store || !valid_delivery_state(delivery) || id == 0) {
-        if (store) {
-            ++store->rejected;
-        }
+    if (id == 0)
         return false;
-    }
     const MessageStoreResult found = message_store_find(*store, id);
     if (!found.ok()) {
         return false;
@@ -369,7 +332,7 @@ bool message_store_set_delivery(MessageStore* store, u64 id, MessageDeliveryStat
 }
 
 bool message_store_set_presentation_flags(MessageStore* store, MessageHandle handle, u32 flags) noexcept {
-    if (!store || (flags & ~kMessagePresentationKnownFlags) != 0 || !message_store_resolve(*store, handle)) {
+    if ((flags & ~kMessagePresentationKnownFlags) != 0 || !message_store_resolve(*store, handle)) {
         return false;
     }
     MessageRecord& record = store->records[handle.slot];
@@ -381,31 +344,27 @@ bool message_store_set_presentation_flags(MessageStore* store, MessageHandle han
 }
 
 bool message_store_set_presentation_flags(MessageStore* store, u64 id, u32 flags) noexcept {
-    return store && message_store_set_presentation_flags(store, message_store_find(*store, id).handle, flags);
+    return message_store_set_presentation_flags(store, message_store_find(*store, id).handle, flags);
 }
 
 const MessageRecord* message_store_resolve(const MessageStore& store, MessageHandle handle) noexcept {
-    if (!store.records || handle.generation == 0 || handle.slot >= store.capacity) {
+    // An uninitialized store has no capacity.
+    if (handle.generation == 0 || handle.slot >= store.capacity)
         return nullptr;
-    }
     const MessageRecord& record = store.records[handle.slot];
     return record.occupied && record.generation == handle.generation ? &record : nullptr;
 }
 
 MessageHandle message_store_ordered_handle(const MessageStore& store, u32 order_index) noexcept {
-    if (!store.records || !store.order || order_index >= store.count) {
+    if (order_index >= store.count)
         return MessageHandle{~0u, 0};
-    }
     const u32 slot = store.order[order_index];
     return MessageHandle{slot, store.records[slot].generation};
 }
 
 const MessageRecord* message_store_ordered_record(const MessageStore& store, u32 order_index) noexcept {
-    if (!store.records || !store.order || order_index >= store.count || store.order[order_index] >= store.capacity) {
-        return nullptr;
-    }
-    const MessageRecord& record = store.records[store.order[order_index]];
-    return record.occupied && record.generation ? &record : nullptr;
+    // The order holds the occupied slots alone, so each of its first `count` entries names a live record.
+    return order_index < store.count ? &store.records[store.order[order_index]] : nullptr;
 }
 
 Utf8View message_store_content(const MessageStore& store, MessageHandle handle) noexcept {
@@ -416,133 +375,51 @@ Utf8View message_store_content(const MessageStore& store, MessageHandle handle) 
 }
 
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-bool message_store_compact_in_place(MessageStore* store) noexcept {
-    if (!store || !store->records || !store->order || !store->text ||
-        store->text_wasted > store->text_used) {
-        if (store) {
-            ++store->rejected;
-        }
-        return false;
-    }
-    u64 live_bytes = 0;
-    u32 nonempty_records = 0;
-    u32 occupied_records = 0;
-    for (u32 slot = 0; slot < store->capacity; ++slot) {
-        const MessageRecord& record = store->records[slot];
-        if (!record.occupied) {
-            continue;
-        }
-        ++occupied_records;
-        if (record.content_offset > store->text_used ||
-            record.content_bytes > store->text_used - record.content_offset) {
-            ++store->rejected;
-            return false;
-        }
-        live_bytes += record.content_bytes;
-        if (live_bytes > store->text_used) {
-            ++store->rejected;
-            return false;
-        }
-        nonempty_records += record.content_bytes != 0 ? 1u : 0u;
-    }
-    if (live_bytes != store->text_used - store->text_wasted) {
-        ++store->rejected;
-        return false;
-    }
-    // Initial history and live appends keep text in message order, even after slot reuse.
-    // Validate the complete order and all adjacent ranges before the first write.
-    bool ordered = store->count == occupied_records;
-    u64 previous_id = 0;
+void message_store_compact_in_place(MessageStore* store) noexcept {
+    // Appends keep text in message order; text that grows on an edit moves to the end. In message order each copy
+    // moves text down over text already moved; otherwise the copies go in source order.
+    bool ordered = true;
     u32 previous_end = 0;
     for (u32 index = 0; ordered && index < store->count; ++index) {
-        const u32 slot = store->order[index];
-        if (slot >= store->capacity) {
-            ordered = false;
-            break;
-        }
-        const MessageRecord& record = store->records[slot];
-        if (!record.occupied || record.id <= previous_id ||
-            (record.content_bytes && record.content_offset < previous_end)) {
-            ordered = false;
-            break;
-        }
-        previous_id = record.id;
+        const MessageRecord& record = store->records[store->order[index]];
+        ordered = !record.content_bytes || record.content_offset >= previous_end;
         if (record.content_bytes)
             previous_end = record.content_offset + record.content_bytes;
     }
+    u32 write_offset = 0;
     if (ordered) {
-        u32 write_offset = 0;
         for (u32 index = 0; index < store->count; ++index) {
             MessageRecord& record = store->records[store->order[index]];
-            if (!record.content_bytes) {
-                record.content_offset = static_cast<u32>(live_bytes);
-                continue;
-            }
             copy_bytes(store->text + write_offset, store->text + record.content_offset, record.content_bytes);
             record.content_offset = write_offset;
             write_offset += record.content_bytes;
         }
-        store->text_used = write_offset;
-        store->text_wasted = 0;
-        ++store->compactions;
-        return true;
-    }
-    for (u32 left = 0; left < store->capacity; ++left) {
-        const MessageRecord& first = store->records[left];
-        if (!first.occupied || first.content_bytes == 0) {
-            continue;
-        }
-        const u32 first_end = first.content_offset + first.content_bytes;
-        for (u32 right = left + 1; right < store->capacity; ++right) {
-            const MessageRecord& second = store->records[right];
-            if (!second.occupied || second.content_bytes == 0) {
-                continue;
+    } else {
+        // Records never share text, so the nearest source at or after the end of the last one moved comes next.
+        for (u32 source = 0;;) {
+            MessageRecord* next = nullptr;
+            for (u32 index = 0; index < store->count; ++index) {
+                MessageRecord& record = store->records[store->order[index]];
+                if (record.content_bytes && record.content_offset >= source &&
+                    (!next || record.content_offset < next->content_offset))
+                    next = &record;
             }
-            const u32 second_end = second.content_offset + second.content_bytes;
-            if (first.content_offset < second_end && second.content_offset < first_end) {
-                ++store->rejected;
-                return false;
-            }
+            if (!next)
+                break;
+            source = next->content_offset + next->content_bytes;
+            copy_bytes(store->text + write_offset, store->text + next->content_offset, next->content_bytes);
+            next->content_offset = write_offset;
+            write_offset += next->content_bytes;
         }
-    }
-
-    u32 write_offset = 0;
-    u32 previous_source = 0;
-    bool has_previous = false;
-    for (u32 processed = 0; processed < nonempty_records; ++processed) {
-        u32 selected = store->capacity;
-        u32 selected_source = ~0u;
-        for (u32 slot = 0; slot < store->capacity; ++slot) {
-            const MessageRecord& record = store->records[slot];
-            if (!record.occupied || record.content_bytes == 0 ||
-                (has_previous && record.content_offset <= previous_source) ||
-                record.content_offset >= selected_source) {
-                continue;
-            }
-            selected = slot;
-            selected_source = record.content_offset;
-        }
-        if (selected == store->capacity) {
-            ++store->rejected;
-            return false;
-        }
-        MessageRecord& record = store->records[selected];
-        copy_bytes(store->text + write_offset, store->text + selected_source, record.content_bytes);
-        record.content_offset = write_offset;
-        write_offset += record.content_bytes;
-        previous_source = selected_source;
-        has_previous = true;
-    }
-    for (u32 slot = 0; slot < store->capacity; ++slot) {
-        MessageRecord& record = store->records[slot];
-        if (record.occupied && record.content_bytes == 0) {
-            record.content_offset = write_offset;
+        for (u32 index = 0; index < store->count; ++index) {
+            MessageRecord& record = store->records[store->order[index]];
+            if (!record.content_bytes)
+                record.content_offset = write_offset;
         }
     }
     store->text_used = write_offset;
     store->text_wasted = 0;
     ++store->compactions;
-    return true;
 }
 #pragma clang attribute pop
 

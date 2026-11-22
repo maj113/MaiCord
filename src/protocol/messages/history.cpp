@@ -127,10 +127,6 @@ bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
 
 } // namespace
 
-bool MessageHistoryRichCursor::valid() const noexcept {
-    return every_array(scratch, [](const auto& slice) noexcept { return slice.data || !slice.count; });
-}
-
 bool MessageHistoryRichCursor::present() const noexcept {
     return !every_array(scratch, [](const auto& slice) noexcept { return !slice.data; });
 }
@@ -183,7 +179,6 @@ void MessageHistoryRichCursor::advance(const GatewayMessageEvent& message) noexc
 MessageHistoryTargetResult write_message_history_target(
     u64 channel_id, const MessageHistoryQuery& query, Slice<u8> output) noexcept {
     if (channel_id == 0 || query.limit == 0 || query.limit > kMessageHistoryMaximumMessages ||
-        (!output.data && output.count != 0) ||
         (query.position == MessageHistoryPosition::latest ? query.cursor != 0 : query.cursor == 0)) {
         return MessageHistoryTargetResult{0, MessageHistoryTargetError::invalid_input};
     }
@@ -220,10 +215,7 @@ MessageHistoryDecodeResult decode_page(
     Slice<GatewayMessageEvent> messages, Slice<GatewayMessageNamedUser> mention_users,
     const MessageHistoryRichScratch& rich_scratch, bool mixed_channels) noexcept {
     const MessageHistoryRichCursor rich{rich_scratch};
-    if (!body.data || body.bytes == 0 || !page_structural_scratch.data ||
-        page_structural_scratch.count == 0 || maximum_depth == 0 ||
-        (!content_output.data && content_output.count != 0) || (!messages.data && messages.count != 0) ||
-        (!mention_users.data && mention_users.count != 0) || !rich.valid()) {
+    if (!body.data || body.bytes == 0) {
         return decode_failure(MessageHistoryDecodeError::invalid_input);
     }
     const JsonScanResult scan = json_scan_structurals_avx1(body, page_structural_scratch);

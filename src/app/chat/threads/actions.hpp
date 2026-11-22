@@ -72,6 +72,7 @@ Utf8View application_thread_actions_admission_text(ApplicationThreadActionEnqueu
 bool application_thread_actions_admission_status(const ApplicationThreadActionTicket&,
                                                  ApplicationThreadActionEnqueueResult) noexcept;
 bool application_thread_actions_pending(u64 now_ms) noexcept;
+// The request lanes give a nonzero request id.
 bool application_thread_actions_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_thread_actions_response(const RestClientResponse&, Utf8View body) noexcept;
 bool application_thread_actions_synchronize() noexcept;

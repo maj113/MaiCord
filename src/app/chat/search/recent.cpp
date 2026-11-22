@@ -24,8 +24,6 @@ bool same(const SearchRecentList& list, u32 index, const Utf8View& text) noexcep
 } // namespace
 
 bool search_recent_push(SearchRecentList* list, Utf8View text) noexcept {
-    if (!list || list->count > kSearchRecentCapacity || (!text.data && text.bytes))
-        return false;
     while (text.bytes && text.data[0] == ' ')
         text = {text.data + 1, text.bytes - 1};
     while (text.bytes && text.data[text.bytes - 1] == ' ')
@@ -53,22 +51,17 @@ bool search_recent_push(SearchRecentList* list, Utf8View text) noexcept {
 }
 
 void search_recent_clear(SearchRecentList* list) noexcept {
-    if (!list)
-        return;
     const u32 revision = list->revision + 1;
     clear_bytes(list, sizeof(*list));
     list->revision = revision;
 }
 
 Utf8View search_recent_entry(const SearchRecentList& list, u32 index) noexcept {
-    return index < list.count && index < kSearchRecentCapacity
-               ? Utf8View{list.text[index], list.bytes[index]}
-               : Utf8View{};
+    return index < list.count ? Utf8View{list.text[index], list.bytes[index]} : Utf8View{};
 }
 
 u32 search_recent_encode(const SearchRecentList& list, Slice<u8> output) noexcept {
-    if (list.count > kSearchRecentCapacity || !output.data)
-        return 0;
+    // Push and decode keep count within kSearchRecentCapacity and only store text that text_valid accepts.
     u32 used = 0;
     const auto put = [&](const void* data, u32 bytes) noexcept {
         if (bytes > output.count - used)
@@ -84,7 +77,7 @@ u32 search_recent_encode(const SearchRecentList& list, Slice<u8> output) noexcep
         const auto entry = search_recent_entry(list, i);
         u8 length[2];
         byte_store_le16(length, static_cast<u16>(entry.bytes));
-        if (!text_valid(entry) || !put(length, 2) || !put(entry.data, entry.bytes))
+        if (!put(length, 2) || !put(entry.data, entry.bytes))
             return 0;
     }
     const u32 hash = hash32_bytes(output.data, used);
@@ -94,7 +87,7 @@ u32 search_recent_encode(const SearchRecentList& list, Slice<u8> output) noexcep
 }
 
 bool search_recent_decode(ConstSlice<u8> input, SearchRecentList* list) noexcept {
-    if (!list || !input.data || input.count < 10 || input.count > kSearchRecentFileBytes)
+    if (input.count < 10 || input.count > kSearchRecentFileBytes)
         return false;
     const u32 body = input.count - 4;
     const u32 stored = byte_load_le32(input.data + body);
@@ -131,8 +124,6 @@ bool search_recent_path(u64 profile_id, wchar_t* path, u32 capacity) noexcept {
 }
 
 bool search_recent_load_file(const wchar_t* path, SearchRecentList* list) noexcept {
-    if (!path || !list)
-        return false;
     search_recent_clear(list);
     u8 record[kSearchRecentFileBytes];
     const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)});

@@ -90,8 +90,7 @@ struct MessageReactionController {
 enum class MessageReactionError : u8 {
     none,
     invalid_input,
-    capacity,
-    serial_exhausted
+    capacity
 };
 enum class MessageReactionCompletion : u8 {
     success,

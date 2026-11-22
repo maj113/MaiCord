@@ -36,19 +36,19 @@ ApplicationThreadHeaderActivationResult refuse(const ApplicationThreadHeaderActi
     ApplicationThreadActionEnqueueResult why) noexcept {
     // A refused scoped command is consumed. It never falls through to channel
     // selection, another context action, or a second mutation.
-    if (s.notice) s.notice(s.context, s.ticket, why);
-    if (s.refresh) s.refresh(s.context);
+    s.notice(s.context, s.ticket, why);
+    s.refresh(s.context);
     return {why, true, false};
 }
 ApplicationThreadHeaderActivationResult dispatch(const ApplicationThreadHeaderActivationSource& s,
     UiThreadAction action, UiRect anchor = {}) noexcept {
-    if (!s.current || !s.view || !s.ticket.thread_id || !s.current(s.context, s.ticket))
+    if (!s.ticket.thread_id || !s.current(s.context, s.ticket))
         return refuse(s, ApplicationThreadActionEnqueueResult::stale);
     const auto host = s.view(s.context, s.ticket.thread_id);
     if (host.ticket != s.ticket) return refuse(s, ApplicationThreadActionEnqueueResult::stale);
     const auto ui = application_thread_header_projection(host);
     if (action == UiThreadAction::menu) {
-        const bool opened = s.open_menu && s.open_menu(s.context, s.ticket, anchor);
+        const bool opened = s.open_menu(s.context, s.ticket, anchor);
         return {opened ? ApplicationThreadActionEnqueueResult::accepted : ApplicationThreadActionEnqueueResult::invalid,
             true, opened};
     }
@@ -56,12 +56,12 @@ ApplicationThreadHeaderActivationResult dispatch(const ApplicationThreadHeaderAc
         return refuse(s, ui.busy ? ApplicationThreadActionEnqueueResult::busy : ApplicationThreadActionEnqueueResult::permission);
     ApplicationThreadActionEnqueueResult admission = ApplicationThreadActionEnqueueResult::invalid;
     if (action == UiThreadAction::retry) {
-        admission = s.retry && s.retry(s.context, s.ticket) ? ApplicationThreadActionEnqueueResult::accepted
+        admission = s.retry(s.context, s.ticket) ? ApplicationThreadActionEnqueueResult::accepted
             : ApplicationThreadActionEnqueueResult::stale;
     } else if (action == UiThreadAction::cancel) {
-        admission = s.cancel && s.cancel(s.context, s.ticket) ? ApplicationThreadActionEnqueueResult::accepted
+        admission = s.cancel(s.context, s.ticket) ? ApplicationThreadActionEnqueueResult::accepted
             : ApplicationThreadActionEnqueueResult::stale;
-    } else if (s.activate) {
+    } else {
         ThreadActionOperation op{};
         switch (action) {
         case UiThreadAction::check_status: op = ThreadActionOperation::fetch_self; break;
@@ -72,7 +72,7 @@ ApplicationThreadHeaderActivationResult dispatch(const ApplicationThreadHeaderAc
         }
         admission = s.activate(s.context, s.ticket, op);
     }
-    if (s.refresh) s.refresh(s.context);
+    s.refresh(s.context);
     return {admission, true, admission == ApplicationThreadActionEnqueueResult::accepted ||
         admission == ApplicationThreadActionEnqueueResult::coalesced};
 }
@@ -103,7 +103,7 @@ UiThreadHeaderView application_thread_header_projection(const ApplicationThreadA
 ApplicationThreadHeaderActivationResult application_thread_header_activate(
     const ApplicationThreadHeaderActivationSource& s, const UiThreadHeaderTarget& target) noexcept {
     if (!target.thread_id || target.action == UiThreadAction::none) return {};
-    if (!s.header || target.thread_id != s.ticket.thread_id || target.source_publication != publication(s.ticket) ||
+    if (target.thread_id != s.ticket.thread_id || target.source_publication != publication(s.ticket) ||
         !ui_thread_header_current(*s.header, target)) return refuse(s, ApplicationThreadActionEnqueueResult::stale);
     const auto* n = s.header->manager ? ui_widget_manager_layout_node(*s.header->manager, target.widget) : nullptr;
     return n ? dispatch(s, target.action, ui_rect_intersection(n->rectangle, n->clip_rectangle))
@@ -113,9 +113,8 @@ ApplicationThreadHeaderActivationResult application_thread_menu_activate(
     const ApplicationThreadHeaderActivationSource& s, u32 action) noexcept {
     const auto semantic = menu_action(s.menu_actions, action);
     if (semantic == UiThreadAction::none) return {};
-    if (!s.popup || !s.popup->active || s.popup->owner_id != s.ticket.thread_id ||
-        s.popup->source_revision != s.ticket.publication_revision || !s.popup->items.data || !s.popup->rows.data ||
-        s.popup->item_count > s.popup->items.count || s.popup->item_count > s.popup->rows.count)
+    if (!s.popup->active || s.popup->owner_id != s.ticket.thread_id ||
+        s.popup->source_revision != s.ticket.publication_revision)
         return refuse(s, ApplicationThreadActionEnqueueResult::stale);
     bool current_row = false;
     for (u32 i = 0; i < s.popup->item_count; ++i) {

@@ -20,8 +20,9 @@ MessageTypingPresentationResult message_typing_presentation_build(const TypingSt
                                                                   const UserStore& users,
                                                                   u64 channel_id, u64 self_user_id,
                                                                   Slice<char> output, MessageTypingName* names) noexcept {
-    if (channel_id == 0 || !typing.records.data || typing.count > typing.records.count || !users.records ||
-        !users.order || !users.names || (!output.data && output.count != 0)) {
+    // The caller gives the active channel, never 0.
+    if (!typing.records.data || typing.count > typing.records.count || !users.records ||
+        !users.order || !users.names) {
         return failure(MessageTypingPresentationError::invalid_input);
     }
     const u32 count = typing_store_channel_count(typing, channel_id, self_user_id);

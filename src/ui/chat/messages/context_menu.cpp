@@ -105,7 +105,7 @@ MessageContextMenuResult message_context_menu_build(MessageContextMenuModel* mod
                                                     bool reply_target_deleted,
                                                     bool can_create_thread_authoritative,
                                                     bool developer_mode, MessageContextMenuExtras extras) noexcept {
-    if (!model || message.id == 0 || message.channel_id == 0) {
+    if (message.id == 0 || message.channel_id == 0) {
         return MessageContextMenuResult{0, MessageContextMenuError::invalid_input};
     }
     const bool failed = message.delivery == MessageDeliveryState::failed;
@@ -211,7 +211,7 @@ bool message_context_menu_resolve_quick_reaction(const MessageContextMenuModel& 
 }
 
 u32 message_context_format_snowflake(u64 value, const Slice<char>& output) noexcept {
-    if (value == 0 || !output.data || output.count == 0) {
+    if (value == 0 || output.count == 0) {
         return 0;
     }
     if (decimal_digits(value) > output.count) {
@@ -221,7 +221,7 @@ u32 message_context_format_snowflake(u64 value, const Slice<char>& output) noexc
 }
 
 u32 message_context_format_link(u64 guild_id, u64 channel_id, u64 message_id, const Slice<char>& output) noexcept {
-    if (!output.data || channel_id == 0 || message_id == 0) {
+    if (channel_id == 0 || message_id == 0) {
         return 0;
     }
     TextWriter writer{output};

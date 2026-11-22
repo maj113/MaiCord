@@ -123,7 +123,7 @@ bool ui_attachment_draft_list_single_line(const UiAttachmentDraftList& list, u32
     return key >= list.key_base && (key - list.key_base) % kUiAttachmentDraftParts != status;
 }
 bool ui_attachment_draft_list_layout(UiAttachmentDraftList* list, float width, bool editable) noexcept {
-    if (!list || !list->manager || !ui_coordinate_valid(width) || width <= 0)
+    if (!list->manager || !ui_coordinate_valid(width) || width <= 0)
         return false;
     const auto& style = list->style;
     const u32 columns = width >= style.minimum_card_width * 2 + style.gap ? 2u : 1u;

@@ -28,6 +28,7 @@ bool application_thread_browser_window_event(const WindowEvent&) noexcept;
 bool application_thread_browser_input(UiInputKind, u32, bool repeated) noexcept;
 bool application_thread_browser_consume_key_tail(UiInputKind, u32, bool repeated) noexcept;
 bool application_thread_browser_pending(u64 now_ms) noexcept;
+// The request lanes give a nonzero request id.
 bool application_thread_browser_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_thread_browser_response(const RestClientResponse&, Utf8View) noexcept;
 u64 application_thread_browser_next_wake() noexcept;

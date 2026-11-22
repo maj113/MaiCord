@@ -19,7 +19,7 @@ void fail(MessageSearchController* controller, MessageSearchFailure failure) noe
 
 bool message_search_begin(MessageSearchController* controller, u64 account_id,
                           const MessageSearchQuery& query) noexcept {
-    if (!controller || !account_id || controller->token.generation == ~u64{0} ||
+    if (!account_id || controller->token.generation == ~u64{0} ||
         !message_search_query_valid(query)) {
         return false;
     }
@@ -33,7 +33,7 @@ bool message_search_begin(MessageSearchController* controller, u64 account_id,
 
 bool message_search_submit(MessageSearchController* controller, u64 request_id, u64 now_ms,
                            MessageSearchToken* token) noexcept {
-    if (!controller || !token || !request_id || request_id == controller->token.request_id ||
+    if (!request_id || request_id == controller->token.request_id ||
         !controller->token.account_id ||
         (controller->state != MessageSearchState::ready_to_submit &&
          controller->state != MessageSearchState::indexing &&
@@ -51,7 +51,7 @@ bool message_search_submit(MessageSearchController* controller, u64 request_id, 
 
 bool message_search_accepts(const MessageSearchController* controller,
                             const MessageSearchToken& token) noexcept {
-    return controller && controller->state == MessageSearchState::fetching && token.request_id &&
+    return controller->state == MessageSearchState::fetching && token.request_id &&
            token_equal(controller->token, token);
 }
 
@@ -112,7 +112,7 @@ bool message_search_complete(MessageSearchController* controller, const MessageS
 }
 
 bool message_search_page(MessageSearchController* controller, u32 offset) noexcept {
-    if (!controller || controller->state != MessageSearchState::ready ||
+    if (controller->state != MessageSearchState::ready ||
         offset > kMessageSearchMaximumOffset || (offset && offset >= controller->total_results) ||
         controller->token.generation == ~u64{0}) {
         return false;
@@ -143,9 +143,6 @@ bool message_search_fallback(MessageSearchController* controller,
 }
 
 u64 message_search_cancel(MessageSearchController* controller) noexcept {
-    if (!controller) {
-        return 0;
-    }
     const u64 request_id =
         controller->state == MessageSearchState::fetching ? controller->token.request_id : 0;
     controller->token.request_id = 0;
@@ -155,8 +152,7 @@ u64 message_search_cancel(MessageSearchController* controller) noexcept {
 }
 
 u64 message_search_next_wake(const MessageSearchController* controller) noexcept {
-    return controller && (controller->state == MessageSearchState::indexing ||
-                          controller->state == MessageSearchState::rate_limited)
+    return controller->state == MessageSearchState::indexing || controller->state == MessageSearchState::rate_limited
                ? controller->retry_at_ms
                : 0;
 }

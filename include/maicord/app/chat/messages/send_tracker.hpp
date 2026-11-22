@@ -95,13 +95,12 @@ struct MessageSendTracker {
     u32 completion_read;
     u32 completion_write;
     u32 completion_count;
-    bool initialized;
 };
 
-bool message_send_tracker_initialize(MessageSendTracker* tracker) noexcept;
+// The caller owns the inputs: nonzero ids and times, and text or attachments to send.
 MessageSendBeginResult message_send_tracker_begin(
     MessageSendTracker* tracker, MessageTimeline* timeline, u64 channel_id, u64 author_id,
-    const Utf8View& content, u64 now_unix_ms, u64 now_monotonic_ms, bool has_attachments = false,
+    const Utf8View& content, u64 now_unix_ms, u64 now_monotonic_ms,
     const ConstSlice<GatewayMessageAttachment>& local_attachments = {},
     bool insert_local_preview = true) noexcept;
 MessageSendObserveResult message_send_tracker_retry(

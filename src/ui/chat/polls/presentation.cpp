@@ -192,7 +192,7 @@ bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyl
 
 bool ui_poll_controls_text_output(const UiPollProjection& projection, const UiPollStyle& style, const UiRect& clip,
                                   UiWidgetReference owner, UiTextOutput* output, UiPollTarget hover) noexcept {
-    if (!output || !ui_poll_owner_current(owner) || !ui_rect_valid_or_empty(clip))
+    if (!ui_poll_owner_current(owner) || !ui_rect_valid_or_empty(clip))
         return false;
     const auto visible = ui_rect_intersection(clip, projection.geometry.bounds);
     const auto& geometry = projection.geometry;
@@ -316,7 +316,7 @@ bool ui_poll_voters_scene_paint(const UiPollVotersScene& scene, const Theme& the
                                 PaintStream* paint) noexcept {
     if (!scene.active)
         return true;
-    if (!paint || !ui_poll_owner_current(scene.owner))
+    if (!ui_poll_owner_current(scene.owner))
         return false;
     const auto& geometry = scene.geometry;
     Color dim = theme.base_lowest;
@@ -390,7 +390,7 @@ bool ui_poll_voters_scene_paint(const UiPollVotersScene& scene, const Theme& the
 bool ui_poll_voters_scene_text_output(const UiPollVotersScene& scene, UiTextOutput* output) noexcept {
     if (!scene.active)
         return true;
-    if (!output || !ui_poll_owner_current(scene.owner))
+    if (!ui_poll_owner_current(scene.owner))
         return false;
     const auto& geometry = scene.geometry;
     if (!label(output, scene.style.title, geometry.title, geometry.panel, scene.owner, scene.foreground,
@@ -400,12 +400,12 @@ bool ui_poll_voters_scene_text_output(const UiPollVotersScene& scene, UiTextOutp
         return false;
     for (u32 i = 0; i < scene.state.answers.count; ++i) {
         const auto& answer = scene.state.answers[i];
+        const Utf8View answer_text = answer.text.bytes         ? answer.text
+                                     : answer.emoji_name.bytes ? answer.emoji_name
+                                                               : utf8_literal("Answer");
         if (answer.id == scene.state.answer_id &&
-            !label(output,
-                   answer.text.bytes         ? answer.text
-                   : answer.emoji_name.bytes ? answer.emoji_name
-                                             : utf8_literal("Answer"),
-                   geometry.answer, geometry.panel, scene.owner, scene.foreground, text_style_bold))
+            !label(output, answer_text, geometry.answer, geometry.panel, scene.owner, scene.foreground,
+                   text_style_bold))
             return false;
         if (geometry.columns) {
             // "Answer text ... N": the label ellipsizes before the vote count.
@@ -416,10 +416,7 @@ bool ui_poll_voters_scene_text_output(const UiPollVotersScene& scene, UiTextOutp
             const auto& row = geometry.answers[i];
             const UiRect text_box{row.left + pad, row.top, row.right - pad - count_width, row.bottom};
             const UiRect count_box{row.right - pad - count_width, row.top, row.right - pad, row.bottom};
-            const Utf8View text = answer.text.bytes         ? answer.text
-                                  : answer.emoji_name.bytes ? answer.emoji_name
-                                                            : utf8_literal("Answer");
-            if (!label(output, text, text_box, geometry.panel, scene.owner, scene.foreground,
+            if (!label(output, answer_text, text_box, geometry.panel, scene.owner, scene.foreground,
                        answer.id == scene.state.answer_id ? text_style_bold : text_style_none,
                        label_nowrap | label_middle) ||
                 (count_bytes && !label(output, {count, count_bytes}, count_box, geometry.panel, scene.owner,

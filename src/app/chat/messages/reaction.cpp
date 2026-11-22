@@ -378,8 +378,7 @@ ApplicationMessageReactionEnqueueResult queue(u64 id, u64 emoji, Utf8View text, 
     const auto* record = resident(target.channel_id, target.message_id, &handle);
     if (!record)
         return ApplicationMessageReactionEnqueueResult::stale;
-    if (!application_message_reaction_synchronize())
-        return ApplicationMessageReactionEnqueueResult::stale;
+    application_message_reaction_synchronize();
     if (owner && owner->closing)
         return ApplicationMessageReactionEnqueueResult::stale;
     record = resident(target.channel_id, target.message_id, &handle);
@@ -528,7 +527,7 @@ Utf8View application_message_reaction_admission_text(ApplicationMessageReactionE
 
 Utf8View application_message_reaction_status(u64 message_id, bool* error) noexcept {
     *error = false;
-    if (!owner || !same_actor(actor(), owner->controller.actor) || !g_app.account_ui)
+    if (!owner || !same_actor(actor(), owner->controller.actor))
         return {};
     const auto& status = owner->status;
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, status.channel);
@@ -567,11 +566,11 @@ void reset_message_reaction() noexcept {
     mirror();
 }
 
-static bool synchronize_reactions(u64 snapshot_channel, u64 snapshot_message,
+static void synchronize_reactions(u64 snapshot_channel, u64 snapshot_message,
                                   const MessageReactionTarget* protected_emoji = nullptr,
                                   bool authoritative_replacement = true) noexcept {
     if (!owner)
-        return true;
+        return;
     const auto current = actor();
     if (owner->closing || !same_actor(current, owner->controller.actor)) {
         if (!owner->closing) {
@@ -583,7 +582,7 @@ static bool synchronize_reactions(u64 snapshot_channel, u64 snapshot_message,
         }
         if (!owner->controller.flight.active)
             release_owner();
-        return true;
+        return;
     }
     auto& controller = owner->controller;
     const auto protected_target = [&](const MessageReactionTarget& target) noexcept {
@@ -689,26 +688,23 @@ static bool synchronize_reactions(u64 snapshot_channel, u64 snapshot_message,
     mirror();
     if (changed || revision != controller.revision)
         publish(changed);
-    return true;
 }
 
-bool application_message_reaction_synchronize() noexcept {
-    return synchronize_reactions(0, 0);
+void application_message_reaction_synchronize() noexcept {
+    synchronize_reactions(0, 0);
 }
 
 bool application_message_reaction_pending(u64 now_ms) noexcept {
-    if (!application_message_reaction_synchronize() || !owner || owner->closing)
-        return false;
-    if (now_ms < owner->admission_retry_at)
+    application_message_reaction_synchronize();
+    if (!owner || owner->closing || now_ms < owner->admission_retry_at)
         return false;
     MessageReactionIntent intent{};
     return message_reaction_controller_peek_due(owner->controller, now_ms, &intent);
 }
 
 bool application_message_reaction_submit(u64 request_id, u64 now_ms) noexcept {
-    if (!request_id || !application_message_reaction_synchronize() || !owner || owner->closing)
-        return false;
-    if (now_ms < owner->admission_retry_at)
+    application_message_reaction_synchronize();
+    if (!request_id || !owner || owner->closing || now_ms < owner->admission_retry_at)
         return false;
     MessageReactionIntent intent{};
     if (!message_reaction_controller_peek_due(owner->controller, now_ms, &intent))

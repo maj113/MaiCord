@@ -510,7 +510,6 @@ void resilience() noexcept {
               enqueue(&mailbox, truncated, {junk, 3}) && enqueue(&mailbox, fixed, {appearance, appearance_bytes}) &&
               enqueue(&mailbox, offline, {}),
           "resilience: fixture queues");
-    const u32 rejected_before = stores.pump.rejected;
     const auto drained = message_event_pump_drain(&stores.pump, &mailbox, pop, kGatewayClientEventCapacity);
     check(drained.ok() && drained.popped == 4 && drained.apply_failures == 2 && mailbox.cursor == 4,
           "resilience: rejected events are skipped and the drain continues");
@@ -519,7 +518,7 @@ void resilience() noexcept {
               drained.failure.reason == MessageEventPumpRejectReason::descriptor_payload_mismatch &&
               drained.failure.sequence == 900 && drained.failure.payload_bytes == appearance_bytes,
           "resilience: the first skipped event is described by kind, reason and size");
-    check(drained.state_incomplete && stores.pump.rejected == rejected_before + 2,
+    check(drained.state_incomplete && drained.rejected == 2,
           "resilience: a rejected read-state snapshot marks account state incomplete");
     const auto* applied = user_appearance_find_activity(stores.user_store.appearance, user_id(2));
     check(applied && utf8_equal(applied->activity.view(), utf8_literal("back soon")),

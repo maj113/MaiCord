@@ -269,8 +269,8 @@ void test_profile_game_collection(void (*check)(bool, const char*) noexcept) noe
     static GameSearchEntry searches[1];
     static GameStore games{};
     u32 scratch[1024];
-    bool ok = user_profile_decode(json, {scratch, 1024}, 42, 0, &profile) &&
-              game_store_initialize(&games, {records, 8}, {searches, 1});
+    bool ok = user_profile_decode(json, {scratch, 1024}, 42, 0, &profile);
+    game_store_initialize(&games, {records, 8}, {searches, 1});
     for (u64 id = 501; ok && id <= 506; ++id) {
         GuildAdminGame game{};
         game.id = id;

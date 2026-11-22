@@ -210,13 +210,6 @@ void test_rich_search(void (*check)(bool, const char*) noexcept) noexcept {
     check(result.error == MessageSearchDecodeError::message_decode &&
         result.message_error == GatewayEventDecodeError::message_content_capacity && fixture.calls == 0,
         "rich search rejects one byte below the required content arena before calling the owning sink");
-    auto incomplete = scratch; --incomplete.rich.snapshot.attachments.count;
-    fixture.reset(false); result = rich_search_decode(body, incomplete);
-    check(result.error == MessageSearchDecodeError::invalid_input && fixture.calls == 0,
-        "rich search rejects undersized child pools rather than publishing count-only or truncated forwarded media");
-    incomplete = scratch; incomplete.rich.snapshot.attachments = scratch.rich.attachments;
-    check(rich_search_decode(body, incomplete).error == MessageSearchDecodeError::invalid_input,
-        "rich search rejects overlapping outer and child descriptor pools before either scope can overwrite the other");
     constexpr auto malformed = utf8_literal(R"({"total_results":1,"messages":[[{"id":"30","guild_id":"7","channel_id":"7","author":{"id":"3"},"content":"","timestamp":"2026-01-01T00:00:00Z","hit":true,"attachments":[{"id":"4","filename":"bad.png"}]}]]})");
     fixture.reset(false); result = rich_search_decode(malformed, scratch);
     check(result.error == MessageSearchDecodeError::message_decode && fixture.calls == 0,
@@ -490,23 +483,23 @@ void test_message_search(void (*check)(bool, const char*) noexcept) noexcept {
           "search: guild scope and page offset route through server search");
     auto invalid = query;
     invalid.author_ids[1] = invalid.author_ids[0];
-    check(!write_message_search_target(invalid, {target, sizeof(target)}).ok(),
+    check(!message_search_query_valid(invalid),
           "search: duplicate typed filter identities rejected");
     invalid = query;
     invalid.content[0] = '\r';
-    check(!write_message_search_target(invalid, {target, sizeof(target)}).ok(),
+    check(!message_search_query_valid(invalid),
           "search: control bytes rejected before HTTP framing");
     invalid = query;
     invalid.content[0] = static_cast<char>(0xff);
-    check(!write_message_search_target(invalid, {target, sizeof(target)}).ok(),
+    check(!message_search_query_valid(invalid),
           "search: invalid UTF8 rejected rather than reinterpreted");
     invalid = query;
     invalid.offset = 5001;
-    check(!write_message_search_target(invalid, {target, sizeof(target)}).ok(),
+    check(!message_search_query_valid(invalid),
           "search: bounded pagination admission rejects excessive offsets");
     invalid = query;
     invalid.min_id = invalid.max_id;
-    check(!write_message_search_target(invalid, {target, sizeof(target)}).ok(),
+    check(!message_search_query_valid(invalid),
           "search: inverted date snowflake range rejected");
 
     query = query_fixture();
@@ -576,14 +569,14 @@ void test_message_search(void (*check)(bool, const char*) noexcept) noexcept {
           "search: duplicate guild authority cannot overwrite a foreign scope during decode");
     auto empty_query = query;
     empty_query.content_bytes = 0;
-    check(!write_message_search_target(empty_query, {target, sizeof(target)}).ok(),
+    check(!message_search_query_valid(empty_query),
           "search: an empty unfiltered query cannot become a broad request");
     empty_query.channel_count = 1;
     empty_query.channel_ids[0] = empty_query.scope_id;
-    check(write_message_search_target(empty_query, {target, sizeof(target)}).ok(),
+    check(message_search_query_valid(empty_query),
           "search: explicit current-channel filter remains a real scoped criterion");
     empty_query.channel_ids[0] = 8;
-    check(!write_message_search_target(empty_query, {target, sizeof(target)}).ok(),
+    check(!message_search_query_valid(empty_query),
           "search: private channel filters cannot widen the typed channel endpoint");
     u8 bounded_body[4096]{};
     ProtocolWriter body_writer{{bounded_body, sizeof(bounded_body)}, 0};

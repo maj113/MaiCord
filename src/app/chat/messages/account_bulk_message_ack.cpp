@@ -21,8 +21,8 @@ __declspec(noinline) RestClientSubmitResult submit_batch(
 RestClientSubmitResult account_bulk_message_ack_submit(RestClient* primary,
                                                        const BulkMessageAckEntry* entries,
                                                        u32 count, u64 request_id) noexcept {
-    if (!primary || !request_id || (!entries && count) || (entries && !count) ||
-        count > kBulkMessageAckMaximumEntries)
+    // The account module has no client before it runs. Scoped read gives up to 100 entries, or none to cancel.
+    if (!primary)
         return {RestClientSubmitError::invalid_input};
     if (!entries)
         return rest_client_cancel_result(primary, request_id);

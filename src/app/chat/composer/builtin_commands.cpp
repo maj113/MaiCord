@@ -375,8 +375,6 @@ bool builtin_commands_pending() noexcept {
 bool builtin_commands_submit(u64 request_id, bool* busy) noexcept {
     auto& s = g_builtins;
     *busy = false;
-    if (!builtin_commands_pending() || !request_id)
-        return false;
     RestClientSubmitResult result{RestClientSubmitError::invalid_input};
     if (s.action == Action::nick || s.action == Action::thread) {
         result = account_module_application_command(

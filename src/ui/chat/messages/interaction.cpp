@@ -38,7 +38,7 @@ static UiRect reply_avatar(const MessageScene& scene, const UiRect& line) noexce
 bool message_interaction_layout(const MessageScene& scene, const MessageTextCommand& command,
                                 const UserStore& users, UiTextMeasureCache* cache, const Theme& theme,
                                 MessageInteractionLayout* out) noexcept {
-    if (!out || !scene.timeline || !scene.timeline->store || !scene.timeline->rich_store)
+    if (!scene.timeline || !scene.timeline->store || !scene.timeline->rich_store)
         return false;
     const auto* row = command_row(scene, command);
     if (!row)
@@ -171,8 +171,8 @@ MessageInteractionHit message_interaction_hit_test(const MessageScene& scene,
         return {};
     for (u32 i = 0; i < text.command_count; ++i) {
         const auto& command = text.commands[i];
-        if (!ui_rect_contains(ui_rect_intersection(command.clip, scene.viewport), x, y) ||
-            !command_row(scene, command))
+        // The layout resolves the command's row (command_row) and refuses every other command.
+        if (!ui_rect_contains(ui_rect_intersection(command.clip, scene.viewport), x, y))
             continue;
         MessageInteractionLayout layout;
         if (!message_interaction_layout(scene, command, users, cache, theme, &layout))
@@ -200,9 +200,9 @@ MessageInteractionHit message_interaction_hit_test(const MessageScene& scene,
 bool message_interaction_command_anchor(const MessageScene& scene, const MessageTextPresentation& text,
                                         const UserStore& users, UiTextMeasureCache* cache, const Theme& theme,
                                         u64 message_id, UiRect* anchor) noexcept {
-    for (u32 i = 0; anchor && i < text.command_count; ++i) {
+    for (u32 i = 0; i < text.command_count; ++i) {
         const auto& command = text.commands[i];
-        if (command.message_id != message_id || !command_row(scene, command))
+        if (command.message_id != message_id)
             continue;
         MessageInteractionLayout layout;
         if (!message_interaction_layout(scene, command, users, cache, theme, &layout))

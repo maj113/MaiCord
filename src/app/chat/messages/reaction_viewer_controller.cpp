@@ -19,7 +19,7 @@ ReactionViewerControllerResult failure(ReactionViewerControllerError error, bool
 inline void require_current_page(ReactionViewerController* controller) noexcept {
     controller->retry_at_ms = 0;
     controller->retry_attempt = 0;
-    controller->phase = controller->viewer && controller->viewer->active
+    controller->phase = controller->viewer->active
                             ? ReactionViewerRequestPhase::required
                             : ReactionViewerRequestPhase::idle;
 }
@@ -42,7 +42,7 @@ ReactionViewerControllerResult stale_response(ReactionViewerController* controll
 ReactionViewerControllerResult retry_or_fail(ReactionViewerController* controller, u64 now_monotonic_ms,
                                              u64 retry_at_ms,
                                              ReactionViewerControllerError terminal_error) noexcept {
-    if (!controller->viewer || !controller->viewer->active) {
+    if (!controller->viewer->active) {
         return failure(ReactionViewerControllerError::state);
     }
     if (controller->retry_attempt < kReactionViewerMaximumRetries) {
@@ -66,9 +66,6 @@ ReactionViewerControllerResult retry_or_fail(ReactionViewerController* controlle
 
 bool reaction_viewer_controller_initialize(ReactionViewerController* controller, ReactionViewer* viewer,
                                            Slice<ReactionUser> page_users) noexcept {
-    if (!controller || !viewer || !page_users.data || page_users.count < kReactionUsersMaximumPage) {
-        return false;
-    }
     reset_value<ReactionViewerController>(controller);
     controller->viewer = viewer;
     controller->page_users = page_users.data;
@@ -83,7 +80,7 @@ ReactionViewerControllerResult reaction_viewer_controller_open(ReactionViewerCon
                                                                const MessageRichStore& rich_store,
                                                                const MessageRichRecord& rich,
                                                                UiRect viewport) noexcept {
-    if (!controller->initialized || !controller->viewer) {
+    if (!controller->initialized) {
         return failure(ReactionViewerControllerError::invalid_input);
     }
     const ReactionViewerResult opened = reaction_viewer_open(controller->viewer, guild_id, channel_id,
@@ -98,13 +95,10 @@ ReactionViewerControllerResult reaction_viewer_controller_open(ReactionViewerCon
 
 ReactionViewerControllerResult reaction_viewer_controller_close(
     ReactionViewerController* controller) noexcept {
-    if (!controller->initialized || !controller->viewer) {
+    if (!controller->initialized) {
         return failure(ReactionViewerControllerError::invalid_input);
     }
-    bool changed = false;
-    if (!reaction_viewer_close(controller->viewer, &changed)) {
-        return failure(ReactionViewerControllerError::viewer);
-    }
+    const bool changed = reaction_viewer_close(controller->viewer);
     if (changed) {
         controller->epoch = next_epoch(controller->epoch);
     }
@@ -118,7 +112,7 @@ ReactionViewerControllerResult reaction_viewer_controller_close(
 
 ReactionViewerControllerResult reaction_viewer_controller_select(ReactionViewerController* controller,
                                                                  u32 aggregate_index) noexcept {
-    if (!controller->initialized || !controller->viewer) {
+    if (!controller->initialized) {
         return failure(ReactionViewerControllerError::invalid_input);
     }
     const ReactionViewerResult selected =
@@ -135,8 +129,7 @@ ReactionViewerControllerResult reaction_viewer_controller_select(ReactionViewerC
 
 bool reaction_viewer_controller_prepare_request(ReactionViewerController* controller, u64 now_monotonic_ms,
                                                 ReactionViewerQuery* query) noexcept {
-    if (!controller->initialized || !controller->viewer ||
-        !controller->viewer->active) {
+    if (!controller->initialized || !controller->viewer->active) {
         return false;
     }
     if (controller->phase == ReactionViewerRequestPhase::retry_wait) {
@@ -170,7 +163,7 @@ bool reaction_viewer_controller_prepare_request(ReactionViewerController* contro
 
 ReactionViewerControllerResult reaction_viewer_controller_mark_submitted(
     ReactionViewerController* controller, u64 epoch) noexcept {
-    if (!controller->initialized || !controller->viewer || !controller->viewer->active ||
+    if (!controller->initialized || !controller->viewer->active ||
         controller->phase != ReactionViewerRequestPhase::required || epoch != controller->epoch) {
         return failure(ReactionViewerControllerError::state);
     }
@@ -190,8 +183,7 @@ ReactionViewerControllerResult reaction_viewer_controller_submit_failed(
     if (controller->phase == ReactionViewerRequestPhase::required) {
         controller->request_epoch = controller->epoch;
     }
-    if (controller->request_epoch != controller->epoch || !controller->viewer ||
-        !controller->viewer->active) {
+    if (controller->request_epoch != controller->epoch || !controller->viewer->active) {
         return stale_response(controller);
     }
     return retry_or_fail(controller, now_monotonic_ms, 0, ReactionViewerControllerError::transport);
@@ -200,8 +192,7 @@ ReactionViewerControllerResult reaction_viewer_controller_submit_failed(
 ReactionViewerControllerResult reaction_viewer_controller_accept_response(
     ReactionViewerController* controller, const RestClientResponse& response, ConstSlice<u8> body,
     Slice<u32> page_structural_scratch) noexcept {
-    if (!controller->initialized || !controller->viewer ||
-        controller->phase != ReactionViewerRequestPhase::submitted) {
+    if (!controller->initialized || controller->phase != ReactionViewerRequestPhase::submitted) {
         return failure(ReactionViewerControllerError::state);
     }
     controller->last_http_status = response.status_code;
@@ -251,13 +242,10 @@ ReactionViewerControllerResult reaction_viewer_controller_accept_response(
 
 ReactionViewerControllerResult reaction_viewer_controller_request_more(
     ReactionViewerController* controller) noexcept {
-    if (!controller->initialized || !controller->viewer) {
+    if (!controller->initialized) {
         return failure(ReactionViewerControllerError::invalid_input);
     }
-    bool requested = false;
-    if (!reaction_viewer_request_more(controller->viewer, &requested)) {
-        return failure(ReactionViewerControllerError::viewer);
-    }
+    const bool requested = reaction_viewer_request_more(controller->viewer);
     if (requested && controller->phase == ReactionViewerRequestPhase::idle) {
         controller->phase = ReactionViewerRequestPhase::required;
     }

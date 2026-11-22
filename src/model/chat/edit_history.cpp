@@ -26,7 +26,6 @@ void erase(TextEditHistory& history, const EditRecord& entry) noexcept {
     history.used -= bytes;
 }
 TextEditHistoryResult restore(TextEditHistoryState* edit, bool forward) noexcept {
-    if (!edit || !edit->storage.data) return TextEditHistoryResult::invalid_input;
     text_edit_break_history_run(edit);
 
     auto* history = edit->history;

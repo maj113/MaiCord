@@ -67,7 +67,7 @@ enum class LinkOpenDecision : u8 {
 // trusted_text: the link's text is its URL and it is not in a DM with a
 // non-friend (the official client's markdown link rule).
 LinkOpenDecision link_open_decision(const LinkTrustStore* store, Utf8View url, bool trusted_text) noexcept;
-// The URL as the warning shows it: user name and password removed.
+// The URL as the warning shows it: user name and password removed. Output holds at least url.bytes.
 u32 link_display_url(Utf8View url, Slice<char> output) noexcept;
 
 u32 link_trust_encode(const LinkTrustStore& store, Slice<u8> output) noexcept;

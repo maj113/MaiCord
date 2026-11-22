@@ -1,4 +1,5 @@
 #include "maicord/model/chat/typing_store.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
 
@@ -39,9 +40,6 @@ void clear_local_controller(TypingStore* store) noexcept {
 
 bool typing_store_initialize(TypingStore* store,
                                      Slice<TypingRecord> records) noexcept {
-    if (!store || !records.data || records.count == 0 || records.count > kTypingRecordCapacity) {
-        return false;
-    }
     reset_value<TypingStore>(store);
     store->records = records;
     for (u32 index = 0; index < records.count; ++index) {
@@ -184,12 +182,8 @@ TypingPost typing_store_take_local_post(TypingStore* store, u64 now_ms) noexcept
 
 u64 typing_store_next_wake_at(const TypingStore& store) noexcept {
     u64 wake = store.local_post_pending ? store.local_post_at_ms : 0;
-    for (u32 index = 0; index < store.count; ++index) {
-        const u64 expiry = store.records[index].expires_at_ms;
-        if (expiry != 0 && (wake == 0 || expiry < wake)) {
-            wake = expiry;
-        }
-    }
+    for (u32 index = 0; index < store.count; ++index)
+        wake = earliest_deadline(wake, store.records[index].expires_at_ms);
     return wake;
 }
 

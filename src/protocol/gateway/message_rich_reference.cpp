@@ -177,8 +177,7 @@ bool visit_referenced_question(void* opaque, JsonString name, JsonValue value) n
             context->question = value;
         break;
     case 1:
-        if (value.kind == JsonValueKind::string)
-            json_value_as_string(value, &context->text);
+        json_value_as_string(value, &context->text);
         break;
     default: break;
     }
@@ -188,12 +187,10 @@ bool visit_referenced_embed(void* opaque, JsonString name, JsonValue value) noex
     auto* context = static_cast<ReferencedPreviewContext*>(opaque);
     switch (member_index<"type", "url", "title", "description", "fields">(name)) {
     case 0:
-        if (value.kind == JsonValueKind::string)
-            json_value_as_string(value, &context->type);
+        json_value_as_string(value, &context->type);
         break;
     case 1:
-        if (value.kind == JsonValueKind::string)
-            json_value_as_string(value, &context->url);
+        json_value_as_string(value, &context->url);
         break;
     case 2:
     case 3:
@@ -212,12 +209,10 @@ bool visit_referenced_field(void* opaque, JsonString name, JsonValue value) noex
     auto* context = static_cast<ReferencedPreviewContext*>(opaque);
     switch (member_index<"name", "value">(name)) {
     case 0:
-        if (value.kind == JsonValueKind::string)
-            json_value_as_string(value, &context->field_name);
+        json_value_as_string(value, &context->field_name);
         break;
     case 1:
-        if (value.kind == JsonValueKind::string)
-            json_value_as_string(value, &context->field_value);
+        json_value_as_string(value, &context->field_value);
         break;
     default: break;
     }
@@ -477,7 +472,7 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
             quote_flags |= gateway_quote_forwarded;
     }
     // A clip mention replaces the quoted text by the clip's title and the moment: "<title>\x1f@<time>".
-    if (root.media_mention.source.data && text.output.data) {
+    if (root.media_mention.source.data) {
         MediaMentionProbe mention{};
         json_visit_indexed_object(scratch, root.media_mention, maximum_depth, visit_media_mention, &mention);
         QuotedAttachmentProbe attachment{&scratch, maximum_depth, mention.attachment_id, {}, 0, 0, false};

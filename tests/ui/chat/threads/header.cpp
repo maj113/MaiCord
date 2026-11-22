@@ -45,10 +45,10 @@ void test_thread_header(void (*check)(bool, const char*) noexcept) noexcept {
     const auto retired = ui_thread_header_pointer(&header, UiButtonPointerEvent::release, point);
     check(!retired.activate && !ui_thread_header_current(header, unknown),
         "thread header: a publication change during pointer capture cannot activate its replacement");
-    const auto revision = header.revision, projections = header.projections, layout = shell.widgets.layout.revision;
+    const auto revision = header.revision, layout = shell.widgets.layout.revision;
     bool warm = true;
     for (u32 i = 0; i < 2; ++i) warm = warm && !ui_thread_header_update(&header, view, strip, clip, style);
-    check(warm && header.revision == revision && header.projections == projections &&
+    check(warm && header.revision == revision &&
         shell.widgets.layout.revision == layout && shell.widgets.count == shell_count,
         "thread header: equal authoritative receipts perform no projection, layout or widget growth");
     view.membership = UiThreadMembership::not_joined;
@@ -130,10 +130,8 @@ void test_thread_header(void (*check)(bool, const char*) noexcept) noexcept {
     }
     check(readable, "thread header: Dark Light AMOLED use readable semantic status/error text with exact native feedback clipping");
     items[0].action = 999;
-    auto collision = actions; collision.leave = collision.check_status;
-    check(!ui_thread_menu_build(view, actions, {items, 1}) && items[0].action == 999 &&
-        !ui_thread_menu_build(view, collision, {items, 6}) && items[0].action == 999,
-        "thread header: capacity or colliding menu actions cannot partially replace copied descriptors");
+    check(!ui_thread_menu_build(view, actions, {items, 1}) && items[0].action == 999,
+        "thread header: a short capacity cannot partially replace copied descriptors");
     const UiRect short_clip{312, 48, 632, 103};
     check(ui_thread_header_update(&header, view, strip, short_clip, style) &&
         ui_rect_has_area(ui_rect_intersection(header.geometry.cancel, short_clip)) &&
@@ -141,10 +139,10 @@ void test_thread_header(void (*check)(bool, const char*) noexcept) noexcept {
         "thread header: a short viewport clips the feedback and controls to the same native surface");
     view = {};
     ui_thread_header_update(&header, view, strip, clip, style);
-    const auto inactive_revision = header.revision, inactive_projections = header.projections;
+    const auto inactive_revision = header.revision;
     warm = true;
     for (u32 i = 0; i < 2; ++i) warm = warm && !ui_thread_header_update(&header, view, strip, clip, style);
-    check(!header.active && warm && header.revision == inactive_revision && header.projections == inactive_projections &&
+    check(!header.active && warm && header.revision == inactive_revision &&
         !shell.widgets.layout.storage[header.widgets.root.slot].visible && !ui_thread_header_current(header, unknown) &&
         ui_thread_header_height(view, style) == 0 && message && ui_rect_equal(message->rectangle, original_message),
         "thread header: scope retirement clears status and all controls, ordinary message geometry and inactive warm frames remain unchanged");

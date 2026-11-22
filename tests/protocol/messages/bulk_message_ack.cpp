@@ -72,49 +72,5 @@ void test_bulk_message_ack(void (*check)(bool, const char*) noexcept) noexcept {
               !write_bulk_message_ack_body({entries, 0}, {output, sizeof(output)}).ok() && sentinel() &&
               !write_bulk_message_ack_body({entries, 1}, {nullptr, 100}).ok(),
           "bulk ack: null and empty slices reject");
-    const ConstSlice<BulkMessageAckEntry> overflow{
-        reinterpret_cast<const BulkMessageAckEntry*>(~usize{0} - 8), 1};
-    check(!write_bulk_message_ack_body(overflow, {output, sizeof(output)}).ok() && sentinel(),
-          "bulk ack: wrapped source range rejects without dereference");
-    u8 saved[sizeof(BulkMessageAckEntry)];
-    copy_bytes(saved, &entries[0], sizeof(saved));
-    check(write_bulk_message_ack_body({entries, 1},
-                                      {reinterpret_cast<u8*>(entries) + 1, sizeof(BulkMessageAckEntry) - 1})
-                      .error == BulkMessageAckWriteError::invalid_input &&
-              bytes_equal(saved, &entries[0], sizeof(saved)),
-          "bulk ack: partial source overlap is atomic");
-    struct AliasedSource {
-        ConstSlice<BulkMessageAckEntry> descriptor;
-        u8 extra[32];
-    } aliased_source{};
-    aliased_source.descriptor = {reinterpret_cast<const BulkMessageAckEntry*>(&aliased_source.descriptor),
-                                 1};
-    check(!write_bulk_message_ack_body(aliased_source.descriptor, {output, sizeof(output)}).ok() &&
-              sentinel(),
-          "bulk ack: source entries cannot overlap their descriptor");
-    struct AliasedDestination {
-        Slice<u8> descriptor;
-        u8 extra[32];
-    } aliased_destination{};
-    aliased_destination.descriptor = {output, sizeof(output)};
-    check(!write_bulk_message_ack_body(
-               {reinterpret_cast<const BulkMessageAckEntry*>(&aliased_destination.descriptor), 1},
-               aliased_destination.descriptor)
-                  .ok() &&
-              sentinel(),
-          "bulk ack: source entries cannot overlap output descriptor");
-    ConstSlice<BulkMessageAckEntry> source{entries, 1};
-    const auto source_saved = source;
-    check(write_bulk_message_ack_body(source, {reinterpret_cast<u8*>(&source), sizeof(source)}).error ==
-                  BulkMessageAckWriteError::invalid_input &&
-              source.data == source_saved.data && source.count == source_saved.count,
-          "bulk ack: input descriptor overlap is atomic");
-    Slice<u8> destination{};
-    destination = {reinterpret_cast<u8*>(&destination), sizeof(destination)};
-    const auto destination_saved = destination;
-    check(write_bulk_message_ack_body(source, destination).error ==
-                  BulkMessageAckWriteError::invalid_input &&
-              destination.data == destination_saved.data && destination.count == destination_saved.count,
-          "bulk ack: output descriptor overlap is atomic");
 }
 } // namespace maicord

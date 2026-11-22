@@ -85,10 +85,11 @@ inline void application_reply_draft_deleted(u64 channel_id, u64 message_id) noex
     }
 }
 
+// storage holds at least the "Replying to " prefix (callers pass kMessageComposerReplyLabelBytes or more).
 inline Utf8View application_reply_draft_label(Slice<char> storage) noexcept {
     const auto reply = application_reply_draft();
     constexpr auto prefix = utf8_literal("Replying to ");
-    if (!reply.message_id || !storage.data || storage.count < prefix.bytes) return {};
+    if (!reply.message_id) return {};
     Utf8View name = utf8_literal("a message");
     if (application_channel_readable(g_app, reply.channel_id)) {
         const auto* message = message_store_find_record(g_app.message_view.store, reply.message_id);

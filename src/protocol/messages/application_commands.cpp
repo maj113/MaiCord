@@ -913,8 +913,6 @@ bool suggestion_choice(void* opaque, u32, JsonValue value) noexcept {
 }
 } // namespace
 void command_suggestions_release(CommandSuggestions* output) noexcept {
-    if (!output)
-        return;
     arena_release(&output->storage);
     reset_value(output);
 }

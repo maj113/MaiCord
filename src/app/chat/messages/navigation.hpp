@@ -27,7 +27,6 @@ bool application_message_navigation_source(u64 channel_id, u64 message_id,
 bool application_message_navigation_link(const ApplicationMessageNavigationSource&,
     const MessageLink&) noexcept;
 bool application_message_navigation_active() noexcept;
-bool application_message_navigation_observation_needed() noexcept;
 bool application_message_navigation_cancel() noexcept;
 void application_message_navigation_release() noexcept;
 // Called for decoded Gateway CHANNEL_DELETE/THREAD_DELETE before/after Core

@@ -43,7 +43,6 @@ bool initialize_measurements(MessageScene* scene, bool deferred) noexcept {
 }
 
 Measurement* measurement(MessageScene* scene, u32 slot, bool snapshot) noexcept {
-    if (slot >= scene->timeline->store->capacity) return nullptr;
     const u32 body_slot = slot;
     if (snapshot) slot += scene->timeline->store->capacity;
     // Newly committed pages are zero: an unmeasured slot reads as not measured.

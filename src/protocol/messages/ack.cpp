@@ -18,7 +18,7 @@ bool token_member(void* context, JsonString name, JsonValue value) noexcept {
 
 MessageAckWriteResult write_message_ack_target(
     u64 channel_id, u64 message_id, Slice<u8> output) noexcept {
-    if (!channel_id || !output.data) return fail(MessageAckWriteError::invalid_input);
+    if (!channel_id) return fail(MessageAckWriteError::invalid_input);
     constexpr u32 literals = sizeof("/api/v9/channels/") - 1 + sizeof("/messages/") - 1 + sizeof("/ack") - 1;
     static_assert(literals + 2 * 20 <= kMessageAckMaximumTargetBytes);
     const u32 required = literals + decimal_digits(channel_id) + decimal_digits(message_id);
@@ -31,10 +31,7 @@ MessageAckWriteResult write_message_ack_target(
 
 MessageAckWriteResult write_message_ack_body(
     const MessageAckRequest& request, Slice<u8> output) noexcept {
-    if (!output.data) return fail(MessageAckWriteError::invalid_input);
     if (request.manual) {
-        if (request.token_known || request.last_viewed_known || request.flags_known)
-            return fail(MessageAckWriteError::invalid_input);
         constexpr u32 manual_bytes = sizeof("{\"manual\":true}") - 1;
         constexpr u32 count_bytes = sizeof(",\"mention_count\":") - 1;
         static_assert(manual_bytes + count_bytes + 10 <= kMessageAckMaximumBodyBytes);
@@ -49,7 +46,6 @@ MessageAckWriteResult write_message_ack_body(
         protocol_write(&writer, '}');
         return {writer.used, MessageAckWriteError::none};
     }
-    if (request.mention_count_known) return fail(MessageAckWriteError::invalid_input);
     u32 token_bytes = 4; // null
     if (request.token_known && (!utf8_validate(request.token).valid ||
         !protocol_detail::measure_json_string(request.token, &token_bytes))) return fail(MessageAckWriteError::invalid_input);
@@ -73,7 +69,7 @@ MessageAckWriteResult write_message_ack_body(
 
 bool decode_message_ack_response(Utf8View body, Slice<u32> structural_scratch,
     MessageAckResponse* output) noexcept {
-    if (!output || !body.data || !body.bytes || body.bytes > kMessageAckMaximumBodyBytes) return false;
+    if (!body.data || !body.bytes || body.bytes > kMessageAckMaximumBodyBytes) return false;
     const auto scanned = json_scan_structurals_avx1(body, structural_scratch);
     if (!scanned.ok()) return false;
     MessageAckResponse response{};

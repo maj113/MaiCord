@@ -323,7 +323,7 @@ namespace commands_detail {
 // An index bot not yet known is made resident from the index, as the local
 // command message does; one known without an avatar takes the index's.
 MediaAssetKey app_picture(const CommandApplication* app) noexcept {
-    if (!app || !g_app.account_ui)
+    if (!g_app.account_ui)
         return {};
     const auto& c = *commands;
     auto& users = g_app.account_ui->user_store;

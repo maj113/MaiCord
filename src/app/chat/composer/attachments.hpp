@@ -53,6 +53,8 @@ bool application_attachment_url_pending(u64 now_ms) noexcept;
 bool application_attachment_submit_url(u64 request_id, u64 now_ms, bool* submitted) noexcept;
 bool application_attachment_accept_url(const RestClientResponse& response, Utf8View body) noexcept;
 void application_attachment_fail_url() noexcept;
+// references, ids and a nonempty sizes have room for the channel's drafts (at most
+// kAttachmentUploadMaximumCount).
 bool application_attachment_prepare_send(u64 channel_id, Slice<UploadedAttachment> references, Slice<u64> ids, u32* count,
     Slice<u64> sizes = {}) noexcept;
 void application_attachment_did_queue(ConstSlice<u64> ids, u64 nonce) noexcept;

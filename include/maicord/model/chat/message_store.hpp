@@ -6,7 +6,6 @@
 namespace maicord {
 
 inline constexpr u32 kMaximumMessageContentBytes = 16 * 1024;
-inline constexpr u32 kMaximumMessageRecords = 1'048'576;
 
 enum class MessageContentAvailability : u8 {
     unknown,
@@ -78,7 +77,6 @@ struct MessageStore {
     u32 text_committed;
     u32 text_used;
     u32 text_wasted;
-    u32 rejected;
     u32 created;
     u32 updated;
     u32 deleted;
@@ -162,7 +160,8 @@ MessageHandle message_store_ordered_handle(const MessageStore& store,
 const MessageRecord* message_store_ordered_record(const MessageStore& store, u32 order_index) noexcept;
 Utf8View message_store_content(const MessageStore& store,
                                MessageHandle handle) noexcept;
-bool message_store_compact_in_place(MessageStore* store) noexcept;
+// Packs the live text to the start of the bank; handles stay valid.
+void message_store_compact_in_place(MessageStore* store) noexcept;
 u64 snowflake_timestamp_ms(u64 snowflake) noexcept;
 // Whether `content` points into the store's text bank (an input that borrows it must not be moved by a write).
 inline bool message_store_content_overlaps(const MessageStore& store, Utf8View content) noexcept {

@@ -277,7 +277,7 @@ ForumPostRequest forum_request(ForumOwner& owner, ForumOperation operation) noex
     return request;
 }
 bool forum_draft_text(Utf8View value, u32 bytes, u32 scalars, bool single_line) noexcept {
-    if (value.bytes > bytes || (value.bytes && !value.data))
+    if (value.bytes > bytes)
         return false;
     const auto validation = utf8_validate(value);
     if (!validation.valid || validation.codepoints > scalars)
@@ -680,7 +680,7 @@ bool application_forum_post_pending(u64 now) noexcept {
         application_forum_attachments_url_candidate(forum_ticket(*forum_owner), now, &request, &draft);
 }
 bool application_forum_post_submit(u64 id, u64 now) noexcept {
-    if (!id || !application_forum_post_pending(now))
+    if (!application_forum_post_pending(now))
         return false;
     auto& owner = *forum_owner;
     ForumPin pin(owner);
@@ -766,8 +766,7 @@ bool application_forum_post_submit(u64 id, u64 now) noexcept {
     return true;
 }
 bool application_forum_post_response(const RestClientResponse& response, Utf8View body) noexcept {
-    if (!forum_owner || !forum_owner->flight.active || !response.request_id ||
-        forum_owner->flight.id != response.request_id)
+    if (!forum_owner || !forum_owner->flight.active || forum_owner->flight.id != response.request_id)
         return false;
     auto& owner = *forum_owner;
     ForumPin pin(owner);

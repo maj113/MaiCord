@@ -211,9 +211,6 @@ bool track_one(ReactionPreferenceStore* store, ReactionPreferenceKind kind, Reac
 } // namespace
 
 bool reaction_preferences_initialize(ReactionPreferenceStore* store) noexcept {
-    if (!store || store->collapsed_guilds.arena.base) {
-        return false;
-    }
     clear_bytes(store, kClearedBytes);
     store->next_sequence = 1;
     for (auto& table : store->tables)
@@ -222,7 +219,6 @@ bool reaction_preferences_initialize(ReactionPreferenceStore* store) noexcept {
 }
 
 void reaction_preferences_release(ReactionPreferenceStore* store) noexcept {
-    if (!store) return;
     stable_storage_release(&store->collapsed_guilds);
     clear_bytes(store, kClearedBytes);
 }
@@ -283,8 +279,7 @@ const ReactionPreferenceTable* reaction_preferences_table(const ReactionPreferen
 bool reaction_preferences_apply_remote(ReactionPreferenceStore* store, ConstSlice<ReactionEmojiRef> favorites,
                                        ConstSlice<ReactionPreferenceRemoteUsage> reaction,
                                        ConstSlice<ReactionPreferenceRemoteUsage> message, u64 now_ms) noexcept {
-    if (!store || !store_valid(*store) || !now_ms || (favorites.count && !favorites.data) ||
-        (reaction.count && !reaction.data) || (message.count && !message.data))
+    if (!store || !store_valid(*store) || !now_ms)
         return false;
     store->favorite_count = 0;
     for (u32 i = 0; i < favorites.count && store->favorite_count < kReactionPreferenceFavoriteCapacity; ++i) {

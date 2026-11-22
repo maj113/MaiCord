@@ -62,13 +62,6 @@ inline bool message_text_selection_active(const MessageTextSelectionRange& range
 // A selection that holds text (its ends differ).
 bool message_text_selection_nonempty(const MessageTextSelectionRange& range) noexcept;
 
-// The point at a byte offset of a presented command; false for a command no selection takes part in.
-bool message_text_selection_point(const MessageTextPresentation& presentation, u32 command_index, u32 byte_offset,
-                                  MessageTextSelectionPoint* point) noexcept;
-// The command a point names, or kMessageTextSelectionNoCommand when its message is not presented or changed.
-u32 message_text_selection_find(const MessageTextPresentation& presentation,
-                                const MessageTextSelectionPoint& point) noexcept;
-
 // A press at a command's byte offset starts a selection there: one click collapsed at the offset, a double click the
 // word, a triple click the paragraph, which drags then extend by whole units (`unit`).
 bool message_text_selection_begin(MessageTextSelectionRange* range, UiTextPointerSelection* unit,

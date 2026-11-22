@@ -61,7 +61,7 @@ bool commit(ApplicationSearch& s, bool tab_switch) noexcept {
     for (u8 i = 0; i < parsed.query.channel_count; ++i) {
         const auto* channel =
             chat_state_store_find_channel(g_app.account_ui->chat_state, parsed.query.channel_ids[i]);
-        if (!channel || !channel->occupied || !channel_is_message_capable(channel->type) ||
+        if (!channel || !channel_is_message_capable(channel->type) ||
             (s.scope == MessageSearchScope::guild ? channel->guild_id != s.scope_id
                                                          : channel->id != s.scope_id)) {
             s.validation = utf8_literal("Choose a channel in the current search scope.");

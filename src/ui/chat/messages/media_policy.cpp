@@ -41,16 +41,16 @@ MessageMediaOwner message_media_owner(const MessageRecord& record,
 }
 
 bool message_media_revealed(const MessageMediaReveals& reveals, u64 key) noexcept {
-    for (u32 i = 0; i < reveals.count && i < kMessageMediaRevealMaximum; ++i)
+    for (u32 i = 0; i < reveals.count; ++i)
         if (reveals.keys[i] == key)
             return true;
     return false;
 }
 
 bool message_media_reveal(MessageMediaReveals* reveals, u64 key) noexcept {
-    if (!reveals || !key || message_media_revealed(*reveals, key))
+    if (!key || message_media_revealed(*reveals, key))
         return false;
-    reveals->keys[reveals->cursor % kMessageMediaRevealMaximum] = key;
+    reveals->keys[reveals->cursor] = key;
     reveals->cursor = (reveals->cursor + 1u) % kMessageMediaRevealMaximum;
     if (reveals->count < kMessageMediaRevealMaximum)
         ++reveals->count;
@@ -59,7 +59,7 @@ bool message_media_reveal(MessageMediaReveals* reveals, u64 key) noexcept {
 }
 
 MessageMediaUnplayable message_media_unplayable(const MessageMediaUnplayables& marks, u64 key) noexcept {
-    for (u32 i = 0; i < marks.keys.count && i < kMessageMediaRevealMaximum; ++i)
+    for (u32 i = 0; i < marks.keys.count; ++i)
         if (marks.keys.keys[i] == key)
             return marks.reasons[i];
     return MessageMediaUnplayable::none;
@@ -67,7 +67,7 @@ MessageMediaUnplayable message_media_unplayable(const MessageMediaUnplayables& m
 
 bool message_media_mark_unplayable(MessageMediaUnplayables* marks, u64 key,
                                    MessageMediaUnplayable reason) noexcept {
-    if (!marks || reason == MessageMediaUnplayable::none || !message_media_reveal(&marks->keys, key))
+    if (reason == MessageMediaUnplayable::none || !message_media_reveal(&marks->keys, key))
         return false;
     // message_media_reveal wrote the key into the slot before the cursor.
     constexpr u32 last = kMessageMediaRevealMaximum - 1u;

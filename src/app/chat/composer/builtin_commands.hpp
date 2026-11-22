@@ -37,7 +37,8 @@ BuiltinCommandRun builtin_command_run(const ApplicationCommand&, Utf8View option
                                       Slice<char> text_storage, Utf8View* text) noexcept;
 // The command lane carries the network built-ins.
 bool builtin_commands_pending() noexcept;
-// Submits the queued action with the lane's request id; false when nothing was sent.
+// Submits the queued action with the lane's request id (nonzero) after builtin_commands_pending
+// reported it; false when nothing was sent.
 bool builtin_commands_submit(u64 request_id, bool* busy) noexcept;
 bool builtin_commands_response(const RestClientResponse&, Utf8View body) noexcept;
 // Sends a waiting /msg or /thread message once its channel is there.

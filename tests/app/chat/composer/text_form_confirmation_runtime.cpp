@@ -90,23 +90,7 @@ void ordinary_projection() noexcept {
     check(refresh_projection() && form->scene.content.text.data == reinterpret_cast<const char*>(model) &&
               form->scene.content.text.data[0] == 'B',
           "ordinary projection: next model revision retains borrowed owner and reprojects current bytes");
-    const u32 builds = seen.builds, calls = seen.editor_calls;
-    form->edit.password = true;
-    check(!refresh_projection() && seen.builds == builds && seen.editor_calls == calls,
-          "ordinary projection: password is rejected before obtaining plaintext view or publishing "
-          "renderer work");
-    form->edit.password = false;
-    form->edit.storage.capacity = kApplicationTextFormBytes + 1;
-    check(!refresh_projection() && seen.builds == builds && seen.editor_calls == calls,
-          "ordinary projection: oversized model capacity is rejected before borrowing");
-    form->edit.storage.capacity = sizeof(model) - 1;
-    check(!refresh_projection() && seen.builds == builds && seen.editor_calls == calls,
-          "ordinary projection: byte count beyond capacity is rejected before borrowing");
-    form->edit.storage.capacity = sizeof(model);
-    form->edit.storage.data = nullptr;
-    check(!refresh_projection() && seen.builds == builds,
-          "ordinary projection: nonempty null view cannot enter presentation");
-    form->edit.storage.data = model;
+    const u32 builds = seen.builds;
     form->edit.caret = 99;
     check(!refresh_projection() && seen.builds == builds,
           "ordinary projection: invalid UTF-16 selection prevents renderer publication");

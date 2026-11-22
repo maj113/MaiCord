@@ -63,9 +63,10 @@ struct UiSearchFilterChoiceSource {
     bool (*current)(void*) noexcept = nullptr;
     UiSearchFilterKind kind{};
 };
-// The host owns rows and strings until it replaces this revision. Consumers
-// accept at most ChoiceMaximum rows and validate all targets by revision/current;
-// current is a read-only check, never a matching callback.
+// The host owns rows and strings until it replaces this revision; it publishes
+// at most ChoiceMaximum rows of valid UTF-8, a selection inside them and a
+// current check. Consumers validate all targets by revision/current; current
+// is a read-only check, never a matching callback.
 // Replacements are value-only. The Forward label emits snapshot, which
 // the query parser accepts as its canonical search spelling.
 // Row `index` of a value filter's fixed list (has, pinned, authorType, fileType); false past its end and for other

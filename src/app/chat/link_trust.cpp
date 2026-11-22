@@ -134,21 +134,21 @@ bool link_trust_builtin_host(Utf8View host) noexcept {
 }
 
 bool link_trust_has_host(const LinkTrustStore& store, Utf8View host) noexcept {
-    for (u32 i = 0; i < store.host_count && i < kLinkTrustHostCapacity; ++i)
+    for (u32 i = 0; i < store.host_count; ++i)
         if (utf8_equal(host, {store.hosts[i], store.host_bytes[i]}))
             return true;
     return false;
 }
 
 bool link_trust_has_protocol(const LinkTrustStore& store, Utf8View protocol) noexcept {
-    for (u32 i = 0; i < store.protocol_count && i < kLinkTrustProtocolCapacity; ++i)
+    for (u32 i = 0; i < store.protocol_count; ++i)
         if (utf8_equal(protocol, {store.protocols[i], store.protocol_bytes[i]}))
             return true;
     return false;
 }
 
 bool link_trust_add_host(LinkTrustStore* store, const Utf8View& host) noexcept {
-    if (!store || !entry_valid(host, kLinkTrustHostBytes))
+    if (!entry_valid(host, kLinkTrustHostBytes))
         return false;
     if (link_trust_has_host(*store, host))
         return true;
@@ -161,7 +161,7 @@ bool link_trust_add_host(LinkTrustStore* store, const Utf8View& host) noexcept {
 }
 
 bool link_trust_add_protocol(LinkTrustStore* store, const Utf8View& protocol) noexcept {
-    if (!store || !protocol_valid(protocol))
+    if (!protocol_valid(protocol))
         return false;
     if (link_trust_has_protocol(*store, protocol))
         return true;
@@ -188,7 +188,7 @@ LinkOpenDecision link_open_decision(const LinkTrustStore* store, Utf8View url, b
 
 u32 link_display_url(Utf8View url, Slice<char> output) noexcept {
     UrlParts parts{};
-    if (!output.data || !split_url(url, &parts))
+    if (!split_url(url, &parts))
         return 0;
     u32 skip_begin = 0, skip_end = 0;
     if (parts.authority)
@@ -197,9 +197,6 @@ u32 link_display_url(Utf8View url, Slice<char> output) noexcept {
                 skip_begin = parts.authority_begin;
                 skip_end = i + 1;
             }
-    const u32 bytes = url.bytes - (skip_end - skip_begin);
-    if (bytes > output.count)
-        return 0;
     u32 used = 0;
     for (u32 i = 0; i < url.bytes; ++i)
         if (i < skip_begin || i >= skip_end)
@@ -207,10 +204,8 @@ u32 link_display_url(Utf8View url, Slice<char> output) noexcept {
     return used;
 }
 
+// The add functions keep host_count and protocol_count within their capacities and store only valid entries.
 u32 link_trust_encode(const LinkTrustStore& store, Slice<u8> output) noexcept {
-    if (store.host_count > kLinkTrustHostCapacity || store.protocol_count > kLinkTrustProtocolCapacity ||
-        !output.data)
-        return 0;
     u32 used = 0;
     const auto put = [&](const void* data, u32 bytes) noexcept {
         if (bytes > output.count - used)
@@ -226,13 +221,13 @@ u32 link_trust_encode(const LinkTrustStore& store, Slice<u8> output) noexcept {
     for (u32 i = 0; i < store.host_count; ++i) {
         const Utf8View host{store.hosts[i], store.host_bytes[i]};
         const u8 length = store.host_bytes[i];
-        if (!entry_valid(host, kLinkTrustHostBytes) || !put(&length, 1) || !put(host.data, host.bytes))
+        if (!put(&length, 1) || !put(host.data, host.bytes))
             return 0;
     }
     for (u32 i = 0; i < store.protocol_count; ++i) {
         const Utf8View protocol{store.protocols[i], store.protocol_bytes[i]};
         const u8 length = store.protocol_bytes[i];
-        if (!protocol_valid(protocol) || !put(&length, 1) || !put(protocol.data, protocol.bytes))
+        if (!put(&length, 1) || !put(protocol.data, protocol.bytes))
             return 0;
     }
     u8 tail[4];

@@ -72,7 +72,7 @@ ThreadActionResult thread_action_write_body(
 ThreadActionResult thread_member_decode(
     Utf8View input, u64 expected_thread_id, u64 expected_self_user_id,
     ThreadMemberSnapshot* output) noexcept {
-    if (!output || !expected_thread_id || !expected_self_user_id || !input.bytes ||
+    if (!expected_thread_id || !expected_self_user_id || !input.bytes ||
         input.bytes > kThreadMemberMaximumBodyBytes ||
         !byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes}) || !utf8_validate(input).valid)
         return {0, ThreadActionError::input};

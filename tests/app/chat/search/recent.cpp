@@ -84,9 +84,6 @@ void test_search_recent(void (*check)(bool, const char*) noexcept) noexcept {
         check(search_recent_load_file(path, &loaded) && loaded.count == 0,
               "search_recent_missing_file_is_empty");
     }
-    wchar_t profile[512];
-    check(search_recent_path(0x1234, profile, 512) && !search_recent_path(0, profile, 512),
-          "search_recent_path_requires_a_profile");
     search_recent_clear(&list);
     check(!list.count && !search_recent_entry(list, 0).bytes, "search_recent_clear_empties_the_list");
 }

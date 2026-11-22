@@ -982,16 +982,6 @@ void test_message_text_presentation() noexcept {
                coordinator_fixture.measure_attempts == first_measure_attempts,
            "message_text_coordinator_cached_steady_state_is_one_pass");
 
-    MessageTextCoordinatorRequest invalid_coordinator = coordinator_request;
-    invalid_coordinator.scene = nullptr;
-    const u32 finalizations_before_invalid = coordinator_fixture.finalizations;
-    const MessageTextCoordinatorResult invalid_coordinated =
-        message_text_coordinator_converge(invalid_coordinator);
-    expect(invalid_coordinated.error == MessageTextCoordinatorError::invalid_input &&
-               !invalid_coordinated.finalized &&
-               coordinator_fixture.finalizations == finalizations_before_invalid,
-           "message_text_coordinator_rejects_invalid_request_before_finalization");
-
     ui_text_measure_cache_invalidate(&coordinator_cache);
     coordinator_fixture.fail_measure = true;
     const u32 finalizations_before_measure_failure = coordinator_fixture.finalizations;
@@ -2702,6 +2692,7 @@ void test_reaction_picker() noexcept {
                                                                                          : ~0u;
     };
     constexpr u64 preference_now = 1'800'000'000'000ull;
+    const ChatStateStore no_state{};
     ReactionPreferenceStore seeded{};
     ReactionPickerModel picker{};
     // The pickers search their owner's composer (the expression picker's field).
@@ -2710,7 +2701,7 @@ void test_reaction_picker() noexcept {
     const ReactionPickerResult opened =
         message_composer_initialize(&search, {search_text, sizeof(search_text)}) &&
                 reaction_preferences_initialize(&seeded)
-            ? reaction_picker_open(&picker, 77, &seeded, preference_now, nullptr, 0, &search)
+            ? reaction_picker_open(&picker, 77, &seeded, preference_now, &no_state, 0, &search)
             : ReactionPickerResult{};
     const u32 frequent = section_of(picker, kReactionPickerSectionFrequent);
     const u32 first = frequent != ~0u ? catalog_at(picker, picker.sections[frequent].first) : ~0u;
@@ -2727,7 +2718,7 @@ void test_reaction_picker() noexcept {
     ReactionPickerModel personalized{};
     const ReactionPickerResult personalized_opened =
         reaction_preferences_initialize(&preferences)
-            ? reaction_picker_open(&personalized, 88, &preferences, preference_now, nullptr, 0, &search)
+            ? reaction_picker_open(&personalized, 88, &preferences, preference_now, &no_state, 0, &search)
             : ReactionPickerResult{};
     const u32 personalized_frequent = section_of(personalized, kReactionPickerSectionFrequent);
     const u32 hundred_index = personalized_frequent != ~0u
@@ -2829,7 +2820,7 @@ void test_reaction_picker() noexcept {
     }
     expect(exact_aging, "reaction_preferences_exact_age_weight_buckets");
 
-    reaction_picker_open(&picker, 77, &seeded, preference_now, nullptr, 0, &search);
+    reaction_picker_open(&picker, 77, &seeded, preference_now, &no_state, 0, &search);
     const auto query = utf8_literal("thumbs_up");
     bool searched = picker.search && message_composer_restore(picker.search, 1, query, query.bytes, query.bytes) &&
                     reaction_picker_refresh_search(&picker).ok();

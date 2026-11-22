@@ -293,7 +293,6 @@ bool application_message_forward_open(u64 id) noexcept {
     application_message_forward_close();
     const auto found = message_store_find(g_app.message_view.store, id);
     const auto* record = message_store_resolve(g_app.message_view.store, found.handle);
-    if (!record) return true;
     application_composer_text_input_suspend();
     application_quick_switcher_close(); application_media_picker_close(); application_pinned_messages_close(); application_search_close_panel();
     application_account_menu_clear();

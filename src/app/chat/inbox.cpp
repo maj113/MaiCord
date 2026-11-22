@@ -272,8 +272,6 @@ void build_unreads() noexcept {
 }
 bool resolve(void* context, u32 index, UiInboxRow* output) noexcept {
     auto& value = *static_cast<Inbox*>(context);
-    if (!output)
-        return false;
     if (value.tab == UiInboxTab::mentions) {
         if (index >= value.mention_count)
             return false;
@@ -601,7 +599,7 @@ u64 application_inbox_next_wake() noexcept {
                : 0;
 }
 bool application_inbox_scroll_range(UiScrollRange* output) noexcept {
-    if (!output || !application_inbox_active() || !front())
+    if (!application_inbox_active() || !front())
         return false;
     *output = {inbox->scene.body, inbox->scene.scroll_dips, ui_inbox_scene_scroll_maximum(inbox->scene), 40., 1., 0.,
                inbox->revision};

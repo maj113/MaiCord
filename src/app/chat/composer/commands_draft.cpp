@@ -580,7 +580,7 @@ bool command_in_draft() noexcept {
         return false;
     const auto input = message_composer_text(g_app.message_composer);
     const auto name = commands->selected.command->name;
-    return name.bytes < 0xffffu && commands->channel == g_app.message_composer.channel_id &&
+    return commands->channel == g_app.message_composer.channel_id &&
            input.bytes >= name.bytes + 1 && input.data[0] == '/' && utf8_equal({input.data + 1, name.bytes}, name) &&
            (input.bytes == name.bytes + 1 || ascii_is_space(input.data[name.bytes + 1]));
 }
@@ -605,27 +605,27 @@ void application_commands_composer(MessageComposerProjectionContext* projection)
     // (caret inside, editor focused) and failed ones are outlined.
     // A command not set up yet has no option states of its own.
     const bool prepared = c.prepared == c.selected.command;
-    if (input.bytes < 0xffffu) {
-        if (prepared)
-            update_focus(input);
-        CommandArgumentSpan spans[25];
-        const u32 count = typed_options(input, {spans, 25});
-        const u32 active = chip_at(spans, count, g_app.message_composer.caret);
-        for (u32 n = 0; n < count; ++n) {
-            const bool selected = n == active && g_app.message_composer.focused;
-            const u8 flags = selected ? message_composer_chip_active
-                             : prepared && c.option_states[spans[n].slot].error.bytes ? message_composer_chip_error
-                                                                                       : 0;
-            const u32 head = spans[n].key_first > 0 && ascii_is_space(input.data[spans[n].key_first - 1])
-                                 ? spans[n].key_first - 1
-                                 : spans[n].key_first;
-            projection->option_chips[n] = {static_cast<u16>(head), static_cast<u16>(spans[n].key_first),
-                                           static_cast<u16>(spans[n].value_first),
-                                           static_cast<u16>(spans[n].value_last),
-                                           static_cast<u16>(spans[n].end_last), flags};
-        }
-        projection->option_chip_count = count;
+    // The draft (g_app.message_composer's default capacity) fits the chips' 16-bit offsets.
+    static_assert(kMessageComposerMaximumBytes < 0xffffu);
+    if (prepared)
+        update_focus(input);
+    CommandArgumentSpan spans[25];
+    const u32 count = typed_options(input, {spans, 25});
+    const u32 active = chip_at(spans, count, g_app.message_composer.caret);
+    for (u32 n = 0; n < count; ++n) {
+        const bool selected = n == active && g_app.message_composer.focused;
+        const u8 flags = selected ? message_composer_chip_active
+                         : prepared && c.option_states[spans[n].slot].error.bytes ? message_composer_chip_error
+                                                                                   : 0;
+        const u32 head = spans[n].key_first > 0 && ascii_is_space(input.data[spans[n].key_first - 1])
+                             ? spans[n].key_first - 1
+                             : spans[n].key_first;
+        projection->option_chips[n] = {static_cast<u16>(head), static_cast<u16>(spans[n].key_first),
+                                       static_cast<u16>(spans[n].value_first),
+                                       static_cast<u16>(spans[n].value_last),
+                                       static_cast<u16>(spans[n].end_last), flags};
     }
+    projection->option_chip_count = count;
     // The option bar: the active option's name and
     // description, its failed check or the command's error instead in the
     // danger colour; else the command's "/name" and description, or its error.

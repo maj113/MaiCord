@@ -126,8 +126,8 @@ ReactionViewerResult reaction_viewer_open(
     ReactionViewer* viewer, u64 guild_id, u64 channel_id, u64 message_id,
     const MessageRichStore& rich_store, const MessageRichRecord& rich,
     UiRect viewport) noexcept;
-bool reaction_viewer_close(ReactionViewer* viewer,
-                           bool* changed = nullptr) noexcept;
+// True when an open viewer closed.
+bool reaction_viewer_close(ReactionViewer* viewer) noexcept;
 bool reaction_viewer_layout(ReactionViewer* viewer, const UiRect& viewport) noexcept;
 ReactionViewerResult reaction_viewer_select_aggregate(
     ReactionViewer* viewer, u32 aggregate_index) noexcept;
@@ -139,8 +139,8 @@ ReactionViewerResult reaction_viewer_accept_page(
 void reaction_viewer_set_loading(ReactionViewer* viewer,
                                  bool loading) noexcept;
 void reaction_viewer_set_failed(ReactionViewer* viewer) noexcept;
-bool reaction_viewer_request_more(ReactionViewer* viewer,
-                                  bool* requested) noexcept;
+// True when the visible rows near the loaded end need the next page.
+bool reaction_viewer_request_more(ReactionViewer* viewer) noexcept;
 float reaction_viewer_scroll_maximum(const ReactionViewer& viewer, bool users) noexcept;
 bool reaction_viewer_set_scroll(ReactionViewer* viewer, bool users, float offset, bool* changed) noexcept;
 ReactionViewerHit reaction_viewer_hit_test(const ReactionViewer& viewer,
