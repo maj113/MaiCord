@@ -720,6 +720,16 @@ void test_global_shortcut() noexcept {
     check(!global_key_down('P'), "clearing the shortcut releases the key");
     set_state(true);
     check(!pump_until([] { return global_key_down('P'); }, 300), "and a later Activated does not hold it");
+    // A key change on the open bus: the portal binds the new key.
+    check(window_wayland_global_shortcut('O', mod_ctrl | mod_alt, "Push to talk"), "a changed push-to-talk key is bound");
+    held = false;
+    for (u32 attempt = 0; attempt < 10 && !held; ++attempt) {
+        set_state(true);
+        held = pump_until([] { return global_key_down('O'); }, 500);
+    }
+    check(held && !global_key_down('P'), "the portal binds the new key, and Activated holds it down");
+    window_wayland_global_shortcut_clear();
+    check(!global_key_down('O'), "clearing the changed shortcut releases its key");
     dbus::connection_close(control);
 }
 

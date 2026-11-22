@@ -444,6 +444,15 @@ void test_shortcuts() noexcept {
     settle(150);
     check(g_shortcut_event_count == 2, "nothing arrives after the stop");
 
+    // A new start on the open bus, as after a key change: the client makes a new session and binds again.
+    clear_log();
+    g_shortcut_event_count = 0;
+    check(global_shortcuts_start(&shortcut, 1, on_shortcut, nullptr) && pump(bind_requested, 4000),
+          "a restart on the open bus creates a new session and binds again");
+    send_shortcut_state("maicord-hold-to-talk", true);
+    check(pump(shortcut_event_seen, 3000) && g_shortcut_events[0].active, "and Activated reaches the handler again");
+    global_shortcuts_stop();
+
     // The user declines the binding dialog: the session the portal made is still closed on the stop.
     set_mode("bind-cancel", true);
     clear_log();

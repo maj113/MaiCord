@@ -276,7 +276,9 @@ bool global_shortcuts_start(const GlobalShortcut* shortcuts, u32 count, GlobalSh
     }
     if (!g.hook_added) {
         g.hook_added = true;
-        session_bus_add_hook(on_bus);
+        session_bus_add_hook(on_bus);  // runs on_bus at once when the bus is open
+    } else if (Connection* c = session_bus()) {
+        create_session(c);  // the hook runs again only when the bus opens again
     }
     return session_bus_open() && session_bus() != nullptr;
 }
