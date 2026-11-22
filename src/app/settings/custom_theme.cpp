@@ -517,7 +517,7 @@ bool application_custom_theme_edit_background(const BackgroundTheme& background)
     return true;
 }
 bool application_custom_theme_snapshot(ClientThemeStorageSnapshot* out) noexcept {
-    if (!out || !owner)
+    if (!owner)
         return false;
     *out = owner->effective;
     return true;
@@ -534,8 +534,7 @@ namespace {
 // Out of line: the completion holds a whole theme snapshot, and the poll runs on every loop wake.
 __declspec(noinline) void complete_io(CustomThemeOwner* o) noexcept {
     ClientThemeIoCompletion completion{};
-    bool ready{};
-    if (!client_theme_io_poll(o->io, &completion, &ready) || !ready)
+    if (!client_theme_io_poll(o->io, &completion))
         return;
     if (completion.operation == ClientThemeIoOperation::load &&
         completion.generation == o->load_generation && o->loading) {

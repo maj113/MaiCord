@@ -17,7 +17,6 @@ enum class AccountHostError : u8 {
     module_path,
     module_load,
     module_symbol,
-    active,
     login_stop,
     account_stop,
 };
@@ -64,11 +63,10 @@ AccountHostResult account_host_attach(AccountHost* host, HMODULE module) noexcep
 void account_host_move(AccountHost* destination, AccountHost* source) noexcept;
 // Attaches the account module linked into this image.
 AccountHostResult account_host_load(AccountHost* host) noexcept;
-AccountHostResult account_host_release(AccountHost* host) noexcept;
+void account_host_release(AccountHost* host) noexcept;
 u32 account_host_observe(AccountHost* host, const AccountModuleStatus& status) noexcept;
 AccountModuleStartResult account_host_start(AccountHost* host, const wchar_t* profile_path,
-                                            const wchar_t* session_path, u64 monotonic_now_ms,
-                                            u64 unix_now_ms) noexcept;
+                                            const wchar_t* session_path, u64 monotonic_now_ms) noexcept;
 AccountLoginStatus account_host_login_start(AccountHost* host, const wchar_t* profile_path) noexcept;
 AccountLoginStatus account_host_login_start_reset(AccountHost* host, const wchar_t* profile_path) noexcept;
 AccountLoginStatus account_host_login_submit_reset(AccountHost* host, const SecureBuffer* link_token,
@@ -82,12 +80,10 @@ AccountLoginStatus account_host_login_submit_phone_verify(AccountHost* host,
 AccountLoginStatus account_host_login_submit_phone_resend(AccountHost* host) noexcept;
 SecureBufferResult account_host_login_take_phone_reset_token(AccountHost* host, u64 expected_generation,
                                                              SecureBuffer* output) noexcept;
-AccountModuleStatus account_host_pump(AccountHost* host, u64 monotonic_now_ms, u64 unix_now_ms,
-                                      u32* observations) noexcept;
+AccountModuleStatus account_host_pump(AccountHost* host, u64 monotonic_now_ms, u32* observations) noexcept;
 AccountLoginStatus account_host_login_pump(AccountHost* host) noexcept;
 AccountLoginStatus account_host_login_stop(AccountHost* host, u32 timeout_ms) noexcept;
-AccountHostStopResult account_host_stop(AccountHost* host, u32 timeout_ms, u64 monotonic_now_ms,
-                                        u64 unix_now_ms) noexcept;
+AccountHostStopResult account_host_stop(AccountHost* host, u32 timeout_ms) noexcept;
 // Writes at most kAccountHostNotificationHandleCapacity handles.
 u32 account_host_notification_handles(const AccountHost* host, HANDLE* output) noexcept;
 u32 account_host_wait_timeout(const AccountHost* host, u64 now_ms) noexcept;

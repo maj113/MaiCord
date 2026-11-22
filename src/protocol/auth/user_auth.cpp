@@ -3,7 +3,6 @@
 #include "maicord/protocol/auth/browser_sign_in.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/http/rest.hpp"
 
 #include "../encoding/json_field_lists.hpp"
@@ -233,10 +232,9 @@ UserAuthDecodeResult classify_response(u16 status_code, const Utf8View& body,
                                        ResponseContext* context, UserAuthResponse* output,
                                        bool recovery = false, u8 reset_mode = 0,
                                        u8 phone_mode = 0) noexcept {
-    if (output)
-        reset_value<UserAuthResponse>(output);
-    if (!output || status_code < 200 || status_code > 599 || !body.data || body.bytes == 0 ||
-        !structural_scratch.data || structural_scratch.count == 0 || maximum_depth == 0)
+    // Every caller gives its own response and its structural scratch with a nonzero depth.
+    reset_value<UserAuthResponse>(output);
+    if (status_code < 200 || status_code > 599 || !body.data || body.bytes == 0)
         return decode_failure(UserAuthDecodeError::invalid_input);
 
     const JsonScanResult scan = json_scan_structurals_avx1(body, structural_scratch);
@@ -369,23 +367,16 @@ UserAuthTransitionResult transition_failure(const UserAuthState* state, UserAuth
 
 } // namespace
 
+// The one caller gives its 32 KiB request scratch: the encoded login and password (at most six bytes for each of
+// 512 and 1,024 input bytes, with quotes) and the fixed members always fit.
 UserAuthWriteResult user_auth_write_password_request(const UserAuthPasswordRequest& request,
                                                      Slice<u8> output) noexcept {
-    if (!output.data)
-        return UserAuthWriteResult{0, UserAuthWriteError::invalid_input};
     EncodedString login{};
     EncodedString password{};
     if (!encoded_string(request.login, kUserAuthMaximumLoginBytes, &login))
         return UserAuthWriteResult{0, string_error(request.login, kUserAuthMaximumLoginBytes)};
     if (!encoded_string(request.password, kUserAuthMaximumPasswordBytes, &password))
         return UserAuthWriteResult{0, string_error(request.password, kUserAuthMaximumPasswordBytes)};
-
-    constexpr u32 fixed_bytes =
-        sizeof("{\"login\":,\"password\":,\"undelete\":false,\"login_source\":null,\"gift_code_sku_id\":null}") - 1;
-    const u64 required = static_cast<u64>(fixed_bytes) + login.bytes + password.bytes -
-                         (request.undelete ? 1u : 0u);
-    if (required > output.count)
-        return UserAuthWriteResult{0, UserAuthWriteError::output_too_small};
 
     u32 offset = 0;
     write_literal(output.data, &offset, "{\"login\":");
@@ -409,8 +400,6 @@ bool user_auth_recovery_identifier_valid(Utf8View login) noexcept {
 }
 
 UserAuthWriteResult user_auth_write_recovery_request(Utf8View login, Slice<u8> output) noexcept {
-    if (!output.data)
-        return {0, UserAuthWriteError::invalid_input};
     EncodedString encoded{};
     if (!encoded_string(login, kUserAuthMaximumLoginBytes, &encoded))
         return {0, string_error(login, kUserAuthMaximumLoginBytes)};
@@ -425,21 +414,18 @@ UserAuthWriteResult user_auth_write_recovery_request(Utf8View login, Slice<u8> o
 }
 
 bool user_auth_phone_code_valid(Utf8View code) noexcept {
-    if (!code.data || code.bytes != kUserAuthPhoneCodeBytes) return false;
+    if (code.bytes != kUserAuthPhoneCodeBytes) return false;
     for (u32 i = 0; i < code.bytes; ++i) if (code.data[i] < '0' || code.data[i] > '9') return false;
     return true;
 }
 UserAuthWriteResult user_auth_recovery_phone_base(Slice<u8> body, u32 bytes) noexcept {
-    if (!body.data || bytes < 12 || bytes > body.count || body.data[bytes - 1] != '}' ||
+    if (bytes < 12 || bytes > body.count || body.data[bytes - 1] != '}' ||
         !bytes_equal(body.data, "{\"login\":\"", 10)) return {0, UserAuthWriteError::invalid_input};
     copy_bytes(body.data + 2, "phone", 5);
     return {bytes, UserAuthWriteError::none};
 }
 UserAuthWriteResult user_auth_write_phone_verify_request(Slice<u8> body, u32 base_bytes, Utf8View code) noexcept {
-    const ConstSlice<u8> target{body.data, body.count};
-    const ConstSlice<u8> input{reinterpret_cast<const u8*>(code.data), code.bytes};
-    if (!byte_range_valid(target) || !byte_range_valid(input) || byte_ranges_overlap(target, input) ||
-        !user_auth_phone_code_valid(code) || !body.data || base_bytes < 12 || base_bytes > body.count ||
+    if (!user_auth_phone_code_valid(code) || base_bytes < 12 || base_bytes > body.count ||
         body.data[base_bytes - 1] != '}' || !bytes_equal(body.data, "{\"phone\":\"", 10))
         return {0, UserAuthWriteError::invalid_input};
     constexpr u32 suffix_bytes = 16;
@@ -453,7 +439,7 @@ UserAuthWriteResult user_auth_write_phone_verify_request(Slice<u8> body, u32 bas
 
 UserAuthWriteResult user_auth_write_mfa_request(const UserAuthMfaRequest& request,
                                                 Slice<u8> output) noexcept {
-    if (!output.data || user_auth_mfa_target(request.type).bytes == 0)
+    if (user_auth_mfa_target(request.type).bytes == 0)
         return UserAuthWriteResult{0, UserAuthWriteError::invalid_input};
     EncodedString code{};
     EncodedString ticket{};
@@ -488,8 +474,6 @@ UserAuthWriteResult user_auth_write_mfa_request(const UserAuthMfaRequest& reques
 
 UserAuthWriteResult user_auth_write_mfa_sms_send_request(const UserAuthMfaSmsSendRequest& request,
                                                          Slice<u8> output) noexcept {
-    if (!output.data)
-        return UserAuthWriteResult{0, UserAuthWriteError::invalid_input};
     EncodedString ticket{};
     if (!encoded_string(request.ticket, kUserAuthMaximumTicketBytes, &ticket))
         return UserAuthWriteResult{0, string_error(request.ticket, kUserAuthMaximumTicketBytes)};
@@ -505,7 +489,7 @@ UserAuthWriteResult user_auth_write_mfa_sms_send_request(const UserAuthMfaSmsSen
 UserAuthWriteResult user_auth_write_captcha_headers(const UserAuthCaptchaHeaders& headers,
                                                     Slice<u8> output) noexcept {
     u32 required = 0;
-    if (!output.data || !captcha_headers_size(headers, false, &required))
+    if (!captcha_headers_size(headers, false, &required))
         return UserAuthWriteResult{0, UserAuthWriteError::invalid_input};
     if (required > output.count)
         return UserAuthWriteResult{0, UserAuthWriteError::output_too_small};
@@ -580,7 +564,7 @@ UserAuthWriteResult user_auth_write_request_head(UserAuthOperation operation, u6
     const Utf8View target = user_auth_target(operation);
     const bool get = user_auth_operation_is_get(operation);
     u32 captcha_bytes = 0;
-    if (!output.data || target.bytes == 0 || (content_length == 0) != get ||
+    if (target.bytes == 0 || (content_length == 0) != get ||
         !captcha_headers_size(captcha, true, &captcha_bytes) ||
         ((get || operation == UserAuthOperation::browser_handoff_exchange) &&
             (captcha.key.bytes || captcha.rqtoken.bytes || captcha.session_id.bytes)))
@@ -632,9 +616,6 @@ static UserAuthDecodeResult decode_response_impl(u16 status_code, Utf8View body,
                                                Slice<u32> structural_scratch, u32 maximum_depth,
                                                UserAuthResponseStorage storage,
                                                UserAuthResponse* output, u8 reset_mode = 0, u8 phone_mode = 0) noexcept {
-    if (!output) {
-        return decode_failure(UserAuthDecodeError::invalid_input);
-    }
     ResponseContext context{};
     UserAuthResponse parsed;
     const UserAuthDecodeResult classified =
@@ -814,11 +795,7 @@ bool visit_handoff_request(void* opaque, JsonString name, JsonValue value) noexc
 }
 
 bool user_auth_browser_handoff_request_valid(Utf8View body, Slice<u32> scratch, u32 maximum_depth) noexcept {
-    if (!body.data || !body.bytes || body.bytes > kBrowserSignInMaximumBodyBytes || !scratch.data ||
-        !scratch.count || scratch.count > ~0u / sizeof(u32) || !maximum_depth) return false;
-    const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(body.data), body.bytes},
-        {reinterpret_cast<const u8*>(scratch.data), static_cast<u32>(scratch.count * sizeof(u32))}};
-    if (!byte_ranges_all_disjoint({ranges, 2})) return false;
+    if (!body.bytes || body.bytes > kBrowserSignInMaximumBodyBytes) return false;
     const auto scan = json_scan_structurals_avx1(body, scratch);
     if (!scan.ok()) return false;
     HandoffRequestContext context{};
@@ -841,11 +818,9 @@ bool user_auth_browser_handoff_request_valid(Utf8View body, Slice<u32> scratch, 
 
 UserAuthDecodeResult user_auth_decode_browser_handoff_response(u16 status_code, Utf8View body,
     Slice<u32> scratch, u32 maximum_depth, UserAuthResponseStorage storage, UserAuthResponse* output) noexcept {
-    if (!output)
-        return decode_failure(UserAuthDecodeError::invalid_input);
     reset_value(output);
     if (!body.data || !body.bytes || body.bytes > kUserAuthBrowserExchangeMaximumResponseBytes ||
-        !scratch.data || !scratch.count || !maximum_depth || status_code < 200 || status_code > 599)
+        status_code < 200 || status_code > 599)
         return decode_failure(UserAuthDecodeError::invalid_input);
     const auto scan = json_scan_structurals_avx1(body, scratch);
     if (!scan.ok()) return decode_failure(UserAuthDecodeError::scan_failed, scan.error_offset, scan.error);
@@ -890,8 +865,6 @@ UserAuthDecodeResult user_auth_decode_browser_handoff_response(u16 status_code, 
 UserAuthDecodeResult user_auth_decode_phone_response(u16 status_code, Utf8View body,
     Slice<u32> structural_scratch, u32 maximum_depth, UserAuthResponseStorage storage,
     UserAuthResponse* output, bool verify) noexcept {
-    if (!output)
-        return decode_failure(UserAuthDecodeError::invalid_input);
     if (!verify && status_code >= 200 && status_code < 300 && !body.bytes) {
         reset_value(output); output->kind = UserAuthResponseKind::phone_code_sent;
         return decode_failure(UserAuthDecodeError::none);
@@ -902,7 +875,6 @@ UserAuthDecodeResult user_auth_decode_phone_response(u16 status_code, Utf8View b
 UserAuthDecodeResult user_auth_decode_recovery_response(u16 status_code, Utf8View body,
     Slice<u32> structural_scratch, u32 maximum_depth, UserAuthResponseStorage storage,
     UserAuthResponse* output) noexcept {
-    if (!output) return decode_failure(UserAuthDecodeError::invalid_input);
     reset_value(output);
     if (status_code >= 200 && status_code < 300) {
         ResponseContext context{};
@@ -1075,7 +1047,7 @@ bool visit_fingerprint(void* opaque, JsonString name, JsonValue value) noexcept 
 } // namespace
 
 u32 user_auth_decode_fingerprint(Utf8View body, Slice<u32> structural_scratch, Slice<char> output) noexcept {
-    if (!body.data || !body.bytes || !structural_scratch.data || !output.data)
+    if (!body.bytes)
         return 0;
     const JsonScanResult scan = json_scan_structurals_avx1(body, structural_scratch);
     FingerprintContext context{output, 0};

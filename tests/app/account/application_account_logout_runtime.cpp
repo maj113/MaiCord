@@ -102,14 +102,12 @@ AccountCredentialForgetResult logout_fixture_forget(const AccountPaths& paths) n
         logout_fixture::file_order_violation = true;
     return account_credential_forget_complete_after_join(paths);
 }
-AccountHostStopResult logout_fixture_stop(AccountHost* host, u32 timeout, u64 monotonic,
-                                          u64 unix_time) noexcept {
+AccountHostStopResult logout_fixture_stop(AccountHost* host, u32 timeout) noexcept {
     using namespace logout_fixture;
     InterlockedIncrement(&stop_calls);
     InterlockedExchange(&stop_active, 1);
     stop_thread_id = GetCurrentThreadId();
-    if (host == &app_detail::g_app.account || timeout != app_detail::kAccountStopTimeoutMs || !monotonic ||
-        !unix_time)
+    if (host == &app_detail::g_app.account || timeout != app_detail::kAccountStopTimeoutMs)
         ownership_violation = true;
     SetEvent(stop_entered);
     const DWORD allowed = WaitForSingleObject(stop_allowed, 15'000);

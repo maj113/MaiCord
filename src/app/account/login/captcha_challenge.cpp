@@ -2,7 +2,6 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"
-#include "maicord/core/byte_range.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -54,18 +53,7 @@ void clear_locked(CaptchaChallenge* challenge) noexcept {
     reset_value<CaptchaChallengeSnapshot>(&challenge->snapshot);
 }
 
-bool external_output(const CaptchaChallenge* challenge, const SecureBuffer* output) noexcept {
-    if (!output || !output->data || !output->locked || output->capacity == 0 ||
-        output->bytes > output->capacity) {
-        return false;
-    }
-    const ConstSlice<u8> destination{output->data, output->capacity};
-    return byte_range_valid(destination) &&
-           !byte_ranges_overlap(destination, {challenge->secrets.data, challenge->secrets.capacity}) &&
-           !byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(challenge), sizeof(*challenge)});
-}
-
-bool secret_range(CaptchaChallengeSecretKind kind, const CaptchaChallengeSnapshot& snapshot, u32* offset,
+void secret_range(CaptchaChallengeSecretKind kind, const CaptchaChallengeSnapshot& snapshot, u32* offset,
                   u32* bytes) noexcept {
     // Indexed by CaptchaChallengeSecretKind.
     static constexpr struct {
@@ -79,20 +67,14 @@ bool secret_range(CaptchaChallengeSecretKind kind, const CaptchaChallengeSnapsho
                    {kUserFlowOffset, &CaptchaChallengeSnapshot::user_flow_bytes}};
     static_assert(static_cast<u32>(CaptchaChallengeSecretKind::user_flow) + 1 == sizeof(kRanges) / sizeof(kRanges[0]));
     const u32 index = static_cast<u32>(kind);
-    if (index >= sizeof(kRanges) / sizeof(kRanges[0]))
-        return false;
     *offset = kRanges[index].offset;
     *bytes = snapshot.*kRanges[index].bytes;
-    return true;
 }
 
 } // namespace
 
 CaptchaChallengeResult captcha_challenge_initialize(CaptchaChallenge* challenge) noexcept {
-    if (!challenge || challenge->secrets.data) {
-        return CaptchaChallengeResult{ERROR_INVALID_PARAMETER, CaptchaChallengeError::invalid_input,
-                                      UserAuthDecodeError::none};
-    }
+    // Both callers give a challenge without secrets (a reset owner, or after testing it).
     reset_value<CaptchaChallenge>(challenge);
     const SecureBufferResult initialized =
         secure_buffer_initialize(&challenge->secrets, kCaptchaChallengeSecretBytes);
@@ -104,7 +86,7 @@ CaptchaChallengeResult captcha_challenge_initialize(CaptchaChallenge* challenge)
 }
 
 void captcha_challenge_clear(CaptchaChallenge* challenge) noexcept {
-    if (!challenge || !challenge->secrets.data) {
+    if (!challenge->secrets.data) {
         return;
     }
     AcquireSRWLockExclusive(challenge->lock.native());
@@ -113,9 +95,6 @@ void captcha_challenge_clear(CaptchaChallenge* challenge) noexcept {
 }
 
 void captcha_challenge_release(CaptchaChallenge* challenge) noexcept {
-    if (!challenge) {
-        return;
-    }
     secure_buffer_release(&challenge->secrets);
     reset_value<CaptchaChallenge>(challenge);
 }
@@ -123,10 +102,7 @@ void captcha_challenge_release(CaptchaChallenge* challenge) noexcept {
 CaptchaChallengeResult captcha_challenge_decode(CaptchaChallenge* challenge, u16 status_code,
                                                 const Utf8View& body, const Slice<u32>& structural_scratch,
                                                 u32 maximum_depth, UserAuthResponse* response) noexcept {
-    if (!challenge || !challenge->secrets.data || !challenge->secrets.locked || !response) {
-        return CaptchaChallengeResult{ERROR_INVALID_PARAMETER, CaptchaChallengeError::invalid_input,
-                                      UserAuthDecodeError::none};
-    }
+    // Both owners initialize the challenge before they decode into it (secure_buffer_initialize locks or fails).
     AcquireSRWLockExclusive(challenge->lock.native());
     clear_locked(challenge);
     UserAuthResponse decoded{};
@@ -175,9 +151,6 @@ CaptchaChallengeResult captcha_challenge_decode(CaptchaChallenge* challenge, u16
 }
 
 CaptchaChallengeSnapshot captcha_challenge_snapshot(const CaptchaChallenge* challenge) noexcept {
-    if (!challenge || !challenge->secrets.data) {
-        return CaptchaChallengeSnapshot{};
-    }
     AcquireSRWLockShared(challenge->lock.native());
     const CaptchaChallengeSnapshot snapshot = challenge->snapshot;
     ReleaseSRWLockShared(challenge->lock.native());
@@ -187,15 +160,13 @@ CaptchaChallengeSnapshot captcha_challenge_snapshot(const CaptchaChallenge* chal
 SecureBufferResult captcha_challenge_copy_secret(const CaptchaChallenge* challenge,
                                                  CaptchaChallengeSecretKind kind,
                                                  SecureBuffer* output) noexcept {
-    if (!challenge || !challenge->secrets.data || !external_output(challenge, output)) {
-        return SecureBufferResult{0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
-    }
     AcquireSRWLockShared(challenge->lock.native());
     u32 offset = 0;
     u32 bytes = 0;
     SecureBufferResult result{};
-    if (!challenge->snapshot.active || !secret_range(kind, challenge->snapshot, &offset, &bytes) ||
-        bytes == 0) {
+    if (challenge->snapshot.active)
+        secret_range(kind, challenge->snapshot, &offset, &bytes);
+    if (bytes == 0) {
         result = SecureBufferResult{0, ERROR_NOT_FOUND, SecureBufferError::invalid_input};
     } else {
         result = secure_buffer_assign(output, ConstSlice<u8>{secret(challenge, offset), bytes});
@@ -207,21 +178,11 @@ SecureBufferResult captcha_challenge_copy_secret(const CaptchaChallenge* challen
 SecureBufferResult captcha_challenge_copy_replay_headers(const CaptchaChallenge* challenge,
                                                          SecureBuffer* rqtoken,
                                                          SecureBuffer* session_id) noexcept {
-    if (!challenge || !challenge->secrets.data || !external_output(challenge, rqtoken) ||
-        !external_output(challenge, session_id) ||
-        byte_ranges_overlap({rqtoken->data, rqtoken->capacity}, {session_id->data, session_id->capacity})) {
-        return SecureBufferResult{0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
-    }
     AcquireSRWLockShared(challenge->lock.native());
     const CaptchaChallengeSnapshot snapshot = challenge->snapshot;
-    if (!snapshot.active || snapshot.rqtoken_bytes > rqtoken->capacity ||
-        snapshot.session_id_bytes > session_id->capacity) {
-        const u32 required =
-            snapshot.rqtoken_bytes > rqtoken->capacity ? snapshot.rqtoken_bytes : snapshot.session_id_bytes;
+    if (!snapshot.active) {
         ReleaseSRWLockShared(challenge->lock.native());
-        return SecureBufferResult{required, snapshot.active ? 0u : ERROR_NOT_FOUND,
-                                  snapshot.active ? SecureBufferError::output_too_small
-                                                  : SecureBufferError::invalid_input};
+        return SecureBufferResult{0, ERROR_NOT_FOUND, SecureBufferError::invalid_input};
     }
     const SecureBufferResult token = secure_buffer_assign(
         rqtoken, ConstSlice<u8>{secret(challenge, kRqtokenOffset), snapshot.rqtoken_bytes});
@@ -236,9 +197,6 @@ SecureBufferResult captcha_challenge_copy_replay_headers(const CaptchaChallenge*
 
 bool captcha_challenge_visit_replay_headers(const CaptchaChallenge* challenge,
                                             CaptchaChallengeReplayVisitor visitor, void* context) noexcept {
-    if (!challenge || !challenge->secrets.data || !visitor) {
-        return false;
-    }
     AcquireSRWLockShared(challenge->lock.native());
     const CaptchaChallengeSnapshot snapshot = challenge->snapshot;
     SecureBuffer rqtoken{const_cast<u8*>(secret(challenge, kRqtokenOffset)), kCaptchaChallengeRqtokenBytes,

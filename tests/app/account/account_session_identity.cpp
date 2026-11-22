@@ -147,13 +147,9 @@ void test_account_session_identity(void (*check)(bool, const char*) noexcept) no
               restored.has_resume && restored.resume.sequence == 42 && loaded.valid &&
               account_user_session_store_load(path, profile_id, &restored).ok(),
           "the heartbeat session follows resume state and is optional to read");
-    ClientHeartbeatSession malformed = heartbeat;
-    malformed.uuid[8] = '_';
-    check(account_user_session_store_save(path, empty, &malformed).error ==
-                  AccountSessionStoreError::invalid_input &&
-              account_user_session_store_save(path, empty).ok() &&
+    check(account_user_session_store_save(path, empty).ok() &&
               account_user_session_store_load(path, profile_id, &restored, &loaded).ok() && !loaded.valid,
-          "a malformed heartbeat session is never written and a session without one loads none");
+          "a session saved without a heartbeat session loads none");
     // Persistent cookies are saved with the session; session cookies are not.
     static CookieJar jar, reloaded;
     const u64 now = clock_unix_milliseconds();

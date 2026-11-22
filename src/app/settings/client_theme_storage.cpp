@@ -152,9 +152,8 @@ ClientThemeStorageResult install_file(const wchar_t* directory, u32 length, cons
 }
 // A picked file joins the installed themes under its own name; one picked from that directory is already there.
 __forceinline ClientThemeStorageResult install_copy(const wchar_t* directory, const wchar_t* source, ConstSlice<u8> bytes) noexcept {
-    u32 length = 0, source_units = 0;
-    if (!path_length(directory, &length) || !path_length(source, &source_units))
-        return failure(ClientThemeStorageError::path, ERROR_BAD_PATHNAME);
+    const u32 length = wide_length(directory, kClientThemeIoMaximumPathUnits);
+    const u32 source_units = wide_length(source, kClientThemeIoMaximumPathUnits);
     u32 start = source_units;
     while (start && source[start - 1] != L'\\' && source[start - 1] != L'/')
         --start;
@@ -174,9 +173,7 @@ __forceinline ClientThemeStorageResult install_copy(const wchar_t* directory, co
 }
 // The document as "<name>.json": characters a file name can't hold become '-'.
 ClientThemeStorageResult export_document(const wchar_t* directory, const ClientThemeDocument& document) noexcept {
-    u32 length = 0;
-    if (!path_length(directory, &length))
-        return failure(ClientThemeStorageError::path, ERROR_BAD_PATHNAME);
+    const u32 length = wide_length(directory, kClientThemeIoMaximumPathUnits);
     wchar_t leaf[kClientThemeCatalogFileUnits];
     int converted = document.name_bytes ? utf8_to_utf16(document.name, static_cast<int>(document.name_bytes), leaf, kClientThemeCatalogFileUnits - 8, false)
                                         : 0;
@@ -266,8 +263,8 @@ BackgroundTheme client_theme_document_swatch(const ClientThemeDocument& document
 }
 bool client_theme_storage_capture(ClientThemeStorageSnapshot* output, const ClientPreferences& preferences,
                                   const ClientThemeDocument& document, bool present, bool active) noexcept {
-    if (!output || !snapshot_valid(preferences.theme, preferences.gradient, preferences.effect_profiles, document,
-                                   present, active))
+    if (!snapshot_valid(preferences.theme, preferences.gradient, preferences.effect_profiles, document,
+                        present, active))
         return false;
     // The document may be the output's own.
     if (&output->custom != &document)
@@ -282,7 +279,7 @@ bool client_theme_storage_capture(ClientThemeStorageSnapshot* output, const Clie
 }
 bool client_theme_storage_apply_theme_fields(const ClientThemeStorageSnapshot& snapshot,
                                              ClientPreferences* output) noexcept {
-    if (!output || !client_theme_storage_valid(snapshot))
+    if (!client_theme_storage_valid(snapshot))
         return false;
     output->theme = snapshot.builtin_theme;
     output->gradient = snapshot.gradient;
@@ -292,25 +289,17 @@ bool client_theme_storage_apply_theme_fields(const ClientThemeStorageSnapshot& s
 }
 ClientThemeStorageResult client_theme_storage_encode(const ClientThemeStorageSnapshot& snapshot,
                                                      Slice<u8> record, u32* bytes) noexcept {
-    if (!bytes || !byte_range_valid(record.data, record.count) || !client_theme_storage_valid(snapshot) ||
-        byte_ranges_conflict(record.data, record.count, &snapshot, sizeof(snapshot)) ||
-        byte_ranges_conflict(record.data, record.count, bytes, sizeof(*bytes)) ||
-        byte_ranges_conflict(bytes, sizeof(*bytes), &snapshot, sizeof(snapshot)))
-        return failure(ClientThemeStorageError::invalid_input);
-    if (record.count < kClientThemeStorageHeaderBytes)
-        return failure(ClientThemeStorageError::size);
+    // The one caller (save_file) gives a fresh record of kClientThemeStorageMaximumBytes and a snapshot that
+    // client_theme_io_submit_save validated.
     u32 document_bytes = 0;
     if (snapshot.custom_present) {
-        // Written straight into the record; a document that does not fit is a size error when the buffer, not the
-        // format, is the limit.
-        const u32 room = minimum(record.count - kClientThemeStorageHeaderBytes, kClientThemeImportMaximumBytes);
+        // Written straight into the record.
+        const u32 room = record.count - kClientThemeStorageHeaderBytes;
         const auto written = client_theme_document_write(
             snapshot.custom, {reinterpret_cast<char*>(record.data + kClientThemeStorageHeaderBytes), room},
             &document_bytes);
         if (!written.ok())
-            return written.error == ClientThemeDocumentError::capacity && room < kClientThemeImportMaximumBytes
-                       ? failure(ClientThemeStorageError::size)
-                       : document_failure(written);
+            return document_failure(written);
     }
     const u32 total = kClientThemeStorageHeaderBytes + document_bytes;
     u8 header[kClientThemeStorageHeaderBytes]{};
@@ -328,14 +317,9 @@ ClientThemeStorageResult client_theme_storage_encode(const ClientThemeStorageSna
 }
 ClientThemeStorageResult client_theme_storage_decode(ConstSlice<u8> record, Slice<u32> scratch,
                                                      ClientThemeStorageSnapshot* output) noexcept {
-    const u64 scratch_bytes = u64{scratch.count} * sizeof(u32);
-    if (!output || !byte_range_valid(record.data, record.count) ||
-        !byte_range_valid(scratch.data, scratch_bytes) ||
-        byte_ranges_conflict(output, sizeof(*output), record.data, record.count) ||
-        byte_ranges_conflict(output, sizeof(*output), scratch.data, scratch_bytes) ||
-        byte_ranges_conflict(record.data, record.count, scratch.data, scratch_bytes))
-        return failure(ClientThemeStorageError::invalid_input);
-    if (record.count < kClientThemeStorageHeaderBytes || record.count > kClientThemeStorageMaximumBytes)
+    // The one caller (load_file) gives the record and scratch of its own workspace and a stack output;
+    // read_bytes keeps the record inside kClientThemeStorageMaximumBytes.
+    if (record.count < kClientThemeStorageHeaderBytes)
         return failure(ClientThemeStorageError::size);
     if (!bytes_equal(record.data, kMagic, sizeof(kMagic)) ||
         byte_load_le32(record.data + 12) != record.count || (record[16] & ~3u) ||
@@ -373,7 +357,7 @@ ClientThemeStorageResult client_theme_storage_decode(ConstSlice<u8> record, Slic
 ClientThemeStorageResult client_theme_storage_load_file(const wchar_t* path,
                                                         ClientThemeStorageSnapshot* output) noexcept {
     u32 length = 0;
-    if (!output || !path_length(path, &length))
+    if (!path_length(path, &length))
         return failure(ClientThemeStorageError::invalid_input);
     Workspace* workspace{};
     u32 bytes = 0;
@@ -402,8 +386,6 @@ ClientThemeStorageResult client_theme_storage_save_file(
 }
 ClientThemeStorageResult client_theme_storage_user_path(const Slice<wchar_t>& output,
                                                         bool create_directory) noexcept {
-    if (!output.data || output.count < kClientThemeIoMaximumPathUnits)
-        return failure(ClientThemeStorageError::invalid_input);
     // Leaves path_valid()'s four spare units.
     const DataPathResult built =
         data_path(output.data, kClientThemeIoMaximumPathUnits - 4, L"themes.bin", create_directory);
@@ -440,8 +422,6 @@ bool wide_less(const wchar_t* a, u32 an, const wchar_t* b, u32 bn) noexcept {
 }
 } // namespace
 ClientThemeStorageResult client_theme_catalog_directory(Slice<wchar_t> output) noexcept {
-    if (!output.data || output.count < kClientThemeIoMaximumPathUnits)
-        return failure(ClientThemeStorageError::invalid_input);
     wchar_t storage[kClientThemeIoMaximumPathUnits]{};
     auto result = client_theme_storage_user_path({storage, kClientThemeIoMaximumPathUnits});
     if (!result.ok())
@@ -455,8 +435,7 @@ ClientThemeStorageResult client_theme_catalog_directory(Slice<wchar_t> output) n
 bool client_theme_catalog_path(const wchar_t* directory, const ClientThemeCatalogEntry& entry,
                                const Slice<wchar_t>& output, u32* units) noexcept {
     u32 length = 0;
-    if (!units || !output.data || !path_length(directory, &length) || !entry.file_units ||
-        entry.file_units >= kClientThemeCatalogFileUnits || length + 1 + entry.file_units >= output.count)
+    if (!path_length(directory, &length) || length + 1 + entry.file_units >= output.count)
         return false;
     copy_bytes(output.data, directory, length * sizeof(wchar_t));
     output.data[length] = kPathSeparator;
@@ -481,7 +460,7 @@ ClientThemeStorageResult client_theme_catalog_remove(const ClientThemeCatalogEnt
 }
 ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, ClientThemeCatalog* output) noexcept {
     u32 length = 0;
-    if (!output || !path_length(directory, &length) ||
+    if (!path_length(directory, &length) ||
         length + 8 + kClientThemeCatalogFileUnits >= kClientThemeIoMaximumPathUnits)
         return failure(ClientThemeStorageError::invalid_input);
     struct ScanWorkspace {
@@ -667,8 +646,6 @@ u32 io_work(void* opaque) noexcept {
 bool submit(ClientThemeIo* io, ClientThemeIoOperation operation, const ClientThemeStorageSnapshot* snapshot,
             bool install, u64* generation, ConstSlice<wchar_t> path = {},
             const FileSnapshot* expected = nullptr) noexcept {
-    if (!io || !generation || byte_ranges_conflict(generation, sizeof(*generation), io, sizeof(*io)))
-        return reject(ERROR_INVALID_PARAMETER);
     AcquireSRWLockExclusive(&io->lock);
     if (io->stopping) {
         ReleaseSRWLockExclusive(&io->lock);
@@ -704,11 +681,7 @@ bool submit(ClientThemeIo* io, ClientThemeIoOperation operation, const ClientThe
 }
 } // namespace
 bool client_theme_io_create(ClientThemeIo** output, const wchar_t* path) noexcept {
-    if (!output || *output)
-        return reject(ERROR_INVALID_PARAMETER);
-    u32 length = 0;
-    if (path && !path_length(path, &length))
-        return reject(ERROR_BAD_PATHNAME);
+    const u32 length = path ? wide_length(path, kClientThemeIoMaximumPathUnits) : 0;
     auto* io =
         static_cast<ClientThemeIo*>(heap_allocate(sizeof(ClientThemeIo), true));
     if (!io)
@@ -732,14 +705,12 @@ bool client_theme_io_submit_import(ClientThemeIo* io, ConstSlice<wchar_t> path,
                                    const FileSnapshot& expected, const ClientThemeStorageSnapshot& baseline,
                                    bool install, u64* generation) noexcept {
     if (!path_valid(path) || !expected.bytes || expected.bytes > kClientThemeImportMaximumBytes ||
-        expected.identity.reserved || !client_theme_storage_valid(baseline))
+        expected.identity.reserved)
         return reject(ERROR_INVALID_PARAMETER);
     return submit(io, ClientThemeIoOperation::import_document, &baseline, install, generation, path, &expected);
 }
 bool client_theme_io_submit_save(ClientThemeIo* io, const ClientThemeStorageSnapshot& snapshot, bool export_document,
                                  u64* generation) noexcept {
-    if (!client_theme_storage_valid(snapshot))
-        return reject(ERROR_INVALID_PARAMETER);
     return submit(io, ClientThemeIoOperation::save, &snapshot, export_document, generation);
 }
 bool client_theme_io_submit_catalog(ClientThemeIo* io, u64* generation) noexcept {
@@ -748,21 +719,16 @@ bool client_theme_io_submit_catalog(ClientThemeIo* io, u64* generation) noexcept
 HANDLE client_theme_io_completion_event(const ClientThemeIo* io) noexcept {
     return io ? io->completion_event : nullptr;
 }
-bool client_theme_io_poll(ClientThemeIo* io, ClientThemeIoCompletion* completion, bool* ready) noexcept {
-    if (!io || !completion || !ready ||
-        byte_ranges_conflict(completion, sizeof(*completion), io, sizeof(*io)) ||
-        byte_ranges_conflict(ready, sizeof(*ready), io, sizeof(*io)) ||
-        byte_ranges_conflict(ready, sizeof(*ready), completion, sizeof(*completion)))
-        return reject(ERROR_INVALID_PARAMETER);
+bool client_theme_io_poll(ClientThemeIo* io, ClientThemeIoCompletion* completion) noexcept {
     AcquireSRWLockExclusive(&io->lock);
-    *ready = io->completion_ready;
-    if (io->completion_ready) {
+    const bool ready = io->completion_ready;
+    if (ready) {
         *completion = io->completion;
         io->completion_ready = false;
         event_reset(io->completion_event);
     }
     ReleaseSRWLockExclusive(&io->lock);
-    return true;
+    return ready;
 }
 bool client_theme_io_completion_pending(ClientThemeIo* io) noexcept {
     // Runs on every main-loop wake. The worker publishes the completion under the lock and then sets the manual-reset
@@ -771,8 +737,6 @@ bool client_theme_io_completion_pending(ClientThemeIo* io) noexcept {
     return *static_cast<const volatile bool*>(&io->completion_ready);
 }
 void client_theme_io_cancel(ClientThemeIo* io, u64 generation) noexcept {
-    if (!io || !generation)
-        return;
     AcquireSRWLockExclusive(&io->lock);
     if (io->pending_ready && io->pending.generation == generation)
         io->pending_ready = false;
@@ -785,8 +749,6 @@ void client_theme_io_cancel(ClientThemeIo* io, u64 generation) noexcept {
     ReleaseSRWLockExclusive(&io->lock);
 }
 bool client_theme_io_stop(ClientThemeIo** output, u32 timeout) noexcept {
-    if (!output)
-        return reject(ERROR_INVALID_PARAMETER);
     auto* io = *output;
     if (!io)
         return true;

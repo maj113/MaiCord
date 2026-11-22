@@ -17,27 +17,23 @@ static_assert(kMessageEditMaximumBodyBytes <= sizeof(g_request_body) && kCdnMaxi
 namespace account_module_detail {
 
 RestClient* module_rest(void* instance, bool details) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime ? user_account_coordinator_rest(&runtime->coordinator, details) : nullptr;
+    return user_account_coordinator_rest(&static_cast<AccountModuleRuntime*>(instance)->coordinator, details);
 }
 
 GatewayClient* module_gateway(void* instance) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    return user_account_coordinator_gateway(&static_cast<AccountModuleRuntime*>(instance)->coordinator);
 }
 
-// The DETAILS lane for a request id; null without a runtime or with no id.
+// The DETAILS lane for a request id; null with no id.
 RestClient* request_lane(void* instance, u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime && request_id ? user_account_coordinator_rest(&runtime->coordinator, true) : nullptr;
+    return request_id ? module_rest(instance, true) : nullptr;
 }
 
 } // namespace account_module_detail
 
 GatewayClientSelfStatusSnapshot account_module_self_status_snapshot(void* instance) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime ? gateway_client_self_status_snapshot(&runtime->coordinator.gateway)
-                   : GatewayClientSelfStatusSnapshot{};
+    return gateway_client_self_status_snapshot(&runtime->coordinator.gateway);
 }
 
 RestClientSubmitResult account_module_self_status_submit(void* instance, u64 profile_id,
@@ -46,17 +42,15 @@ RestClientSubmitResult account_module_self_status_submit(void* instance, u64 pro
                                                          GatewayUserStatus status, u64 request_id,
                                                          u64 unix_now_ms) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime ? gateway_client_self_status_submit(&runtime->coordinator.gateway, &runtime->coordinator.rest,
-                                                       profile_id, self_user_id, operation, status, request_id,
-                                                       unix_now_ms)
-                   : RestClientSubmitResult{RestClientSubmitError::invalid_input};
+    return gateway_client_self_status_submit(&runtime->coordinator.gateway, &runtime->coordinator.rest, profile_id,
+                                             self_user_id, operation, status, request_id, unix_now_ms);
 }
 
 bool account_module_self_status_complete(void* instance, u64 profile_id, u64 self_user_id, u64 request_id,
                                          const RestClientResponse* response, Utf8View body) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime && gateway_client_self_status_complete(&runtime->coordinator.gateway, profile_id,
-                                                          self_user_id, request_id, response, body);
+    return gateway_client_self_status_complete(&runtime->coordinator.gateway, profile_id, self_user_id, request_id,
+                                               response, body);
 }
 
 namespace account_module_detail {

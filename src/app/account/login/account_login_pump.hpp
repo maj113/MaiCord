@@ -157,8 +157,6 @@ AccountLoginStatus pump_remote_auth(AccountLoginRuntime* runtime) noexcept {
 
 AccountLoginStatus module_login_pump(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime)
-        return account_login_invalid_input();
     runtime->last_event = UserAuthCoordinatorEventKind::none;
     // A quarantined stop only tears down. Neither a pending browser
     // response nor a late QR completion may restart profile setup.
@@ -229,21 +227,17 @@ HANDLE module_login_notification_handle(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     // Profile faults require a save retry. A joined QR
     // thread stays signaled and must not drive a busy retry loop here.
-    if (runtime && (runtime->error == AccountLoginError::profile || runtime->error == AccountLoginError::stop ||
-                    (runtime->authenticated_pending && runtime->error != AccountLoginError::none)))
+    if (runtime->error == AccountLoginError::profile || runtime->error == AccountLoginError::stop ||
+        (runtime->authenticated_pending && runtime->error != AccountLoginError::none))
         return nullptr;
-    if (runtime && runtime->browser_mode)
+    if (runtime->browser_mode)
         return browser_login_notification_handle(&runtime->browser, &runtime->coordinator);
-    return runtime ? runtime->remote_active ? remote_auth_client_notification_handle(&runtime->remote_auth)
-                     : runtime->coordinator_started
-                         ? user_auth_coordinator_notification_handle(&runtime->coordinator)
-                         : nullptr
-                   : nullptr;
+    return runtime->remote_active        ? remote_auth_client_notification_handle(&runtime->remote_auth)
+           : runtime->coordinator_started ? user_auth_coordinator_notification_handle(&runtime->coordinator)
+                                          : nullptr;
 }
 
 AccountLoginStatus module_login_stop(void** instance, u32 timeout_ms) noexcept {
-    if (!instance || !*instance || timeout_ms == 0)
-        return account_login_invalid_input();
     auto* runtime = static_cast<AccountLoginRuntime*>(*instance);
     runtime->authenticated_pending = false;
     runtime->error = AccountLoginError::stop;

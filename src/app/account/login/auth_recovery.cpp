@@ -51,9 +51,6 @@ bool adopt_reset_token(SecureBuffer* token) noexcept {
     if (application_account_logout_locked())
         return false;
     auto& login = g_app.login;
-    if (!token || !token->data || !token->locked || !token->bytes ||
-        token->bytes > kLoginResetMaximumTokenBytes || token->bytes > token->capacity ||
-        g_app.account.login_instance || g_app.account.module || g_app.account.stop_failed) return false;
     secure_text_store_unbind(&login.text_store);
     application_login_end_pointer_selection();
     secure_edit_clear(&login.login);

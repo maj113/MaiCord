@@ -766,14 +766,12 @@ bool application_user_actions_speak(Utf8View text) noexcept {
 }
 
 Utf8View application_user_note(u64 user_id, bool* loading) noexcept {
-    if (loading)
-        *loading = false;
+    *loading = false;
     auto* store = available() && user_id && user_id != self_id() ? notes() : nullptr;
     if (!store || !user_note_request(store, user_id))
         return {};
     const auto* entry = user_note_find(*store, user_id);
-    if (loading)
-        *loading = entry && (entry->state == UserNoteState::empty || entry->state == UserNoteState::loading);
+    *loading = entry && (entry->state == UserNoteState::empty || entry->state == UserNoteState::loading);
     if (entry && entry->load_pending)
         wake();
     return user_note_text(*store, user_id);

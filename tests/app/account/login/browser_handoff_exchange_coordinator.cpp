@@ -12,7 +12,7 @@ struct Fixture {
     RestClientResponse metadata;
     UserAuthOperation operation;
     u64 request_id;
-    u32 submissions, notification_reads;
+    u32 submissions;
     bool ready, fail_stop, fail_submit, joined_error, any_captcha;
     RestClientPhase phase;
     RestClientError error;
@@ -49,7 +49,6 @@ RestClientTakeResult rest_client_consume_user_auth_response(
     return browser_exchange_coordinator_test::consume_response(response, consume, context);
 }
 HANDLE rest_client_notification_handle(const RestClient*) noexcept {
-    ++browser_exchange_coordinator_test::fixture.notification_reads;
     return reinterpret_cast<HANDLE>(1);
 }
 RestClientResult rest_client_stop(RestClient* client, u32) noexcept {
@@ -338,9 +337,6 @@ void run() noexcept {
     check(!user_auth_coordinator_submit_browser_handoff_exchange(&coordinator, &unlocked).ok() &&
         !fixture.submissions && caller_intact(),
         "browser coordinator: unlocked input cannot reach REST and caller owner remains intact");
-    SecureBuffer own_arena = partition(runtime, kScratchOffset, runtime->request_capacity, exact.bytes);
-    check(!user_auth_coordinator_submit_browser_handoff_exchange(&coordinator, &own_arena).ok() &&
-        !fixture.submissions && request_erased(*runtime), "browser coordinator: aliased input cannot escape coordinator arena");
     fixture.fail_submit = true;
     check(!user_auth_coordinator_submit_browser_handoff_exchange(&coordinator, &input).ok() &&
         !runtime->active_request_id && erased(*runtime) && caller_intact(),

@@ -106,8 +106,7 @@ bool client_preferences_valid(const ClientPreferences& preferences) noexcept {
 
 ClientPreferencesResult client_preferences_encode(const ClientPreferences& preferences,
                                                   Slice<u8> record) noexcept {
-    if (!record.data || record.count != kClientPreferencesRecordBytes ||
-        !client_preferences_valid(preferences))
+    if (!client_preferences_valid(preferences))
         return failure(ClientPreferencesError::invalid_input);
     clear_bytes(record.data, record.count);
     copy_bytes(record.data, kMagic, sizeof(kMagic));
@@ -141,8 +140,6 @@ ClientPreferencesResult client_preferences_encode(const ClientPreferences& prefe
 
 ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
                                                   ClientPreferences* preferences) noexcept {
-    if (!record.data || !preferences)
-        return failure(ClientPreferencesError::invalid_input);
     if (record.count < kHeaderBytes || record.count > kClientPreferencesRecordBytes)
         return failure(ClientPreferencesError::size);
     if (!bytes_equal(record.data, kMagic, sizeof(kMagic)))
@@ -212,7 +209,7 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
 ClientPreferencesResult client_preferences_load_file(const wchar_t* path,
                                                      ClientPreferences* preferences) noexcept {
     u32 length = 0;
-    if (!preferences || !valid_path(path, &length))
+    if (!valid_path(path, &length))
         return failure(ClientPreferencesError::invalid_input);
     u8 record[kClientPreferencesRecordBytes];
     const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)}, kHeaderBytes);
@@ -257,16 +254,12 @@ ClientPreferencesResult client_preferences_save_file(const wchar_t* path,
 }
 
 ClientPreferencesResult client_preferences_load(ClientPreferences* preferences) noexcept {
-    if (!preferences)
-        return failure(ClientPreferencesError::invalid_input);
     wchar_t path[kAccountProfileMaximumPathCharacters];
     const auto result = user_path(path, false);
     return result.ok() ? client_preferences_load_file(path, preferences) : result;
 }
 
 ClientPreferencesResult client_preferences_save(const ClientPreferences& preferences) noexcept {
-    if (!client_preferences_valid(preferences))
-        return failure(ClientPreferencesError::invalid_input);
     wchar_t path[kAccountProfileMaximumPathCharacters];
     const auto result = user_path(path, true);
     return result.ok() ? client_preferences_save_file(path, preferences) : result;

@@ -127,14 +127,14 @@ u8 copy_label(char* output, u32 capacity, Utf8View value) noexcept {
 
 bool account_inventory_path(const AccountPaths& root, wchar_t* output, u32 capacity) noexcept {
     u32 length = 0;
-    return output && capacity && root.application_directory[0] &&
+    return root.application_directory[0] &&
            wide_append(output, capacity, &length, root.application_directory) &&
            wide_append(output, capacity, &length, L"\\accounts\\accounts.inventory");
 }
 
 AccountInventoryResult account_inventory_load(const wchar_t* path, AccountInventory* inventory) noexcept {
     const u32 characters = wide_length(path, kAccountProfileMaximumPathCharacters);
-    if (!characters || characters >= kAccountProfileMaximumPathCharacters || !inventory)
+    if (!characters || characters >= kAccountProfileMaximumPathCharacters)
         return failure(AccountInventoryError::invalid_input, ERROR_INVALID_PARAMETER);
     u8 bytes[kAccountInventoryMaximumFileBytes];
     const FileReadResult read = file_persistence_read_file(path, {bytes, sizeof(bytes)}, kHeaderBytes);
@@ -188,7 +188,7 @@ AccountInventoryResult account_inventory_save(const wchar_t* path, const Account
 }
 
 bool account_inventory_profile_user(const wchar_t* profile_path, u64* user_id) noexcept {
-    if (!user_id || !wide_length(profile_path, kAccountProfileMaximumPathCharacters))
+    if (!wide_length(profile_path, kAccountProfileMaximumPathCharacters))
         return false;
     HANDLE file = file_open(profile_path, {FileAccess::read, FileCreate::existing, kFileShareRead, 0});
     if (file == INVALID_HANDLE_VALUE)
@@ -210,7 +210,7 @@ bool account_inventory_profile_user(const wchar_t* profile_path, u64* user_id) n
 AccountInventoryResult account_inventory_open(const AccountPaths& root, AccountInventory* inventory,
                                               u64 now_unix_ms) noexcept {
     wchar_t path[kAccountProfileMaximumPathCharacters];
-    if (!inventory || !account_inventory_path(root, path, kAccountProfileMaximumPathCharacters))
+    if (!account_inventory_path(root, path, kAccountProfileMaximumPathCharacters))
         return failure(AccountInventoryError::path);
     const AccountInventoryResult loaded = account_inventory_load(path, inventory);
     if (loaded.error != AccountInventoryError::missing)
@@ -229,7 +229,7 @@ AccountInventoryResult account_inventory_open(const AccountPaths& root, AccountI
 }
 
 const AccountInventoryEntry* account_inventory_find_slot(const AccountInventory& inventory, u32 slot) noexcept {
-    for (u32 index = 0; index < inventory.count && index < kAccountInventoryMaximumAccounts; ++index)
+    for (u32 index = 0; index < inventory.count; ++index)
         if (inventory.entries[index].slot == slot)
             return &inventory.entries[index];
     return nullptr;
@@ -237,9 +237,7 @@ const AccountInventoryEntry* account_inventory_find_slot(const AccountInventory&
 
 const AccountInventoryEntry* account_inventory_find_user(const AccountInventory& inventory,
                                                          u64 user_id) noexcept {
-    if (!user_id)
-        return nullptr;
-    for (u32 index = 0; index < inventory.count && index < kAccountInventoryMaximumAccounts; ++index)
+    for (u32 index = 0; index < inventory.count; ++index)
         if (inventory.entries[index].user_id == user_id)
             return &inventory.entries[index];
     return nullptr;
@@ -247,7 +245,7 @@ const AccountInventoryEntry* account_inventory_find_user(const AccountInventory&
 
 AccountInventoryError account_inventory_upsert(AccountInventory* inventory,
                                                const AccountInventoryEntry& entry) noexcept {
-    if (!inventory || !entry_valid(entry) || inventory->count > kAccountInventoryMaximumAccounts)
+    if (!entry_valid(entry))
         return AccountInventoryError::invalid_input;
     const auto* same_user = account_inventory_find_user(*inventory, entry.user_id);
     if (same_user && same_user->slot != entry.slot)
@@ -264,8 +262,6 @@ AccountInventoryError account_inventory_upsert(AccountInventory* inventory,
 }
 
 bool account_inventory_remove_slot(AccountInventory* inventory, u32 slot) noexcept {
-    if (!inventory)
-        return false;
     for (u32 index = 0; index < inventory->count; ++index)
         if (inventory->entries[index].slot == slot) {
             for (u32 next = index + 1; next < inventory->count; ++next)
@@ -277,8 +273,6 @@ bool account_inventory_remove_slot(AccountInventory* inventory, u32 slot) noexce
 }
 
 bool account_inventory_touch(AccountInventory* inventory, u32 slot, u64 now_unix_ms) noexcept {
-    if (!inventory)
-        return false;
     for (u32 index = 0; index < inventory->count; ++index)
         if (inventory->entries[index].slot == slot) {
             // Keep a strict order even when two switches share a millisecond.
@@ -294,7 +288,7 @@ bool account_inventory_touch(AccountInventory* inventory, u32 slot, u64 now_unix
 }
 
 bool account_inventory_free_slot(const AccountInventory& inventory, u32* slot) noexcept {
-    if (!slot || inventory.count >= kAccountInventoryMaximumAccounts)
+    if (inventory.count >= kAccountInventoryMaximumAccounts)
         return false;
     for (u32 candidate = 0; candidate < kAccountPathsSlotCount; ++candidate)
         if (!account_inventory_find_slot(inventory, candidate)) {
@@ -305,7 +299,7 @@ bool account_inventory_free_slot(const AccountInventory& inventory, u32* slot) n
 }
 
 u32 account_inventory_order(const AccountInventory& inventory, u8 (&indices)[kAccountInventoryMaximumAccounts]) noexcept {
-    const u32 count = minimum(inventory.count, kAccountInventoryMaximumAccounts);
+    const u32 count = inventory.count;
     for (u32 index = 0; index < count; ++index)
         indices[index] = static_cast<u8>(index);
     for (u32 index = 1; index < count; ++index) {
@@ -328,8 +322,6 @@ u32 account_inventory_order(const AccountInventory& inventory, u8 (&indices)[kAc
 
 bool account_inventory_set_identity(AccountInventoryEntry* entry, Utf8View display_name, Utf8View username,
                                     Utf8View avatar_hash) noexcept {
-    if (!entry)
-        return false;
     AccountInventoryEntry updated = *entry;
     clear_bytes(updated.display_name, sizeof(updated.display_name));
     clear_bytes(updated.username, sizeof(updated.username));

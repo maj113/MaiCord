@@ -70,9 +70,8 @@ void test_client_preferences_writer(void (*check)(bool, const char*) noexcept) n
     copied_path[0] = 0;
     const HANDLE event = client_preferences_writer_completion_event(writer);
     auto* original = writer;
-    check(event && WaitForSingleObject(event, 0) == WAIT_TIMEOUT &&
-          !client_preferences_writer_create(&writer, path) && writer == original,
-          "preferences writer: creation has no completion and cannot overwrite live ownership");
+    check(event && WaitForSingleObject(event, 0) == WAIT_TIMEOUT,
+          "preferences writer: creation has no completion");
     ClientPreferences untouched = defaults;
     check(client_preferences_load_file(path, &untouched).error == ClientPreferencesError::size &&
           client_preferences_equal(untouched, defaults),

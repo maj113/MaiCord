@@ -24,7 +24,7 @@ namespace settings_detail {
 
 bool resolve_palette(void*, u64 control, u32 choice, BackgroundTheme* output) noexcept {
     // The current device's accent dot uses the theme accent.
-    if (output && choice == kUiSettingsAccentChoice && settings_list_control(control)) {
+    if (choice == kUiSettingsAccentChoice && settings_list_control(control)) {
         const Color accent = application_theme().accent;
         *output = background_theme_defaults();
         output->colors[0] = background_color_pack(accent);
@@ -33,7 +33,7 @@ bool resolve_palette(void*, u64 control, u32 choice, BackgroundTheme* output) no
     }
     SettingBinding binding{};
     control_node(control, &binding);
-    if (output && binding == SettingBinding::installed_themes) {
+    if (binding == SettingBinding::installed_themes) {
         // An installed theme shows its own preview; the Browse themes tile has none.
         const auto installed = application_custom_theme_installed();
         const u32 at = installed_theme_at(choice);
@@ -113,10 +113,11 @@ bool project_choice(ApplicationSettingsChoice choice) noexcept {
     return false;
 }
 
+// Called by activate, which found the settings scene.
 static bool open_choice(const UiSettingsTarget& target) noexcept {
     auto* settings = g_app.settings;
     ApplicationSettingsChoice choice{};
-    const auto* control = settings ? ui_settings_scene_control(settings->scene, target, &choice.control_index) : nullptr;
+    const auto* control = ui_settings_scene_control(settings->scene, target, &choice.control_index);
     if (!control || control->kind != UiSettingsControlKind::choice || !control->enabled ||
         !ui_settings_scene_control_anchor(settings->scene, target, &choice.anchor))
         return false;

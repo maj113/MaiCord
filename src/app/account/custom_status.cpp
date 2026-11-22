@@ -178,9 +178,8 @@ void save() noexcept {
     }
     application_custom_status_close();
 }
+// The hooks run only through the form's own layer, so the form exists whenever they run.
 void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcept {
-    if (!form)
-        return;
     auto& f = *form;
     const auto target = activation.value.target;
     switch (target.kind) {
@@ -220,19 +219,19 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
     settings_layer_open_choice(&f.layer, kPageOwner, {f.popup_items, kClearCount}, activation.anchor, 200);
 }
 void choose(SettingsLayer*, u32 action) noexcept {
-    if (!form || action < kMenuChoiceBase || action - kMenuChoiceBase >= kClearCount)
+    if (action < kMenuChoiceBase || action - kMenuChoiceBase >= kClearCount)
         return;
     form->clear_index = action - kMenuChoiceBase;
     repaint();
 }
 bool edited(SettingsLayer*, u64 control) noexcept {
-    if (!form || editor_of(control) > 1)
+    if (editor_of(control) > 1)
         return false;
     form->invalid = false;
     return true;
 }
 SettingsLayerEditor editor_hook(SettingsLayer*, u64 control) noexcept {
-    const u32 index = form ? editor_of(control) : 2;
+    const u32 index = editor_of(control);
     return index > 1 ? SettingsLayerEditor{} : SettingsLayerEditor{&form->models[index], &form->bindings[index], false};
 }
 constexpr SettingsLayerHooks kHooks{editor_hook,
@@ -246,8 +245,6 @@ constexpr SettingsLayerHooks kHooks{editor_hook,
 } // namespace
 
 bool application_custom_status_snapshot(SelfCustomStatus* output) noexcept {
-    if (!output)
-        return false;
     scope();
     if (request.queued) {
         copy_value(output, request.desired);
@@ -304,8 +301,9 @@ bool application_custom_status_pending(u64 now_ms) noexcept {
            application_custom_status_available();
 }
 
+// The history lanes give ids from next_message_history_request_id, which are never zero.
 bool application_custom_status_submit(u64 request_id, u64 now_ms) noexcept {
-    if (!request_id || !application_custom_status_pending(now_ms))
+    if (!application_custom_status_pending(now_ms))
         return false;
     const auto self = identity();
     const bool clear = !request.desired.present;

@@ -478,8 +478,9 @@ bool application_activity_sharing_pending(u64 now_ms) noexcept {
     return g.queued && !g.request_id && g.retry_at && g.retry_at <= now_ms && g_app.account.instance &&
            sharing().known;
 }
+// The history lanes give ids from next_message_history_request_id, which are never zero.
 bool application_activity_sharing_submit(u64 request_id, u64 now_ms) noexcept {
-    if (!request_id || !application_activity_sharing_pending(now_ms))
+    if (!application_activity_sharing_pending(now_ms))
         return false;
     const auto self = account_module_self_status_snapshot(g_app.account.instance);
     const auto submitted = account_module_activity_sharing(g_app.account.instance, self.profile_id,
@@ -521,8 +522,6 @@ bool application_activity_sharing_response(const RestClientResponse& response, U
 }
 
 bool application_activity_settings_project(SettingBinding binding, UiSettingsControl* control) noexcept {
-    if (!control)
-        return false;
     scope();
     switch (binding) {
     case SettingBinding::share_activity: {
@@ -570,8 +569,6 @@ bool application_activity_settings_project(SettingBinding binding, UiSettingsCon
     }
 }
 bool application_activity_settings_activate(SettingBinding binding, bool checked, u32 choice, bool* result) noexcept {
-    if (!result)
-        return false;
     scope();
     switch (binding) {
     case SettingBinding::share_activity:
@@ -606,10 +603,9 @@ bool application_activity_settings_activate(SettingBinding binding, bool checked
         return false;
     }
 }
+// The one caller (the settings projection) passes the rest of its control and presentation arrays.
 u32 application_activity_settings_list(Slice<UiSettingsControl> controls,
                                        Slice<UiSettingsControlPresentation> presentation) noexcept {
-    if (!controls.data || !presentation.data)
-        return 0;
     load_games();
     // Added Games, played most recently first: each game's detection switch, then Remove (not while it plays).
     u32 order[kRegisteredGameMaximum];
@@ -669,7 +665,8 @@ bool application_activity_settings_activate_row(u64 control_id) noexcept {
         return toggle_detection(index);
     if (index == shown_entry(false))
         return false; // The playing game has no Remove.
-    const bool removed = registered_games_remove(&g_games, index) && registered_games_save(g_games);
+    registered_games_remove(&g_games, index);
+    const bool removed = registered_games_save(g_games);
     g.scan_at = 1;
     g.choices_at = 0;
     application_request_frame();

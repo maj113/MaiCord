@@ -76,15 +76,12 @@ enum class UserAuthCoordinatorEventKind : u8 {
     phone_rejected,
 };
 
+// The secrets a caller copies out: the security key challenge and what the CAPTCHA bridge shows.
 enum class UserAuthCoordinatorSecretKind : u8 {
     webauthn_challenge,
-    captcha_service,
     captcha_sitekey,
     captcha_rqdata,
-    captcha_rqtoken,
-    captcha_session_id,
     captcha_user_flow,
-    suspended_user_token,
 };
 
 struct UserAuthCoordinatorEvent {

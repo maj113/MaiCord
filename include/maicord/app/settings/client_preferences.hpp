@@ -221,7 +221,7 @@ bool client_preferences_valid(const ClientPreferences& preferences) noexcept;
 // corruption checksum at 88..95. A version 9 record (80 bytes, checksum at
 // 72..79) decodes with the newer fields at their defaults; any other version
 // fails with `version` and callers treat it like a missing file.
-// No heap allocation.
+// No heap allocation. Encode takes a record of exactly kClientPreferencesRecordBytes.
 // Decode preserves output on failure.
 ClientPreferencesResult client_preferences_encode(const ClientPreferences& preferences,
                                                   Slice<u8> record) noexcept;

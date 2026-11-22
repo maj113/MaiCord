@@ -52,7 +52,6 @@ bool private_channel_store_initialize_owned(PrivateChannelStore* store, u32 reco
     return true;
 }
 void private_channel_store_release(PrivateChannelStore* store) noexcept {
-    if (!store) return;
     arena_release(&store->record_backing);
     arena_release(&store->recipient_backing);
     arena_release(&store->nickname_backing);

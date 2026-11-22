@@ -70,7 +70,7 @@ bool text_store_point(void*, SecureTextPoint client, bool round, u32* position, 
     const float scale = 96.0f / g_app.renderer.dpi;
     if (login_phone_mode(g_app.login.status)) {
         const auto* node = login_scene_element(g_app.login_scene, LoginElement::password_field);
-        if (!node || !login_phone_point_position(node->content_rectangle, edit->storage.bytes,
+        if (!node || !login_phone_point_position(node->content_rectangle,
             point.x * scale, point.y * scale, round, position, inside)) return false;
         const auto clip = node->clip_rectangle;
         *inside = *inside && point.x * scale >= clip.left && point.x * scale <= clip.right &&

@@ -135,6 +135,7 @@ constexpr u8 kSignedOutNavigation[]{
     page(SettingsPanel::advanced, true),
 };
 constexpr u32 kNavigationCount = sizeof(kNavigation), kSignedOutNavigationCount = sizeof(kSignedOutNavigation);
+static_assert(kNavigationCount <= kUiSettingsNavigationMaximum);
 
 struct Tables {
     UiSettingsSchemaSection sections[kSettingsCatalogSections];
@@ -565,8 +566,6 @@ ConstSlice<UiSettingsNavEntry> settings_catalog_navigation_signed_out() noexcept
 }
 ConstSlice<UiSettingsNavEntry> settings_catalog_navigation_dotted(ConstSlice<UiSettingsNavEntry> navigation,
                                                                    UiSettingsNavEntry* storage) noexcept {
-    if (!storage || navigation.count > kUiSettingsNavigationMaximum)
-        return {};
     copy_bytes(storage, navigation.data, navigation.count * sizeof(UiSettingsNavEntry));
     for (u32 i = 0; i < navigation.count; ++i)
         if (storage[i].kind == UiSettingsNavKind::page &&
@@ -577,16 +576,15 @@ ConstSlice<UiSettingsNavEntry> settings_catalog_navigation_dotted(ConstSlice<UiS
 
 bool settings_control_location(u64 id, UiSettingsSchemaLocation* location) noexcept {
     const u64 panel = (id >> 16) - 1, node = (id & 0xffff) - 1;
-    if (!location || !(id >> 16) || !(id & 0xffff) || (id >> 32) || panel >= kSettingsPanelCount || !ready() ||
+    if (!(id >> 16) || !(id & 0xffff) || (id >> 32) || panel >= kSettingsPanelCount || !ready() ||
         node >= g.panels[panel].nodes.count)
         return false;
     *location = {static_cast<u32>(panel), static_cast<u32>(node)};
     return true;
 }
+// Callers pass a location settings_control_location accepted, which also loaded the catalog.
 const UiSettingsSchemaNode* settings_catalog_node(UiSettingsSchemaLocation location) noexcept {
-    return ready() && location.panel < kSettingsPanelCount && location.node < g.panels[location.panel].nodes.count
-               ? &g.panels[location.panel].nodes[location.node]
-               : nullptr;
+    return &g.panels[location.panel].nodes[location.node];
 }
 const UiSettingsSchemaNode* settings_catalog_binding(SettingBinding binding,
                                                      UiSettingsSchemaLocation* location) noexcept {
@@ -595,8 +593,7 @@ const UiSettingsSchemaNode* settings_catalog_binding(SettingBinding binding,
     for (u32 p = 0; p < kSettingsPanelCount; ++p)
         for (u32 n = 0; n < g.panels[p].nodes.count; ++n)
             if (g.panels[p].nodes[n].binding() == bind(binding)) {
-                if (location)
-                    *location = {p, n};
+                *location = {p, n};
                 return &g.panels[p].nodes[n];
             }
     return nullptr;
@@ -612,7 +609,7 @@ ClientTheme settings_theme_choice(SettingBinding palette, u32 choice) noexcept {
 
 bool settings_theme_swatch(const ClientPreferences& preferences, SettingBinding palette, u32 choice,
                            BackgroundTheme* output) noexcept {
-    if (!output || (palette != SettingBinding::theme_base && palette != SettingBinding::theme_color) ||
+    if ((palette != SettingBinding::theme_base && palette != SettingBinding::theme_color) ||
         choice >= (palette == SettingBinding::theme_base ? 3u : 5u))
         return false;
     const ClientTheme theme_choice = settings_theme_choice(palette, choice);
@@ -638,8 +635,6 @@ bool settings_theme_swatch(const ClientPreferences& preferences, SettingBinding 
 }
 
 bool settings_store_read(const ClientPreferences& p, SettingBinding binding, SettingValue* value) noexcept {
-    if (!value)
-        return false;
     reset_value(value);
     if (const auto field = toggle_field(binding)) {
         value->checked = p.*field;
@@ -700,8 +695,6 @@ bool settings_store_read(const ClientPreferences& p, SettingBinding binding, Set
 }
 
 bool settings_store_write(ClientPreferences* p, SettingBinding binding, SettingValue value) noexcept {
-    if (!p)
-        return false;
     if (const auto field = toggle_field(binding)) {
         p->*field = value.checked;
         return true;

@@ -28,7 +28,7 @@ void test_browser_login_ui(void (*check)(bool, const char*) noexcept) noexcept {
     view.status = LoginStatus::idle;
     view.focus = LoginControl::browser_sign_in;
     login_scene_apply_view(&scene, view);
-    check(login_scene_layout(&scene, 360, 640) && login_view_valid(view) &&
+    check(login_scene_layout(&scene, 360, 640) &&
               login_scene_focus(&scene, LoginControl::browser_sign_in),
           "browser UI: compact layout exposes keyboard focusable browser control");
     const auto box = login_scene_rectangle(scene, LoginElement::browser_sign_in);
@@ -42,7 +42,7 @@ void test_browser_login_ui(void (*check)(bool, const char*) noexcept) noexcept {
         view.status = phase;
         view.focus = LoginControl::back;
         login_scene_apply_view(&scene, view);
-        check(login_scene_layout(&scene, 360, 640) && login_view_valid(view) && scene.browser_mode &&
+        check(login_scene_layout(&scene, 360, 640) && scene.browser_mode &&
                   scene.back_only && scene.credential_fields_hidden && !scene.browser_available &&
                   scene.action_disabled && scene.submit_disabled && scene.recovery_disabled &&
                   !scene.qr_visible && !login_scene_element(scene, LoginElement::login_field) &&

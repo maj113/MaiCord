@@ -97,7 +97,7 @@ extern bool theme_transition; // application_theme_transition_active
 
 void check(bool valid, const char* label) noexcept;
 
-AccountModuleStatus WINAPI pump(void*, u64, u64) noexcept;
+AccountModuleStatus WINAPI pump(void*, u64) noexcept;
 
 void reset_counts() noexcept;
 

@@ -56,7 +56,7 @@ LoginVerificationLinkError find_token(Utf8View parameters, Utf8View* selected, b
     return LoginVerificationLinkError::none;
 }
 LoginVerificationLinkResult fail_link(SecureBuffer* output, LoginVerificationLinkError error) noexcept {
-    if (output && output->locked && output->data) secure_buffer_clear(output);
+    secure_buffer_clear(output);
     return {0, error};
 }
 // Validate form-percent UTF-8 without copying either selected or ignored data.
@@ -122,8 +122,7 @@ bool login_verification_link_candidate(const Utf8View& link) noexcept {
 }
 
 LoginVerificationLinkResult login_verification_consume_link(Utf8View link, SecureBuffer* output) noexcept {
-    if (!output || !output->locked || !output->data || !output->capacity || !link.data || !link.bytes ||
-        link.bytes > kLoginVerificationMaximumLinkBytes) {
+    if (!link.data || !link.bytes || link.bytes > kLoginVerificationMaximumLinkBytes) {
         return fail_link(output, LoginVerificationLinkError::invalid_input);
     }
     constexpr Utf8View prefix = kPrefix;
@@ -151,7 +150,6 @@ LoginVerificationLinkResult login_verification_consume_link(Utf8View link, Secur
         if (++bytes > kLoginVerificationMaximumTokenBytes)
             return fail_link(output, LoginVerificationLinkError::token_too_large);
     }
-    if (bytes > output->capacity) return fail_link(output, LoginVerificationLinkError::output_too_small);
     secure_buffer_clear(output);
     cursor = 0;
     for (u32 i = 0; i < bytes; ++i) next_byte(selected, &cursor, output->data + i);
@@ -164,8 +162,7 @@ bool login_reset_link_candidate(const Utf8View& link) noexcept {
     return link_candidate(link, kResetPrefix);
 }
 LoginResetLinkResult login_reset_consume_link(Utf8View link, SecureBuffer* output) noexcept {
-    if (!output || !output->locked || !output->data || !output->capacity || !link.data || !link.bytes ||
-        link.bytes > kLoginResetMaximumLinkBytes)
+    if (!link.data || !link.bytes || link.bytes > kLoginResetMaximumLinkBytes)
         return fail_link(output, LoginResetLinkError::invalid_input);
     if (!login_reset_link_candidate(link)) return fail_link(output, LoginResetLinkError::unsupported_link);
     u32 fragment = kResetPrefix.bytes;
@@ -185,7 +182,6 @@ LoginResetLinkResult login_reset_consume_link(Utf8View link, SecureBuffer* outpu
     u32 bytes = 0;
     if (!form_valid(selected, &bytes)) return fail_link(output, LoginResetLinkError::malformed_encoding);
     if (bytes > kLoginResetMaximumTokenBytes) return fail_link(output, LoginResetLinkError::token_too_large);
-    if (bytes > output->capacity) return fail_link(output, LoginResetLinkError::output_too_small);
     secure_buffer_clear(output);
     u32 cursor = 0;
     for (u32 i = 0; i < bytes; ++i) next_byte(selected, &cursor, output->data + i);

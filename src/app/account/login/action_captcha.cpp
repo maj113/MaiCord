@@ -69,7 +69,7 @@ inline bool open_url(const SecureBuffer& url) noexcept {
 
 bool application_action_captcha_capture(ApplicationActionCaptchaKind kind, u64 subject,
                                         const RestClientResponse& response, const Utf8View& body) noexcept {
-    if (kind == ApplicationActionCaptchaKind::none || !subject || !response.transport_ok() ||
+    if (!subject || !response.transport_ok() ||
         response.status_code != 400 || !response.rejection.captcha || !body.data || !body.bytes ||
         body.bytes > kMaximumBodyBytes || !available())
         return false;
@@ -154,7 +154,7 @@ bool application_action_captcha_poll() noexcept {
 
 bool application_action_captcha_arm(ApplicationActionCaptchaKind kind, u64 subject, u64 request_id,
                                     bool details) noexcept {
-    if (!current(kind, subject) || g_captcha.phase != ApplicationActionCaptchaPhase::solved || !request_id)
+    if (!current(kind, subject) || g_captcha.phase != ApplicationActionCaptchaPhase::solved)
         return false;
     const bool armed = call(AccountActionCaptchaOperation::arm, request_id, details).ok();
     reset();

@@ -145,9 +145,6 @@ void application_login_tick_caret(u64 now_ms) noexcept {
 
 bool application_login_position_edit(LoginControl control, i32 client_x, i32 client_y,
                                      bool extend_selection) noexcept {
-    if (control != LoginControl::login && control != LoginControl::password && control != LoginControl::phone_code) {
-        return false;
-    }
     if (g_app.login.focus != control) {
         g_app.login.focus = control;
         if (!application_refresh_login_view()) {
@@ -172,7 +169,7 @@ bool application_login_position_edit(LoginControl control, i32 client_x, i32 cli
     bool inside = false;
     const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
     const bool hit = rendered == SecureEditResult::unchanged && (control == LoginControl::phone_code ?
-        login_phone_point_position(field, visible_bytes, client_x * scale, client_y * scale, true, &relative_codepoint, &inside) :
+        login_phone_point_position(field, client_x * scale, client_y * scale, true, &relative_codepoint, &inside) :
         renderer_login_edit_hit_test(g_app.renderer, field, Utf8View{visible, visible_bytes}, client_x, client_y, &relative_codepoint));
     SecureZeroMemory(visible, sizeof(visible));
     if (!hit || relative_codepoint > (control == LoginControl::phone_code ? kLoginPhoneCodeDigits : window.codepoints)) {

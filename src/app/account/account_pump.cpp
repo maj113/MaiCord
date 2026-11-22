@@ -417,45 +417,40 @@ GatewayClientPopResult pop_browser_gateway(void* opaque, GatewayClientEvent* eve
     return popped;
 }
 
-void observe_message_reaction(void* context, const GatewayMessageReactionEvent& event, MessageHandle source,
+void observe_message_reaction(void*, const GatewayMessageReactionEvent& event, MessageHandle source,
                               u32 revision, bool model_applied) noexcept {
-    if (context == &g_app)
-        application_message_reaction_observe(event, source, revision, model_applied);
+    application_message_reaction_observe(event, source, revision, model_applied);
 }
 
-void observe_reaction_source(void* context, const GatewayMessageEvent& event, MessageHandle source,
-                             u32 revision, bool model_applied) noexcept {
-    if (context == &g_app) {
-        application_message_reaction_message_observe(event, source, revision, model_applied);
-        application_forum_post_message_observe(event);
-        const bool poll_resident =
-            model_applied ||
-            (g_app.account_ui && message_poll_store_find(g_app.account_ui->message_poll_store, event.id));
-        if (poll_resident && (event.fields & gateway_message_field_poll) && accept_poll_receipt()) {
-            const auto applied =
-                message_poll_store_apply(&g_app.account_ui->message_poll_store, event.id, event.channel_id,
-                                         event.poll, g_app.account_ui->poll_gateway_serial);
-            application_poll_message_observe(event, applied.ok());
-        }
+void observe_reaction_source(void*, const GatewayMessageEvent& event, MessageHandle source, u32 revision,
+                             bool model_applied) noexcept {
+    application_message_reaction_message_observe(event, source, revision, model_applied);
+    application_forum_post_message_observe(event);
+    const bool poll_resident =
+        model_applied ||
+        (g_app.account_ui && message_poll_store_find(g_app.account_ui->message_poll_store, event.id));
+    if (poll_resident && (event.fields & gateway_message_field_poll) && accept_poll_receipt()) {
+        const auto applied =
+            message_poll_store_apply(&g_app.account_ui->message_poll_store, event.id, event.channel_id,
+                                     event.poll, g_app.account_ui->poll_gateway_serial);
+        application_poll_message_observe(event, applied.ok());
     }
 }
 
-void observe_reaction_delete(void* context, u64 channel_id, u64 message_id) noexcept {
-    if (context == &g_app) {
-        application_message_reaction_message_deleted(channel_id, message_id);
-        application_reply_draft_deleted(channel_id, message_id);
-        application_forum_post_message_deleted(channel_id, message_id);
-        if (accept_poll_receipt()) {
-            message_poll_store_delete(&g_app.account_ui->message_poll_store, message_id);
-            application_poll_message_deleted(channel_id, message_id);
-        }
-        if (navigation_gateway_drain && navigation_gateway_drain->navigation_message_receipt &&
-            navigation_gateway_scope_current(*navigation_gateway_drain))
-            application_message_navigation_message_deleted(channel_id, message_id);
+void observe_reaction_delete(void*, u64 channel_id, u64 message_id) noexcept {
+    application_message_reaction_message_deleted(channel_id, message_id);
+    application_reply_draft_deleted(channel_id, message_id);
+    application_forum_post_message_deleted(channel_id, message_id);
+    if (accept_poll_receipt()) {
+        message_poll_store_delete(&g_app.account_ui->message_poll_store, message_id);
+        application_poll_message_deleted(channel_id, message_id);
     }
+    if (navigation_gateway_drain && navigation_gateway_drain->navigation_message_receipt &&
+        navigation_gateway_scope_current(*navigation_gateway_drain))
+        application_message_navigation_message_deleted(channel_id, message_id);
 }
-bool observe_poll_vote(void* context, const GatewayMessagePollVoteEvent& event) noexcept {
-    if (context != &g_app || !accept_poll_receipt())
+bool observe_poll_vote(void*, const GatewayMessagePollVoteEvent& event) noexcept {
+    if (!accept_poll_receipt())
         return false;
     auto& ui = *g_app.account_ui;
     const auto applied = message_poll_store_vote(&ui.message_poll_store, event,
@@ -464,8 +459,8 @@ bool observe_poll_vote(void* context, const GatewayMessagePollVoteEvent& event) 
     return applied.ok() && applied.changed;
 }
 
-void refresh_member_role_authority(void* context, u64 guild_id) noexcept {
-    if (context != &g_app || !g_app.account_ui || !guild_id)
+void refresh_member_role_authority(void*, u64 guild_id) noexcept {
+    if (!g_app.account_ui || !guild_id)
         return;
     const auto& state = g_app.account_ui->chat_state;
     const auto* channel = chat_state_store_find_channel(state, state.selected_channel_id);
@@ -488,10 +483,6 @@ void refresh_member_role_authority(void* context, u64 guild_id) noexcept {
 
 void drain_terminal_gateway_diagnostics() noexcept {
     AccountHost& host = g_app.account;
-    if (!host.instance) {
-        log_write(LogLevel::error, "gateway", "terminal_diagnostic_source_invalid");
-        return;
-    }
     const Slice<u8> scratch = g_app.message_pump.payload_scratch;
     if (!scratch.data || !scratch.count || scratch.count > kGatewayClientDispatchPayloadCapacity ||
         !byte_range_valid({scratch.data, scratch.count})) {
@@ -528,9 +519,6 @@ bool drain_failed(const char* stage) noexcept {
 }
 bool drain_account_events() noexcept {
     AccountHost& host = g_app.account;
-    if (!host.instance) {
-        return true;
-    }
     message_event_pump_set_view_active(&g_app.message_pump, !application_thread_browser_read_blocked() &&
                                                                 application_read_state_eligible());
     message_event_pump_set_read_ack_cancel(&g_app.message_pump, application_read_state_cancel, nullptr);
@@ -542,25 +530,14 @@ bool drain_account_events() noexcept {
     message_event_pump_set_member_roles_refresh(&g_app.message_pump, refresh_member_role_authority, &g_app);
     const bool observe_reactions = application_message_reaction_observation_needed();
     const bool observe_forum = application_forum_post_observation_needed();
-    const bool observe_polls = g_app.account_ui != nullptr;
-    message_event_pump_set_poll_observer(&g_app.message_pump, observe_polls ? observe_poll_vote : nullptr,
-                                         observe_polls ? &g_app : nullptr);
-    const bool observe_navigation = application_message_navigation_observation_needed();
-    const bool observe_reply_deletes =
-        g_app.account_ui && (g_app.account_ui->message_composer_controller.reply_message_id ||
-                             g_app.account_ui->message_drafts.count ||
-                             g_app.account_ui->message_composer_controller.request_count ||
-                             g_app.message_edit.saved_reply_message_id);
-    const bool observe_deletes =
-        observe_reactions || observe_reply_deletes || observe_forum || observe_navigation || observe_polls;
-    message_event_pump_set_reaction_observers(
-        &g_app.message_pump, observe_reactions ? observe_message_reaction : nullptr,
-        observe_reactions || observe_forum || observe_polls ? observe_reaction_source : nullptr,
-        observe_deletes ? observe_reaction_delete : nullptr, observe_deletes ? &g_app : nullptr);
+    message_event_pump_set_poll_observer(&g_app.message_pump, observe_poll_vote, &g_app);
+    message_event_pump_set_reaction_observers(&g_app.message_pump,
+                                              observe_reactions ? observe_message_reaction : nullptr,
+                                              observe_reaction_source, observe_reaction_delete, &g_app);
     g_app.message_pump.source_observe_poll_only = !observe_reactions && !observe_forum;
     message_event_pump_set_inactive_observer(&g_app.message_pump, application_channel_snapshots_observe, nullptr);
     message_event_pump_set_presence_visibility(&g_app.message_pump, presence_visible, nullptr);
-    const u32 poll_revision = g_app.account_ui ? g_app.account_ui->message_poll_store.revision : 0;
+    const u32 poll_revision = g_app.account_ui->message_poll_store.revision;
     if (g_sync.instance != host.instance)
         g_sync = {host.instance};
     bool repaint = false;
@@ -574,7 +551,7 @@ bool drain_account_events() noexcept {
         browser_drain.navigation_instance = host.instance;
         browser_drain.navigation_scope = g_app.plugin_account_scope_serial;
         browser_drain.navigation_profile = host.status.profile_id;
-        browser_drain.navigation_self = g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0;
+        browser_drain.navigation_self = g_app.account_ui->chat_state.self_user_id;
         auto* previous_navigation_drain = navigation_gateway_drain;
         navigation_gateway_drain = &browser_drain;
         // The Gateway pop signals nothing per record. A drain of the mailbox's capacity takes every record
@@ -715,8 +692,7 @@ bool application_pump_visible_static_media(bool* repaint) noexcept {
         // over it load as they do over the chat.
         const auto preview = application_forum_form_active() ? application_pump_forum_preview_media(&g_app)
                                                              : application_pump_covered_media(&g_app);
-        if (repaint)
-            *repaint = preview.repaint;
+        *repaint = preview.repaint;
         return preview.ok;
     }
     const ApplicationMediaPumpResult pumped = application_pump_visible_media(&g_app);
@@ -724,9 +700,7 @@ bool application_pump_visible_static_media(bool* repaint) noexcept {
         (pumped.history_requested && !pump_message_history())) {
         return false;
     }
-    if (repaint) {
-        *repaint = pumped.repaint;
-    }
+    *repaint = pumped.repaint;
     return true;
 }
 
@@ -761,8 +735,7 @@ bool application_pump_account() noexcept {
     application_channel_memory_pump(now_ms);
     application_startup_shell_pump(now_ms);
     u32 observations = 0;
-    const AccountModuleStatus status =
-        account_host_pump(&host, now_ms, clock_unix_milliseconds(), &observations);
+    const AccountModuleStatus status = account_host_pump(&host, now_ms, &observations);
     application_log_account_observations(status, observations);
     application_account_connection_restart(status.retry_at_ms);
     if (status.failed) {

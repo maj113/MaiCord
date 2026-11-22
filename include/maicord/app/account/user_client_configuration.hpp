@@ -8,7 +8,6 @@ namespace maicord {
 
 enum class UserClientConfigurationError : u8 {
     none,
-    invalid_input,
     random,
     locale,
     version,

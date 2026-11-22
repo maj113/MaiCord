@@ -8,7 +8,7 @@ namespace {
 bool recovery_geometry(const LoginScene& scene, const LoginView& view, u32* stage) noexcept {
     const u32 base = *stage;
     *stage = base + 1;
-    if (!login_view_valid(view) || scene.qr_visible || !scene.credential_fields_hidden ||
+    if (scene.qr_visible || !scene.credential_fields_hidden ||
         view.password_mask.bytes || view.qr_code || !scene.focus_visible) return false;
     const UiRect back = login_scene_rectangle(scene, LoginElement::forgot_password);
     *stage = base + 2;

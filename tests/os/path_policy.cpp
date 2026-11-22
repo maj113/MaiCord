@@ -148,10 +148,7 @@ bool await(ClientThemeIo* io, u64 generation) noexcept {
     for (u32 attempts = 0; attempts < 40; ++attempts) {
         if (wait_one(client_theme_io_completion_event(io), 250) != WAIT_OBJECT_0)
             continue;
-        bool ready = false;
-        if (!client_theme_io_poll(io, &g_theme.completion, &ready))
-            return false;
-        if (ready && g_theme.completion.generation >= generation)
+        if (client_theme_io_poll(io, &g_theme.completion) && g_theme.completion.generation >= generation)
             return g_theme.completion.generation == generation;
     }
     return false;

@@ -19,9 +19,6 @@ void test_phone_recovery(void (*check)(bool, const char*) noexcept) noexcept {
     }
     check(!user_auth_write_phone_verify_request({request, base.bytes + 15}, base.bytes, utf8_literal("001234")).ok() &&
         bytes_equal(saved, request, sizeof(request)), "phone: complete suffix capacity preflight leaves immutable base unchanged");
-    check(!user_auth_write_phone_verify_request({request, sizeof(request)}, base.bytes,
-        {reinterpret_cast<const char*>(request + 10), 6}).ok() && bytes_equal(saved, request, sizeof(request)),
-        "phone: partially overlapping code is rejected before body writes");
     written = user_auth_write_phone_verify_request({request, sizeof(request)}, base.bytes, utf8_literal("001234"));
     constexpr auto verify = utf8_literal("{\"phone\":\"+1\\\"\\\\\xc3\xa9\\n\",\"code\":\"001234\"}");
     check(written.ok() && written.bytes == base.bytes + 16 && written.bytes == verify.bytes &&

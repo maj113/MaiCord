@@ -70,10 +70,6 @@ bool text_edit_layout_hit_test(const TextEditLayoutOwner&, float, float, u32*) n
 bool renderer_rebuild_content_text(D3D11Renderer* renderer, const Theme&) noexcept {
     using namespace settings_runtime_test;
     ++observed.text_builds;
-    if (observed.fail_text_remaining) {
-        --observed.fail_text_remaining;
-        return false;
-    }
     if (observed.fail_text)
         return false;
     renderer->interaction_text_settings_revision =
@@ -412,7 +408,6 @@ bool synchronize_shell_layout() noexcept {
     return true;
 }
 bool synchronize_navigation_view() noexcept {
-    ++settings_runtime_test::observed.navigation_updates;
     return true;
 }
 bool synchronize_member_subscription(u64) noexcept {
@@ -442,7 +437,6 @@ void set_popup_owner(PopupOwnerKind owner) noexcept {
     g_app.popup_owner_kind = owner;
 }
 bool application_open_content_url(const Utf8View& url) noexcept {
-    ++settings_runtime_test::observed.opened_urls;
     return url.bytes != 0;
 }
 bool application_message_action_bar_modifiers_changed() noexcept {

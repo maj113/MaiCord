@@ -267,7 +267,7 @@ bool user_activity_first_type(const UserActivityStore& s, u64 user, UserActivity
     return true;
 }
 bool user_activity_apply(UserActivityStore* s, const UserActivitySet& value, u64 scope, bool offline) noexcept {
-    if (!s || !value.user_id || value.count > kUserActivityMaximum)
+    if (!value.user_id || value.count > kUserActivityMaximum)
         return false;
     const u32 at = locate(*s, value.user_id);
     const bool exists = at < s->count && rows(*s)[order(*s)[at]].user_id == value.user_id;

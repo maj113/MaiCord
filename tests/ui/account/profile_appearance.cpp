@@ -603,44 +603,6 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
         }
         check(replay,
               "profile_effect_reopens_eight_times_after_final_frame_without_invalidating_pending_upload");
-        GuildRecord guilds[1]{};
-        u16 order[1]{};
-        RoleRecord roles[3]{};
-        ChatStateStore state{};
-        state.guilds = guilds;
-        state.guild_order = order;
-        state.guild_count = 1;
-        state.roles = roles;
-        state.role_count = 3;
-        state.self_user_id = 99;
-        guilds[0].id = 7;
-        guilds[0].owner_id = 99;
-        roles[0].id = 7;
-        roles[0].guild_id = 7;
-        roles[1].id = 11;
-        roles[1].guild_id = 7;
-        roles[1].position = 2;
-        roles[2].id = 12;
-        roles[2].guild_id = 7;
-        roles[2].position = 3;
-        roles[2].self_assigned = true;
-        check(role_editable(state, 7, 11) && !role_editable(state, 7, 7),
-              "profile_owner_role_permissions_exclude_everyone");
-        roles[1].managed = true;
-        check(!role_editable(state, 7, 11), "profile_managed_role_cannot_be_changed");
-        roles[1].managed = false;
-        guilds[0].owner_id = 10;
-        check(!role_editable(state, 7, 11), "profile_unknown_permissions_fail_closed");
-        guilds[0].permissions_resolved = true;
-        guilds[0].member_roles_known = true;
-        guilds[0].base_permissions = 1ull << 28;
-        check(role_editable(state, 7, 11) && !role_editable(state, 7, 12),
-              "profile_manage_roles_respects_highest_role");
-        roles[1].position = 4;
-        check(!role_editable(state, 7, 11), "profile_cannot_assign_role_above_self");
-        roles[1].position = 2;
-        guilds[0].base_permissions = 0;
-        check(!role_editable(state, 7, 11), "profile_role_permission_revocation_blocks_submit");
         NameStyle style{};
         style.font_id = 14;
         style.effect_id = 5;

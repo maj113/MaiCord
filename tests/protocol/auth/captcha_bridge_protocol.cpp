@@ -294,7 +294,7 @@ void presentation(Check check) noexcept {
         view.focus = LoginControl::back;
         view.captcha_status = item.status;
         login_scene_apply_view(&scene, view);
-        const bool laid_out = login_scene_layout(&scene, 480, 640) && login_view_valid(view);
+        const bool laid_out = login_scene_layout(&scene, 480, 640);
         const auto submit = login_scene_rectangle(scene, LoginElement::submit);
         const bool hit = login_scene_hit_test(scene, (submit.left + submit.right) / 2, (submit.top + submit.bottom) / 2) ==
                          (item.enabled ? LoginControl::submit : LoginControl::none);
@@ -317,7 +317,7 @@ void presentation(Check check) noexcept {
     scene = {};
     login_scene_apply_view(&scene, remote);
     bool cancelled = false, refreshing = false;
-    const bool built = login_scene_layout(&scene, 900, 640) && login_view_valid(remote) &&
+    const bool built = login_scene_layout(&scene, 900, 640) &&
                        login_text_presentation_build(scene, remote, kDefaultTheme, &text);
     for (u32 i = 0; built && i < text.count; ++i) {
         cancelled |= utf8_equal(commands[i].text, utf8_literal("Login cancelled on your phone.")) &&
@@ -341,12 +341,8 @@ void presentation(Check check) noexcept {
     phone.status = LoginStatus::recovery_phone_required;
     LoginView captcha{};
     captcha.status = LoginStatus::captcha_required;
-    LoginView revealed = remote;
-    revealed.password_revealed = true;
-    LoginView invalid = mfa;
-    invalid.password_revealed = true;
     check(!login_view_password_reveal_available(mfa) && !login_view_password_reveal_available(phone) &&
-              !login_view_password_reveal_available(captcha) && login_view_valid(revealed) && !login_view_valid(invalid),
+              !login_view_password_reveal_available(captcha) && login_view_password_reveal_available(remote),
           "password reveal: offered for passwords only, never MFA, phone codes or blocked states");
     LoginView caps = remote;
     caps.remote_status = LoginRemoteStatus::idle;

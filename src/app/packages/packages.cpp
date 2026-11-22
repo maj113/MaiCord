@@ -105,7 +105,7 @@ bool data_root(wchar_t (&root)[kPackageRootUnits]) noexcept {
 // ---- Analysis -------------------------------------------------------------------------------------------
 bool parse_theme(const u8* bytes, u32 size, ClientThemeDocument* output) noexcept {
     ScratchPages<ThemeScratch> scratch;
-    if (!scratch.data || !size || size > kClientThemeImportMaximumBytes)
+    if (!scratch.data || !size)
         return false;
     scratch.data->defaults = client_theme_document_defaults();
     return client_theme_document_parse({reinterpret_cast<const char*>(bytes), size}, scratch.data->defaults,
@@ -373,8 +373,6 @@ void open_catalog_item(const PackageLink& link) noexcept {
 
 // ---- Validation ----------------------------------------------------------------------------------------------
 PackageError package_validate(PackageLinkKind kind, ConstSlice<u8> bytes, PackageInfo* info) noexcept {
-    if (!bytes.data || !bytes.count || (kind != PackageLinkKind::theme && kind != PackageLinkKind::effect))
-        return PackageError::invalid;
     if (sniff(bytes.data, bytes.count) != (kind == PackageLinkKind::effect ? Sniff::effect : Sniff::theme))
         return PackageError::invalid;
     ScratchPages<Candidate> candidate;
@@ -511,7 +509,7 @@ void application_packages_cancel() noexcept {
 
 // ---- maicord:// -------------------------------------------------------------------------------------------
 bool application_packages_take_deep_link(PackageDeepLink* link) noexcept {
-    if (!g.deep_ready || !link)
+    if (!g.deep_ready)
         return false;
     *link = g.deep;
     g.deep_ready = false;

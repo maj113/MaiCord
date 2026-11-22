@@ -20,8 +20,6 @@ u32 g_selected_slot = 0;
 
 AccountPathsResult account_paths_build_slot(const wchar_t* local_application_data, u32 slot,
                                             AccountPaths* paths) noexcept {
-    if (!local_application_data || local_application_data[0] == 0 || !paths || slot >= kAccountPathsSlotCount)
-        return failure(AccountPathsError::invalid_input);
     wchar_t accounts[16] = L"accounts";
     u32 accounts_length = 8;
     const wchar_t slot_directory[] = {L'\\', L's', L'l', L'o', L't', L'-', static_cast<wchar_t>(L'0' + slot), 0};
@@ -49,8 +47,6 @@ AccountPathsResult account_paths_build_slot(const wchar_t* local_application_dat
 }
 
 bool account_paths_select_slot(u32 slot) noexcept {
-    if (slot >= kAccountPathsSlotCount)
-        return false;
     g_selected_slot = slot;
     return true;
 }
@@ -60,9 +56,6 @@ u32 account_paths_selected_slot() noexcept {
 }
 
 AccountPathsResult account_paths_resolve_slot(u32 slot, AccountPaths* paths) noexcept {
-    if (!paths) {
-        return failure(AccountPathsError::invalid_input);
-    }
     wchar_t local_application_data[kCapacity];
     const u32 length = local_data_root(local_application_data, kCapacity);
     if (length == 0 || length >= kCapacity) {

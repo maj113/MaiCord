@@ -555,15 +555,13 @@ void test_member_role_refresh() noexcept {
         const auto list_before = g_app.member_list_subscription;
         const auto thread_before = g_app.thread_member_list_subscription;
         refresh(context, 8);
-        refresh(nullptr, 7);
         ui.chat_state.selected_channel_id = 999;
         refresh(context, 7);
         ui.chat_state.selected_channel_id = 70;
         check(
             bytes_equal(&list_before, &g_app.member_list_subscription, sizeof(list_before)) &&
                 bytes_equal(&thread_before, &g_app.thread_member_list_subscription, sizeof(thread_before)),
-            "role_refresh_foreign_guild_foreign_context_and_missing_current_channel_do_not_change_"
-            "interest");
+            "role_refresh_foreign_guild_and_missing_current_channel_do_not_change_interest");
         check(member_list_subscription_fail(&g_app.member_list_subscription, deadline) &&
                   thread_member_list_subscription_fail(&g_app.thread_member_list_subscription, deadline) &&
                   g_app.member_list_subscription.retry_at_ms ==
@@ -675,8 +673,6 @@ void test_reaction_observer_binding() noexcept {
         event_pump.reaction_delete_observe) {
         const MessageHandle handle{3, 7};
         GatewayMessageReactionEvent reaction{};
-        event_pump.reaction_observe(nullptr, reaction, handle, 19, true);
-        check(!reaction_observations, "reaction_binder_rejects_a_foreign_callback_context");
         event_pump.reaction_observe(&g_app, reaction, handle, 19, true);
         check(reaction_observations == 1 && observed_reaction_handle.slot == 3 &&
                   observed_reaction_handle.generation == 7 && observed_reaction_revision == 19 &&
@@ -706,10 +702,6 @@ void test_reaction_observer_binding() noexcept {
         GatewayMessageEvent starter{};
         starter.channel_id = 901;
         starter.id = 902;
-        event_pump.reaction_source_observe(nullptr, starter, {~u32{0}, 0}, 0, false);
-        event_pump.reaction_delete_observe(nullptr, 901, 902);
-        check(!forum_source_observations && !forum_delete_observations,
-              "forum source and deletion binder rejects foreign callback contexts");
         event_pump.reaction_source_observe(&g_app, starter, {~u32{0}, 0}, 0, false);
         check(forum_source_observations == 1 && forum_message_channel == 901 && forum_message_id == 902,
               "forum source binder preserves exact nonresident starter identity");
@@ -833,13 +825,6 @@ void test_message_navigation_lifecycle() noexcept {
                   g_app.message_pump.reaction_observe_context == &g_app,
               "timeline hydration alone installs validated deletion observer without reactions replies or "
               "forum intent");
-        if (scenario == 7) {
-            const auto observer = g_app.message_pump.reaction_delete_observe;
-            observer(nullptr, 70, 900);
-            observer(&g_app, 70, 900);
-            check(!navigation_cancels && application_message_navigation_active(),
-                  "navigation deletion binder rejects foreign and stale out-of-drain callbacks");
-        }
         scoped_gateway_event = {};
         scoped_gateway_payload_bytes = 0;
         scoped_gateway_event.kind = GatewayClientEventKind::dispatch;

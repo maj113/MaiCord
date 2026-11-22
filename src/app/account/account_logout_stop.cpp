@@ -8,8 +8,7 @@ namespace maicord {
 namespace {
 u32 stop_account(void* context) noexcept {
     auto* owner = static_cast<AccountLogoutStopOwner*>(context);
-    owner->result = owner->stop(owner->host, owner->timeout_ms, owner->monotonic_now_ms,
-                               owner->unix_now_ms);
+    owner->result = owner->stop(owner->host, owner->timeout_ms);
     return 0;
 }
 
@@ -23,14 +22,11 @@ bool joined_result(AccountLogoutStopOwner* owner, AccountHostStopResult* result)
 }
 } // namespace
 
-AccountLogoutStopStartResult account_logout_stop_start(
-    AccountLogoutStopOwner* owner, AccountHost* host, u32 timeout_ms, u64 monotonic_now_ms,
-    u64 unix_now_ms, AccountLogoutStopFunction stop) noexcept {
-    if (!owner || !host || !stop || !timeout_ms || timeout_ms == INFINITE)
-        return {ERROR_INVALID_PARAMETER, AccountLogoutStopStartError::invalid_input};
+AccountLogoutStopStartResult account_logout_stop_start(AccountLogoutStopOwner* owner, AccountHost* host,
+                                                       u32 timeout_ms, AccountLogoutStopFunction stop) noexcept {
     if (owner->thread || owner->host)
         return {ERROR_BUSY, AccountLogoutStopStartError::active};
-    *owner = {nullptr, host, stop, timeout_ms, monotonic_now_ms, unix_now_ms, {}};
+    *owner = {nullptr, host, stop, timeout_ms, {}};
     // An ephemeral kernel thread needs no network worker, sockets or event bank.
     u32 error = 0;
     Thread* const thread = thread_start(stop_account, owner, 256u * 1024u, &error);
@@ -49,14 +45,12 @@ Waitable account_logout_stop_notification(const AccountLogoutStopOwner& owner) n
     return owner.thread ? thread_waitable(owner.thread) : nullptr;
 }
 bool account_logout_stop_take(AccountLogoutStopOwner* owner, AccountHostStopResult* result) noexcept {
-    if (!owner || !result || !owner->thread || !thread_wait(owner->thread, 0))
+    if (!owner->thread || !thread_wait(owner->thread, 0))
         return false;
     return joined_result(owner, result);
 }
 bool account_logout_stop_join_for_shutdown(AccountLogoutStopOwner* owner, u32 timeout_ms,
                                            AccountHostStopResult* result) noexcept {
-    if (!owner || timeout_ms == INFINITE)
-        return false;
     if (!owner->thread)
         return owner->host == nullptr;
     if (!thread_wait(owner->thread, timeout_ms))

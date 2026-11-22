@@ -295,8 +295,8 @@ constexpr bool settings_panel_signed_out(SettingsPanel panel) noexcept {
     }
 }
 ConstSlice<UiSettingsNavEntry> settings_catalog_navigation_signed_out() noexcept;
-// `navigation` copied into `storage` (kUiSettingsNavigationMaximum entries) with the attention dot on Updates, shown
-// while an update waits for Restart to update; empty when the list does not fit.
+// `navigation` (a catalog list) copied into `storage` (kUiSettingsNavigationMaximum entries) with the attention dot on
+// Updates, shown while an update waits for Restart to update.
 ConstSlice<UiSettingsNavEntry> settings_catalog_navigation_dotted(ConstSlice<UiSettingsNavEntry> navigation,
                                                                    UiSettingsNavEntry* storage) noexcept;
 
@@ -323,7 +323,7 @@ constexpr u64 settings_control_id(u32 panel, u32 node) noexcept {
 }
 bool settings_control_location(u64 id, UiSettingsSchemaLocation*) noexcept;
 const UiSettingsSchemaNode* settings_catalog_node(UiSettingsSchemaLocation) noexcept;
-const UiSettingsSchemaNode* settings_catalog_binding(SettingBinding, UiSettingsSchemaLocation* = nullptr) noexcept;
+const UiSettingsSchemaNode* settings_catalog_binding(SettingBinding, UiSettingsSchemaLocation*) noexcept;
 
 // Local backend: read and write one binding of a preferences record. Theme
 // choices map palette indexes onto ClientTheme; kUiSettingsNoChoice reports a

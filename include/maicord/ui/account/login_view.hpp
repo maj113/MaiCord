@@ -162,7 +162,6 @@ struct LoginView {
 #endif
 };
 
-bool login_view_valid(const LoginView& view) noexcept;
 bool login_view_action_disabled(const LoginView& view) noexcept;
 bool login_view_submit_disabled(const LoginView& view) noexcept;
 // While the authentication rate limit runs: whether Resume is offered (no retry time is known and nothing is pending).

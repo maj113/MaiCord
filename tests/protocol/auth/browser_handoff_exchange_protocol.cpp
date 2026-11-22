@@ -51,10 +51,8 @@ void test_browser_handoff_exchange_protocol(void (*check)(bool, const char*) noe
     check(!user_auth_browser_handoff_request_valid({reinterpret_cast<const char*>(handoff_body),
         prefix.bytes + kBrowserSignInMaximumTokenBytes + 3}, {handoff_scratch, 16 * 1024}, 16) &&
         !user_auth_browser_handoff_request_valid({reinterpret_cast<const char*>(handoff_body),
-            kBrowserSignInMaximumBodyBytes + 1}, {handoff_scratch, 16 * 1024}, 16) &&
-        !user_auth_browser_handoff_request_valid(request,
-            {reinterpret_cast<u32*>(const_cast<char*>(request.data)), 1}, 16),
-        "browser exchange: over-limit decoded/wire credentials and scratch alias rejected");
+            kBrowserSignInMaximumBodyBytes + 1}, {handoff_scratch, 16 * 1024}, 16),
+        "browser exchange: over-limit decoded/wire credentials rejected");
 
     u8 head[1024]{};
     auto written = user_auth_write_request_head(UserAuthOperation::browser_handoff_exchange, request.bytes,

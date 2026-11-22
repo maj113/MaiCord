@@ -6,8 +6,8 @@ namespace maicord {
 inline constexpr u32 kLoginVerificationMaximumTokenBytes = 4096;
 inline constexpr Utf8View kLoginVerificationTarget = utf8_literal("/api/v9/auth/verify");
 
-// The public verify action submits only {token}; this is a link token,
-// never a manually supplied account credential. All validation precedes writes.
+// The public verify action submits only {token}; this is a link token of at most
+// kLoginVerificationMaximumTokenBytes, never a manually supplied account credential.
 UserAuthWriteResult login_verification_write_request(Utf8View token, Slice<u8> output) noexcept;
 
 inline constexpr u32 kLoginResetMaximumTokenBytes = 4096;
@@ -19,8 +19,8 @@ struct UserAuthResetWriteResult {
     UserAuthWriteError error;
     constexpr bool ok() const noexcept { return error == UserAuthWriteError::none; }
 };
-// Explicit measurements validate inputs and never touch storage. Writers
-// reject source/output overlap and perform every capacity check before writing.
+// Explicit measurements validate inputs and never touch storage. Writers take an
+// output that no input overlaps and perform every capacity check before writing.
 // token_prefix_bytes ends after the encoded token, before the password comma.
 UserAuthResetWriteResult user_auth_measure_reset_password_request(
     const UserAuthResetPasswordRequest& request) noexcept;

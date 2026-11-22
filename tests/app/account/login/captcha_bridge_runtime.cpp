@@ -145,12 +145,10 @@ void lifecycle(Check check) noexcept {
     WSADATA winsock{};
     if (WSAStartup(MAKEWORD(2, 2), &winsock)) { check(false, "bridge lifecycle: Winsock starts"); return; }
     CaptchaBridge bridge{};
-    check(captcha_bridge_start(&bridge, 0, 5000, {kTestSitekey, {}, CaptchaProvider::hcaptcha, false}).error == CaptchaBridgeError::invalid_input &&
-              captcha_bridge_start(&bridge, 1, 5000, {kTestSitekey, {}, CaptchaProvider::unknown, false}).error == CaptchaBridgeError::invalid_input &&
+    check(captcha_bridge_start(&bridge, 1, 5000, {kTestSitekey, {}, CaptchaProvider::unknown, false}).error == CaptchaBridgeError::invalid_input &&
               captcha_bridge_start(&bridge, 1, 5000, {utf8_literal("a\"b"), {}, CaptchaProvider::hcaptcha, false}).error == CaptchaBridgeError::invalid_input &&
-              captcha_bridge_start(&bridge, 1, 300001, {kTestSitekey, {}, CaptchaProvider::hcaptcha, false}).error == CaptchaBridgeError::invalid_input &&
               !bridge.runtime,
-          "bridge lifecycle: invalid generation, provider, sitekey or deadline never opens a listener");
+          "bridge lifecycle: an invalid provider or sitekey never opens a listener");
     check(captcha_bridge_start(&bridge, 11, 10000, {kTestSitekey, utf8_literal("rqdata_synthetic"), CaptchaProvider::hcaptcha, true}).ok() &&
               wait_phase(&bridge, CaptchaBridgePhase::waiting),
           "bridge lifecycle: event-driven listener binds an OS-assigned loopback port");

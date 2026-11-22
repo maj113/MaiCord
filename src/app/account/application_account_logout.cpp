@@ -111,9 +111,8 @@ void start_stop(ApplicationAccountLogout& owner) noexcept {
     // see a stable empty host; only the worker touches the private copy.
     account_host_move(&owner.stop_host, &g_app.account);
     owner.host_transferred = true;
-    const auto started = account_logout_stop_start(&owner.stop, &owner.stop_host, kAccountStopTimeoutMs,
-                                                   clock_monotonic_milliseconds(),
-                                                   clock_unix_milliseconds(), account_host_stop);
+    const auto started =
+        account_logout_stop_start(&owner.stop, &owner.stop_host, kAccountStopTimeoutMs, account_host_stop);
     if (!started.ok()) {
         account_host_move(&g_app.account, &owner.stop_host);
         owner.host_transferred = false;

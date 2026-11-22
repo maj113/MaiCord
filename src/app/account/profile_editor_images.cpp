@@ -282,8 +282,9 @@ void edit_color(ColorSlot slot) noexcept {
 namespace profile_editor_detail {
 
 bool guard() noexcept {
-    // Unsaved changes hold the page, as the official client's settings do.
-    if (owner && changes() && !saving()) {
+    // Unsaved changes hold the page, as the official client's settings do. Its callers are the owner's hooks and
+    // their helpers, so the owner exists.
+    if (changes() && !saving()) {
         settings_layer_shake(&owner->layer);
         repaint();
         return false;

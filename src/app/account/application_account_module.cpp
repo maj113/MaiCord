@@ -600,8 +600,7 @@ bool application_stop_account() noexcept {
         return true;
     }
     const bool had_account = host.instance != nullptr;
-    const AccountHostStopResult stopped = account_host_stop(
-        &host, kAccountStopTimeoutMs, clock_monotonic_milliseconds(), clock_unix_milliseconds());
+    const AccountHostStopResult stopped = account_host_stop(&host, kAccountStopTimeoutMs);
     application_account_stop_observed(stopped, had_account);
     return stopped.ok();
 }
@@ -709,15 +708,8 @@ bool application_account_module_load() noexcept {
 void application_account_module_release() noexcept {
     if (application_account_logout_host_owned())
         return;
-    if (!g_app.account.instance && !g_app.account.login_instance) {
-        const AccountHostResult released = account_host_release(&g_app.account);
-        if (!released.ok()) {
-            LogEvent("host_release_failed")
-                .field("error", static_cast<u64>(released.error))
-                .error("native_error", static_cast<u32>(released.native_error))
-                .write(LogLevel::error, "account");
-        }
-    }
+    if (!g_app.account.instance && !g_app.account.login_instance)
+        account_host_release(&g_app.account);
 }
 
 namespace {
@@ -737,8 +729,8 @@ AccountModuleStartResult start_account_worker(const AccountPaths& paths) noexcep
     application_startup_history_reset();
     const i64 start_counter = clock_now();
     application_trace_load_stage("account_start");
-    const AccountModuleStartResult started = account_host_start(
-        &g_app.account, paths.profile, paths.session, clock_monotonic_milliseconds(), clock_unix_milliseconds());
+    const AccountModuleStartResult started =
+        account_host_start(&g_app.account, paths.profile, paths.session, clock_monotonic_milliseconds());
     TraceRecord start_trace("account_start_return");
     start_trace.field("elapsed_us", clock_microseconds(g_app.clock, start_counter, clock_now()));
     start_trace.field("ok", static_cast<u64>(started.ok()));
@@ -824,42 +816,40 @@ bool application_account_restart() noexcept {
     return true;
 }
 
-bool application_account_prestart() noexcept {
+void application_account_prestart() noexcept {
     // Selects the saved account's slot before any account path resolves.
     application_account_switch_initialize();
     AccountEarlyStart& early = g_early_start;
     if (early.instance || early.failed || g_app.account.instance || g_app.account.login_instance ||
         application_account_logout_locked() || !account_paths_resolve(&early.paths).ok())
-        return false;
+        return;
     // Pending logout recovery and every diagnostic path need the UI; attach
     // repeats these probes with logging when this early start declines.
     const AccountCredentialForgetResult forget = account_credential_forget_probe(early.paths);
     FileStat profile{};
     const bool profile_found = file_path_stat(early.paths.profile, &profile);
     if (!forget.ok() || forget.pending || !profile_found || profile.kind == FileKind::directory)
-        return false;
+        return;
     early.failed = true;
     if (!application_account_module_load())
-        return false;
+        return;
     early.started = start_account_worker(early.paths);
     if (!early.started.ok()) {
         application_account_module_release();
-        return false;
+        return;
     }
     application_startup_history_begin(early.started.status.profile_id);
     application_startup_shell_begin(early.paths, early.started.status.profile_id);
     early.instance = g_app.account.instance;
     g_app.account.instance = nullptr;
     early.failed = false;
-    return true;
 }
 
 void application_account_prestart_cancel() noexcept {
     AccountEarlyStart& early = g_early_start;
     if (early.instance) {
         g_app.account.instance = early.instance;
-        const AccountHostStopResult stopped = account_host_stop(
-            &g_app.account, kAccountStopTimeoutMs, clock_monotonic_milliseconds(), clock_unix_milliseconds());
+        const AccountHostStopResult stopped = account_host_stop(&g_app.account, kAccountStopTimeoutMs);
         application_account_stop_observed(stopped, true);
         application_account_module_release();
     }
@@ -872,12 +862,12 @@ bool application_account_prestart_pending() noexcept {
     return g_early_start.instance != nullptr;
 }
 
-bool application_account_attach_if_present() noexcept {
+void application_account_attach_if_present() noexcept {
     application_account_switch_initialize();
     AccountEarlyStart& early = g_early_start;
     if (early.failed) {
         reset_value(&early);
-        return true;
+        return;
     }
     if (early.instance) {
         const bool ui_ready = application_initialize_account_ui(g_app);
@@ -889,7 +879,7 @@ bool application_account_attach_if_present() noexcept {
             // UI startup left the sign-in form for this attach to replace.
             if (!application_synchronize_login_view())
                 log_write(LogLevel::error, "ui", "login_view_restore_failed");
-            return true;
+            return;
         }
         MAICORD_PERF_MARK("account_text_cache");
         g_app.account.instance = early.instance;
@@ -897,7 +887,7 @@ bool application_account_attach_if_present() noexcept {
         application_plugins_account_scope_invalidated();
         publish_started_account(early.paths, early.started);
         reset_value(&early);
-        return true;
+        return;
     }
     AccountPaths paths;
     const AccountPathsResult resolved = account_paths_resolve(&paths);
@@ -907,33 +897,32 @@ bool application_account_attach_if_present() noexcept {
             .error("native_error", static_cast<u32>(resolved.native_error))
             .write(LogLevel::warning, "account");
         application_account_logout_prepare_startup();
-        return true;
+        return;
     }
     if (!application_account_logout_prepare_startup(&paths))
-        return true;
+        return;
     FileStat profile{};
     if (!file_path_stat(paths.profile, &profile)) {
         const u32 error = thread_last_error();
         if (win32_error_is_missing_file(error)) {
             log_write(LogLevel::info, "account", "normal_user_profile_absent");
-            return true;
+            return;
         }
         log_u64(LogLevel::warning, "account", "profile_probe_native_error", error);
-        return true;
+        return;
     }
     if (profile.kind == FileKind::directory) {
         log_write(LogLevel::error, "account", "profile_path_is_directory");
-        return true;
+        return;
     }
 
-    if (!application_account_module_load()) {
-        return true;
-    }
+    if (!application_account_module_load())
+        return;
     if (!application_initialize_account_ui(g_app) || !rebuild_account_text_cache()) {
         application_release_account_ui(g_app);
         log_u64(LogLevel::error, "account", "ui_runtime_allocation_bytes", sizeof(AccountUiRuntime));
         application_account_module_release();
-        return true;
+        return;
     }
     application_plugins_account_scope_invalidated();
     const AccountModuleStartResult started = start_account_worker(paths);
@@ -943,12 +932,11 @@ bool application_account_attach_if_present() noexcept {
                                       clock_monotonic_milliseconds(), true);
         application_release_account_ui(g_app);
         application_account_module_release();
-        return true;
+        return;
     }
     application_startup_history_begin(started.status.profile_id);
     application_startup_shell_begin(paths, started.status.profile_id);
     publish_started_account(paths, started);
-    return true;
 }
 
 } // namespace maicord::app_detail

@@ -50,12 +50,6 @@ void test_notes() noexcept {
     char long_note[1100];
     for (auto& c : long_note)
         c = 'n';
-    put.text = {long_note, 257};
-    RestClient* rest = reinterpret_cast<RestClient*>(&capture);
-    const u32 before = capture.submissions;
-    check(account_user_social_submit(rest, &put, 1).error == RestClientSubmitError::invalid_input &&
-              capture.submissions == before,
-          "user social: a 257-code-point note never submits");
     put.text = {long_note, 256};
     check(user_social_request_valid(put), "user social: a 256-code-point note is accepted");
 
@@ -177,25 +171,8 @@ void test_report_menu() noexcept {
           "user social: a menu without a root node is rejected");
 }
 
-void test_rejections() noexcept {
+void test_backpressure() noexcept {
     RestClient* rest = reinterpret_cast<RestClient*>(&capture);
-    const u32 before = capture.submissions;
-    UserSocialRequest none{};
-    none.operation = UserSocialOperation::note_get;
-    UserSocialRequest flags{};
-    flags.operation = UserSocialOperation::message_flags;
-    flags.channel_id = 1;
-    UserSocialRequest submit{};
-    submit.operation = UserSocialOperation::report_submit;
-    submit.text = utf8_literal("not json");
-    UserSocialRequest bad{};
-    bad.operation = UserSocialOperation::count;
-    check(account_user_social_submit(rest, &none, 1).error == RestClientSubmitError::invalid_input &&
-              account_user_social_submit(rest, &flags, 1).error == RestClientSubmitError::invalid_input &&
-              account_user_social_submit(rest, &submit, 1).error == RestClientSubmitError::invalid_input &&
-              account_user_social_submit(rest, &bad, 1).error == RestClientSubmitError::invalid_input &&
-              capture.submissions == before,
-          "user social: non-JSON reports and unknown operations never submit");
     capture.error = RestClientSubmitError::busy;
     UserSocialRequest get{};
     get.operation = UserSocialOperation::note_get;
@@ -213,6 +190,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_account_user_social_entry() 
     test_notes();
     test_message_flags();
     test_report_menu();
-    test_rejections();
+    test_backpressure();
     maicord::test_exit(failures, "user social requests");
 }

@@ -261,8 +261,7 @@ bool renderer_login_edit_hit_test(const D3D11Renderer& renderer, const UiRect& t
     const float y = static_cast<float>(client_y_pixels) * 96.0f / static_cast<float>(renderer.dpi);
     if (renderer.login_scene && renderer.login_scene->phone_mode) {
         bool inside = false;
-        return login_phone_point_position(text_rectangle, visible_text.bytes, x, y, true, codepoint,
-                                          &inside);
+        return login_phone_point_position(text_rectangle, x, y, true, codepoint, &inside);
     }
     if (visible_text.bytes == 0) {
         *codepoint = 0;

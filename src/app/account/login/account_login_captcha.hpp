@@ -8,28 +8,22 @@
 namespace maicord {
 namespace {
 
+// The bridge copies the sitekey, rqdata and user flow only.
 UserAuthCoordinatorSecretKind coordinator_captcha_kind(CaptchaChallengeSecretKind kind) noexcept {
-    switch (kind) {
-    case CaptchaChallengeSecretKind::service: return UserAuthCoordinatorSecretKind::captcha_service;
-    case CaptchaChallengeSecretKind::sitekey: return UserAuthCoordinatorSecretKind::captcha_sitekey;
-    case CaptchaChallengeSecretKind::rqdata: return UserAuthCoordinatorSecretKind::captcha_rqdata;
-    case CaptchaChallengeSecretKind::rqtoken: return UserAuthCoordinatorSecretKind::captcha_rqtoken;
-    case CaptchaChallengeSecretKind::session_id: return UserAuthCoordinatorSecretKind::captcha_session_id;
-    case CaptchaChallengeSecretKind::user_flow: return UserAuthCoordinatorSecretKind::captcha_user_flow;
-    default: return static_cast<UserAuthCoordinatorSecretKind>(0xFF);
-    }
+    return kind == CaptchaChallengeSecretKind::sitekey  ? UserAuthCoordinatorSecretKind::captcha_sitekey
+           : kind == CaptchaChallengeSecretKind::rqdata ? UserAuthCoordinatorSecretKind::captcha_rqdata
+                                                        : UserAuthCoordinatorSecretKind::captcha_user_flow;
 }
 
+// The copy function of captcha_bridge_start_copied: module_login_start_captcha_bridge passes the runtime after
+// it found the captcha_required phase, and the bridge gives fresh buffers.
 SecureBufferResult module_login_copy_captcha_secret(void* instance, CaptchaChallengeSecretKind kind,
                                                     SecureBuffer* output) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !output || login_status(runtime).phase != AccountLoginPhase::captcha_required)
-        return SecureBufferResult{0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
     if (runtime->remote_mode)
         return remote_auth_client_copy_captcha_secret(&runtime->remote_auth, kind, output);
-    const UserAuthCoordinatorSecretKind mapped = coordinator_captcha_kind(kind);
-    return mapped != static_cast<UserAuthCoordinatorSecretKind>(0xFF) && runtime->coordinator_started
-               ? user_auth_coordinator_copy_secret(&runtime->coordinator, mapped, output)
+    return runtime->coordinator_started
+               ? user_auth_coordinator_copy_secret(&runtime->coordinator, coordinator_captcha_kind(kind), output)
                : SecureBufferResult{0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
 }
 
@@ -37,8 +31,6 @@ SecureBufferResult module_login_copy_captcha_secret(void* instance, CaptchaChall
 // ticket request with the solution; the solution is copied synchronously.
 AccountLoginStatus module_login_submit_captcha(void* instance, const SecureBuffer* solution) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !solution || login_status(runtime).phase != AccountLoginPhase::captcha_required)
-        return account_login_invalid_input();
     if (runtime->remote_mode) {
         runtime->remote_status = remote_auth_client_submit_captcha(&runtime->remote_auth, solution);
         if (!runtime->remote_status.ok())
@@ -58,8 +50,8 @@ AccountLoginStatus module_login_submit_captcha(void* instance, const SecureBuffe
 
 AccountLoginStatus module_login_start_captcha_bridge(void* instance, u64 generation, u32 timeout_ms) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !generation || runtime->captcha_bridge.runtime || runtime->browser_mode ||
-        runtime->error == AccountLoginError::stop || timeout_ms < 1000 || timeout_ms > kCaptchaBridgeDefaultTimeoutMs) {
+    // The host (captcha_auth.cpp) gives a new nonzero epoch and kCaptchaBridgeDefaultTimeoutMs.
+    if (runtime->captcha_bridge.runtime || runtime->browser_mode || runtime->error == AccountLoginError::stop) {
         return account_login_invalid_input();
     }
     const AccountLoginStatus current = login_status(runtime);
@@ -80,7 +72,6 @@ AccountLoginStatus module_login_start_captcha_bridge(void* instance, u64 generat
 
 CaptchaBridgeStatus module_login_captcha_bridge_status(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime) return {};
     if (runtime->captcha_bridge.runtime) runtime->captcha_status = captcha_bridge_status(&runtime->captcha_bridge);
     return runtime->captcha_status;
 }
@@ -88,7 +79,7 @@ CaptchaBridgeStatus module_login_captcha_bridge_status(void* instance) noexcept 
 SecureBufferResult module_login_copy_captcha_bridge_url(void* instance, u64 generation,
                                                         SecureBuffer* output) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || runtime->error == AccountLoginError::stop)
+    if (runtime->error == AccountLoginError::stop)
         return {0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
     return captcha_bridge_copy_url(&runtime->captcha_bridge, generation, output);
 }
@@ -96,8 +87,6 @@ SecureBufferResult module_login_copy_captcha_bridge_url(void* instance, u64 gene
 // Stops only the bridge; the CAPTCHA challenge stays available for a retry.
 AccountLoginStatus module_login_cancel_captcha_bridge(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime)
-        return account_login_invalid_input();
     if (runtime->captcha_bridge.runtime) runtime->captcha_status = captcha_bridge_stop(&runtime->captcha_bridge, 5'000);
     AccountLoginStatus status = login_status(runtime);
     if (runtime->captcha_bridge.runtime) status.error = AccountLoginError::stop;
@@ -130,14 +119,13 @@ void pump_login_captcha_bridge(AccountLoginRuntime* runtime) noexcept {
 }
 
 AccountLoginStatus module_login_pump_with_captcha(void* instance) noexcept {
-    auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (runtime) pump_login_captcha_bridge(runtime);
+    pump_login_captcha_bridge(static_cast<AccountLoginRuntime*>(instance));
     return module_login_pump(instance);
 }
 
 HANDLE module_login_notification_handle_with_captcha(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (runtime && runtime->captcha_bridge.runtime && runtime->error != AccountLoginError::stop &&
+    if (runtime->captcha_bridge.runtime && runtime->error != AccountLoginError::stop &&
         runtime->error != AccountLoginError::profile) {
         const auto phase = captcha_bridge_status(&runtime->captcha_bridge).phase;
         if (phase != CaptchaBridgePhase::stopping)

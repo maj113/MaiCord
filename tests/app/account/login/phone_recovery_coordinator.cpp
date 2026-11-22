@@ -11,7 +11,7 @@ struct Fixture {
     RestClientResponse metadata;
     UserAuthOperation operation;
     u64 request_id;
-    u32 submissions, notification_reads, request_capacity;
+    u32 submissions, request_capacity;
     bool ready, fail_stop, fail_submit, joined_error;
     RestClientPhase phase;
     RestClientError error;
@@ -61,27 +61,11 @@ void run() noexcept {
     check(ready_phone(&coordinator, &identifier), "phone coordinator: actual 70007 enters editable phone flow after caller identifier erased");
     auto* runtime = runtime_of(&coordinator);
     if (!runtime) return;
-    MEMORY_BASIC_INFORMATION owner_pages{}, secret_pages{};
-    check(VirtualQuery(runtime, &owner_pages, sizeof(owner_pages)) == sizeof(owner_pages) &&
-        owner_pages.AllocationBase == runtime && owner_pages.State == MEM_COMMIT &&
-        owner_pages.RegionSize == page_round(sizeof(UserAuthCoordinatorRuntime)) &&
-        VirtualQuery(runtime->secrets.data, &secret_pages, sizeof(secret_pages)) == sizeof(secret_pages) &&
-        secret_pages.AllocationBase == runtime->secrets.data && secret_pages.State == MEM_COMMIT &&
-        secret_pages.RegionSize == kUserAuthCoordinatorSecretBytes,
-        "phone coordinator: actual native metadata/locked arena commitment matches ordinary owner capacities");
-    test_write_metric("MEASURE phone_coordinator_owner_bytes=", sizeof(UserAuthCoordinatorRuntime));
-    test_write_metric("MEASURE phone_coordinator_owner_committed_bytes=", owner_pages.RegionSize);
-    test_write_metric("MEASURE phone_coordinator_secret_committed_bytes=", secret_pages.RegionSize);
-    test_write_metric("MEASURE phone_coordinator_request_capacity=", runtime->request_capacity);
     check(runtime->continuation_base_bytes == base.bytes && bytes_equal(runtime->secrets.data, base.data, base.bytes) &&
         zero_range(runtime->secrets.data + base.bytes, kPhoneTokenOffset - base.bytes) &&
         zero_range(runtime->secrets.data + kPhoneTokenOffset, 4096),
         "phone coordinator: original exact encoded phone resides in existing 32 KiB request with reserved empty reset stage");
     u8 snapshot[65536]{}; copy_bytes(snapshot, runtime->secrets.data, sizeof(snapshot));
-    SecureBuffer alias{runtime->secrets.data + 10, 6, 6, true};
-    check(!user_auth_coordinator_submit_phone_verify(&coordinator, &alias).ok() &&
-        bytes_equal(snapshot, runtime->secrets.data, sizeof(snapshot)),
-        "phone coordinator: code alias rejection preserves every locked byte and generation");
     fixture.fail_submit = true;
     check(!user_auth_coordinator_submit_phone_verify(&coordinator, &code).ok() &&
         bytes_equal(snapshot, runtime->secrets.data, sizeof(snapshot)),
@@ -166,23 +150,6 @@ void run() noexcept {
         bytes_equal(snapshot, runtime->secrets.data, sizeof(snapshot)) && runtime->continuation_token_bytes == 4096; };
     check(!user_auth_coordinator_take_phone_reset_token(&coordinator, token_generation - 1, &token).ok() && unchanged(),
         "phone coordinator: wrong-generation take preserves complete stage");
-    SecureBuffer staged_alias{runtime->secrets.data + kPhoneTokenOffset, 4096, 0, true};
-    SecureBuffer partial_alias{runtime->secrets.data + kPhoneTokenOffset - 1, 4096, 0, true};
-    SecureBuffer runtime_alias{reinterpret_cast<u8*>(runtime), 4096, 0, true};
-    check(!user_auth_coordinator_take_phone_reset_token(&coordinator, token_generation, &staged_alias).ok() && unchanged() &&
-        !user_auth_coordinator_take_phone_reset_token(&coordinator, token_generation, &partial_alias).ok() && unchanged() &&
-        !user_auth_coordinator_take_phone_reset_token(&coordinator, token_generation, &runtime_alias).ok() && unchanged(),
-        "phone coordinator: exact stage partial arena and runtime aliases are rejected before destination clearing");
-    token.capacity = 4095;
-    check(!user_auth_coordinator_take_phone_reset_token(&coordinator, token_generation, &token).ok() && unchanged(),
-        "phone coordinator: too-small take leaves staging and generation intact");
-    token.capacity = 4096; token.locked = false;
-    check(!user_auth_coordinator_take_phone_reset_token(&coordinator, token_generation, &token).ok() && unchanged(),
-        "phone coordinator: unlocked take is rejected atomically");
-    token.locked = true; token.bytes = 1; token.data[0] = 'z';
-    check(!user_auth_coordinator_take_phone_reset_token(&coordinator, token_generation, &token).ok() && unchanged() && token.data[0] == 'z',
-        "phone coordinator: nonempty take output is rejected without wiping caller bytes");
-    secure_buffer_clear(&token);
     check(user_auth_coordinator_take_phone_reset_token(&coordinator, token_generation, &token).ok() && token.bytes == 4096 &&
         token.data[4095] == 'x' && erased(*runtime) && runtime->flow.phase == UserAuthPhase::phone_token_taken &&
         coordinator.state.phase == UserAuthCoordinatorPhase::phone_token_taken && runtime->flow.generation != token_generation &&

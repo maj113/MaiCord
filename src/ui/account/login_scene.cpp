@@ -386,9 +386,9 @@ void sync_login_input(LoginScene* scene) noexcept {
 
 } // namespace
 
+// Callers pass a laid-out field and a cell below kLoginPhoneCodeDigits: application_phone_materialize keeps the
+// phone edit at six cells with its anchor and caret at most six, and text stores pass ranges with first <= last.
 UiRect login_phone_cell_rectangle(const UiRect& bounds, u32 cell) noexcept {
-    if (!ui_rect_valid(bounds) || cell >= kLoginPhoneCodeDigits)
-        return {};
     const float gap = minimum(8.0f, ui_rect_width(bounds) / 36.0f);
     const float width = minimum(44.0f, (ui_rect_width(bounds) - gap * 6.0f) / 6.0f);
     const float height = minimum(44.0f, ui_rect_height(bounds));
@@ -398,8 +398,6 @@ UiRect login_phone_cell_rectangle(const UiRect& bounds, u32 cell) noexcept {
     return {left, top, left + width, top + height};
 }
 UiRect login_phone_caret_rectangle(const UiRect& bounds, u32 position) noexcept {
-    if (position > kLoginPhoneCodeDigits)
-        return {};
     const auto cell = login_phone_cell_rectangle(bounds, minimum(position, 5u));
     if (!ui_rect_has_area(cell))
         return {};
@@ -408,18 +406,15 @@ UiRect login_phone_caret_rectangle(const UiRect& bounds, u32 position) noexcept 
     return {x, cell.top + ui_rect_height(cell) * 0.2f, x + 1.0f, cell.bottom - ui_rect_height(cell) * 0.2f};
 }
 UiRect login_phone_range_rectangle(UiRect bounds, u32 first, u32 last) noexcept {
-    if (first > last || last > kLoginPhoneCodeDigits)
-        return {};
     if (first == last)
         return login_phone_caret_rectangle(bounds, first);
     const auto begin = login_phone_cell_rectangle(bounds, first);
     const auto end = login_phone_cell_rectangle(bounds, last - 1);
     return {begin.left, begin.top, end.right, end.bottom};
 }
-bool login_phone_point_position(const UiRect& bounds, u32 digits, float x, float y, bool round_nearest,
-                                u32* position, bool* inside) noexcept {
-    if (!position || !inside || digits > kLoginPhoneCodeDigits || !ui_rect_valid(bounds) ||
-        !ui_coordinate_valid(x) || !ui_coordinate_valid(y))
+bool login_phone_point_position(const UiRect& bounds, float x, float y, bool round_nearest, u32* position,
+                                bool* inside) noexcept {
+    if (!ui_coordinate_valid(x) || !ui_coordinate_valid(y))
         return false;
     *inside = x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
     // Every box remains addressable even when earlier boxes are empty. Points
@@ -438,15 +433,12 @@ bool login_phone_point_position(const UiRect& bounds, u32 digits, float x, float
 }
 
 void login_scene_release(LoginScene* scene) noexcept {
-    if (!scene) {
-        return;
-    }
     ui_fixed_widget_storage_release(&scene->storage);
     reset_value<LoginScene>(scene);
 }
 
 bool login_scene_layout(LoginScene* scene, float width, float height) noexcept {
-    if (!scene || !ui_extent_valid(width) || !ui_extent_valid(height) || width <= 0.0f || height <= 0.0f) {
+    if (!ui_extent_valid(width) || !ui_extent_valid(height) || width <= 0.0f || height <= 0.0f) {
         return false;
     }
     const LoginControl focus = scene->focus;
@@ -549,7 +541,7 @@ bool login_password_reveal_hit_test(const LoginScene& scene, float x, float y) n
 }
 
 bool login_scene_focus(LoginScene* scene, LoginControl control) noexcept {
-    if (!scene || !focusable(control) || !control_input_enabled(*scene, control) ||
+    if (!focusable(control) || !control_input_enabled(*scene, control) ||
         (control == LoginControl::qr && !scene->qr_visible) ||
         (control == LoginControl::password && scene->credential_fields_hidden) ||
         (capability_for_control(control) != login_mfa_capability_none &&
@@ -570,9 +562,6 @@ bool login_scene_focus(LoginScene* scene, LoginControl control) noexcept {
 }
 
 LoginControl login_scene_move_focus(LoginScene* scene, bool reverse) noexcept {
-    if (!scene) {
-        return LoginControl::none;
-    }
     sync_login_input(scene);
     const UiWidgetHandle focused = ui_widget_manager_move_focus(&scene->widgets, reverse);
     const UiWidget* widget = ui_widget_manager_resolve(scene->widgets, focused);
@@ -587,11 +576,7 @@ LoginControl login_scene_move_focus(LoginScene* scene, bool reverse) noexcept {
 }
 
 const UiLayoutNode* login_scene_element(const LoginScene& scene, LoginElement element) noexcept {
-    const u32 index = static_cast<u32>(element);
-    if (index >= static_cast<u32>(LoginElement::count)) {
-        return nullptr;
-    }
-    return ui_widget_manager_layout_node(scene.widgets, scene.elements[index]);
+    return ui_widget_manager_layout_node(scene.widgets, scene.elements[static_cast<u32>(element)]);
 }
 
 UiRect login_scene_rectangle(const LoginScene& scene, LoginElement element) noexcept {

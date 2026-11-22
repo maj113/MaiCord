@@ -39,7 +39,6 @@ enum class CaptchaChallengeSecretKind : u8 {
 
 enum class CaptchaChallengeError : u8 {
     none,
-    invalid_input,
     memory,
     decode,
     not_challenge,
@@ -76,7 +75,8 @@ struct CaptchaChallenge {
     CaptchaChallengeSnapshot snapshot;
 };
 
-CaptchaChallengeResult captcha_challenge_initialize(CaptchaChallenge* challenge) noexcept;
+CaptchaChallengeResult captcha_challenge_initialize(CaptchaChallenge* challenge) noexcept; // holds no secrets yet
+// The functions below take an initialized challenge; clear also takes an empty one.
 void captcha_challenge_clear(CaptchaChallenge* challenge) noexcept;
 void captcha_challenge_release(CaptchaChallenge* challenge) noexcept;
 
@@ -86,14 +86,13 @@ CaptchaChallengeResult captcha_challenge_decode(CaptchaChallenge* challenge, u16
                                                 const Utf8View& body, const Slice<u32>& structural_scratch,
                                                 u32 maximum_depth, UserAuthResponse* response) noexcept;
 CaptchaChallengeSnapshot captcha_challenge_snapshot(const CaptchaChallenge* challenge) noexcept;
-// The locked destination must be disjoint from the challenge owner.
+// The destination is a locked buffer of its own, disjoint from the challenge owner.
 SecureBufferResult captcha_challenge_copy_secret(const CaptchaChallenge* challenge,
                                                  CaptchaChallengeSecretKind kind,
                                                  SecureBuffer* output) noexcept;
 
-// Copies the optional replay values as one atomic snapshot. Both destinations
-// must already be locked and disjoint from each other and the challenge owner;
-// either both are updated or neither is touched.
+// Copies the optional replay values as one snapshot. The destinations are locked buffers of their own, disjoint from
+// each other and the challenge owner, of kCaptchaChallengeRqtokenBytes and kCaptchaChallengeSessionBytes.
 SecureBufferResult captcha_challenge_copy_replay_headers(const CaptchaChallenge* challenge,
                                                          SecureBuffer* rqtoken,
                                                          SecureBuffer* session_id) noexcept;

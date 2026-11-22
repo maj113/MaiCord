@@ -2011,10 +2011,8 @@ void test_settings_catalog() noexcept {
         } else
             only_updates = only_updates && dotted[i].badge == 0;
     }
-    check(only_updates && dots == 1 &&
-              settings_catalog_navigation_dotted(navigation, nullptr).count == 0 &&
-              settings_catalog_navigation_dotted({navigation.data, kUiSettingsNavigationMaximum + 1}, dotted_storage).count == 0,
-          "settings catalog: the attention dot marks Updates alone, leaves the catalog untouched and refuses a list that does not fit");
+    check(only_updates && dots == 1,
+          "settings catalog: the attention dot marks Updates alone and leaves the catalog untouched");
 }
 } // namespace maicord::settings_runtime_test
 

@@ -491,7 +491,7 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
 
 bool renderer_set_login_view(D3D11Renderer* renderer, const LoginScene* scene,
                              const LoginView& view, const Theme& theme) noexcept {
-    if (!renderer->glyph_text.ready || !login_view_valid(view)) {
+    if (!renderer->glyph_text.ready) {
         return false;
     }
     if (!view.visible) {

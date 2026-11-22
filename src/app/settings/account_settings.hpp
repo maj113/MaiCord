@@ -20,10 +20,11 @@ inline constexpr u32 kAccountSettingsBankRows = 192;
 bool application_account_settings_bank(UiSettingsControl** controls, UiSettingsControlPresentation** presentation) noexcept;
 // checked is a toggle's new state; choice the pressed button of a button row.
 bool application_account_settings_activate(SettingBinding, bool checked, u32 choice) noexcept;
+// control_id is a list row's id (settings_list_control).
 bool application_account_settings_activate_row(u64 control_id, bool checked, u32 choice) noexcept;
 bool application_account_settings_pending(u64 now_ms) noexcept;
 u64 application_account_settings_next_wake() noexcept;
-bool application_account_settings_submit(u64 request_id, u64 now_ms) noexcept;
+bool application_account_settings_submit(u64 request_id, u64 now_ms) noexcept; // request_id: the lane's, never 0
 bool application_account_settings_response(const RestClientResponse&, Utf8View body) noexcept;
 void application_account_settings_release() noexcept;
 #if !defined(_WIN32)

@@ -539,8 +539,6 @@ bool registered_games_save(const RegisteredGames& games) noexcept {
     wchar_t path[kAccountProfileMaximumPathCharacters];
     u8 record[kRecordBytes];
     const u32 bytes = registered_games_encode(games, {record, sizeof(record)});
-    if (!bytes)
-        return false;
     const DataPathResult built = data_path(path, kAccountProfileMaximumPathCharacters, L"games.bin", true);
     return built.ok() && file_persistence_write_atomic(path, built.length, {record, bytes}).ok();
 }

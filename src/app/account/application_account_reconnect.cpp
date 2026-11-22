@@ -209,14 +209,12 @@ UiBannerNotice application_account_connection_notice(Slice<char> scratch) noexce
         const u64 at = (unix_now + (g_reconnect.retry_at_ms > now ? g_reconnect.retry_at_ms - now : 0)) / 1000;
         static constexpr char prefix[] = "You can keep reading. MaiCord will try again at ";
         constexpr u32 prefix_bytes = sizeof(prefix) - 1;
-        if (scratch.count > prefix_bytes + 2) {
-            const auto time = format_timestamp_local(at, 'T', unix_now / 1000,
-                                                     {scratch.data + prefix_bytes, scratch.count - prefix_bytes - 1});
-            if (time.bytes && prefix_bytes + time.bytes + 1 <= scratch.count) {
-                copy_bytes(scratch.data, prefix, prefix_bytes);
-                scratch[prefix_bytes + time.bytes] = '.';
-                notice.description = {scratch.data, prefix_bytes + time.bytes + 1};
-            }
+        const auto time = format_timestamp_local(at, 'T', unix_now / 1000,
+                                                 {scratch.data + prefix_bytes, scratch.count - prefix_bytes - 1});
+        if (time.bytes) {
+            copy_bytes(scratch.data, prefix, prefix_bytes);
+            scratch[prefix_bytes + time.bytes] = '.';
+            notice.description = {scratch.data, prefix_bytes + time.bytes + 1};
         }
         notice.primary = utf8_literal("Reconnect");
         break;

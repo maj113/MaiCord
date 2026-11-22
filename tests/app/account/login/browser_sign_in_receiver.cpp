@@ -92,10 +92,6 @@ void test_browser_sign_in_receiver(void (*check)(bool, const char*) noexcept) no
     BrowserSignInReceiver receiver{};
     check(browser_sign_in_receiver_status(&receiver).phase == BrowserSignInReceiverPhase::empty &&
         !browser_sign_in_receiver_notification_handle(&receiver), "empty browser receiver has no handles, retained credentials or published candidate");
-    check(browser_sign_in_receiver_start(&receiver, 0, 1000).error == BrowserSignInReceiverError::invalid_input &&
-        browser_sign_in_receiver_start(&receiver, 1, 999).error == BrowserSignInReceiverError::invalid_input &&
-        browser_sign_in_receiver_start(&receiver, 1, 300001).error == BrowserSignInReceiverError::invalid_input && !receiver.runtime,
-        "invalid generations/deadlines fail before creating a worker/listener");
     SecureBuffer output{};
     const auto initialized = secure_buffer_initialize(&output, 256);
     check(initialized.ok(), "browser fixture uses externally owned locked snapshot output");

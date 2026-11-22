@@ -11,7 +11,7 @@ namespace maicord::app_detail {
 void application_user_settings_gateway(const GatewayClientEvent&, ConstSlice<u8> payload) noexcept;
 void application_user_settings_synchronize() noexcept;
 bool application_user_settings_pending(u64 now_ms) noexcept;
-bool application_user_settings_submit(u64 request_id, u64 now_ms) noexcept;
+bool application_user_settings_submit(u64 request_id, u64 now_ms) noexcept; // request_id: the lane's, never 0
 bool application_user_settings_response(const RestClientResponse&, Utf8View body) noexcept;
 u64 application_user_settings_next_wake() noexcept;
 void application_user_settings_release() noexcept;

@@ -305,8 +305,9 @@ bool application_guild_folders_pending(u64 now_ms) noexcept {
            online() && now_ms >= g_folders->retry_at_ms;
 }
 
+// The history lanes give ids from next_message_history_request_id, which are never zero.
 bool application_guild_folders_submit(u64 request_id, u64 now_ms) noexcept {
-    if (!request_id || !application_guild_folders_pending(now_ms))
+    if (!application_guild_folders_pending(now_ms))
         return false;
     auto& folders = *g_folders;
     const u32 bytes = guild_folders_encode_settings_patch(folders.settings, {folders.partial, sizeof(folders.partial)});

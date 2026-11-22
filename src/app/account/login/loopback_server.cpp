@@ -1,5 +1,4 @@
 #include "loopback_server.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_process.hpp"
@@ -121,8 +120,6 @@ u32 worker(void* opaque) noexcept {
 
 LoopbackStart loopback_start(LoopbackServer* server, const LoopbackProfile* profile, bool wake_event, u32* native_error) noexcept {
     server->profile = profile;
-    server->listener = server->client = Socket{};
-    server->listener_watch = server->client_watch = SocketWatch{};
     server->wire = server->storage.data;
     server->response = server->storage.data + profile->response_offset;
     server->stop_event = event_create(true, false);
@@ -154,19 +151,6 @@ void loopback_destroy(LoopbackServer* server, u32 owner_bytes) noexcept {
     if (server->stop_event) waitable_close(server->stop_event);
     secure_buffer_release(&server->storage);
     SecureZeroMemory(server, owner_bytes); pages_release(server);
-}
-bool loopback_external_output(const LoopbackServer* server, const void* handle, u32 handle_bytes, u32 owner_bytes,
-                              const SecureBuffer* output) noexcept {
-    if (!output || !output->data || !output->locked || !output->capacity || output->bytes > output->capacity) return false;
-    const ConstSlice<u8> data{output->data, output->capacity};
-    const ConstSlice<u8> descriptor{reinterpret_cast<const u8*>(output), sizeof(*output)};
-    const ConstSlice<u8> storage{server->storage.data, server->storage.capacity};
-    const ConstSlice<u8> runtime{reinterpret_cast<const u8*>(server), owner_bytes};
-    const ConstSlice<u8> owner{reinterpret_cast<const u8*>(handle), handle_bytes};
-    return byte_range_valid(data) && !byte_ranges_overlap(data, storage) && !byte_ranges_overlap(data, runtime) &&
-        !byte_ranges_overlap(data, owner) && !byte_ranges_overlap(data, descriptor) &&
-        !byte_ranges_overlap(descriptor, storage) && !byte_ranges_overlap(descriptor, runtime) &&
-        !byte_ranges_overlap(descriptor, owner);
 }
 SecureBufferResult loopback_output_result(bool ok, bool capacity, u32 bytes) noexcept {
     if (ok) return {bytes, 0, SecureBufferError::none};

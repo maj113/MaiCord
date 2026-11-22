@@ -39,8 +39,7 @@ void settings_modal_take_input() noexcept {
 bool settings_dialog_begin(SettingsDialog& dialog, UiPageKey page, Utf8View title) noexcept {
     settings_modal_finish_exit();
     settings_layer_reset(&dialog.layer);
-    if (!ui_page_registry_initialize(&dialog.registry, {&dialog.page, 1}))
-        return false;
+    ui_page_registry_initialize(&dialog.registry, {&dialog.page, 1});
     dialog.content = {title, {}, {}, 1, kUiSettingsPageFormat, nullptr, nullptr};
     if (!ui_page_registry_register(&dialog.registry, {page, dialog.content.title, &dialog.content}).ok())
         return false;

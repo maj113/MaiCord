@@ -76,9 +76,8 @@ inline bool profile_commands_resolve(ProfileCommandSet* set, const UserProfile& 
 inline ConstSlice<ProfileCommand> profile_commands_view(const ProfileCommandSet& set) noexcept {
     return {set.commands, set.count};
 }
-// A command chip's click: the command (source: its index) goes to the composer.
+// A command chip's click: the command (source: its index, which both callers check) goes to the composer.
 inline bool profile_commands_insert(const ProfileCommandSet& set, u16 index) noexcept {
-    return index < set.count &&
-           application_commands_insert(set.application, set.commands[index].id, set.commands[index].name);
+    return application_commands_insert(set.application, set.commands[index].id, set.commands[index].name);
 }
 } // namespace maicord::app_detail

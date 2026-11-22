@@ -20,7 +20,7 @@ bool custom_fixture_io_catalog(ClientThemeIo*, u64*) noexcept;
 ClientThemeStorageResult custom_fixture_catalog_directory(Slice<wchar_t>) noexcept;
 ClientThemeStorageResult custom_fixture_catalog_remove(const ClientThemeCatalogEntry&) noexcept;
 HANDLE custom_fixture_io_event(const ClientThemeIo*) noexcept;
-bool custom_fixture_io_poll(ClientThemeIo*, ClientThemeIoCompletion*, bool*) noexcept;
+bool custom_fixture_io_poll(ClientThemeIo*, ClientThemeIoCompletion*) noexcept;
 bool custom_fixture_io_pending(ClientThemeIo*) noexcept;
 void custom_fixture_io_cancel(ClientThemeIo*, u64) noexcept;
 bool custom_fixture_io_stop(ClientThemeIo**, u32) noexcept;
@@ -187,14 +187,14 @@ ClientThemeStorageResult custom_fixture_catalog_remove(const ClientThemeCatalogE
 HANDLE custom_fixture_io_event(const ClientThemeIo*) noexcept {
     return nullptr;
 }
-bool custom_fixture_io_poll(ClientThemeIo*, ClientThemeIoCompletion* out, bool* ready) noexcept {
+bool custom_fixture_io_poll(ClientThemeIo*, ClientThemeIoCompletion* out) noexcept {
     auto& t = custom_theme_test::transport;
-    *ready = t.ready;
     if (t.ready) {
         *out = t.completion;
         t.ready = false;
+        return true;
     }
-    return true;
+    return false;
 }
 bool custom_fixture_io_pending(ClientThemeIo*) noexcept {
     return custom_theme_test::transport.ready;

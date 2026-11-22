@@ -27,7 +27,6 @@ RestClientTakeResult rest_client_consume_user_auth_response(RestClient*, RestCli
     return MAICORD_AUTH_TEST_NS::consume_response(response, consume, context);
 }
 HANDLE rest_client_notification_handle(const RestClient*) noexcept {
-    ++MAICORD_AUTH_TEST_NS::fixture.notification_reads;
     return reinterpret_cast<HANDLE>(1);
 }
 RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms, RestClientResponse* receipt) noexcept {

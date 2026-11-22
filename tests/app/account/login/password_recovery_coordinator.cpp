@@ -10,7 +10,7 @@ struct Fixture {
     RestClientResponse metadata;
     UserAuthOperation operation;
     u64 request_id;
-    u32 submissions, notification_reads, request_capacity;
+    u32 submissions, request_capacity;
     bool ready, fail_stop, fail_submit, joined_error;
     RestClientPhase phase;
     RestClientError error;

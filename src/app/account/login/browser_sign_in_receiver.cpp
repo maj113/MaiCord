@@ -22,7 +22,7 @@ struct Runtime : LoopbackServer {
     u32 token_bytes;
 };
 Runtime* runtime_of(const BrowserSignInReceiver* receiver) noexcept {
-    return receiver ? static_cast<Runtime*>(receiver->runtime) : nullptr;
+    return static_cast<Runtime*>(receiver->runtime);
 }
 constexpr u32 kOwnerBytes = loopback_owner_bytes<Runtime>;
 bool live(BrowserSignInReceiverPhase phase) noexcept {
@@ -97,13 +97,13 @@ BrowserSignInReceiverStatus invalid(BrowserSignInReceiverError error = BrowserSi
     BrowserSignInReceiverStatus result{}; result.error = error; result.native_error = ERROR_INVALID_PARAMETER; return result;
 }
 bool admit(Runtime* runtime, u64 generation, BrowserSignInReceiverPhase phase, u64 candidate = 0) noexcept {
-    return generation && runtime->status.generation == generation && runtime->status.phase == phase &&
+    return runtime->status.generation == generation && runtime->status.phase == phase &&
         (!candidate || runtime->status.candidate_id == candidate) && !deadline_due(clock_monotonic_milliseconds(), runtime->status.deadline_ms);
 }
 } // namespace
 
 BrowserSignInReceiverStatus browser_sign_in_receiver_start(BrowserSignInReceiver* receiver, u64 generation, u32 timeout_ms) noexcept {
-    if (!receiver || receiver->runtime || !generation || timeout_ms < 1000 || timeout_ms > 5 * 60 * 1000) return invalid();
+    // browser_login_start admits only an empty owner, a nonzero generation and 1 s to 5 min.
     auto* runtime = static_cast<Runtime*>(commit_pages(kOwnerBytes));
     if (!runtime) return invalid(BrowserSignInReceiverError::memory);
     receiver->runtime = runtime;
@@ -131,7 +131,7 @@ HANDLE browser_sign_in_receiver_notification_handle(const BrowserSignInReceiver*
 }
 SecureBufferResult browser_sign_in_receiver_copy_url(const BrowserSignInReceiver* receiver, u64 expected_generation, SecureBuffer* output) noexcept {
     auto* runtime = runtime_of(receiver);
-    if (!runtime || !loopback_external_output(runtime, receiver, sizeof(*receiver), kOwnerBytes, output)) return loopback_output_error();
+    if (!runtime) return loopback_output_error();
     AcquireSRWLockShared(&runtime->lock);
     BrowserSignInWriteResult written{0, BrowserSignInError::invalid_input};
     if (admit(runtime, expected_generation, BrowserSignInReceiverPhase::waiting)) written = browser_sign_in_write_url(runtime->status.port,
@@ -142,7 +142,7 @@ SecureBufferResult browser_sign_in_receiver_copy_url(const BrowserSignInReceiver
 }
 SecureBufferResult browser_sign_in_receiver_take_exchange(BrowserSignInReceiver* receiver, u64 expected_generation, u64 expected_candidate_id, SecureBuffer* output) noexcept {
     auto* runtime = runtime_of(receiver);
-    if (!runtime || !expected_candidate_id || !loopback_external_output(runtime, receiver, sizeof(*receiver), kOwnerBytes, output)) return loopback_output_error();
+    if (!runtime) return loopback_output_error();
     AcquireSRWLockExclusive(&runtime->lock);
     BrowserSignInWriteResult written{0, BrowserSignInError::invalid_input};
     if (admit(runtime, expected_generation, BrowserSignInReceiverPhase::candidate_ready, expected_candidate_id)) written = browser_sign_in_write_exchange(
@@ -153,7 +153,7 @@ SecureBufferResult browser_sign_in_receiver_take_exchange(BrowserSignInReceiver*
     return loopback_output_result(written.ok(), written.error == BrowserSignInError::capacity, written.bytes);
 }
 BrowserSignInReceiverStatus browser_sign_in_receiver_finish_exchange(BrowserSignInReceiver* receiver, u64 expected_generation, u64 expected_candidate_id, bool accepted) noexcept {
-    auto* runtime = runtime_of(receiver); if (!runtime || !expected_candidate_id) return invalid();
+    auto* runtime = runtime_of(receiver); if (!runtime) return invalid();
     AcquireSRWLockExclusive(&runtime->lock);
     const bool pending = admit(runtime, expected_generation, BrowserSignInReceiverPhase::exchange_pending, expected_candidate_id);
     const bool discard = !accepted && admit(runtime, expected_generation, BrowserSignInReceiverPhase::candidate_ready, expected_candidate_id);
@@ -164,7 +164,7 @@ BrowserSignInReceiverStatus browser_sign_in_receiver_finish_exchange(BrowserSign
     ReleaseSRWLockExclusive(&runtime->lock); event_set(runtime->wake_event); loopback_notify(runtime); return status;
 }
 BrowserSignInReceiverStatus browser_sign_in_receiver_stop(BrowserSignInReceiver* receiver, u32 timeout_ms) noexcept {
-    if (!receiver || timeout_ms > 5000) return invalid(); auto* runtime = runtime_of(receiver); if (!runtime) return {};
+    auto* runtime = runtime_of(receiver); if (!runtime) return {};
     AcquireSRWLockExclusive(&runtime->lock);
     if (live(runtime->status.phase) || runtime->status.phase == BrowserSignInReceiverPhase::stopping) {
         runtime->status.phase = BrowserSignInReceiverPhase::cancelled; runtime->status.error = BrowserSignInReceiverError::none;

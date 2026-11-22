@@ -52,10 +52,9 @@ bool await(ClientThemeIo* io, u64 generation, ClientThemeIoCompletion* output) n
         if (now >= deadline || WaitForSingleObject(client_theme_io_completion_event(io),
                                                    static_cast<DWORD>(deadline - now)) != WAIT_OBJECT_0)
             return false;
-        bool ready = false;
-        if (!client_theme_io_poll(io, output, &ready))
-            return false;
-        if (ready && output->generation >= generation)
+        if (!client_theme_io_poll(io, output))
+            continue;
+        if (output->generation >= generation)
             return output->generation == generation;
     }
 }
@@ -156,17 +155,6 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
     fix_checksum(bytes);
     check(decode(bytes).error == ClientThemeStorageError::document && equal(fixture.output, sentinel),
           "theme checksum-valid malformed JSON cannot partially replace stored state");
-    copy_bytes(fixture.record, fixture.saved, bytes);
-    check(!client_theme_storage_decode({fixture.record, bytes}, {fixture.structurals, 1}, &fixture.output)
-                  .ok() &&
-              equal(fixture.output, sentinel),
-          "theme parser scratch capacity cannot truncate a stored document");
-    u32 rejected_bytes = 123;
-    check(client_theme_storage_encode(initial, {fixture.record, bytes - 1}, &rejected_bytes).error ==
-                  ClientThemeStorageError::size &&
-              rejected_bytes == 123 &&
-              bytes_equal(fixture.record, fixture.saved, bytes),
-          "theme insufficient output capacity preserves record bytes and length");
     auto inactive = initial;
     inactive.custom_active = false;
     check(client_theme_storage_encode(inactive, {fixture.record, sizeof(fixture.record)}, &bytes).ok() &&
@@ -224,8 +212,7 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
     copied_path[0] = 0;
     ClientThemeIoCompletion completion{};
     completion.generation = 99;
-    bool ready = true;
-    check(client_theme_io_poll(io, &completion, &ready) && !ready && completion.generation == 99 &&
+    check(!client_theme_io_poll(io, &completion) && completion.generation == 99 &&
               !client_theme_io_completion_pending(io) &&
               WaitForSingleObject(client_theme_io_completion_event(io), 0) == WAIT_TIMEOUT,
           "theme empty poll performs no file IO or snapshot publication");
@@ -315,8 +302,7 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
           "theme accepted save publishes completion for exact cancellation test");
     client_theme_io_cancel(io, generation);
     completion.generation = 77;
-    ready = true;
-    check(client_theme_io_poll(io, &completion, &ready) && !ready && completion.generation == 77 &&
+    check(!client_theme_io_poll(io, &completion) && completion.generation == 77 &&
               WaitForSingleObject(client_theme_io_completion_event(io), 0) == WAIT_TIMEOUT,
           "theme exact cancellation drains completed generation without late UI publication");
     auto latest = initial;
@@ -333,8 +319,7 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
           "queue");
     bool stable = true;
     for (u32 i = 0; i < 64; ++i) {
-        ready = true;
-        stable &= client_theme_io_poll(io, &completion, &ready) && !ready;
+        stable &= !client_theme_io_poll(io, &completion);
     }
     check(stable, "theme64 idle polls publish no work or stale completion");
     check(client_theme_io_stop(&io, 1500) && !io && client_theme_io_stop(&io, 0),

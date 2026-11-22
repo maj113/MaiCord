@@ -1,25 +1,15 @@
 #include "maicord/protocol/auth/login_continuations.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "../encoding/json_write.hpp"
 #include "../encoding/json_field_lists.hpp"
 
 namespace maicord {
 namespace {
 using namespace protocol_detail;
-bool valid_view(const Utf8View& value) noexcept {
-    return value.data && value.bytes &&
-        byte_range_valid({reinterpret_cast<const u8*>(value.data), value.bytes});
-}
 UserAuthWriteError encode_reset(Utf8View value, u32 maximum, EncodedString* encoded) noexcept {
-    if (!valid_view(value)) return UserAuthWriteError::invalid_input;
+    if (!value.bytes) return UserAuthWriteError::invalid_input;
     if (value.bytes > maximum) return UserAuthWriteError::value_too_large;
     return encoded_string(value, maximum, encoded) ? UserAuthWriteError::none : UserAuthWriteError::invalid_utf8;
-}
-bool valid_destination(const Slice<u8>& output, const Utf8View& a, const Utf8View& b = {}) noexcept {
-    return output.data && byte_range_valid({output.data, output.count}) &&
-        !byte_ranges_overlap({output.data, output.count}, {reinterpret_cast<const u8*>(a.data), a.bytes}) &&
-        !byte_ranges_overlap({output.data, output.count}, {reinterpret_cast<const u8*>(b.data), b.bytes});
 }
 Utf8View reset_method(UserAuthMfaType type) noexcept {
     switch (type) {
@@ -106,7 +96,6 @@ UserAuthWriteResult user_auth_measure_reset_password_tail(Utf8View password) noe
 UserAuthWriteResult user_auth_write_reset_password_tail(Utf8View password, Slice<u8> output) noexcept {
     const auto measured = user_auth_measure_reset_password_tail(password);
     if (!measured.ok()) return measured;
-    if (!valid_destination(output, password)) return {0, UserAuthWriteError::invalid_input};
     if (measured.bytes > output.count) return {measured.bytes, UserAuthWriteError::output_too_small};
     EncodedString encoded{};
     encoded_string(password, kUserAuthMaximumPasswordBytes, &encoded);
@@ -130,7 +119,6 @@ UserAuthResetWriteResult user_auth_write_reset_password_request(const UserAuthRe
     Slice<u8> output) noexcept {
     const auto measured = user_auth_measure_reset_password_request(request);
     if (!measured.ok()) return measured;
-    if (!valid_destination(output, request.token, request.password)) return {0, 0, UserAuthWriteError::invalid_input};
     if (measured.bytes > output.count) return {measured.bytes, measured.token_prefix_bytes, UserAuthWriteError::output_too_small};
     EncodedString token{};
     encoded_string(request.token, kLoginResetMaximumTokenBytes, &token);
@@ -157,7 +145,6 @@ UserAuthWriteResult user_auth_write_reset_mfa_suffix(Utf8View code, Utf8View tic
     Slice<u8> output) noexcept {
     const auto measured = user_auth_measure_reset_mfa_suffix(code, ticket, type);
     if (!measured.ok()) return measured;
-    if (!valid_destination(output, code, ticket)) return {0, UserAuthWriteError::invalid_input};
     if (measured.bytes > output.count) return {measured.bytes, UserAuthWriteError::output_too_small};
     EncodedString encoded_code{}, encoded_ticket{}, encoded_method{};
     encoded_string(code, user_auth_mfa_data_maximum(type), &encoded_code);
@@ -174,8 +161,6 @@ UserAuthWriteResult user_auth_write_reset_mfa_suffix(Utf8View code, Utf8View tic
     return {offset, UserAuthWriteError::none};
 }
 UserAuthWriteResult login_verification_write_request(Utf8View token, Slice<u8> output) noexcept {
-    if (!valid_view(token) || !valid_destination(output, token)) return {0, UserAuthWriteError::invalid_input};
-    if (token.bytes > kLoginVerificationMaximumTokenBytes) return {0, UserAuthWriteError::value_too_large};
     EncodedString encoded{};
     if (!encoded_string(token, kLoginVerificationMaximumTokenBytes, &encoded))
         return {0, UserAuthWriteError::invalid_utf8};

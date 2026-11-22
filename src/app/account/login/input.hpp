@@ -10,6 +10,7 @@ namespace maicord::app_detail {
 bool application_login_paste() noexcept;
 bool application_login_prepare_identifier() noexcept;
 void application_login_tick_caret(u64 now_ms) noexcept;
+// control is login, password or phone_code (both callers test it).
 bool application_login_position_edit(LoginControl control, i32 client_x, i32 client_y,
                                      bool extend_selection) noexcept;
 void application_login_end_pointer_selection() noexcept;

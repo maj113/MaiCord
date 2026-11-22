@@ -233,9 +233,6 @@ bool user_client_random_uuid(char* output) noexcept {
 
 UserClientConfigurationResult user_client_configuration_initialize(
     UserClientConfigurationStorage* storage) noexcept {
-    if (!storage) {
-        return UserClientConfigurationResult{0, UserClientConfigurationError::invalid_input};
-    }
     SecureZeroMemory(storage, sizeof(*storage));
 
     AcquireSRWLockExclusive(&launch_lock);

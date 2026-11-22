@@ -77,7 +77,7 @@ bool client_heartbeat_session_valid(const ClientHeartbeatSession& session) noexc
 bool client_session_metadata_initialize(ClientSessionMetadata* metadata,
                                         const GatewayUserProperties& properties, Utf8View locale,
                                         const ClientHeartbeatSession* restored, bool focused) noexcept {
-    if (!metadata || !locale_valid(locale))
+    if (!locale_valid(locale))
         return false;
     reset_value(metadata);
     copy_bytes(metadata->locale, locale.data, locale.bytes);
@@ -94,10 +94,6 @@ bool client_session_metadata_initialize(ClientSessionMetadata* metadata,
 u32 client_session_metadata_request(ClientSessionMetadata* metadata, u64 now_ms, u32* revision,
                                     Slice<u8> super_properties, Slice<char> locale,
                                     u32* locale_bytes) noexcept {
-    if (!metadata || !revision || !locale_bytes ||
-        super_properties.count < kRestUserSuperPropertiesMaximumBytes ||
-        locale.count < kRestUserLocaleMaximumBytes)
-        return 0;
     ExclusiveLock guard(metadata->lock);
     // As the desktop client extends its super properties: a changed value is
     // set, and the heartbeat session always precedes the app state.
@@ -140,8 +136,6 @@ bool client_session_metadata_set_locale(ClientSessionMetadata* metadata, Utf8Vie
 }
 
 bool client_session_metadata_set_focus(ClientSessionMetadata* metadata, bool focused) noexcept {
-    if (!metadata)
-        return false;
     ExclusiveLock guard(metadata->lock);
     const bool changed = metadata->focused != focused;
     metadata->focused = focused;
@@ -192,11 +186,8 @@ bool client_session_metadata_use_session(ClientSessionMetadata* metadata, bool a
 }
 
 ClientHeartbeatSession client_session_metadata_session(const ClientSessionMetadata* metadata) noexcept {
-    ClientHeartbeatSession session{};
-    if (!metadata)
-        return session;
     AcquireSRWLockShared(metadata->lock.native());
-    session = metadata->session;
+    const ClientHeartbeatSession session = metadata->session;
     ReleaseSRWLockShared(metadata->lock.native());
     return session;
 }

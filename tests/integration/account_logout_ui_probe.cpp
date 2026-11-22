@@ -183,14 +183,12 @@ AccountCredentialForgetResult logout_native_forget(const AccountPaths& paths) no
         f.file_order_error = true;
     return account_credential_forget_complete_after_join(paths);
 }
-AccountHostStopResult logout_native_stop(AccountHost* host, u32 timeout, u64 monotonic,
-                                         u64 unix_time) noexcept {
+AccountHostStopResult logout_native_stop(AccountHost* host, u32 timeout) noexcept {
     auto& f = *logout_native::fixture;
     InterlockedExchange(&f.stop_active, 1);
     f.stop_thread = GetCurrentThreadId();
     ++f.stop_attempts;
-    if (host == &app_detail::g_app.account || timeout != app_detail::kAccountStopTimeoutMs || !monotonic ||
-        !unix_time)
+    if (host == &app_detail::g_app.account || timeout != app_detail::kAccountStopTimeoutMs)
         f.host_order_error = true;
     SetEvent(f.stop_entered);
     AccountHostStopResult result{};

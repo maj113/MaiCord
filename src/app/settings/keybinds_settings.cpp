@@ -239,8 +239,6 @@ bool application_keybinds_settings_row(u64 control_id) noexcept {
 }
 
 bool application_keybinds_settings_activate_row(u64 control_id, u32 choice) noexcept {
-    if (!application_keybinds_settings_row(control_id))
-        return false;
     ensure_loaded();
     if (settings_list_binding(control_id) != SettingBinding::keybinds_custom)
         return false; // Default shortcuts are read-only.

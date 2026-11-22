@@ -86,11 +86,6 @@ void test_account_paths() noexcept {
     expect(account_paths_build_slot(L"C:\\Local\\", 0, &trailing).ok() &&
                wide_text_equal(trailing.profile, L"C:\\Local\\MaiCord\\accounts\\active.profile"),
            "account_paths_trailing_separator");
-    expect(account_paths_build_slot(nullptr, 0, &trailing).error == AccountPathsError::invalid_input &&
-               account_paths_build_slot(L"", 0, &trailing).error == AccountPathsError::invalid_input &&
-               account_paths_build_slot(L"C:\\Local", 0, nullptr).error == AccountPathsError::invalid_input,
-           "account_paths_invalid_contract");
-
     wchar_t oversized[kAccountProfileMaximumPathCharacters]{};
     for (u32 index = 0; index < kAccountProfileMaximumPathCharacters - 1; ++index) {
         oversized[index] = L'x';
@@ -510,18 +505,15 @@ void test_account_host_contract() noexcept {
     const u32 first_observations = account_host_observe(&host, observed);
     const u32 repeated_observations = account_host_observe(&host, observed);
     host.instance = reinterpret_cast<void*>(1);
-    const AccountHostResult active_release = account_host_release(&host);
     const u32 wait = account_host_wait_timeout(&host, 100);
     const bool due = account_host_wake_due(&host, 150);
     host.instance = nullptr;
 
-    const AccountModuleStartResult invalid_start = account_host_start(&host, nullptr, nullptr, 1, 1);
+    const AccountModuleStartResult invalid_start = account_host_start(&host, nullptr, nullptr, 1);
     const AccountLoginStatus invalid_login = account_host_login_start(&host, nullptr);
-    u32 pump_observations = ~0u;
-    const AccountModuleStatus invalid_pump = account_host_pump(&host, 1, 1, &pump_observations);
     const AccountLoginStatus invalid_login_pump = account_host_login_pump(&host);
     const AccountLoginStatus invalid_login_stop = account_host_login_stop(&host, 1'000);
-    const AccountHostStopResult stopped = account_host_stop(&host, 1'000, 1, 1);
+    const AccountHostStopResult stopped = account_host_stop(&host, 1'000);
 
     expect(attach_refuses_missing &&
                loaded.ok() && first_module == GetModuleHandleW(nullptr) && reused.ok() &&
@@ -530,11 +522,9 @@ void test_account_host_contract() noexcept {
                first_observations == (account_host_observation_phase | account_host_observation_ready |
                                       account_host_observation_session_saves |
                                       account_host_observation_session_save_failures) &&
-               repeated_observations == 0 && !active_release.ok() &&
-               active_release.error == AccountHostError::active && wait == 50 && due &&
+               repeated_observations == 0 && wait == 50 && due &&
                invalid_start.error == AccountModuleError::invalid_input &&
                invalid_login.error == AccountLoginError::invalid_input &&
-               invalid_pump.error == AccountModuleError::invalid_input && pump_observations == 0 &&
                invalid_login_pump.error == AccountLoginError::invalid_input &&
                invalid_login_stop.error == AccountLoginError::invalid_input && stopped.ok(),
            "account_host_bounded_module_lifecycle_contract");

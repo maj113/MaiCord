@@ -33,8 +33,9 @@ struct AccountActionCaptcha {
     bool challenge_ready;
 };
 
-// Returns the bridge status; error invalid_input/state reports a refused
-// operation. arm succeeds only with a held solution and clears it.
+// Returns the bridge status; error state reports a refused operation. start takes a nonzero generation, a
+// timeout of 1 s to kCaptchaBridgeDefaultTimeoutMs and the 400 body; copy_url a buffer; arm a nonzero
+// request_id. arm succeeds only with a held solution and clears it.
 CaptchaBridgeStatus account_action_captcha(AccountActionCaptcha*, RestClient* primary, RestClient* details,
                                            const AccountActionCaptchaRequest&) noexcept;
 void account_action_captcha_release(AccountActionCaptcha*, RestClient* primary,

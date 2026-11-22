@@ -183,8 +183,7 @@ AccountSessionStoreResult account_user_session_store_save(
     const ClientHeartbeatSession* heartbeat, CookieJar* cookies) noexcept {
     const u32 characters =
         wide_length(path, kAccountProfileMaximumPathCharacters);
-    if (characters == 0 || characters + 4 >= kAccountProfileMaximumPathCharacters ||
-        !snapshot_valid(snapshot) || (heartbeat && !client_heartbeat_session_valid(*heartbeat))) {
+    if (characters == 0 || characters + 4 >= kAccountProfileMaximumPathCharacters || !snapshot_valid(snapshot)) {
         return failure(AccountSessionStoreError::invalid_input);
     }
     SecureBuffer payload{};
@@ -231,8 +230,7 @@ AccountSessionStoreResult account_user_session_store_load(const wchar_t* path, u
                                                           CookieJar* cookies) noexcept {
     const u32 characters =
         wide_length(path, kAccountProfileMaximumPathCharacters);
-    if (characters == 0 || characters >= kAccountProfileMaximumPathCharacters || expected_profile_id == 0 ||
-        !snapshot) {
+    if (characters == 0 || characters >= kAccountProfileMaximumPathCharacters || expected_profile_id == 0) {
         return failure(AccountSessionStoreError::invalid_input);
     }
     auto* file_bytes = static_cast<u8*>(

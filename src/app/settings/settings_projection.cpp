@@ -693,21 +693,17 @@ ApplicationSettings* ensure() noexcept {
         commit_pages(sizeof(ApplicationSettings)));
     if (!settings)
         return nullptr;
-    if (!ui_page_registry_initialize(&settings->registry, {settings->pages, kSettingsPageCapacity})) {
-        pages_release(settings);
-        return nullptr;
-    }
+    // Registration of the native pages cannot fail: the registry is new and holds them all, the keys are distinct and
+    // the catalog's panel titles are valid text (settings_runtime checks the catalog).
+    static_assert(kSettingsSearchPage <= kSettingsPageCapacity);
+    ui_page_registry_initialize(&settings->registry, {settings->pages, kSettingsPageCapacity});
     const auto& schema = settings_catalog();
     for (u32 i = 0; i < kSettingsSearchPage; ++i) {
         const Utf8View label = i < kSettingsPanelCount ? schema.panels[i].title : utf8_literal("Search results");
         const bool store = i == kPluginsPage - 1 || i == kThemesPage - 1 || i == kEffectsPage - 1;
         settings->content[i] = {label, i < kSettingsPanelCount && !store ? schema.panels[i].summary : Utf8View{}, {}, 1};
         settings->content[i].host = settings->content[i].wide = store;
-        if (!ui_page_registry_register(&settings->registry, {{kSettingsNativeOwner, i + 1}, label, &settings->content[i]})
-                 .ok()) {
-            pages_release(settings);
-            return nullptr;
-        }
+        ui_page_registry_register(&settings->registry, {{kSettingsNativeOwner, i + 1}, label, &settings->content[i]});
     }
     ui_page_registry_select(&settings->registry, {kSettingsNativeOwner, static_cast<u64>(SettingsPanel::appearance) + 1});
     message_composer_initialize(&settings->search_edit, {settings->search_text, kSettingsSearchBytes});

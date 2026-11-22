@@ -5,7 +5,7 @@
 namespace maicord {
 namespace {
 CaptchaBridgeStatus refused(const AccountActionCaptcha* captcha, CaptchaBridgeError error) noexcept {
-    CaptchaBridgeStatus status = captcha ? captcha->status : CaptchaBridgeStatus{};
+    CaptchaBridgeStatus status = captcha->status;
     status.error = error;
     return status;
 }
@@ -53,13 +53,9 @@ bool arm(AccountActionCaptcha* captcha, RestClient* rest, u64 request_id) noexce
 CaptchaBridgeStatus account_action_captcha(AccountActionCaptcha* captcha, RestClient* primary,
                                            RestClient* details,
                                            const AccountActionCaptchaRequest& request) noexcept {
-    if (!captcha)
-        return refused(captcha, CaptchaBridgeError::invalid_input);
     switch (request.operation) {
     case AccountActionCaptchaOperation::start: {
-        if (!request.generation || request.timeout_ms < 1'000 || request.timeout_ms > kCaptchaBridgeDefaultTimeoutMs ||
-            !request.body.data || !request.body.bytes)
-            return refused(captcha, CaptchaBridgeError::invalid_input);
+        // The host (action_captcha.cpp) gives a nonzero generation, the default timeout and the captured body.
         erase(captcha);
         rest_client_arm_headers(primary, 0, {});
         rest_client_arm_headers(details, 0, {});
@@ -104,12 +100,12 @@ CaptchaBridgeStatus account_action_captcha(AccountActionCaptcha* captcha, RestCl
         }
         return captcha->status;
     case AccountActionCaptchaOperation::copy_url:
-        if (!request.url || !captcha->bridge.runtime ||
+        if (!captcha->bridge.runtime ||
             !captcha_bridge_copy_url(&captcha->bridge, request.generation, request.url).ok())
             return refused(captcha, CaptchaBridgeError::state);
         return captcha->status;
     case AccountActionCaptchaOperation::arm: {
-        if (!request.request_id || !captcha->challenge_ready || !captcha->token.bytes)
+        if (!captcha->challenge_ready || !captcha->token.bytes)
             return refused(captcha, CaptchaBridgeError::state);
         const bool armed = arm(captcha, request.details ? details : primary, request.request_id);
         // A single retry: the solution is never offered twice.
@@ -129,8 +125,6 @@ CaptchaBridgeStatus account_action_captcha(AccountActionCaptcha* captcha, RestCl
 
 void account_action_captcha_release(AccountActionCaptcha* captcha, RestClient* primary,
                                     RestClient* details) noexcept {
-    if (!captcha)
-        return;
     erase(captcha);
     rest_client_arm_headers(primary, 0, {});
     rest_client_arm_headers(details, 0, {});

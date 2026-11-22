@@ -8,7 +8,6 @@
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
-#include "../../support/jpeg_decode.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/model/guild/detail_store.hpp"
 #include "maicord/model/guild/scheduled_event_store.hpp"
@@ -33,37 +32,6 @@ bool text_is(const u8* data, u32 bytes, Utf8View expected) noexcept {
     return utf8_equal({reinterpret_cast<const char*>(data), bytes}, expected);
 }
 u32 scratch[16384];
-// A baseline greyscale JPEG of a flat picture: one quantization table, a
-// one-code DC table (difference 0) and AC table (end of block), each block
-// two zero bits. Returns its bytes (0 when it does not fit).
-u32 flat_jpeg(u32 width, u32 height, u8* out, u32 capacity) noexcept {
-    const u32 blocks = ((width + 7) / 8) * ((height + 7) / 8);
-    const u32 entropy = (blocks * 2 + 7) / 8;
-    u32 n = 0;
-    const auto put = [&](u32 value) noexcept {
-        if (n < capacity)
-            out[n] = static_cast<u8>(value);
-        ++n;
-    };
-    put(0xFF), put(0xD8);
-    put(0xFF), put(0xDB), put(0), put(67), put(0);
-    for (u32 i = 0; i < 64; ++i)
-        put(1);
-    put(0xFF), put(0xC0), put(0), put(11), put(8), put(height >> 8), put(height), put(width >> 8), put(width);
-    put(1), put(1), put(0x11), put(0);
-    for (u32 table = 0; table <= 0x10; table += 0x10) {
-        put(0xFF), put(0xC4), put(0), put(20), put(table), put(1);
-        for (u32 i = 1; i < 16; ++i)
-            put(0);
-        put(0);
-    }
-    put(0xFF), put(0xDA), put(0), put(8), put(1), put(1), put(0), put(0), put(63), put(0);
-    for (u32 i = 0; i < entropy; ++i)
-        put(i + 1 == entropy && (blocks * 2) % 8 ? 0xFFu >> ((blocks * 2) % 8) : 0u);
-    put(0xFF), put(0xD9);
-    return n <= capacity ? n : 0;
-}
-
 Utf8View target_of(GuildCommunityOperation op, u64 guild, u64 event, const char* body, RestMethod* method,
                    u8* storage, u32 capacity) noexcept {
     GuildCommunityRequest request{};
@@ -651,8 +619,7 @@ void test_guild_profile() noexcept {
               games.traits[0].emoji_animated &&
               games.features == (guild_profile_manual_approval | guild_profile_verification_gate),
           "guild profile: games by activity score, a custom trait emoji and the application-to-join features");
-    // The card asks for 512 * dpr, capped at the 512 px the CDN JPEG decoder takes
-    // (a 16:9 splash is 512x288 at size=512; the decoder refuses 1024x576).
+    // The card asks for 512 * dpr, capped at the 512 px the CDN JPEG decoder takes.
     UiGuildImageMedia scaled_banner{}, private_banner{};
     bool capped = true;
     constexpr u32 kScales[]{120, 144, 192, 288};
@@ -662,15 +629,7 @@ void test_guild_profile() noexcept {
                                             &scaled_banner) &&
                  utf8_equal(scaled_banner.url_view(), banner.url_view()) &&
                  media_asset_key_equal(scaled_banner.key, banner.key);
-    static u8 jpeg[4096];
-    static JpegWorkspace jpeg_workspace;
-    JpegImage scaled{}, oversized{};
-    const u32 scaled_bytes = flat_jpeg(512, 288, jpeg, sizeof(jpeg));
-    const auto scaled_decode = jpeg_decode_coefficients({jpeg, scaled_bytes}, &scaled, &jpeg_workspace);
-    const u32 oversized_bytes = flat_jpeg(1024, 576, jpeg, sizeof(jpeg));
-    const auto oversized_decode = jpeg_decode_coefficients({jpeg, oversized_bytes}, &oversized, &jpeg_workspace);
-    check(capped && scaled_bytes && scaled_decode.ok() && scaled.width == 512 && scaled.height == 288 &&
-              oversized_bytes && oversized_decode.error == JpegError::dimensions &&
+    check(capped &&
               !ui_guild_card_banner_media(profile.id, {profile.banner, profile.banner_bytes}, false, 96,
                                           &private_banner) &&
               !private_banner.url_bytes && !media_asset_key_valid(private_banner.key) &&

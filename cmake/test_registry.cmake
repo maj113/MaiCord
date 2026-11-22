@@ -6,7 +6,7 @@
 # and console calls the shared tests make come from tests/support/win32_test_compat.hpp on Linux.
 
 # The account module of the tests that link application code without it (the shipped client calls it by name): the
-# account fake answers as a module without an owner unless a test sets the hook of an entry in g_account_fake.
+# account fake refuses every call unless a test sets the hook of an entry in g_account_fake.
 set(maicord_account_fake tests/support/account_module_fake.cpp)
 # Library sets most src/app fixtures link on Windows.
 set(maicord_app_test_libs maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core maicord_ui)
@@ -1072,12 +1072,12 @@ maicord_test(MaiCordVoiceTests ONLY WINDOWS ENTRY maicord_voice_tests_entry
         crypt32 ws2_32 maicord_sspicli bcrypt maicord_ui maicord_media_codec ole32 maicord_client_preferences user32
     INCLUDES src/app
     TEST maicord_voice_setup)
-# The linked account module's entries without an owner: they refuse before creating an account, login, worker or
-# transport. The tests that fake the module link the account fake instead. The module comes before maicord_app_core so
-# that its Go Live producers, not the library's inactive ones, are the ones the Gateway client links.
+# The linked account module's start and login owners. The tests that fake the module link the account fake instead.
+# The module comes before maicord_app_core so that its Go Live producers, not the library's inactive ones, are the ones
+# the Gateway client links.
 maicord_test(MaiCordAccountModuleTests ONLY WINDOWS ENTRY maicord_account_module_entry
-    SOURCES tests/app/account/account_module_contract.cpp tests/app/account/account_module_dormant.cpp src/core/log.cpp
-    LIBS maicord_core maicord_platform maicord_protocol maicord_account_module maicord_account_host maicord_app_core maicord_model
+    SOURCES tests/app/account/account_module_contract.cpp src/core/log.cpp
+    LIBS maicord_core maicord_platform maicord_protocol maicord_account_module maicord_app_core maicord_model
         maicord_message_runtime maicord_message_media maicord_render_core maicord_media_core maicord_media_codec
         maicord_cdn_media maicord_account_media bcrypt kernel32 user32 ${maicord_tls_libs}
     INCLUDES src/app

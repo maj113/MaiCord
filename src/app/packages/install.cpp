@@ -42,7 +42,7 @@ bool package_file_path(const wchar_t* root, PackageLinkKind kind, const Utf8View
                        Slice<wchar_t> path, u32* units) noexcept {
     wchar_t folder[512];
     u32 length = 0;
-    if (!package_slug_valid(slug) || !path.data || !units || !folder_path(root, kind, folder, &length) ||
+    if (!package_slug_valid(slug) || !folder_path(root, kind, folder, &length) ||
         (kind == PackageLinkKind::effect && !digest) || length + 1 + slug.bytes + 40 >= path.count)
         return false;
     u32 at = length;

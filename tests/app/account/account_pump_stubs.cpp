@@ -152,7 +152,7 @@ bool theme_transition;
 void check(bool valid, const char* label) noexcept {
     test_check(&failures, valid, label);
 }
-AccountModuleStatus WINAPI pump(void*, u64, u64) noexcept {
+AccountModuleStatus WINAPI pump(void*, u64) noexcept {
     return next_status;
 }
 void reset_counts() noexcept {

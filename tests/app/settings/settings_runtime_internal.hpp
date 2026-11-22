@@ -29,17 +29,15 @@ extern u32 theme_preference_changes, theme_background_edits;
 struct Observations {
     UiRect viewport{0, 0, 1000, 700};
     u32 text_builds, layout_updates, account_text_updates, forced_account_text_updates, suspends,
-        drop_updates, member_updates, navigation_updates;
+        drop_updates, member_updates;
     u32 resize_sync_presents, resize_finishes, resize_finish_failures;
     bool resize_finish_failed;
     bool fail_text;
-    u32 fail_text_remaining;
     u32 profile_opens;
     u32 account_menu_opens;
     UiWidgetHandle account_menu_source;
     UiRect account_menu_anchor;
     bool friends_active, requests_active;
-    u32 opened_urls;
     u32 notifications_refreshes, notifications_setups;
     // Accessibility: theme republications (Text size in chat, Saturation) and Preview's speech.
     u32 theme_refreshes, speeches;

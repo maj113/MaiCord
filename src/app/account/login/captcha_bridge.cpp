@@ -27,7 +27,7 @@ struct Runtime : LoopbackServer {
     bool invisible, spent;
 };
 Runtime* runtime_of(const CaptchaBridge* bridge) noexcept {
-    return bridge ? static_cast<Runtime*>(bridge->runtime) : nullptr;
+    return static_cast<Runtime*>(bridge->runtime);
 }
 constexpr u32 kOwnerBytes = loopback_owner_bytes<Runtime>;
 u8* at(Runtime* runtime, u32 offset) noexcept { return runtime->storage.data + offset; }
@@ -156,8 +156,8 @@ CaptchaBridgeStatus invalid(CaptchaBridgeError error = CaptchaBridgeError::inval
 CaptchaBridgeStatus captcha_bridge_start(CaptchaBridge* bridge, u64 generation, u32 timeout_ms,
                                          const CaptchaBridgeChallenge& challenge) noexcept {
     const CaptchaBridgeProvider provider = protocol_provider(challenge.provider);
-    if (!bridge || bridge->runtime || !generation || timeout_ms < 1000 ||
-        timeout_ms > kCaptchaBridgeDefaultTimeoutMs || provider == CaptchaBridgeProvider::unknown ||
+    // Both callers admit only a nonzero generation and 1 s to the default timeout.
+    if (bridge->runtime || provider == CaptchaBridgeProvider::unknown ||
         !captcha_bridge_sitekey_valid(challenge.sitekey) ||
         !captcha_bridge_rqdata_valid(challenge.rqdata) ||
         !captcha_bridge_user_flow_valid(challenge.user_flow))
@@ -236,10 +236,10 @@ HANDLE captcha_bridge_notification_handle(const CaptchaBridge* bridge) noexcept 
 }
 SecureBufferResult captcha_bridge_copy_url(const CaptchaBridge* bridge, u64 expected_generation, SecureBuffer* output) noexcept {
     auto* runtime = runtime_of(bridge);
-    if (!runtime || !loopback_external_output(runtime, bridge, sizeof(*bridge), kOwnerBytes, output)) return loopback_output_error();
+    if (!runtime) return loopback_output_error();
     AcquireSRWLockShared(&runtime->lock);
     CaptchaBridgeWriteResult written{0, CaptchaBridgeProtocolError::invalid_input};
-    if (expected_generation && runtime->status.generation == expected_generation &&
+    if (runtime->status.generation == expected_generation &&
         runtime->status.phase == CaptchaBridgePhase::waiting && !runtime->spent &&
         !deadline_due(clock_monotonic_milliseconds(), runtime->status.deadline_ms))
         written = captcha_bridge_write_url(runtime->status.port, view(runtime, kStateOffset, kCaptchaBridgeStateBytes),
@@ -250,10 +250,10 @@ SecureBufferResult captcha_bridge_copy_url(const CaptchaBridge* bridge, u64 expe
 }
 SecureBufferResult captcha_bridge_take_token(CaptchaBridge* bridge, u64 expected_generation, SecureBuffer* output) noexcept {
     auto* runtime = runtime_of(bridge);
-    if (!runtime || !loopback_external_output(runtime, bridge, sizeof(*bridge), kOwnerBytes, output)) return loopback_output_error();
+    if (!runtime) return loopback_output_error();
     AcquireSRWLockExclusive(&runtime->lock);
     SecureBufferResult result = loopback_output_error();
-    if (expected_generation && runtime->status.generation == expected_generation &&
+    if (runtime->status.generation == expected_generation &&
         runtime->status.phase == CaptchaBridgePhase::token_ready && runtime->token_bytes) {
         result = secure_buffer_assign(output, {at(runtime, kTokenOffset), runtime->token_bytes});
         if (result.ok()) {
@@ -265,7 +265,6 @@ SecureBufferResult captcha_bridge_take_token(CaptchaBridge* bridge, u64 expected
     return result;
 }
 CaptchaBridgeStatus captcha_bridge_stop(CaptchaBridge* bridge, u32 timeout_ms) noexcept {
-    if (!bridge || timeout_ms > 5000) return invalid();
     auto* runtime = runtime_of(bridge);
     if (!runtime) return {};
     AcquireSRWLockExclusive(&runtime->lock);

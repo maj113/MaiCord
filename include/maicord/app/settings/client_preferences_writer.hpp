@@ -11,13 +11,13 @@ struct ClientPreferencesWriter;
 // Create lazily on the first explicit preference edit. No disk IO occurs here
 // or in submit/poll. A null path selects the current user's normal preference
 // file; a non-null path is copied and is the only persistence destination.
-// Failure leaves *writer unchanged and reports a Win32 last-error value.
+// *writer is null on entry. Failure leaves it null and reports a Win32 last-error value.
 bool client_preferences_writer_create(ClientPreferencesWriter** writer,
                                       const wchar_t* path = nullptr) noexcept;
 
 // One in-progress write and one replaceable newest snapshot, with no growing
-// queue. Accepted revisions start at 1 and increase monotonically. Invalid or
-// stopping writers reject submissions without changing *revision.
+// queue. Accepted revisions start at 1 and increase monotonically. Invalid
+// preferences or a stopping writer reject submissions without changing *revision.
 bool client_preferences_writer_submit(ClientPreferencesWriter* writer,
                                       const ClientPreferences& preferences,
                                       u64* revision) noexcept;

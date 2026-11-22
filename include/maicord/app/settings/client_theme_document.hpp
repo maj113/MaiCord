@@ -15,7 +15,6 @@ enum class ClientThemeBase : u8 {
 };
 enum class ClientThemeDocumentError : u8 {
     none,
-    invalid_input,
     capacity,
     json,
     duplicate_field,
@@ -120,9 +119,8 @@ bool client_theme_document_equal(const ClientThemeDocument&, const ClientThemeDo
 ClientThemeDocumentResult client_theme_document_parse(Utf8View, const ClientThemeDocument& defaults,
                                                       Slice<u32> structural_scratch,
                                                       ClientThemeDocument* output) noexcept;
-// Canonical version 2.0 document contains every resolved typed value. Invalid
-// input or insufficient capacity preserves output and bytes; null/zero output
-// is a supported size query, updating bytes only on success.
+// Canonical version 2.0 document contains every resolved typed value. Insufficient capacity preserves output and
+// bytes.
 ClientThemeDocumentResult client_theme_document_write(const ClientThemeDocument&, const Slice<char>& output,
                                                       u32* bytes) noexcept;
 // The look on a day (1..31) of a month (1..12) at a minute of the day (0..1439): the two phases around the minute

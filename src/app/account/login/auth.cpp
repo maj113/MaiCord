@@ -537,7 +537,6 @@ bool flight_current() noexcept {
 
 LoginSecurityKey security_key_state(WebAuthnCeremonyError error) noexcept {
     switch (error) {
-    case WebAuthnCeremonyError::unavailable: return LoginSecurityKey::unavailable;
     case WebAuthnCeremonyError::no_device: return LoginSecurityKey::no_key;
     case WebAuthnCeremonyError::cannot_open: return LoginSecurityKey::cannot_open;
     case WebAuthnCeremonyError::not_registered: return LoginSecurityKey::not_registered;
@@ -983,8 +982,6 @@ bool application_login_pump() noexcept {
                 trace)
         .write(LogLevel::info, "auth");
     if (host.login_status.phase == AccountLoginPhase::authenticated && host.login_status.profile_saved) {
-        if (application_account_logout_locked())
-            return true;
         const bool browser_session = host.login_status.browser_generation != 0;
         invalidate_auth();
         const AccountLoginStatus stopped = stop_login_owner();
@@ -1093,9 +1090,7 @@ bool application_login_pump() noexcept {
         g_app.login.remote_active = false;
         secure_clear_bytes(g_app.login.remote_user, sizeof(g_app.login.remote_user));
         g_app.login.remote_user_bytes = 0;
-        if (host.login_instance) {
-            stop_login_owner();
-        }
+        stop_login_owner();
         application_account_module_release();
         application_login_schedule_remote_restart(expired ? LoginRemoteStatus::refreshing
                                                   : declined ? LoginRemoteStatus::cancelled
@@ -1158,9 +1153,7 @@ bool application_login_pump() noexcept {
         g_app.login.status = LoginStatus::rejected;
         g_app.login.account_suspended = host.login_status.account_suspended;
         g_app.login.focus = g_app.login.login.storage.bytes == 0 ? LoginControl::login : LoginControl::password;
-        if (host.login_instance) {
-            stop_login_owner();
-        }
+        stop_login_owner();
         if (g_app.login.visible) {
             application_login_schedule_remote_restart(LoginRemoteStatus::refreshing);
         }

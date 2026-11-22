@@ -3,7 +3,6 @@
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/auth/login_continuations.hpp"
 #include "maicord/protocol/auth/browser_sign_in.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
@@ -14,20 +13,17 @@ static_assert(kPhoneTokenOffset + kUserAuthPhoneResetTokenBytes == kScratchCapac
 
 static_assert(kSuspendedOffset + kSuspendedCapacity == kUserAuthCoordinatorSecretBytes);
 
-u32 page_round(u64 bytes) noexcept {
-    const u64 rounded = (bytes + 4095ull) & ~4095ull;
-    return rounded <= ~0u ? static_cast<u32>(rounded) : 0;
-}
+constexpr u32 kRuntimeBytes = (sizeof(UserAuthCoordinatorRuntime) + 4095) & ~4095u;
 
 } // namespace
 namespace user_auth_coordinator_detail {
 
 UserAuthCoordinatorRuntime* runtime_of(UserAuthCoordinator* coordinator) noexcept {
-    return coordinator ? static_cast<UserAuthCoordinatorRuntime*>(coordinator->runtime) : nullptr;
+    return static_cast<UserAuthCoordinatorRuntime*>(coordinator->runtime);
 }
 
 const UserAuthCoordinatorRuntime* runtime_of(const UserAuthCoordinator* coordinator) noexcept {
-    return coordinator ? static_cast<const UserAuthCoordinatorRuntime*>(coordinator->runtime) : nullptr;
+    return static_cast<const UserAuthCoordinatorRuntime*>(coordinator->runtime);
 }
 
 } // namespace user_auth_coordinator_detail
@@ -96,20 +92,6 @@ void restore_phone_base(UserAuthCoordinatorRuntime* runtime) noexcept {
     runtime->retained_request_bytes = 0;
     runtime->active_body_offset = 0;
 }
-
-} // namespace user_auth_coordinator_detail
-namespace {
-
-bool overlaps_auth_owner(const UserAuthCoordinator* coordinator, const UserAuthCoordinatorRuntime* runtime,
-    const void* data, u32 bytes) noexcept {
-    const ConstSlice<u8> span{static_cast<const u8*>(data), bytes};
-    return !byte_range_valid(span) || byte_ranges_overlap(span, {runtime->secrets.data, runtime->secrets.capacity}) ||
-        byte_ranges_overlap(span, {reinterpret_cast<const u8*>(runtime), sizeof(*runtime)}) ||
-        byte_ranges_overlap(span, {reinterpret_cast<const u8*>(coordinator), sizeof(*coordinator)});
-}
-
-} // namespace
-namespace user_auth_coordinator_detail {
 
 void restore_reset_base(UserAuthCoordinatorRuntime* runtime) noexcept {
     if (runtime->continuation_base_bytes) {
@@ -215,10 +197,10 @@ namespace {
 
 UserAuthCoordinatorResult fail(UserAuthCoordinator* coordinator, UserAuthCoordinatorError error,
                                u32 native_error = 0) noexcept {
-    UserAuthCoordinatorResult result = coordinator ? coordinator->state : UserAuthCoordinatorResult{};
+    UserAuthCoordinatorResult result = coordinator->state;
     result.error = error;
     result.native_error = native_error;
-    if (coordinator && error != UserAuthCoordinatorError::invalid_input &&
+    if (error != UserAuthCoordinatorError::invalid_input &&
         error != UserAuthCoordinatorError::state && error != UserAuthCoordinatorError::request_write &&
         error != UserAuthCoordinatorError::transport_submit) {
         result.phase = UserAuthCoordinatorPhase::failed;
@@ -311,12 +293,8 @@ UserAuthCoordinatorResult submit_text(UserAuthCoordinator* coordinator, const Se
 } // namespace
 
 static UserAuthCoordinatorResult start_coordinator(UserAuthCoordinator* coordinator, bool reset) noexcept {
-    const u32 bytes = page_round(sizeof(UserAuthCoordinatorRuntime));
-    if (!coordinator || bytes == 0 || coordinator->runtime || coordinator->transport.worker.thread) {
-        return fail(coordinator, UserAuthCoordinatorError::invalid_input);
-    }
     reset_value<UserAuthCoordinator>(coordinator);
-    coordinator->runtime = commit_pages(bytes);
+    coordinator->runtime = commit_pages(kRuntimeBytes);
     if (!coordinator->runtime) {
         return fail(coordinator, UserAuthCoordinatorError::memory, thread_last_error());
     }
@@ -327,7 +305,6 @@ static UserAuthCoordinatorResult start_coordinator(UserAuthCoordinator* coordina
         secure_buffer_initialize(&runtime->secrets, reset ? kUserAuthResetCoordinatorSecretBytes : kUserAuthCoordinatorSecretBytes);
     if (!secret_result.ok()) {
         const u32 native_error = secret_result.native_error;
-        secure_clear_bytes(runtime, bytes);
         pages_release(runtime);
         coordinator->runtime = nullptr;
         return fail(coordinator, UserAuthCoordinatorError::memory, native_error);
@@ -339,7 +316,6 @@ static UserAuthCoordinatorResult start_coordinator(UserAuthCoordinator* coordina
         rest_client_start_user_auth(&coordinator->transport, kUserAuthMaximumResponseBytes);
     if (!started.ok()) {
         secure_buffer_release(&runtime->secrets);
-        secure_clear_bytes(runtime, bytes);
         pages_release(runtime);
         coordinator->runtime = nullptr;
         return fail(coordinator, UserAuthCoordinatorError::transport_start, started.native_error);
@@ -496,8 +472,6 @@ static UserAuthCoordinatorResult submit_phone(UserAuthCoordinator* coordinator, 
         runtime->continuation_token_bytes || (runtime->continuation_retry_at_ms && clock_monotonic_milliseconds() < runtime->continuation_retry_at_ms))
         return fail(coordinator, UserAuthCoordinatorError::state);
     if (verify && (!locked_input(code, kUserAuthPhoneCodeBytes) ||
-        overlaps_auth_owner(coordinator, runtime, code, sizeof(*code)) ||
-        overlaps_auth_owner(coordinator, runtime, code->data, code->capacity) ||
         !user_auth_phone_code_valid(secure_utf8(*code))))
         return fail(coordinator, UserAuthCoordinatorError::invalid_input);
     const u32 base = runtime->continuation_base_bytes;
@@ -528,11 +502,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_phone_resend(UserAuthCoor
 SecureBufferResult user_auth_coordinator_take_phone_reset_token(UserAuthCoordinator* coordinator,
     u64 expected_generation, SecureBuffer* output) noexcept {
     auto* runtime = runtime_of(coordinator);
-    if (!runtime || !output || overlaps_auth_owner(coordinator, runtime, output, sizeof(*output)) ||
-        !output->data || !output->locked || output->bytes || output->capacity != kUserAuthPhoneResetTokenBytes ||
-        overlaps_auth_owner(coordinator, runtime, output->data, output->capacity) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(output), sizeof(*output)}, {output->data, output->capacity}) ||
-        !runtime->phone_context_active || runtime->reset_owner || runtime->active_request_id ||
+    if (!runtime || !runtime->phone_context_active || runtime->reset_owner || runtime->active_request_id ||
         coordinator->state.phase != UserAuthCoordinatorPhase::phone_token_ready ||
         runtime->flow.phase != UserAuthPhase::phone_token_ready || expected_generation != runtime->flow.generation ||
         !runtime->continuation_token_bytes || runtime->continuation_token_bytes > kUserAuthPhoneResetTokenBytes)
@@ -558,9 +528,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_browser_handoff_exchange(
     UserAuthCoordinator* coordinator, const SecureBuffer* exchange_request) noexcept {
     auto* runtime = runtime_of(coordinator);
     if (!runtime || runtime->transport_stopped ||
-        !locked_input(exchange_request, kBrowserSignInMaximumBodyBytes) ||
-        overlaps_auth_owner(coordinator, runtime, exchange_request, sizeof(*exchange_request)) ||
-        overlaps_auth_owner(coordinator, runtime, exchange_request->data, exchange_request->capacity))
+        !locked_input(exchange_request, kBrowserSignInMaximumBodyBytes))
         return fail(coordinator, UserAuthCoordinatorError::invalid_input);
     if (runtime->reset_owner || runtime->reset_context_active || runtime->phone_context_active ||
         runtime->active_request_id || (runtime->flow.phase != UserAuthPhase::idle &&
@@ -694,9 +662,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_captcha(UserAuthCoordinat
         runtime->retained_request_bytes > runtime->request_capacity - runtime->active_body_offset ||
         !locked_input(solution, kUserAuthMaximumCaptchaKeyBytes) ||
         (runtime->phone_context_active && (runtime->active_body_offset != 0 ||
-            runtime->retained_request_bytes > kPhoneTokenOffset ||
-            overlaps_auth_owner(coordinator, runtime, solution, sizeof(*solution)) ||
-            overlaps_auth_owner(coordinator, runtime, solution->data, solution->capacity)))) {
+            runtime->retained_request_bytes > kPhoneTokenOffset))) {
         return fail(coordinator, UserAuthCoordinatorError::state);
     }
     UserAuthState next = runtime->flow;
@@ -719,7 +685,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_captcha(UserAuthCoordinat
 UserAuthCoordinatorResult user_auth_coordinator_pump(UserAuthCoordinator* coordinator,
                                                      UserAuthCoordinatorEvent* event) noexcept {
     UserAuthCoordinatorRuntime* runtime = runtime_of(coordinator);
-    if (!runtime || !event || runtime->transport_stopped) {
+    if (!runtime || runtime->transport_stopped) {
         return fail(coordinator, UserAuthCoordinatorError::invalid_input);
     }
     reset_value<UserAuthCoordinatorEvent>(event);
@@ -767,20 +733,12 @@ UserAuthCoordinatorResult user_auth_coordinator_pump(UserAuthCoordinator* coordi
 SecureBufferResult user_auth_coordinator_copy_secret(const UserAuthCoordinator* coordinator,
                                                      UserAuthCoordinatorSecretKind kind,
                                                      SecureBuffer* output) noexcept {
+    // Callers hold a started coordinator and give a fresh buffer.
     const UserAuthCoordinatorRuntime* runtime = runtime_of(coordinator);
-    u32 offset = 0;
-    u32 bytes = 0;
-    if (!runtime || !output) {
-        return SecureBufferResult{0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
-    }
+    u32 offset = kWebauthnOffset;
+    u32 bytes = runtime->webauthn_bytes;
     switch (kind) {
     case UserAuthCoordinatorSecretKind::webauthn_challenge:
-        offset = kWebauthnOffset;
-        bytes = runtime->webauthn_bytes;
-        break;
-    case UserAuthCoordinatorSecretKind::captcha_service:
-        offset = kCaptchaServiceOffset;
-        bytes = runtime->captcha_service_bytes;
         break;
     case UserAuthCoordinatorSecretKind::captcha_sitekey:
         offset = kCaptchaSitekeyOffset;
@@ -790,24 +748,10 @@ SecureBufferResult user_auth_coordinator_copy_secret(const UserAuthCoordinator* 
         offset = kCaptchaRqdataOffset;
         bytes = runtime->captcha_rqdata_bytes;
         break;
-    case UserAuthCoordinatorSecretKind::captcha_rqtoken:
-        offset = kCaptchaRqtokenOffset;
-        bytes = runtime->captcha_rqtoken_bytes;
-        break;
-    case UserAuthCoordinatorSecretKind::captcha_session_id:
-        offset = kCaptchaSessionOffset;
-        bytes = runtime->captcha_session_bytes;
-        break;
     case UserAuthCoordinatorSecretKind::captcha_user_flow:
         offset = kCaptchaFlowOffset;
         bytes = runtime->captcha_flow_bytes;
         break;
-    case UserAuthCoordinatorSecretKind::suspended_user_token:
-        offset = kSuspendedOffset;
-        bytes = runtime->suspended_bytes;
-        break;
-    default:
-        return SecureBufferResult{0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
     }
     if (bytes == 0) {
         return SecureBufferResult{0, ERROR_NOT_FOUND, SecureBufferError::invalid_input};
@@ -818,7 +762,7 @@ SecureBufferResult user_auth_coordinator_copy_secret(const UserAuthCoordinator* 
 CaptchaChallengeSnapshot user_auth_coordinator_captcha_snapshot(
     const UserAuthCoordinator* coordinator) noexcept {
     const UserAuthCoordinatorRuntime* runtime = runtime_of(coordinator);
-    if (!runtime || !runtime->secrets.data || !runtime->secrets.locked ||
+    if (!runtime ||
         runtime->flow.phase != UserAuthPhase::captcha_required ||
         coordinator->state.phase != UserAuthCoordinatorPhase::captcha_required) {
         return {};
@@ -835,7 +779,7 @@ UserAuthCoordinatorResult user_auth_coordinator_take_profile(UserAuthCoordinator
                                                              u64 profile_id, AccountProfile* profile,
                                                              u32 stop_timeout_ms) noexcept {
     UserAuthCoordinatorRuntime* runtime = runtime_of(coordinator);
-    if (!runtime || !profile || profile->credential.data || profile_id == 0 ||
+    if (!runtime ||
         runtime->flow.phase != UserAuthPhase::authenticated || runtime->token_bytes == 0) {
         return fail(coordinator, UserAuthCoordinatorError::invalid_input);
     }
@@ -881,14 +825,7 @@ HANDLE user_auth_coordinator_notification_handle(const UserAuthCoordinator* coor
 }
 
 UserAuthCoordinatorResult user_auth_coordinator_status(const UserAuthCoordinator* coordinator) noexcept {
-    if (coordinator) {
-        return coordinator->state;
-    }
-    UserAuthCoordinatorResult invalid{};
-    invalid.native_error = ERROR_INVALID_PARAMETER;
-    invalid.error = UserAuthCoordinatorError::invalid_input;
-    invalid.phase = UserAuthCoordinatorPhase::empty;
-    return invalid;
+    return coordinator->state;
 }
 
 UserAuthCoordinatorResult user_auth_coordinator_stop(UserAuthCoordinator* coordinator,
@@ -927,9 +864,8 @@ UserAuthCoordinatorResult user_auth_coordinator_stop(UserAuthCoordinator* coordi
         }
         runtime->transport_stopped = true;
     }
-    const u32 bytes = page_round(sizeof(UserAuthCoordinatorRuntime));
     secure_buffer_release(&runtime->secrets);
-    secure_clear_bytes(runtime, bytes);
+    secure_clear_bytes(runtime, kRuntimeBytes);
     pages_release(runtime);
     UserAuthCoordinatorResult stopped{};
     stopped.phase = UserAuthCoordinatorPhase::stopped;

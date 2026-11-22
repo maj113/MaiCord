@@ -126,6 +126,9 @@ struct VoiceMessageStatus;
 
 namespace maicord {
 
+// Every entry that takes an account or login instance needs a live one: the application checks its host's instance
+// (or holds state it made with that instance) before each call, and drops that state before the instance stops.
+
 inline constexpr u32 kAccountHistoryResponseBytes = 256 * 1024;
 
 enum class AccountModuleError : u8 {
@@ -305,8 +308,8 @@ static_assert(sizeof(AccountLoginStatus) == 120);
 // defines every entry and runs the hook a test sets in g_account_fake, in place of the module.
 
 AccountModuleStartResult account_module_start(const wchar_t* profile_path, const wchar_t* session_path,
-                                              u64 monotonic_now_ms, u64 unix_now_ms) noexcept;
-AccountModuleStatus account_module_pump(void* instance, u64 monotonic_now_ms, u64 unix_now_ms) noexcept;
+                                              u64 monotonic_now_ms) noexcept;
+AccountModuleStatus account_module_pump(void* instance, u64 monotonic_now_ms) noexcept;
 u32 account_module_notification_handles(void* instance, HANDLE* output, u32 capacity) noexcept;
 void* account_module_gateway_source(void* instance) noexcept;
 GatewayClientPopResult account_module_gateway_pop(void* source, GatewayClientEvent* event,
@@ -350,8 +353,7 @@ AccountMediaRequestResult account_module_media_attachment_request(void* instance
 AccountMediaRequestResult account_module_media_advance(void* instance, MediaAssetKey key, u16 cache_generation,
                                                        u32 frame_index, u64 unix_now_seconds) noexcept;
 bool account_module_media_take(void* instance, AccountMediaFrame* frame) noexcept;
-AccountModuleStatus account_module_stop(void** instance, u32 timeout_ms, u64 monotonic_now_ms,
-                                        u64 unix_now_ms) noexcept;
+AccountModuleStatus account_module_stop(void** instance, u32 timeout_ms) noexcept;
 AccountLoginStatus account_module_login_start(void** instance, const wchar_t* profile_path) noexcept;
 AccountLoginStatus account_module_login_submit_password(void* instance, const SecureBuffer* login,
                                                         const SecureBuffer* password) noexcept;

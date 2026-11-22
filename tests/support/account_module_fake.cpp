@@ -43,7 +43,7 @@
 namespace maicord {
 namespace {
 
-// The answer without a hook: what the module returns without an instance.
+// The answer without a hook: a refusal.
 template <typename Result>
 Result unavailable() noexcept {
     return {};
@@ -124,12 +124,11 @@ Result run(Hook hook, Arguments... arguments) noexcept {
 } // namespace
 
 AccountModuleStartResult account_module_start(const wchar_t* profile_path, const wchar_t* session_path,
-                                              u64 monotonic_now_ms, u64 unix_now_ms) noexcept {
-    return run<AccountModuleStartResult>(g_account_fake.start, profile_path, session_path, monotonic_now_ms,
-        unix_now_ms);
+                                              u64 monotonic_now_ms) noexcept {
+    return run<AccountModuleStartResult>(g_account_fake.start, profile_path, session_path, monotonic_now_ms);
 }
-AccountModuleStatus account_module_pump(void* instance, u64 monotonic_now_ms, u64 unix_now_ms) noexcept {
-    return run<AccountModuleStatus>(g_account_fake.pump, instance, monotonic_now_ms, unix_now_ms);
+AccountModuleStatus account_module_pump(void* instance, u64 monotonic_now_ms) noexcept {
+    return run<AccountModuleStatus>(g_account_fake.pump, instance, monotonic_now_ms);
 }
 u32 account_module_notification_handles(void* instance, HANDLE* output, u32 capacity) noexcept {
     return run<u32>(g_account_fake.notification_handles, instance, output, capacity);
@@ -229,9 +228,8 @@ AccountMediaRequestResult account_module_media_advance(void* instance, MediaAsse
 bool account_module_media_take(void* instance, AccountMediaFrame* frame) noexcept {
     return run<bool>(g_account_fake.media_take, instance, frame);
 }
-AccountModuleStatus account_module_stop(void** instance, u32 timeout_ms, u64 monotonic_now_ms,
-                                        u64 unix_now_ms) noexcept {
-    return run<AccountModuleStatus>(g_account_fake.stop, instance, timeout_ms, monotonic_now_ms, unix_now_ms);
+AccountModuleStatus account_module_stop(void** instance, u32 timeout_ms) noexcept {
+    return run<AccountModuleStatus>(g_account_fake.stop, instance, timeout_ms);
 }
 AccountLoginStatus account_module_login_start(void** instance, const wchar_t* profile_path) noexcept {
     return run<AccountLoginStatus>(g_account_fake.login_start, instance, profile_path);

@@ -83,8 +83,8 @@ RestClientSubmitResult account_module_account_settings(void* instance, const Acc
                                    request_id);
 }
 bool account_module_credential_replace(void* instance, const u8* token, u32 bytes) noexcept {
-    return token && user_account_coordinator_replace_credential(
-                        &static_cast<AccountModuleRuntime*>(instance)->coordinator, {token, bytes});
+    return user_account_coordinator_replace_credential(&static_cast<AccountModuleRuntime*>(instance)->coordinator,
+                                                       {token, bytes});
 }
 namespace account_module_detail {
 // Thread, forum and poll requests act as the signed-in user of this profile; forum posts and polls also
@@ -440,10 +440,7 @@ bool account_module_video_acknowledge(void* instance, const AccountVideoFrame* f
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return frame && account_media_worker_video_acknowledge(&runtime->media, *frame);
 }
-AccountModuleStatus account_module_stop(void** instance, u32 timeout_ms, u64, u64 unix_now_ms) noexcept {
-    if (timeout_ms == 0 || unix_now_ms == 0) {
-        return module_failure(AccountModuleError::invalid_input);
-    }
+AccountModuleStatus account_module_stop(void** instance, u32 timeout_ms) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(*instance);
     if (runtime->download) {
         if (!https_file_download_release(&runtime->download->transfer, timeout_ms)) {

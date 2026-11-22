@@ -235,7 +235,6 @@ void run() noexcept {
     check(refreshes == published && application_theme_transition_active(),
           "theme glide: a loop turn without a display frame publishes nothing");
     const Run sixty = run_frames(16);
-    test_write_metric("theme glide frames at 60 Hz: ", sixty.frames);
     check(sixty.every_frame && sixty.monotonic && sixty.frames == (kClientThemeGlideMs + 15) / 16 &&
               shows(settled_look()),
           "theme glide: a change the user makes publishes on every display frame for 0.6 s and settles exactly");
@@ -244,7 +243,6 @@ void run() noexcept {
     // Back to Dark at 144 Hz: the steps follow the display, not a timer.
     check(switch_builtin(ClientTheme::dark) && application_theme_transition_active(), "theme glide: back to Dark");
     const Run fast = run_frames(7);
-    test_write_metric("theme glide frames at 144 Hz: ", fast.frames);
     check(fast.every_frame && fast.monotonic && fast.frames == (kClientThemeGlideMs + 6) / 7 && shows(settled_look()),
           "theme glide: a faster display gets a publication on each of its frames");
 
@@ -318,7 +316,6 @@ void run() noexcept {
     now += 60'000;
     application_theme_schedule_tick(now, false);
     const Run jump = run_frames(16);
-    test_write_metric("theme glide frames for a jump of the clock: ", jump.frames);
     check(jump.every_frame && jump.monotonic && jump.frames == (kEffectAmbientEaseMs + 15) / 16 &&
               shows(settled_look()) && quiet(10),
           "theme glide: a jump of the clock glides over the effects' appearance glide, then asks for nothing");

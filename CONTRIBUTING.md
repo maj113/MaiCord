@@ -272,7 +272,7 @@ with the area's design and test notes.
   fake replaces a whole source file, so a replaceable function sits in a file of its own and the test lists its fake in
   `SOURCES` (`tests/support/voice_log_sink.cpp` for `src/app/voice/log_record.cpp`). A test that links application code lists
   `tests/support/account_module_fake.cpp` for the account module (`account_module_*`, `app/account/account_module_api.hpp`):
-  it answers as the module does without an instance unless the test sets the entry's hook
+  it refuses every call unless the test sets the entry's hook
   (`g_account_fake.message_ack = fake`; restore it when the case ends). A test of the module itself links the module.
 - **Window events.** Shared app and UI code never sees a window message or an `HWND`: the backend hands `WindowEvent`s
   (`platform/window/event.hpp`) to one sink, and the app acts on the window through the `window_*` calls of

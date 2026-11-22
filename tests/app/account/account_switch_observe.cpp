@@ -26,13 +26,13 @@
 namespace maicord {
 bool account_logout_stop_owned(const AccountLogoutStopOwner&) noexcept { return false; }
 Waitable account_logout_stop_notification(const AccountLogoutStopOwner&) noexcept { return nullptr; }
-AccountLogoutStopStartResult account_logout_stop_start(AccountLogoutStopOwner*, AccountHost*, u32, u64, u64,
+AccountLogoutStopStartResult account_logout_stop_start(AccountLogoutStopOwner*, AccountHost*, u32,
                                                        AccountLogoutStopFunction) noexcept {
     return {};
 }
 bool account_logout_stop_take(AccountLogoutStopOwner*, AccountHostStopResult*) noexcept { return false; }
 bool account_logout_stop_join_for_shutdown(AccountLogoutStopOwner*, u32, AccountHostStopResult*) noexcept { return true; }
-AccountHostStopResult account_host_stop(AccountHost*, u32, u64, u64) noexcept { return {}; }
+AccountHostStopResult account_host_stop(AccountHost*, u32) noexcept { return {}; }
 bool account_switch_busy(const AccountSwitch&) noexcept { return false; }
 bool account_switch_pump(AccountSwitch*) noexcept { return false; }
 bool account_switch_login_finished(AccountSwitch*, bool) noexcept { return false; }
@@ -43,7 +43,7 @@ AccountCredentialForgetResult account_credential_forget_complete_after_join(cons
 AccountCredentialForgetResult account_credential_forget_probe(const AccountPaths&) noexcept { return {}; }
 SecureEditResult secure_edit_clear(SecureEdit*) noexcept { return {}; }
 namespace app_detail {
-bool application_account_attach_if_present() noexcept { return false; }
+void application_account_attach_if_present() noexcept {}
 bool application_account_logout_blocked() noexcept { return false; }
 bool application_account_logout_host_owned() noexcept { return false; }
 bool application_account_logout_open() noexcept { return false; }
@@ -168,7 +168,6 @@ void run() noexcept {
     constexpr u32 kTurns = 100;
     for (u32 turn = 0; turn < kTurns; ++turn)
         application_account_switch_pump();
-    test_write_metric("slot 0 file reads over 100 loop turns", g_resolves[0]);
     check(g_resolves[0] == 1, "the screen reads the profile file once, not on each loop turn");
     check(!saved_needs_login(), "a present profile leaves the saved account signed in");
 

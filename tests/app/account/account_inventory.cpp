@@ -162,17 +162,12 @@ void test_paths(Check check, const Profile& profile) noexcept {
               ends_with(three.drafts, L"\\accounts\\slot-3\\active.drafts") &&
               ends_with(three.account_directory, L"\\accounts\\slot-3"),
           "account_inventory_slot_paths_are_per_profile");
-    AccountPaths invalid{};
-    check(!account_paths_build_slot(profile.base, kAccountPathsSlotCount, &invalid).ok(),
-          "account_inventory_slot_paths_reject_out_of_range");
     check(account_paths_ensure_directories(three).ok() && exists(three.account_directory),
           "account_inventory_slot_directories_nest_under_accounts");
     const u32 previous = account_paths_selected_slot();
     AccountPaths resolved{};
-    check(account_paths_select_slot(3) && account_paths_selected_slot() == 3 &&
-              !account_paths_select_slot(kAccountPathsSlotCount) && account_paths_selected_slot() == 3,
-          "account_inventory_slot_selection_is_bounded");
-    check(account_paths_resolve(&resolved).ok() && ends_with(resolved.profile, L"\\slot-3\\active.profile"),
+    check(account_paths_select_slot(3) && account_paths_resolve(&resolved).ok() &&
+              ends_with(resolved.profile, L"\\slot-3\\active.profile"),
           "account_inventory_resolve_follows_selected_slot");
     account_paths_select_slot(previous);
 }
@@ -433,10 +428,8 @@ void test_switch_machine(Check check) noexcept {
         check(!account_switch_begin(&machine, AccountSwitchKind::switch_account, 0, 1) && fake.is("S") &&
                   machine.phase == AccountSwitchPhase::idle,
               "account_switch_unstarted_stop_keeps_current_account");
-        check(!account_switch_begin(&machine, AccountSwitchKind::switch_account, 2, 2) &&
-                  !account_switch_begin(&machine, AccountSwitchKind::add_account, 0, kAccountPathsSlotCount) &&
-                  !account_switch_begin(&machine, AccountSwitchKind::none, 0, 1) && fake.is("S"),
-              "account_switch_rejects_invalid_requests_before_stopping");
+        check(!account_switch_begin(&machine, AccountSwitchKind::switch_account, 2, 2) && fake.is("S"),
+              "account_switch_rejects_a_switch_to_the_current_slot_before_stopping");
     }
     {
         FakeIo fake{};

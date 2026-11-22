@@ -21,8 +21,6 @@ bool account_logout_request_valid(const RestClientRequest& request) noexcept {
 
 AccountLogoutResult account_logout(RestClient* primary, AccountLogoutOperation operation, u64 request_id,
                                    AccountLogoutResponse* response) noexcept {
-    if (!primary || !request_id)
-        return {RestClientSubmitError::invalid_input, false, false};
     switch (operation) {
     case AccountLogoutOperation::begin: {
         const auto prepared = rest_client_prepare_logout(primary, request_id);
@@ -42,8 +40,6 @@ AccountLogoutResult account_logout(RestClient* primary, AccountLogoutOperation o
         return {cancelled ? RestClientSubmitError::none : RestClientSubmitError::busy, cancelled, false};
     }
     case AccountLogoutOperation::take: {
-        if (!response)
-            return {RestClientSubmitError::invalid_input, false, false};
         RestClientResponse receipt{};
         const auto taken = rest_client_take_logout_response(primary, request_id, &receipt);
         if (!taken.ok())

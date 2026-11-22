@@ -18,9 +18,9 @@ struct PhoneTsf {
         return app_detail::application_phone_range_geometry(*fixture.edit,
             {20, 20, 420, 64}, 144, {100, 200}, first, last, rectangle, clipped, fixture.clip);
     }
-    static bool point(void* context, SecureTextPoint p, bool round, u32* position, bool* inside) noexcept {
-        return login_phone_point_position({20, 20, 420, 64}, static_cast<PhoneTsf*>(context)->edit->storage.bytes,
-            (p.x - 100) / 1.5f, (p.y - 200) / 1.5f, round, position, inside);
+    static bool point(void*, SecureTextPoint p, bool round, u32* position, bool* inside) noexcept {
+        return login_phone_point_position({20, 20, 420, 64}, (p.x - 100) / 1.5f, (p.y - 200) / 1.5f, round, position,
+                                          inside);
     }
 };
 struct PhoneSink final : ITextStoreACPSink {
@@ -79,7 +79,7 @@ void test_password_phone_ui(void (*check)(bool, const char*) noexcept) noexcept 
         check(login_scene_layout(&scene, width, 600), "phone all responsive native states lay out"); view.focus = scene.focus;
         check(scene.phone_mode && !scene.qr_visible && scene.widgets.count <= kMaximumLoginWidgets &&
             !login_scene_element(scene, LoginElement::login_field) && !login_scene_element(scene, LoginElement::login_label) &&
-            scene.mfa_capabilities == 0 && login_view_valid(view) &&
+            scene.mfa_capabilities == 0 &&
             login_text_presentation_build(scene, view, kDefaultTheme, &text),
             "phone hides original identifier password QR and MFA choices within existing widget bank");
         const auto bounds = login_scene_content_rectangle(scene, LoginElement::password_field);
@@ -131,9 +131,6 @@ void test_password_phone_ui(void (*check)(bool, const char*) noexcept) noexcept 
         check(login_scene_layout(&scene, width, 600) && scene.layout_rebuilds == layouts && scene.storage.arena.base == storage,
             "unchanged phone state retains native widgets without per-frame allocation or layout rebuild");
     }
-    LoginView unsafe{}; unsafe.status = LoginStatus::recovery_phone_required; unsafe.login = utf8_literal("original-phone");
-    check(!login_view_valid(unsafe), "phone projection rejects original phone identifier exposure");
-    unsafe.login = {}; unsafe.password_mask = utf8_literal("12345a"); check(!login_view_valid(unsafe), "phone projection rejects nondigit code text");
     SecureEdit edit{};
     check(secure_edit_initialize(&edit, 64, false), "phone reuses an ordinary locked MFA edit bank");
     app_detail::application_phone_tsf_mutation_stamp() = 0;
@@ -193,7 +190,7 @@ void test_password_phone_ui(void (*check)(bool, const char*) noexcept) noexcept 
     sparse.focus = LoginControl::phone_code; sparse.edit_active = true; sparse.edit_anchor = 2; sparse.edit_caret = 5;
     sparse.password_mask = {reinterpret_cast<const char*>(edit.storage.data), 6};
     login_scene_apply_view(&scene, sparse);
-    check(login_view_valid(sparse) && login_view_submit_disabled(sparse) && login_scene_layout(&scene, 400, 600) &&
+    check(login_view_submit_disabled(sparse) && login_scene_layout(&scene, 400, 600) &&
         login_text_presentation_build(scene, sparse, kDefaultTheme, &text), "sparse projection admits holes while disabling Verify");
     u32 occupied_commands = 0;
     const auto sparse_bounds = login_scene_content_rectangle(scene, LoginElement::password_field);
@@ -204,11 +201,9 @@ void test_password_phone_ui(void (*check)(bool, const char*) noexcept) noexcept 
         ++occupied_commands;
     }
     check(occupied_commands == 4, "sparse code draws only four occupied cells");
-    sparse.phone_code_ready = true;
-    check(!login_view_valid(sparse), "projection cannot claim a sparse six-byte code is complete");
     const auto last_cell = login_phone_cell_rectangle(sparse_bounds, 5);
     u32 clicked = 0; bool inside = false;
-    check(login_phone_point_position(sparse_bounds, 0, last_cell.right - 1, last_cell.top + 1, true, &clicked, &inside) &&
+    check(login_phone_point_position(sparse_bounds, last_cell.right - 1, last_cell.top + 1, true, &clicked, &inside) &&
         clicked == 5 && inside, "the right side of an empty sixth cell selects its independent slot");
     secure_edit_clear(&edit);
     SecureTextStore store{}; PhoneTsf geometry{&edit}; PhoneSink sink;

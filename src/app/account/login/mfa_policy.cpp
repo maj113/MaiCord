@@ -34,9 +34,6 @@ u8 login_mfa_capability(UserAuthMfaType type) noexcept {
 }
 
 bool login_mfa_first_supported(u8 capabilities, UserAuthMfaType* type) noexcept {
-    if (!type) {
-        return false;
-    }
     for (u32 index = 0; index < kLoginMfaMethodCount; ++index) {
         const UserAuthMfaType candidate = kLoginMfaOrder[index];
         if ((capabilities & login_mfa_capability(candidate)) != 0) {

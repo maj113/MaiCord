@@ -144,7 +144,8 @@ bool game_detection_normalize(Utf8View path, char* output, u8* bytes) noexcept;
 // "C:\Games\stardew valley.exe" -> "Stardew valley": the display name of an added program.
 u32 game_detection_display_name(Utf8View path, Slice<char> output) noexcept;
 bool registered_games_add(RegisteredGames*, Utf8View name, Utf8View path) noexcept;
-bool registered_games_remove(RegisteredGames*, u32 index) noexcept;
+// Removes entry `index`, which is below games->count (the one caller checks it).
+void registered_games_remove(RegisteredGames*, u32 index) noexcept;
 // The entry of a detected game, created when it is first shown; when the list is full the detected game played
 // longest ago gives way (added programs and games turned off stay). kRegisteredGameNone when nothing can.
 u32 registered_games_seen(RegisteredGames*, Utf8View name, u64 application_id) noexcept;

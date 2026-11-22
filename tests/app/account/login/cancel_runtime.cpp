@@ -30,7 +30,7 @@ struct Audit {
     AccountLoginStatus recovery_response;
     u32 reset_submits, mfa_submits, ceremony_scenario;
     bool reset_null_retry;
-    u32 phone_verify_submits, phone_resend_submits, phone_takes, phone_token_bytes, malformed_take;
+    u32 phone_verify_submits, phone_resend_submits, phone_takes, phone_token_bytes;
     bool fail_take, joined_error, attach_success;
     u32 browser_starts, browser_copies, browser_launches;
     bool fail_browser_launch;
@@ -193,11 +193,8 @@ SecureBufferResult WINAPI phone_take(void* instance, u64 generation, SecureBuffe
         output->capacity < kLoginResetMaximumTokenBytes || audit.phone_token_bytes > audit.challenge.bytes)
         return {0, 0, SecureBufferError::invalid_input};
     const auto copied = secure_buffer_assign(output, {audit.challenge.data, audit.phone_token_bytes});
-    if (copied.ok()) {
+    if (copied.ok())
         secure_buffer_clear(&audit.challenge);
-        if (audit.malformed_take == 1) output->bytes = 0;
-        if (audit.malformed_take == 2) output->bytes = output->capacity + 1;
-    }
     return copied;
 }
 AccountLoginStatus WINAPI reset(void* instance, const SecureBuffer* token, const SecureBuffer* password) noexcept {
@@ -241,7 +238,7 @@ bool seed(bool remote) noexcept {
     audit.fail_stop = audit.fail_release = audit.cleared_before_stop = audit.secrets_cleared_before_stop = false;
     audit.allow_load = false; audit.recovery_submits = 0; audit.recovery_response = {};
     audit.reset_submits = audit.mfa_submits = audit.ceremony_scenario = 0; audit.reset_null_retry = false;
-    audit.phone_verify_submits = audit.phone_resend_submits = audit.phone_takes = audit.phone_token_bytes = audit.malformed_take = 0;
+    audit.phone_verify_submits = audit.phone_resend_submits = audit.phone_takes = audit.phone_token_bytes = 0;
     audit.fail_take = audit.joined_error = audit.attach_success = false;
     audit.browser_starts = audit.browser_copies = audit.browser_launches = 0;
     audit.fail_browser_launch = false; audit.browser_response = {};
@@ -451,7 +448,7 @@ void run_phone() noexcept {
         !g_app.login.login.password && !login_verification_link_candidate(
             {reinterpret_cast<const char*>(g_app.login.login.storage.data), g_app.login.login.storage.bytes}),
         "phone reset completion: reused editor after session expiry accepts an ordinary identifier");
-    for (u32 scenario = 0; scenario < 5; ++scenario) {
+    for (u32 scenario = 0; scenario < 3; ++scenario) {
         check(seed(false), "phone reset failure: owned fixture seeds");
         g_app.login.status = LoginStatus::recovery_phone_verify_pending;
         secure_edit_clear(&g_app.login.login); secure_edit_clear(&g_app.login.password); secure_edit_clear(&g_app.login.mfa);
@@ -460,10 +457,10 @@ void run_phone() noexcept {
         audit.recovery_response = {}; audit.recovery_response.generation = 700;
         audit.recovery_response.phase = AccountLoginPhase::phone_token_ready;
         audit.fail_take = scenario == 0; audit.fail_stop = scenario == 1; audit.fail_release = scenario == 2;
-        audit.malformed_take = scenario >= 3 ? scenario - 2 : 0;
+        // The real take gives 1 to kLoginResetMaximumTokenBytes bytes, so empty and oversized tokens are not cases.
         check(application_login_pump() && !g_app.login.reset_mode && editors_clear() && !audit.attachments &&
             (g_app.login.status == LoginStatus::cancelling || g_app.login.status == LoginStatus::recovery_phone_failed),
-              "phone reset failure: take/join/module/empty/oversized result cannot publish token or reset "
+              "phone reset failure: take/join/module result cannot publish token or reset "
               "owner");
         audit.fail_stop = audit.fail_release = false;
         check(application_login_cancel_blocked() && restored(), "phone reset failure: explicit Back retries retained cleanup safely");
@@ -1164,10 +1161,9 @@ void application_account_module_release() noexcept {
     if (!login_cancel_test::audit.fail_release && !g_app.account.login_instance && !g_app.account.instance)
         g_app.account = {};
 }
-bool application_account_attach_if_present() noexcept {
+void application_account_attach_if_present() noexcept {
     ++login_cancel_test::audit.attachments;
     if (login_cancel_test::audit.attach_success) { g_app.account.instance = &login_cancel_test::audit; g_app.login.visible = false; }
-    return true;
 }
 SecureEdit* application_active_login_edit() noexcept {
     if (login_cancel_test::audit.active_edit)

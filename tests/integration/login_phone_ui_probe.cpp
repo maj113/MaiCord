@@ -50,7 +50,7 @@ bool login_phone_ui_probe(D3D11Renderer& renderer,
         valid = valid && login_scene_layout(&scene, renderer.width / pixels, renderer.height / pixels);
         view.focus = scene.focus;
         stage = 30;
-        valid = valid && login_view_valid(view) && !scene.qr_visible &&
+        valid = valid && !scene.qr_visible &&
             !login_scene_element(scene, LoginElement::login_field) && scene.widgets.count <= kMaximumLoginWidgets;
         UiTextCommand commands[kMaximumLoginTextCommands]{}; UiTextCommandStream text{};
         valid = valid && ui_text_command_stream_initialize(&text, {commands, kMaximumLoginTextCommands}) &&

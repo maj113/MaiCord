@@ -148,11 +148,7 @@ void clear_ephemeral(RemoteAuthTicketExchange* exchange) noexcept {
 
 RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_initialize(
     RemoteAuthTicketExchange* exchange) noexcept {
-    if (!exchange || exchange->request.data || exchange->credential.data ||
-        exchange->captcha_solution.data || exchange->captcha.secrets.data ||
-        exchange->transport.worker.thread) {
-        return failure(RemoteAuthTicketExchangeError::invalid_input, ERROR_INVALID_PARAMETER);
-    }
+    // Both callers give a fresh exchange: a new remote auth runtime, or a test's own.
     reset_value<RemoteAuthTicketExchange>(exchange);
     SecureBufferResult secured =
         secure_buffer_initialize(&exchange->request, kRemoteAuthTicketExchangeRequestBytes);
@@ -181,12 +177,10 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_run(
     RemoteAuthTicketExchange* exchange, RemoteAuthHandshake* handshake, Utf8View ticket,
     HANDLE captcha_event, HANDLE cancel_event, RemoteAuthTicketExchangeEventFunction event_function,
     void* event_context) noexcept {
-    if (!exchange || !handshake || !captcha_event || !cancel_event || exchange->transport.worker.thread ||
-        !exchange->request.data || !exchange->credential.data || !exchange->captcha_solution.data ||
-        !exchange->captcha.secrets.data || !ticket.data || ticket.bytes == 0 ||
-        ticket.bytes > kRemoteAuthMaximumTicketBytes) {
+    // The remote auth worker gives its events, an initialized exchange whose transport is stopped and the
+    // handshake's ticket buffer; the ticket's length is the server's.
+    if (ticket.bytes == 0 || ticket.bytes > kRemoteAuthMaximumTicketBytes)
         return failure(RemoteAuthTicketExchangeError::invalid_input, ERROR_INVALID_PARAMETER);
-    }
 
     clear_ephemeral(exchange);
     secure_buffer_clear(&exchange->credential);
@@ -348,9 +342,6 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_run(
 
 RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_stop(RemoteAuthTicketExchange* exchange,
                                                                 u32 timeout_ms) noexcept {
-    if (!exchange || timeout_ms == 0) {
-        return failure(RemoteAuthTicketExchangeError::invalid_input, ERROR_INVALID_PARAMETER);
-    }
     RemoteAuthTicketExchangeResult result{};
     result = stop_transport(exchange, result, timeout_ms);
     clear_ephemeral(exchange);
@@ -358,9 +349,6 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_stop(RemoteAuthTicket
 }
 
 void remote_auth_ticket_exchange_release(RemoteAuthTicketExchange* exchange) noexcept {
-    if (!exchange) {
-        return;
-    }
     // The REST worker owns separate copied request storage, so these caller
     // secrets can be erased while a failed join remains quarantined.
     clear_ephemeral(exchange);
@@ -384,18 +372,14 @@ void remote_auth_ticket_exchange_release(RemoteAuthTicketExchange* exchange) noe
 SecureBufferResult remote_auth_ticket_exchange_copy_captcha_secret(const RemoteAuthTicketExchange* exchange,
                                                                    CaptchaChallengeSecretKind kind,
                                                                    SecureBuffer* output) noexcept {
-    if (!exchange) {
-        return SecureBufferResult{0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
-    }
     return captcha_challenge_copy_secret(&exchange->captcha, kind, output);
 }
 
 SecureBufferResult remote_auth_ticket_exchange_submit_captcha(RemoteAuthTicketExchange* exchange,
                                                               const SecureBuffer* solution,
                                                               HANDLE captcha_event) noexcept {
-    if (!exchange || !captcha_event || !solution || !solution->data || !solution->locked ||
-        solution->bytes == 0 || solution->bytes > solution->capacity ||
-        solution->bytes > kRemoteAuthTicketExchangeSolutionBytes ||
+    // The solution is the locked token the CAPTCHA bridge took, of at most kRemoteAuthTicketExchangeSolutionBytes.
+    if (solution->bytes == 0 ||
         !captcha_challenge_snapshot(&exchange->captcha).active ||
         InterlockedCompareExchange(&exchange->captcha_submitted, 1, 0) != 0) {
         return SecureBufferResult{0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
@@ -417,7 +401,7 @@ SecureBufferResult remote_auth_ticket_exchange_submit_captcha(RemoteAuthTicketEx
 
 SecureBufferResult remote_auth_ticket_exchange_take_credential(RemoteAuthTicketExchange* exchange,
                                                                SecureBuffer* output) noexcept {
-    if (!exchange || !locked_output(output) || exchange->credential.bytes == 0) {
+    if (!locked_output(output) || exchange->credential.bytes == 0) {
         return SecureBufferResult{0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
     }
     const SecureBufferResult assigned =

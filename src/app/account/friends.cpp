@@ -1492,8 +1492,9 @@ u64 application_friends_next_wake() noexcept {
     const auto& request = g_app.friends->request;
     return request.phase == FriendsRequestPhase::queued ? 1 : request.phase == FriendsRequestPhase::retry ? request.retry_at : 0;
 }
+// The history lanes give ids from next_message_history_request_id, which are never zero.
 bool application_friends_submit(u64 id, u64 now) noexcept {
-    if (!id || !application_friends_pending(now) || !g_app.account.instance) return false;
+    if (!application_friends_pending(now) || !g_app.account.instance) return false;
     auto& friends = *g_app.friends;auto& request = friends.request;
     if (!request_current(friends, request)) {
             request.phase = FriendsRequestPhase::failed;request.operation = RelationshipOperation::list;

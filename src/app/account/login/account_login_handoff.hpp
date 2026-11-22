@@ -41,8 +41,8 @@ struct AccountLoginRuntime {
     bool account_suspended;
 };
 
-// Indexed by UserAuthCoordinatorPhase. Failed, stopping and the browser exchange map to failed, as does
-// anything out of range.
+// Indexed by UserAuthCoordinatorPhase, whose last value is browser_exchange_pending. Failed, stopping and the
+// browser exchange map to failed.
 constexpr AccountLoginPhase kLoginPhases[] = {
     AccountLoginPhase::empty,
     AccountLoginPhase::idle,
@@ -83,8 +83,7 @@ static_assert(kLoginPhaseCount == static_cast<u32>(UserAuthCoordinatorPhase::bro
               static_cast<u32>(UserAuthCoordinatorPhase::phone_token_taken) == 28);
 
 AccountLoginPhase login_phase(UserAuthCoordinatorPhase phase) noexcept {
-    const u32 index = static_cast<u32>(phase);
-    return index < kLoginPhaseCount ? kLoginPhases[index] : AccountLoginPhase::failed;
+    return kLoginPhases[static_cast<u32>(phase)];
 }
 
 AccountLoginPhase remote_login_phase(RemoteAuthClientPhase phase) noexcept {
@@ -121,8 +120,6 @@ AccountLoginPhase remote_login_phase(RemoteAuthClientPhase phase) noexcept {
 }
 
 AccountLoginStatus login_status(AccountLoginRuntime* runtime) noexcept {
-    if (!runtime)
-        return account_login_invalid_input();
     const UserAuthCoordinatorResult coordinator = runtime->coordinator_started
                                                       ? user_auth_coordinator_status(&runtime->coordinator)
                                                       : UserAuthCoordinatorResult{};

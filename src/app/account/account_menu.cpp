@@ -102,9 +102,8 @@ inline Utf8View custom_status_label(char* output, u32 capacity) noexcept {
 inline UiAccountMenuIdentity identity(u64 self_user, u32* revision, u64* status_revision) noexcept {
     UiAccountMenuIdentity result{};
     result.custom_status_available = application_custom_status_available();
-    if (g_app.account_menu)
-        result.custom_status = custom_status_label(g_app.account_menu->custom_status,
-                                                   sizeof(g_app.account_menu->custom_status));
+    result.custom_status =
+        custom_status_label(g_app.account_menu->custom_status, sizeof(g_app.account_menu->custom_status));
     result.user_id = self_user;
     result.logout_available = application_account_logout_available();
     result.switch_available = application_account_switch_available();

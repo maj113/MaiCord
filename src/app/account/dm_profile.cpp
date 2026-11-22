@@ -127,7 +127,8 @@ CachedProfile* find(u64 user) noexcept {
             return &entry;
     return nullptr;
 }
-// The entry for user, reusing the least recently shown one (never the shown).
+// The entry for user, reusing the least recently shown one (never the shown). Of kCacheCapacity entries only the
+// shown one is skipped, so one is always found.
 CachedProfile* claim(u64 user) noexcept {
     if (auto* entry = find(user))
         return entry;
@@ -135,8 +136,6 @@ CachedProfile* claim(u64 user) noexcept {
     for (auto& entry : g_panel->cache)
         if ((!g_panel->shown || entry.user_id != g_panel->shown) && (!oldest || entry.used_ms < oldest->used_ms))
             oldest = &entry;
-    if (!oldest)
-        return nullptr;
     reset_value(oldest);
     oldest->user_id = user;
     oldest->data.user_id = user;
@@ -212,8 +211,6 @@ bool show(u64 user, UiRect slot) noexcept {
     auto& s = g_panel->scene;
     const u64 now = now_ms();
     auto* entry = claim(user);
-    if (!entry)
-        return false;
     entry->used_ms = now;
     const bool changed = g_panel->shown != user || !s.active;
     // Until the profile loads, the panel shows what the user store knows,

@@ -82,12 +82,14 @@ void publish_phase(RemoteAuthClient* client, RemoteAuthClientPhase phase) noexce
     InterlockedExchange(&client->phase, static_cast<LONG>(phase));
 }
 
+RemoteAuthClientResult invalid_input() noexcept {
+    RemoteAuthClientResult value{};
+    value.error = RemoteAuthClientError::invalid_input;
+    return value;
+}
+
 RemoteAuthClientResult client_result(const RemoteAuthClient* client) noexcept {
     RemoteAuthClientResult value{};
-    if (!client) {
-        value.error = RemoteAuthClientError::invalid_input;
-        return value;
-    }
     value.next_wake_at_ms = load_field64(client->next_wake_at_ms);
     value.ticket_error_code = load_field64(client->ticket_error_code);
     value.retry_at_ms = load_field64(client->retry_at_ms);
@@ -731,11 +733,9 @@ bool initialize_runtime(RemoteAuthClientRuntime* runtime, u32* native_error) noe
 // source_bytes names the field guarded by the snapshot lock, so it is read under that lock.
 bool copy_snapshot(const RemoteAuthClient& client, const char* source, const u32& source_bytes,
                    const Slice<char>& output, u32* output_bytes) noexcept {
-    if (!output_bytes || (!output.data && output.count != 0))
-        return false;
     AcquireSRWLockShared(client.snapshot_lock.native());
     const u32 count = source_bytes;
-    const bool fits = count != 0 && count <= output.count && output.data;
+    const bool fits = count != 0 && count <= output.count;
     if (fits)
         copy_bytes(output.data, source, count);
     *output_bytes = count;
@@ -754,9 +754,9 @@ RemoteAuthClientResult start_failure(RemoteAuthClient* client, RemoteAuthClientE
 } // namespace
 
 RemoteAuthClientResult remote_auth_client_start(RemoteAuthClient* client) noexcept {
-    if (!client || client->runtime || client->thread ||
+    if (client->runtime || client->thread ||
         load_phase(client) != RemoteAuthClientPhase::empty)
-        return client_result(nullptr);
+        return invalid_input();
     reset_value<RemoteAuthClient>(client);
     publish_phase(client, RemoteAuthClientPhase::starting);
     auto* runtime = commit_pages<RemoteAuthClientRuntime>();
@@ -812,8 +812,8 @@ RemoteAuthClientResult remote_auth_client_start(RemoteAuthClient* client) noexce
 }
 
 RemoteAuthClientResult remote_auth_client_cancel(RemoteAuthClient* client) noexcept {
-    if (!client || !client->runtime || !client->thread)
-        return client_result(nullptr);
+    if (!client->runtime || !client->thread)
+        return invalid_input();
     AcquireSRWLockExclusive(client->snapshot_lock.native());
     const RemoteAuthClientPhase phase = load_phase(client);
     if (phase == RemoteAuthClientPhase::authenticated || phase == RemoteAuthClientPhase::cancelled ||
@@ -833,8 +833,8 @@ RemoteAuthClientResult remote_auth_client_cancel(RemoteAuthClient* client) noexc
 }
 
 RemoteAuthClientResult remote_auth_client_stop(RemoteAuthClient* client, u32 timeout_ms) noexcept {
-    if (!client || !client->runtime || !client->thread || timeout_ms == 0)
-        return client_result(nullptr);
+    if (!client->runtime || !client->thread)
+        return invalid_input();
     AcquireSRWLockExclusive(client->snapshot_lock.native());
     if (load_phase(client) == RemoteAuthClientPhase::authenticated) {
         // Authentication publication proves the worker finished writing this
@@ -906,9 +906,8 @@ RemoteAuthClientResult remote_auth_client_stop(RemoteAuthClient* client, u32 tim
 }
 
 bool remote_auth_client_pop_event(RemoteAuthClient* client, RemoteAuthClientEvent* event) noexcept {
-    auto* runtime =
-        client && client->runtime ? static_cast<RemoteAuthClientRuntime*>(client->runtime) : nullptr;
-    if (!runtime || !event || !spsc_queue_pop(&runtime->events, event)) {
+    auto* runtime = static_cast<RemoteAuthClientRuntime*>(client->runtime);
+    if (!runtime || !spsc_queue_pop(&runtime->events, event)) {
         return false;
     }
     if (spsc_queue_size(runtime->events) == 0) {
@@ -953,8 +952,7 @@ SecureBufferResult remote_auth_client_take_credential(RemoteAuthClient* client,
 SecureBufferResult remote_auth_client_copy_captcha_secret(const RemoteAuthClient* client,
                                                           CaptchaChallengeSecretKind kind,
                                                           SecureBuffer* output) noexcept {
-    const auto* runtime =
-        client && client->runtime ? static_cast<const RemoteAuthClientRuntime*>(client->runtime) : nullptr;
+    const auto* runtime = static_cast<const RemoteAuthClientRuntime*>(client->runtime);
     if (!runtime || load_phase(client) != RemoteAuthClientPhase::captcha_required) {
         return SecureBufferResult{0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
     }
@@ -963,8 +961,7 @@ SecureBufferResult remote_auth_client_copy_captcha_secret(const RemoteAuthClient
 
 RemoteAuthClientResult remote_auth_client_submit_captcha(RemoteAuthClient* client,
                                                          const SecureBuffer* solution) noexcept {
-    auto* runtime =
-        client && client->runtime ? static_cast<RemoteAuthClientRuntime*>(client->runtime) : nullptr;
+    auto* runtime = static_cast<RemoteAuthClientRuntime*>(client->runtime);
     if (!runtime || load_phase(client) != RemoteAuthClientPhase::captcha_required) {
         RemoteAuthClientResult result = client_result(client);
         result.error = RemoteAuthClientError::invalid_input;
@@ -982,10 +979,10 @@ RemoteAuthClientResult remote_auth_client_submit_captcha(RemoteAuthClient* clien
 }
 
 HANDLE remote_auth_client_notification_handle(const RemoteAuthClient* client) noexcept {
-    if (client && client->thread && load_phase(client) == RemoteAuthClientPhase::authenticated &&
+    if (client->thread && load_phase(client) == RemoteAuthClientPhase::authenticated &&
         read_acquire(&client->token_taken) == 0)
         return thread_waitable(client->thread);
-    return client ? client->notification_event : nullptr;
+    return client->notification_event;
 }
 
 RemoteAuthClientResult remote_auth_client_status(const RemoteAuthClient* client) noexcept {

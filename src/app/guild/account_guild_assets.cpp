@@ -98,7 +98,7 @@ RestClientSubmitResult account_guild_assets_submit(RestClient* rest, const Guild
 }
 
 bool account_guild_assets_probe(const GuildAssetRequest* request) noexcept {
-    if (!request || request->operation != GuildAssetOperation::image_probe || !guild_asset_request_valid(*request))
+    if (!guild_asset_request_valid(*request))
         return false;
     GuildImageBuffer buffer{};
     GuildPreparedImage image{};

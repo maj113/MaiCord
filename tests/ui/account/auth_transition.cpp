@@ -178,7 +178,7 @@ void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noe
                     : nullptr;
             login_scene_apply_view(&scene, view);
             ordinary_controls =
-                ordinary_controls && login_view_valid(view) && !scene.action_disabled &&
+                ordinary_controls && !scene.action_disabled &&
                 !scene.submit_disabled && !scene.recovery_disabled && scene.browser_available &&
                 !login_browser_mode(status) && !login_phone_mode(status) && !login_recovery_mode(status) &&
                 !login_requires_back(status, remote) &&
@@ -284,7 +284,7 @@ void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noe
                 limited.focus = paused.focus;
                 const auto submit = login_scene_rectangle(paused, LoginElement::submit);
                 rate_controls =
-                    rate_controls && login_view_valid(limited) && paused.submit_disabled == !unknown &&
+                    rate_controls && paused.submit_disabled == !unknown &&
                     !paused.captcha_action &&
                     login_scene_hit_test(paused, (submit.left + submit.right) * 0.5f,
                                          (submit.top + submit.bottom) * 0.5f) ==

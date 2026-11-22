@@ -66,14 +66,6 @@ void test_password_reset_protocol(void (*check)(bool, const char*) noexcept) noe
     const auto short_body = user_auth_write_reset_password_request(request, {body, measured.bytes - 1});
     check(short_body.error == UserAuthWriteError::output_too_small && short_body.bytes == measured.bytes &&
         filled_reset({body, sizeof(body)}, 0x5A), "reset measured capacity failure leaves the entire destination untouched");
-    check(user_auth_write_reset_password_request({{reinterpret_cast<const char*>(body), 3}, request.password},
-        {body, sizeof(body)}).error == UserAuthWriteError::invalid_input && filled_reset({body, sizeof(body)}, 0x5A),
-        "reset initial writer rejects source/output aliasing before writes");
-    check(user_auth_write_reset_password_tail({reinterpret_cast<const char*>(body), 3}, {body, sizeof(body)}).error ==
-        UserAuthWriteError::invalid_input &&
-        user_auth_write_reset_mfa_suffix(utf8_literal("123456"), {reinterpret_cast<const char*>(body), 3},
-            UserAuthMfaType::sms, {body, sizeof(body)}).error == UserAuthWriteError::invalid_input,
-        "reset password and MFA tails reject aliased inputs");
     const auto exact = user_auth_write_reset_password_request(request, {body, measured.bytes});
     check(exact.ok() && exact.bytes == measured.bytes,
         "reset initial writer accepts its exact measured capacity");

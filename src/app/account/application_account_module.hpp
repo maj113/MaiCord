@@ -17,14 +17,14 @@ bool application_account_module_load() noexcept;
 void application_account_module_release() noexcept;
 bool application_account_return_to_login(bool rejected) noexcept;
 // Starts the saved account's worker before any window or UI exists; attach
-// publishes it. False when attach must take the full (UI-backed) path.
-bool application_account_prestart() noexcept;
+// publishes it, or takes the full (UI-backed) path when this declined.
+void application_account_prestart() noexcept;
 // Stops a worker that prestart started but attach never published.
 void application_account_prestart_cancel() noexcept;
 // A prestarted account waits for attach, which replaces the sign-in form with
 // the restoring view (and synchronizes that view itself).
 bool application_account_prestart_pending() noexcept;
-bool application_account_attach_if_present() noexcept;
+void application_account_attach_if_present() noexcept;
 bool synchronize_member_subscription(u64 now_ms) noexcept;
 // author_hydration.cpp: the people the view shows. A frame without a running account does nothing.
 void synchronize_visible_author_hydration(u64 now_ms) noexcept;

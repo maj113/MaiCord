@@ -426,8 +426,6 @@ void test_client_theme_document(void (*check)(bool, const char*) noexcept) noexc
                     defaults),
         "theme document: effects and palettes have exact bounded native domains without script or asset "
         "inputs");
-    u32 length{};
-    const auto measured = client_theme_document_write(output, {}, &length);
     u32 bytes{};
     const auto written = client_theme_document_write(output, {exported, sizeof(exported)}, &bytes);
     ClientThemeDocument roundtrip{};
@@ -435,7 +433,7 @@ void test_client_theme_document(void (*check)(bool, const char*) noexcept) noexc
     u32 rewritten_bytes{};
     const auto canonical =
         client_theme_document_write(roundtrip, {rewritten, sizeof(rewritten)}, &rewritten_bytes);
-    check(measured.ok() && length == bytes && written.ok() && decoded.ok() && canonical.ok() &&
+    check(written.ok() && decoded.ok() && canonical.ok() &&
               client_theme_document_equal(output, roundtrip) && bytes == rewritten_bytes &&
               bytes_equal(exported, rewritten, bytes),
           "theme document: complete resolved export roundtrips every semantic field into stable canonical "
@@ -483,25 +481,6 @@ void test_client_theme_document(void (*check)(bool, const char*) noexcept) noexc
                   ClientThemeDocumentError::capacity &&
               unchanged == 123 && bytes_equal(small, small_before, sizeof(small)),
           "theme document: insufficient export capacity preserves destination and reported byte count");
-    auto nonfinite = defaults;
-    const u32 nan_bits = 0x7fc00000;
-    copy_bytes(&nonfinite.theme.accent.red, &nan_bits, sizeof(nan_bits));
-    check(client_theme_document_write(nonfinite, {small, sizeof(small)}, &unchanged).error ==
-                  ClientThemeDocumentError::invalid_input &&
-              unchanged == 123 && bytes_equal(small, small_before, sizeof(small)),
-          "theme document: nonfinite authored data cannot serialize or partially overwrite export output");
-    auto preserved = defaults;
-    const auto before = preserved;
-    u32 tiny_scratch[1]{};
-    check(client_theme_document_parse(utf8_literal("{\"version\":\"2.0\"}"), defaults, {tiny_scratch, 1},
-                                      &preserved)
-                      .error == ClientThemeDocumentError::capacity &&
-              bytes_equal(&preserved, &before, sizeof(preserved)),
-          "theme document: caller-owned index overflow is bounded and preserves complete output");
-    check(!client_theme_document_parse({exported, kClientThemeDocumentMaximumBytes + 1}, defaults,
-                                       {scratch, 4096}, &preserved)
-               .ok(),
-          "theme document: oversized files are refused before parsing or touching scratch");
     char long_name[160]{};
     constexpr auto name_prefix = utf8_literal("{\"version\":\"2.0\",\"name\":\"");
     copy_bytes(long_name, name_prefix.data, name_prefix.bytes);

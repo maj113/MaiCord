@@ -646,7 +646,7 @@ AccountModuleStatus status_of(Module& m) noexcept {
     return status;
 }
 
-AccountModuleStartResult WINAPI module_start(const wchar_t*, const wchar_t*, u64, u64) noexcept {
+AccountModuleStartResult WINAPI module_start(const wchar_t*, const wchar_t*, u64) noexcept {
     AccountModuleStartResult result{};
     if (g_module) {
         result.error = AccountModuleError::coordinator_start;
@@ -702,7 +702,7 @@ AccountModuleStartResult WINAPI module_start(const wchar_t*, const wchar_t*, u64
     return result;
 }
 
-AccountModuleStatus WINAPI module_pump(void* instance, u64, u64) noexcept {
+AccountModuleStatus WINAPI module_pump(void* instance, u64) noexcept {
     return status_of(*static_cast<Module*>(instance));
 }
 
@@ -912,7 +912,7 @@ bool WINAPI module_media_take(void* instance, AccountMediaFrame* frame) noexcept
 void stop_call(Module& m) noexcept;
 void release_call_textures(SyntheticCall& call) noexcept;
 
-AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64) noexcept {
+AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms) noexcept {
     AccountModuleStatus status{};
     auto* m = instance ? static_cast<Module*>(*instance) : nullptr;
     if (!m)

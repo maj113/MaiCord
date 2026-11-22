@@ -300,12 +300,9 @@ bool registered_games_add(RegisteredGames* games, Utf8View name, Utf8View path) 
     game.flags = registered_game_added;
     return true;
 }
-bool registered_games_remove(RegisteredGames* games, u32 index) noexcept {
-    if (index >= games->count)
-        return false;
+void registered_games_remove(RegisteredGames* games, u32 index) noexcept {
     copy_bytes(&games->items[index], &games->items[index + 1], (games->count - index - 1) * sizeof(RegisteredGame));
     reset_value(&games->items[--games->count]);
-    return true;
 }
 u32 registered_games_seen(RegisteredGames* games, Utf8View name, u64 application_id) noexcept {
     if (!application_id || !name.bytes)
@@ -385,13 +382,12 @@ u32 game_detection_arguments(const DetectableList& list, Utf8View file, Utf8View
         }
     return used;
 }
+// The output holds a full list (registered_games_save gives kRecordBytes, sized for kRegisteredGameMaximum entries).
 u32 registered_games_encode(const RegisteredGames& games, Slice<u8> output) noexcept {
     // The header, then each entry's 19 fixed bytes, name and executable.
     u32 bytes = 5;
     for (u32 i = 0; i < games.count; ++i)
         bytes += 19 + games.items[i].name_bytes + games.items[i].executable_bytes;
-    if (bytes > output.count)
-        return 0;
     u8* at = output.data;
     copy_bytes(at, kMagic, 4);
     at[4] = static_cast<u8>(games.count);

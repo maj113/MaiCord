@@ -239,8 +239,6 @@ void password_flow() noexcept {
               status.captcha_provider == CaptchaProvider::recaptcha_enterprise &&
               !module_login_copy_captcha_bridge_url(owner, 5, &credential).ok(),
           "captcha login: password challenge waits for an explicit bridge start");
-    check(module_login_start_captcha_bridge(owner, 0, 60000).error == AccountLoginError::invalid_input,
-          "captcha login: zero generation is refused");
     status = module_login_start_captcha_bridge(owner, 5, 60000);
     check(status.ok() && wait_bridge(owner, CaptchaBridgePhase::waiting) &&
               module_login_start_captcha_bridge(owner, 6, 60000).error == AccountLoginError::invalid_input,

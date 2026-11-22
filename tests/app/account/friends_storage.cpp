@@ -30,8 +30,6 @@ void test_banks() noexcept {
         !storage.names.arena.committed && state(active, MEM_RESERVE) && state(candidate, MEM_RESERVE) &&
         state(indices, MEM_RESERVE) && state(names, MEM_RESERVE),
         "friends storage: empty reservations have no committed data pages");
-    check(!friends_relationship_storage_initialize(&storage) && state(active, MEM_RESERVE),
-        "friends storage: duplicate initialization preserves reservations");
     RelationshipStore store{{active, kFriendsRelationshipCapacity}, 0, 0};
     check(friends_relationship_storage_upsert(&storage, store, 30) && relationship_store_upsert(&store, record(30)).ok(),
         "friends storage: first live upsert commits before writing");

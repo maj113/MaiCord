@@ -327,7 +327,7 @@ bool application_emoji_preferences_pending(u64 now_ms) noexcept {
 }
 
 bool application_emoji_preferences_submit(u64 id, u64 now_ms) noexcept {
-    if (!id || !application_emoji_preferences_pending(now_ms))
+    if (!application_emoji_preferences_pending(now_ms))
         return false;
     auto& p = *broker;
     auto* preferences = store();

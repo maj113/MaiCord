@@ -11,7 +11,7 @@ struct Fixture {
     RestClientResponse metadata;
     UserAuthOperation operation;
     u64 request_id;
-    u32 submissions, notification_reads, request_capacity;
+    u32 submissions, request_capacity;
     bool ready, fail_stop, fail_submit, joined_error;
     RestClientPhase phase;
     RestClientError error;
@@ -28,9 +28,6 @@ constexpr auto initial = utf8_literal(R"({"token":"reset-link","password":"new-p
 constexpr auto mfa = utf8_literal(R"({"mfa":true,"totp":true,"sms":true,"backup":true,"webauthn":"challenge","ticket":"mfa-ticket"})");
 constexpr auto challenge = utf8_literal(R"({"captcha_key":["required"],"captcha_service":"hcaptcha","captcha_sitekey":"site","captcha_rqtoken":"rq-token","captcha_session_id":"session"})");
 constexpr auto assertion = utf8_literal(R"({"id":"AQID","rawId":"AQID","response":{"authenticatorData":"AQID","clientDataJSON":"AQID","signature":"AQID","userHandle":null},"type":"public-key","clientExtensionResults":{},"authenticatorAttachment":null})");
-void copy_bytes(u8* output, const char* source, u32 bytes) noexcept {
-    for (u32 i = 0; i < bytes; ++i) output[i] = static_cast<u8>(source[i]);
-}
 bool assign(SecureBuffer* output, Utf8View value) noexcept {
     return secure_buffer_assign(output, {reinterpret_cast<const u8*>(value.data), value.bytes}).ok();
 }

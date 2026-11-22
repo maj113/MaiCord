@@ -34,7 +34,6 @@ enum class RemoteAuthHandshakeEventKind : u8 {
 
 enum class RemoteAuthHandshakeError : u8 {
     none,
-    invalid_input,
     invalid_state,
     protocol,
     crypto,

@@ -109,8 +109,6 @@ void remember_application(ApplicationProfile& p, u64 id, const Utf8View& icon) n
 // One GET for the public applications (their icons) or a button's metadata.
 bool submit_activity_request(ApplicationProfile& p, u64 now) noexcept {
     auto& host = g_app.account;
-    if (!g_app.account_ui)
-        return false;
     char ids[3 * 21];
     u32 used = 0, count = 0;
     const bool metadata = p.metadata_pending;
@@ -378,10 +376,9 @@ bool show_modal(ApplicationProfile& p, ProfileTab tab, bool note = false) noexce
         return false;
     return repaint(true);
 }
+// Its callers (the card's pointer and key handlers) run only while the profile card is open.
 bool activate(ProfileAction action, UiWidgetHandle target = {}) noexcept {
     auto* p = g_app.profile;
-    if (!p)
-        return false;
     auto& s = p->scene;
     const auto* part = profile_scene_part(s, target);
     switch (action) {

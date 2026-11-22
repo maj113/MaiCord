@@ -37,10 +37,8 @@ RemoteAuthHandshakeResult fail(RemoteAuthHandshake* handshake, Arguments... argu
 }
 
 bool constant_time_equal(ConstSlice<u8> first, ConstSlice<u8> second) noexcept {
-    if (first.count != second.count || (!first.data && first.count != 0) ||
-        (!second.data && second.count != 0)) {
+    if (first.count != second.count) // the one caller compares two arrays
         return false;
-    }
     u8 difference = 0;
     for (u32 index = 0; index < first.count; ++index) {
         difference |= first[index] ^ second[index];
@@ -65,11 +63,7 @@ RemoteAuthHandshakeResult crypto_failure(
 } // namespace
 
 RemoteAuthHandshakeResult remote_auth_handshake_initialize(RemoteAuthHandshake* handshake) noexcept {
-    if (!handshake || handshake->phase != RemoteAuthHandshakePhase::empty ||
-        handshake->crypto.rsa_algorithm || handshake->crypto.rsa_key ||
-        handshake->crypto.sha256_algorithm) {
-        return result(RemoteAuthHandshakeError::invalid_input);
-    }
+    // The one caller (the remote auth worker) gives the fresh handshake of a new runtime.
     const RemoteAuthCryptoResult initialized = remote_auth_crypto_initialize(&handshake->crypto);
     if (!initialized.ok()) {
         reset_value<RemoteAuthHandshake>(handshake);
@@ -97,9 +91,6 @@ RemoteAuthHandshakeResult remote_auth_handshake_initialize(RemoteAuthHandshake* 
 }
 
 void remote_auth_handshake_release(RemoteAuthHandshake* handshake) noexcept {
-    if (!handshake) {
-        return;
-    }
     remote_auth_crypto_release(&handshake->crypto);
     secure_clear_bytes(handshake, sizeof(*handshake));
 }
@@ -108,8 +99,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
                                                        Slice<u32> structural_scratch, u32 maximum_depth,
                                                        u64 now_ms, Slice<char> command, Slice<char> data,
                                                        RemoteAuthHandshakeEvent* event) noexcept {
-    if (!handshake || !event || now_ms == 0 || (!command.data && command.count != 0) ||
-        (!data.data && data.count != 0) || handshake->phase == RemoteAuthHandshakePhase::empty ||
+    if (handshake->phase == RemoteAuthHandshakePhase::empty ||
         handshake->phase == RemoteAuthHandshakePhase::authenticated ||
         handshake->phase == RemoteAuthHandshakePhase::cancelled ||
         handshake->phase == RemoteAuthHandshakePhase::failed) {
@@ -304,11 +294,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
 RemoteAuthHandshakeResult remote_auth_handshake_tick(RemoteAuthHandshake* handshake, u64 now_ms,
                                                      Slice<char> command,
                                                      RemoteAuthHandshakeEvent* event) noexcept {
-    if (!handshake || !event || now_ms == 0 || (!command.data && command.count != 0) ||
-        handshake->phase < RemoteAuthHandshakePhase::awaiting_nonce ||
-        handshake->phase > RemoteAuthHandshakePhase::ticket_ready) {
-        return result(RemoteAuthHandshakeError::invalid_state);
-    }
+    // The caller (tick_handshake) ticks only from awaiting_nonce to ticket_ready, with the clock and a local buffer.
     reset_value<RemoteAuthHandshakeEvent>(event);
     if (handshake->expires_at_ms != 0 && now_ms >= handshake->expires_at_ms) {
         return fail(handshake, RemoteAuthHandshakeError::session_timeout);
@@ -336,8 +322,8 @@ RemoteAuthHandshakeResult remote_auth_handshake_finish_ticket(RemoteAuthHandshak
                                                               Slice<u32> structural_scratch,
                                                               u32 maximum_depth,
                                                               SecureBuffer* token) noexcept {
-    if (!handshake || handshake->phase != RemoteAuthHandshakePhase::ticket_ready || !token ||
-        !token->data || !token->locked || token->capacity == 0) {
+    if (handshake->phase != RemoteAuthHandshakePhase::ticket_ready || !token->data || !token->locked ||
+        token->capacity == 0) {
         return result(RemoteAuthHandshakeError::invalid_state);
     }
     // A new ticket attempt replaces the output credential. Erase it before

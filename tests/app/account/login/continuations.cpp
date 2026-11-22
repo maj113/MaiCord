@@ -58,10 +58,6 @@ void test_login_continuations(void (*check)(bool, const char*) noexcept) noexcep
         check(!login_verification_consume_link(link, &token).ok() && cleared(token),
               "verification rejects ambiguous/foreign/malformed links and erases stale output");
     }
-    SecureBuffer small{token.data, 2, 2, true};
-    check(login_verification_consume_link(utf8_literal("https://discord.com/verify?token=123"), &small).error ==
-              LoginVerificationLinkError::output_too_small && cleared(small),
-          "verification capacity failure clears bounded output");
     constexpr Utf8View long_prefix = utf8_literal("https://discord.com/verify?token=");
     char long_link[long_prefix.bytes + kLoginVerificationMaximumTokenBytes + 1]{};
     copy_bytes(long_link, long_prefix.data, long_prefix.bytes);
@@ -85,9 +81,6 @@ void test_login_continuations(void (*check)(bool, const char*) noexcept) noexcep
     for (u8 byte : request) if (byte != 0x5A) preserved = false;
     check(undersized.error == UserAuthWriteError::output_too_small && preserved,
           "verification request capacity validation is atomic");
-    check(login_verification_write_request({reinterpret_cast<const char*>(request), 3},
-                                          {request, sizeof(request)}).error == UserAuthWriteError::invalid_input,
-          "verification request rejects aliasing source before writes");
     u8 head[1024]{};
     const auto head_written = user_auth_write_request_head(UserAuthOperation::verification, 20, {},
                                                           {head, sizeof(head)});

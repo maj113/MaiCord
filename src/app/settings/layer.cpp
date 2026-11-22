@@ -47,7 +47,7 @@ UiScrollBinding scroll_binding(SettingsLayer* layer, bool sidebar) noexcept {
             [](void* context, u64 key, UiScrollRange* range) noexcept {
                 const auto* layer = static_cast<SettingsLayer*>(context);
                 const auto* scene = layer->scene;
-                if (!scene || !scene->active || layer->choice || layer->scrollbar_dragging ||
+                if (!scene->active || layer->choice || layer->scrollbar_dragging ||
                     layer->slider_dragging || g_app.text_form)
                     return false;
                 const bool left = key == kLayerSidebarScroll;
@@ -67,7 +67,7 @@ UiScrollBinding scroll_binding(SettingsLayer* layer, bool sidebar) noexcept {
             [](void* context, u64 key, double offset, bool* changed) noexcept {
                 auto* layer = static_cast<SettingsLayer*>(context);
                 auto* scene = layer->scene;
-                if (!scene || !scene->active)
+                if (!scene->active)
                     return false;
                 const bool left = key == kLayerSidebarScroll;
                 const float before = left ? scene->sidebar_offset : scene->content_offset;
@@ -245,7 +245,7 @@ bool settings_layer_editor(SettingsLayer* layer, u64* control_id, MessageCompose
     MessageComposer* m = nullptr;
     BoundedEdit* b = nullptr;
     u64 id = 0;
-    if (!layer->scene || !layer->scene->active || !focused_editor(layer, &m, &b, nullptr, &id))
+    if (!layer->scene->active || !focused_editor(layer, &m, &b, nullptr, &id))
         return false;
     if (control_id)
         *control_id = id;
@@ -342,7 +342,7 @@ void settings_layer_shake(SettingsLayer* layer) noexcept {
 }
 
 void settings_layer_tick(SettingsLayer* layer, u64 now_ms) noexcept {
-    if (!layer->scene || !layer->scene->active)
+    if (!layer->scene->active)
         return;
     const bool reduced_motion = application_reduced_motion();
     MessageComposer* model = nullptr;
@@ -398,7 +398,7 @@ void settings_layer_tick(SettingsLayer* layer, u64 now_ms) noexcept {
 }
 
 u64 settings_layer_next_wake(const SettingsLayer& layer) noexcept {
-    if (layer.shake_started || layer.entrance_started || (layer.scene && ui_settings_scene_animating(*layer.scene)))
+    if (layer.shake_started || layer.entrance_started || ui_settings_scene_animating(*layer.scene))
         return 1;
     return layer.blink_at;
 }
@@ -464,7 +464,7 @@ void settings_layer_cancel_native_group(SettingsLayer* layer, const TextInputTar
 bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool repeated) noexcept {
     if (ui_input_consume_key_tail(&layer->held_key, {kind, key, repeated}))
         return true;
-    if (!layer->scene || !layer->scene->active)
+    if (!layer->scene->active)
         return false;
     if (application_alt_f4(kind, key))
         return false;
@@ -605,7 +605,7 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
 }
 
 bool settings_layer_window_event(SettingsLayer* layer, const WindowEvent& event) noexcept {
-    if (!layer->scene || !layer->scene->active)
+    if (!layer->scene->active)
         return false;
     auto* scene = layer->scene;
     if (input_focus_lost(event) || event.type == EventType::cancel_input || event.type == EventType::capture_lost) {

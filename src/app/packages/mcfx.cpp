@@ -675,8 +675,6 @@ bool mcfx_float_texture(ConstSlice<u8> texture, u32* width, u32* height) noexcep
 }
 
 McfxResult mcfx_parse(ConstSlice<u8> file, McfxWorkspace* w) noexcept {
-    if (!w || (!file.data && file.count))
-        return {McfxError::invalid_input, 0};
     clear_bytes(&w->package, sizeof(w->package));
     if (file.count > kMcfxMaximumBytes)
         return {McfxError::oversize, 0};

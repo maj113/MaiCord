@@ -326,7 +326,7 @@ bool application_user_settings_pending(u64 now_ms) noexcept {
 }
 
 bool application_user_settings_submit(u64 request_id, u64 now_ms) noexcept {
-    if (!request_id || !application_user_settings_pending(now_ms))
+    if (!application_user_settings_pending(now_ms))
         return false;
     auto* s = store();
     AccountSettingsRequest request{};
@@ -516,8 +516,6 @@ bool application_user_settings_reveal_spoilers(u64 channel_id) noexcept {
 MessageExplicitFilter application_user_settings_explicit_filter(MessageMediaContext context) noexcept {
     scope();
     const u32 index = static_cast<u32>(context);
-    if (index >= 3)
-        return MessageExplicitFilter::block;
     const u64 revision = store() ? store()->revision : 0;
     const auto policy = content_policy();
     if (!g_owner.explicit_cached || g_owner.explicit_revision != revision ||
@@ -572,13 +570,12 @@ Utf8View application_user_settings_failure() noexcept {
     return g_owner.failed ? g_owner.status : Utf8View{};
 }
 bool application_user_settings_guild_restricted(GuildPrivacyList list, u64 guild_id) noexcept {
-    const u32 index = static_cast<u32>(list);
-    return guild_id && index < 4 && loaded() && user_settings_store_contains(*store(), kGuildLists[index], guild_id);
+    return guild_id && loaded() &&
+           user_settings_store_contains(*store(), kGuildLists[static_cast<u32>(list)], guild_id);
 }
 bool application_user_settings_set_guild_restricted(GuildPrivacyList list, u64 guild_id, bool restricted) noexcept {
-    const u32 index = static_cast<u32>(list);
-    return guild_id && index < 4 && loaded() &&
-           write(kGuildLists[index], user_settings_member(guild_id, restricted));
+    return guild_id && loaded() &&
+           write(kGuildLists[static_cast<u32>(list)], user_settings_member(guild_id, restricted));
 }
 
 bool application_user_settings_project(SettingBinding binding, UiSettingsControl* control,

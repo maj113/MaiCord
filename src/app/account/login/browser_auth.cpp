@@ -85,8 +85,6 @@ bool application_login_begin_browser_auth() noexcept {
 }
 
 bool application_browser_auth_pump(bool* handled) noexcept {
-    if (!handled)
-        return false;
     *handled = false;
     if (application_account_logout_locked()) {
         *handled = true;

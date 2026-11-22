@@ -34,6 +34,8 @@ struct VerificationInput {
 };
 
 bool quiesce_recovery_owner() noexcept;
+// token: a locked buffer of kLoginResetMaximumTokenBytes holding 1 to that many bytes, taken after the login owner
+// stopped and the module was released (both callers test that first).
 bool adopt_reset_token(SecureBuffer* token) noexcept;
 void restore_identifier_bound() noexcept;
 

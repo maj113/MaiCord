@@ -644,7 +644,7 @@ void test_links(Check check) noexcept {
     check(at_limit && !parsed(long_url), "link: a URL of 2,048 bytes is accepted and one byte more is not");
     const wchar_t wide_ok[] = L"maicord://install/effect/aurora", wide_bad[] = L"maicord://install/effect/au\u00e9";
     check(package_link_parse_wide({wide_ok, sizeof(wide_ok) / 2 - 1}, &link) && link.type == PackageLinkType::catalog &&
-              !package_link_parse_wide({wide_bad, sizeof(wide_bad) / 2 - 1}, &link) && !package_link_parse_wide({nullptr, 0}, &link),
+              !package_link_parse_wide({wide_bad, sizeof(wide_bad) / 2 - 1}, &link),
           "link: the wide form takes ASCII only");
     UpdateLocation location{};
     parsed("maicord://install?url=https://Example.org/dir/a.mcfx?v=2");

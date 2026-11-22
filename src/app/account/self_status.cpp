@@ -64,10 +64,8 @@ UiPresence application_self_presence(u64 self_user_id) noexcept {
 UiPresence application_self_status_synchronize(u64 self_user_id) noexcept {
     return self_presence(with_queued(synchronize()), g_app.account.status.profile_id, self_user_id);
 }
+// The callers (the account menu's four status items, the hub's online) give a settable status, never unknown.
 bool application_self_status_request(GatewayUserStatus status) noexcept {
-    if (status != GatewayUserStatus::online && status != GatewayUserStatus::idle &&
-        status != GatewayUserStatus::dnd && status != GatewayUserStatus::invisible)
-        return false;
     const auto snapshot = synchronize();
     auto& request = g_app.self_status;
     if (!current(request, snapshot))
@@ -103,8 +101,9 @@ bool application_self_status_pending(u64 now_ms) noexcept {
     return current(request, snapshot) && !request.request_id && request.retry_at_ms &&
            request.retry_at_ms <= now_ms;
 }
+// The history lanes give ids from next_message_history_request_id, which are never zero.
 bool application_self_status_submit(u64 id, u64 now_ms) noexcept {
-    if (!id || !application_self_status_pending(now_ms))
+    if (!application_self_status_pending(now_ms))
         return false;
     auto& request = g_app.self_status;
     const auto operation = request.operation;
@@ -123,7 +122,6 @@ bool application_self_status_submit(u64 id, u64 now_ms) noexcept {
         return false;
     }
     request.request_id = id;
-    request.operation = operation;
     request.submitted_revision = request.revision;
     request.retry_at_ms = 0;
     request.admission_busy = false;

@@ -79,7 +79,6 @@ u32 write_preferences(void* context) noexcept {
 
 bool client_preferences_writer_create(ClientPreferencesWriter** output,
                                       const wchar_t* path) noexcept {
-    if (!output || *output) return reject(ERROR_INVALID_PARAMETER);
     const u32 length = wide_length(path, kAccountProfileMaximumPathCharacters);
     if (path && (length == 0 || length + 4 >= kAccountProfileMaximumPathCharacters))
         return reject(ERROR_INVALID_PARAMETER);
@@ -109,7 +108,7 @@ bool client_preferences_writer_create(ClientPreferencesWriter** output,
 bool client_preferences_writer_submit(ClientPreferencesWriter* writer,
                                       const ClientPreferences& preferences,
                                       u64* revision) noexcept {
-    if (!writer || !revision || !client_preferences_valid(preferences))
+    if (!client_preferences_valid(preferences))
         return reject(ERROR_INVALID_PARAMETER);
     AcquireSRWLockExclusive(writer->lock.native());
     if (writer->stopping) {
@@ -134,8 +133,6 @@ bool client_preferences_writer_poll(ClientPreferencesWriter* writer,
                                     u64* completed_revision,
                                     ClientPreferencesResult* result,
                                     bool* ready) noexcept {
-    if (!writer || !completed_revision || !result || !ready)
-        return reject(ERROR_INVALID_PARAMETER);
     // The main loop polls on every wake; only a published completion needs the lock. The worker
     // sets the completion event after publishing, so a poll that misses it sees the event later.
     *ready = read_acquire(&writer->completion_ready) != 0;
@@ -151,7 +148,6 @@ bool client_preferences_writer_poll(ClientPreferencesWriter* writer,
 }
 
 bool client_preferences_writer_stop(ClientPreferencesWriter** output, u32 timeout_ms) noexcept {
-    if (!output) return reject(ERROR_INVALID_PARAMETER);
     auto* writer = *output;
     if (!writer) return true;
     AcquireSRWLockExclusive(writer->lock.native());

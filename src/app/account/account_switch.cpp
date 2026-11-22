@@ -24,10 +24,7 @@ bool account_switch_busy(const AccountSwitch& machine) noexcept {
 }
 
 bool account_switch_begin(AccountSwitch* machine, AccountSwitchKind kind, u32 source_slot, u32 target_slot) noexcept {
-    if (account_switch_busy(*machine) ||
-        (kind != AccountSwitchKind::switch_account && kind != AccountSwitchKind::add_account) ||
-        source_slot >= kAccountPathsSlotCount || target_slot >= kAccountPathsSlotCount ||
-        source_slot == target_slot)
+    if (account_switch_busy(*machine) || source_slot == target_slot)
         return false;
     if (!account_switch_stop_begin()) {
         machine->outcome = AccountSwitchOutcome::failed;

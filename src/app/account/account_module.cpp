@@ -39,8 +39,7 @@ namespace account_module_detail {
 
 bool copy_path(const wchar_t* source, wchar_t* destination) noexcept {
     u32 length = 0;
-    return source && source[0] && destination &&
-           wide_append(destination, kAccountProfileMaximumPathCharacters, &length, source);
+    return source[0] && wide_append(destination, kAccountProfileMaximumPathCharacters, &length, source);
 }
 
 } // namespace account_module_detail
@@ -185,12 +184,8 @@ __declspec(noinline) void discard_runtime(AccountModuleRuntime* runtime, Account
 } // namespace
 
 AccountModuleStartResult account_module_start(const wchar_t* profile_path, const wchar_t* session_path,
-                                              u64 monotonic_now_ms, u64 unix_now_ms) noexcept {
+                                              u64 monotonic_now_ms) noexcept {
     AccountModuleStartResult result{};
-    if (!profile_path || !session_path || unix_now_ms == 0) {
-        result.error = AccountModuleError::invalid_input;
-        return result;
-    }
     auto* runtime = commit_pages<AccountModuleRuntime>();
     if (!runtime) {
         result.error = AccountModuleError::memory;
@@ -285,11 +280,8 @@ AccountModuleStartResult account_module_start(const wchar_t* profile_path, const
     return result;
 }
 
-AccountModuleStatus account_module_pump(void* instance, u64 monotonic_now_ms, u64 unix_now_ms) noexcept {
+AccountModuleStatus account_module_pump(void* instance, u64 monotonic_now_ms) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || unix_now_ms == 0) {
-        return module_failure(AccountModuleError::invalid_input);
-    }
     user_account_coordinator_pump(&runtime->coordinator, monotonic_now_ms);
     persist_refreshed_credential(runtime, false);
     if (user_account_coordinator_gateway_restart_due(&runtime->coordinator, monotonic_now_ms)) {
@@ -312,9 +304,6 @@ AccountModuleStatus account_module_pump(void* instance, u64 monotonic_now_ms, u6
 
 u32 account_module_notification_handles(void* instance, HANDLE* output, u32 capacity) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || (!output && capacity != 0)) {
-        return 0;
-    }
     u32 count = user_account_coordinator_notification_handles(&runtime->coordinator, output, capacity);
     const HANDLE media = account_media_worker_notification_handle(&runtime->media);
     if (media && count < capacity) {
@@ -332,8 +321,7 @@ u32 account_module_notification_handles(void* instance, HANDLE* output, u32 capa
 }
 
 void* account_module_gateway_source(void* instance) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    return module_gateway(instance);
 }
 
 GatewayClientPopResult account_module_gateway_pop(void* source, GatewayClientEvent* event,
@@ -342,15 +330,12 @@ GatewayClientPopResult account_module_gateway_pop(void* source, GatewayClientEve
 }
 
 bool account_module_guild_subscribe(void* instance, const GatewayGuildSubscription* subscription) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    GatewayClient* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
-    return gateway && subscription && gateway_client_subscribe_guild_members(gateway, *subscription);
+    GatewayClient* gateway = module_gateway(instance);
+    return gateway && gateway_client_subscribe_guild_members(gateway, *subscription);
 }
 
 GatewayStateRecoveryResult account_module_gateway_refresh(void* instance) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return gateway_client_request_fresh_state(
-        runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr);
+    return gateway_client_request_fresh_state(module_gateway(instance));
 }
 
 RestClientSubmitResult account_module_private_conversation(void* instance,
@@ -375,9 +360,9 @@ RestClientSubmitResult account_module_history_submit(void* instance, u64 channel
                                                      const MessageHistoryQuery* query,
                                                      u64 request_id) noexcept {
     // The restored channel's first page may go out before READY.
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    RestClient* rest = runtime ? user_account_coordinator_startup_rest(&runtime->coordinator) : nullptr;
-    if (!rest || !query || request_id == 0)
+    RestClient* rest =
+        user_account_coordinator_startup_rest(&static_cast<AccountModuleRuntime*>(instance)->coordinator);
+    if (!rest || request_id == 0)
         return kInvalidSubmit;
     u8 target[128];
     const auto written = write_message_history_target(channel_id, *query, {target, sizeof(target)});
@@ -397,9 +382,9 @@ AccountUploadResult account_module_upload(void* instance, AccountUploadOperation
     AccountUploadResult result{};
     result.id = id;
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !id) {
+    if (!id) {
         result.submit_error = HttpsFileUploadError::invalid_input;
-        result.released = !runtime || (!runtime->upload_id && !runtime->upload.runtime);
+        result.released = !runtime->upload_id && !runtime->upload.runtime;
         return result;
     }
     result.owns_transfer = runtime->upload_id == id && runtime->upload.runtime;
@@ -454,7 +439,7 @@ AccountDownloadResult account_module_download(void* instance, AccountDownloadOpe
     // Report that distinction even for failures before allocation.
     result.released = operation == AccountDownloadOperation::start;
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !id) {
+    if (!id) {
         result.submit_error = HttpsFileDownloadError::invalid_input;
         return result;
     }
@@ -603,8 +588,7 @@ RestClientSubmitResult account_module_message_delete(void* instance, u64 channel
 RestClientSubmitResult account_module_message_edit(void* instance, u64 channel_id, u64 message_id,
                                                    Utf8View content, u64 request_id) noexcept {
     RestClient* rest = module_rest(instance);
-    if (!rest || channel_id == 0 || message_id == 0 || (!content.data && content.bytes != 0) ||
-        request_id == 0) {
+    if (!rest || channel_id == 0 || message_id == 0 || request_id == 0) {
         return kInvalidSubmit;
     }
     u8 target[128];
@@ -659,7 +643,7 @@ RestClientSubmitResult account_module_application_command(void* instance, u64 ch
                                                           u64 request_id, u8 operation) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator, true) : nullptr;
+    auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     if (!rest || !request_id || operation > 8)
         return invalid;
     // 7/8: the built-in /nick (guild) and /thread (channel); data is the JSON body.
@@ -707,8 +691,8 @@ RestClientSubmitResult account_module_message_interaction(void* instance,
                                                           const MessageInteractionRequest* request,
                                                           u64 request_id) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator, true) : nullptr;
-    if (!rest || !request || !request_id || !message_interaction_request_valid(*request))
+    auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
+    if (!rest || !request_id || !message_interaction_request_valid(*request))
         return kInvalidSubmit;
     return submit_interaction(
         runtime, rest, request->data_bytes + 1024u,
@@ -799,8 +783,6 @@ namespace {
 
 AccountLoginStatus module_login_start_mode(void** instance, const wchar_t* profile_path,
                                            bool reset) noexcept {
-    if (!instance || *instance || !profile_path)
-        return account_login_invalid_input();
     auto* runtime = commit_pages<AccountLoginRuntime>();
     if (!runtime) {
         AccountLoginStatus status{};
@@ -850,7 +832,7 @@ bool ensure_user_auth_coordinator(AccountLoginRuntime* runtime) noexcept {
 AccountLoginStatus account_module_login_submit_password(void* instance, const SecureBuffer* login,
                                                         const SecureBuffer* password) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !login || !password || runtime->remote_mode || runtime->reset_mode ||
+    if (runtime->remote_mode || runtime->reset_mode ||
         runtime->browser_mode) {
         return account_login_invalid_input();
     }
@@ -871,7 +853,7 @@ AccountLoginStatus account_module_login_submit_password(void* instance, const Se
 
 AccountLoginStatus account_module_login_submit_recovery(void* instance, const SecureBuffer* login) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !login || runtime->remote_mode || runtime->reset_mode || runtime->browser_mode ||
+    if (runtime->remote_mode || runtime->reset_mode || runtime->browser_mode ||
         runtime->profile_saved || account_profile_promotion_has_credential(runtime->promotion)) {
         return account_login_invalid_input();
     }
@@ -892,7 +874,7 @@ AccountLoginStatus account_module_login_submit_recovery(void* instance, const Se
 AccountLoginStatus account_module_login_start_browser(void* instance, u64 generation,
                                                       u32 timeout_ms) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !generation || runtime->browser_mode || runtime->remote_mode || runtime->reset_mode ||
+    if (!generation || runtime->browser_mode || runtime->remote_mode || runtime->reset_mode ||
         runtime->coordinator_started || runtime->profile_saved || timeout_ms < 1000 ||
         timeout_ms > 300000) {
         return account_login_invalid_input();
@@ -908,7 +890,7 @@ AccountLoginStatus account_module_login_start_browser(void* instance, u64 genera
 SecureBufferResult account_module_login_copy_browser_url(void* instance, u64 generation,
                                                          SecureBuffer* output) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !runtime->browser_mode || runtime->error != AccountLoginError::none)
+    if (!runtime->browser_mode || runtime->error != AccountLoginError::none)
         return {0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
     return browser_sign_in_receiver_copy_url(&runtime->browser.receiver, generation, output);
 }
@@ -916,7 +898,7 @@ SecureBufferResult account_module_login_copy_browser_url(void* instance, u64 gen
 AccountLoginStatus account_module_login_submit_verification(void* instance,
                                                             const SecureBuffer* link_token) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !link_token || runtime->remote_mode || runtime->reset_mode || runtime->browser_mode)
+    if (runtime->remote_mode || runtime->reset_mode || runtime->browser_mode)
         return account_login_invalid_input();
     if (!ensure_user_auth_coordinator(runtime))
         return login_status(runtime);
@@ -937,7 +919,7 @@ AccountLoginStatus account_module_login_submit_verification(void* instance,
 namespace {
 
 bool phone_recovery_ready(const AccountLoginRuntime* runtime) noexcept {
-    return runtime && runtime->coordinator_started && runtime->recovery_mode && !runtime->remote_mode &&
+    return runtime->coordinator_started && runtime->recovery_mode && !runtime->remote_mode &&
            !runtime->reset_mode && !runtime->profile_saved &&
            !account_profile_promotion_has_credential(runtime->promotion);
 }
@@ -968,7 +950,7 @@ AccountLoginStatus account_module_login_submit_phone_resend(void* instance) noex
 SecureBufferResult account_module_login_take_phone_reset_token(void* instance, u64 generation,
                                                                SecureBuffer* output) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!phone_recovery_ready(runtime) || !output)
+    if (!phone_recovery_ready(runtime))
         return {0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
     return user_auth_coordinator_take_phone_reset_token(&runtime->coordinator, generation, output);
 }
@@ -976,7 +958,7 @@ SecureBufferResult account_module_login_take_phone_reset_token(void* instance, u
 AccountLoginStatus account_module_login_submit_mfa(void* instance, const SecureBuffer* code,
                                                    UserAuthMfaType type) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !code || runtime->remote_mode || !runtime->coordinator_started)
+    if (runtime->remote_mode || !runtime->coordinator_started)
         return account_login_invalid_input();
     runtime->last_event = UserAuthCoordinatorEventKind::none;
     runtime->error_code = 0;
@@ -991,7 +973,7 @@ AccountLoginStatus account_module_login_submit_mfa(void* instance, const SecureB
 AccountLoginStatus account_module_login_submit_reset(void* instance, const SecureBuffer* link_token,
                                                      const SecureBuffer* password) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !password || !runtime->reset_mode || runtime->remote_mode || runtime->profile_saved ||
+    if (!runtime->reset_mode || runtime->remote_mode || runtime->profile_saved ||
         account_profile_promotion_has_credential(runtime->promotion)) {
         return account_login_invalid_input();
     }
@@ -1010,7 +992,7 @@ AccountLoginStatus account_module_login_submit_reset(void* instance, const Secur
 
 AccountLoginStatus account_module_login_send_sms(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || runtime->remote_mode || !runtime->coordinator_started)
+    if (runtime->remote_mode || !runtime->coordinator_started)
         return account_login_invalid_input();
     runtime->last_event = UserAuthCoordinatorEventKind::none;
     const UserAuthCoordinatorResult submitted =
@@ -1023,7 +1005,7 @@ AccountLoginStatus account_module_login_send_sms(void* instance) noexcept {
 
 AccountLoginStatus account_module_login_start_remote_auth(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || runtime->remote_mode || runtime->reset_mode || runtime->browser_mode ||
+    if (runtime->remote_mode || runtime->reset_mode || runtime->browser_mode ||
         runtime->profile_saved ||
         (runtime->coordinator_started &&
          user_auth_coordinator_status(&runtime->coordinator).phase != UserAuthCoordinatorPhase::idle)) {
@@ -1054,19 +1036,19 @@ AccountLoginStatus account_module_login_start_remote_auth(void* instance) noexce
 
 bool account_module_login_copy_remote_auth_qr(void* instance, Slice<char> output, u32* bytes) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    return runtime && runtime->remote_mode && runtime->remote_active &&
+    return runtime->remote_mode && runtime->remote_active &&
            remote_auth_client_copy_qr_url(runtime->remote_auth, output, bytes);
 }
 
 bool account_module_login_copy_remote_auth_user(void* instance, Slice<char> output, u32* bytes) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    return runtime && runtime->remote_mode && runtime->remote_active &&
+    return runtime->remote_mode && runtime->remote_active &&
            remote_auth_client_copy_user(runtime->remote_auth, output, bytes);
 }
 
 AccountLoginStatus account_module_login_cancel_remote_auth(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !runtime->remote_mode || !runtime->remote_active)
+    if (!runtime->remote_mode || !runtime->remote_active)
         return account_login_invalid_input();
     runtime->remote_status = remote_auth_client_cancel(&runtime->remote_auth);
     return login_status(runtime);
@@ -1075,9 +1057,6 @@ AccountLoginStatus account_module_login_cancel_remote_auth(void* instance) noexc
 SecureBufferResult account_module_login_copy_webauthn_challenge(void* instance,
                                                                 SecureBuffer* output) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !output) {
-        return SecureBufferResult{0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
-    }
     return runtime->coordinator_started
                ? user_auth_coordinator_copy_secret(
                      &runtime->coordinator, UserAuthCoordinatorSecretKind::webauthn_challenge, output)

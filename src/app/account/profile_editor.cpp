@@ -15,20 +15,20 @@
 namespace maicord::app_detail {
 namespace {
 
+// The hooks run only through the owner's own layer, so the owner exists whenever they run.
 void choose(SettingsLayer*, u32 action) noexcept {
-    if (owner)
-        choose_option(action);
+    choose_option(action);
     repaint();
 }
 bool edited(SettingsLayer*, u64 control) noexcept {
-    if (!owner || editor_of(control) == editor_count)
+    if (editor_of(control) == editor_count)
         return false;
     owner->failed = false;
     reset_value(&owner->status);
     return true;
 }
 SettingsLayerEditor editor_hook(SettingsLayer*, u64 control) noexcept {
-    const u32 index = owner ? editor_of(control) : editor_count;
+    const u32 index = editor_of(control);
     return index == editor_count ? SettingsLayerEditor{}
                                  : SettingsLayerEditor{&owner->models[index], &owner->bindings[index], index == editor_bio};
 }

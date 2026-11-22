@@ -32,7 +32,7 @@ bool insert(GuildBanStore* store, u32 at, u64 user_id, Utf8View name, Utf8View r
 } // namespace
 
 bool guild_ban_store_bind(GuildBanStore* store, Slice<GuildBanRecord> records) noexcept {
-    if (!store || !records.data || !records.count)
+    if (!records.data || !records.count)
         return false;
     *store = {records.data, records.count, 0, 0, 0, false};
     return true;

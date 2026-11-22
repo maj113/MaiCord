@@ -2,15 +2,12 @@
 
 namespace maicord::app_detail {
 namespace {
+// The banks exist while the friends state does: friends.cpp's ensure initializes them once, on fresh zeroed pages.
 bool admit(StableStorage* bank, u32 count) noexcept {
-    return bank->arena.base && count <= kFriendsRelationshipCapacity &&
-           (!count || stable_storage_reserve(bank, count));
+    return count <= kFriendsRelationshipCapacity && (!count || stable_storage_reserve(bank, count));
 }
 } // namespace
 bool friends_relationship_storage_initialize(FriendsRelationshipStorage* storage) noexcept {
-    if (storage->active.arena.base || storage->candidate.arena.base || storage->indices.arena.base ||
-        storage->names.arena.base)
-        return false;
     constexpr usize record_bytes = sizeof(RelationshipRecord);
     constexpr usize record_alignment = alignof(RelationshipRecord);
     if (!stable_storage_initialize(&storage->active, kFriendsRelationshipCapacity, 0, record_bytes,

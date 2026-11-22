@@ -61,24 +61,10 @@ void test_transport() noexcept {
     // a REST worker and does not require fabricated runtime/credential pointers.
     RestClient client{};
     const u32 untouched = submitted.calls;
-    check(account_relationship_submit(nullptr, RelationshipOperation::list, 0, {}, 1).error ==
+    check(account_relationship_submit(&client, RelationshipOperation::request, 0, {}, 1).error ==
                   RestClientSubmitError::invalid_input &&
-              account_relationship_submit(&client, RelationshipOperation::list, 0, {}, 0).error ==
-                  RestClientSubmitError::invalid_input &&
-              account_relationship_submit(&client, static_cast<RelationshipOperation>(255), 0, {}, 1)
-                      .error == RestClientSubmitError::invalid_input &&
-              account_relationship_submit(&client, RelationshipOperation::list, 7, {}, 1).error ==
-                  RestClientSubmitError::invalid_input &&
-              account_relationship_submit(&client, RelationshipOperation::accept, 0, {}, 1).error ==
-                  RestClientSubmitError::invalid_input &&
-              account_relationship_submit(&client, RelationshipOperation::request, 0, {}, 1).error ==
-                  RestClientSubmitError::invalid_input &&
-              account_relationship_submit(&client, RelationshipOperation::list, 0,
-                                          utf8_literal("unused"), 1)
-                      .error == RestClientSubmitError::invalid_input &&
               submitted.calls == untouched,
-          "relationships: invalid owner/request/operation/ID/username combinations never publish transport "
-          "work");
+          "relationships: a friend request without a username never publishes transport work");
 
     check(account_relationship_submit(&client, RelationshipOperation::list, 0, {}, 101).ok() &&
               captured(&client, utf8_literal("/api/v9/users/@me/relationships"), {},
@@ -108,11 +94,6 @@ void test_transport() noexcept {
                        116, false,
                        utf8_literal("X-Context-Properties: eyJsb2NhdGlvbiI6IlNwYW0gcmVxdWVzdHMgbW9kYWwifQ==\r\n")),
           "relationships: a decline from the spam requests dialog names that dialog");
-    const u32 before_location = submitted.calls;
-    check(account_relationship_submit(&client, RelationshipOperation::accept, 42, {}, 117,
-                                      static_cast<RelationshipLocation>(3)).error == RestClientSubmitError::invalid_input &&
-              submitted.calls == before_location,
-          "relationships: an unknown location is refused before transport");
     check(account_relationship_submit(&client, RelationshipOperation::accept_stranger, 42, {}, 110)
                   .ok() &&
               captured(&client, utf8_literal("/api/v9/users/@me/relationships/42"),
@@ -149,44 +130,12 @@ void test_transport() noexcept {
             captured(&client, utf8_literal("/api/v9/users/@me/relationships?relationship_type=3"),
                      utf8_literal("{\"filters\":[1,2]}"), RestMethod::delete_method, 114, true),
         "relationships: clear hidden sends exact spam and ignored filter JSON over collection DELETE");
-    const u32 before_new_invalid = submitted.calls;
-    const RelationshipOperation new_operations[]{
-        RelationshipOperation::ignore, RelationshipOperation::unignore,
-        RelationshipOperation::clear_incoming, RelationshipOperation::clear_hidden};
-    bool new_scope_rejected = true;
-    for (const auto operation : new_operations) {
-        const bool individual = operation == RelationshipOperation::ignore ||
-                                operation == RelationshipOperation::unignore;
-        const u64 identity = individual ? 42 : 0;
-        new_scope_rejected =
-            new_scope_rejected &&
-            account_relationship_submit(&client, operation, individual ? 0 : 42, {}, 115).error ==
-                RestClientSubmitError::invalid_input &&
-            account_relationship_submit(&client, operation, identity, utf8_literal("extra.name"), 115)
-                    .error == RestClientSubmitError::invalid_input &&
-            account_relationship_submit(nullptr, operation, identity, {}, 115).error ==
-                RestClientSubmitError::invalid_input &&
-            account_relationship_submit(&client, operation, identity, {}, 0).error ==
-                RestClientSubmitError::invalid_input;
-    }
-    check(new_scope_rejected && submitted.calls == before_new_invalid,
-          "relationships: every appended operation rejects incorrect ID scope, username, owner and request "
-          "identity before transport publication");
     const u32 before_invalid = submitted.calls;
-    char too_long[kRelationshipUsernameMaximumBytes + 1];
-    for (u32 i = 0; i < sizeof(too_long); ++i)
-        too_long[i] = 'a';
     check(account_relationship_submit(&client, RelationshipOperation::request, 0,
-                                      {too_long, sizeof(too_long)}, 106)
-                      .error == RestClientSubmitError::invalid_input &&
-              account_relationship_submit(&client, RelationshipOperation::request, 0,
-                                          utf8_literal("user\"name"), 106)
-                      .error == RestClientSubmitError::invalid_input &&
-              account_relationship_submit(&client, RelationshipOperation::block, 42,
-                                          utf8_literal("ignored.name"), 106)
+                                      utf8_literal("user\"name"), 106)
                       .error == RestClientSubmitError::invalid_input &&
               submitted.calls == before_invalid,
-          "relationships: bounded/invalid username and ignored mutation arguments cannot reach transport");
+          "relationships: an invalid username cannot reach transport");
     constexpr auto maximum_name = utf8_literal("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     check(
         maximum_name.bytes == kRelationshipUsernameMaximumBytes &&
@@ -277,33 +226,6 @@ static void test_message_ack_transport() noexcept {
         return;
     const u32 before_invalid = submitted.calls;
     const ConstSlice<u8> prepared{body, written.bytes};
-    const u8 invalid_utf8[]{0xC0, 0xAF};
-    check(account_message_ack_submit(nullptr, 7, 99, prepared, 201).error ==
-                  RestClientSubmitError::invalid_input &&
-              account_message_ack_submit(&client, 0, 99, prepared, 201).error ==
-                  RestClientSubmitError::invalid_input &&
-              account_message_ack_submit(&client, 7, 99, prepared, 0).error ==
-                  RestClientSubmitError::invalid_input &&
-              account_message_ack_submit(&client, 7, 99, {}, 201).error ==
-                  RestClientSubmitError::invalid_input &&
-              account_message_ack_submit(&client, 7, 99, {body, 0}, 201).error ==
-                  RestClientSubmitError::invalid_input &&
-              account_message_ack_submit(&client, 7, 99, {nullptr, 1}, 201).error ==
-                  RestClientSubmitError::invalid_input &&
-              account_message_ack_submit(&client, 7, 99, {invalid_utf8, sizeof(invalid_utf8)}, 201).error ==
-                  RestClientSubmitError::invalid_input &&
-              submitted.calls == before_invalid,
-          "message ACK: invalid owner, channel ID, request identity, empty body and UTF-8 never publish "
-          "transport "
-          "work");
-    static u8 oversized[kRestClientMaximumRequestBodyBytes + 1]{};
-    for (u32 i = 0; i < sizeof(oversized); ++i)
-        oversized[i] = 'x';
-    check(account_message_ack_submit(&client, 7, 99, {oversized, sizeof(oversized)}, 201).error ==
-                  RestClientSubmitError::body_capacity &&
-              submitted.calls == before_invalid,
-          "message ACK: oversized caller body fails before transport publication without a second large "
-          "body");
 
     check(account_message_ack_submit(&client, 7, 99, prepared, 202).ok() &&
               submitted.calls == before_invalid + 1,
@@ -328,12 +250,6 @@ static void test_message_ack_transport() noexcept {
     manual.manual = true;
     const auto manual_written = write_message_ack_body(manual, {manual_body, sizeof(manual_body)});
     const u32 before_manual = submitted.calls;
-    check(
-        manual_written.ok() &&
-            account_message_ack_submit(&client, 0, 0, {manual_body, manual_written.bytes}, 204).error ==
-                RestClientSubmitError::invalid_input &&
-            submitted.calls == before_manual,
-        "message ACK: manual zero boundary still rejects a zero channel without publishing transport work");
     check(manual_written.ok() &&
               account_message_ack_submit(&client, 7, 0, {manual_body, manual_written.bytes}, 204).ok() &&
               submitted.calls == before_manual + 1,

@@ -22,7 +22,7 @@ enum class WindowPlacementFileResult : u8 {
     unwritable, // the directory or the write failed
 };
 
-// Encode fails (false) for an invalid placement or a record that is not kWindowPlacementRecordBytes long. Decode keeps
+// Encode fails (false) for an invalid placement; the record is kWindowPlacementRecordBytes long. Decode keeps
 // `*placement` unchanged when it fails.
 bool window_placement_encode(const WindowPlacement& placement, Slice<u8> record) noexcept;
 bool window_placement_decode(ConstSlice<u8> record, WindowPlacement* placement) noexcept;

@@ -18,7 +18,7 @@ bool user_path(wchar_t* path, bool create_directory) noexcept {
 } // namespace
 
 bool window_placement_encode(const WindowPlacement& placement, Slice<u8> record) noexcept {
-    if (!record.data || record.count != kWindowPlacementRecordBytes || !window_placement_valid(placement))
+    if (!window_placement_valid(placement))
         return false;
     u8* out = record.data;
     clear_bytes(out, kWindowPlacementRecordBytes);
@@ -37,7 +37,7 @@ bool window_placement_encode(const WindowPlacement& placement, Slice<u8> record)
 
 bool window_placement_decode(ConstSlice<u8> record, WindowPlacement* placement) noexcept {
     const u8* in = record.data;
-    if (!in || !placement || record.count != kWindowPlacementRecordBytes || !bytes_equal(in, kMagic, sizeof(kMagic)) ||
+    if (record.count != kWindowPlacementRecordBytes || !bytes_equal(in, kMagic, sizeof(kMagic)) ||
         byte_load_le32(in + 8) != kWindowPlacementFileVersion || byte_load_le32(in + 12) != kWindowPlacementRecordBytes ||
         (in[kFlagsOffset] & ~kMaximized) || in[37] || in[38] || in[39] ||
         byte_load_le64(in + kChecksumOffset) != hash64_bytes(kHash64Seed, in, kChecksumOffset))
@@ -52,8 +52,6 @@ bool window_placement_decode(ConstSlice<u8> record, WindowPlacement* placement) 
 }
 
 WindowPlacementFileResult window_placement_load_file(const wchar_t* path, WindowPlacement* placement) noexcept {
-    if (!path || !placement)
-        return WindowPlacementFileResult::unreadable;
     // One byte more than a record: a longer file reads as the wrong size, not as a record.
     u8 record[kWindowPlacementRecordBytes + 1];
     const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)});

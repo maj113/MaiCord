@@ -51,7 +51,7 @@ struct SettingsLayerHooks {
     void (*editor_enter)(SettingsLayer*, u64 control_id) noexcept;
 };
 struct SettingsLayer {
-    UiSettingsScene* scene;
+    UiSettingsScene* scene; // the owner's scene; settings_modal_allocate sets it and the hooks
     const SettingsLayerHooks* hooks;
     UiSettingsTarget pressed;
     u64 blink_at, shake_started, drag_id, entrance_started, drop_target;

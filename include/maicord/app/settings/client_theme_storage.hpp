@@ -56,7 +56,7 @@ bool client_theme_storage_apply_theme_fields(const ClientThemeStorageSnapshot&,
                                              ClientPreferences*) noexcept;
 // Portable 96-byte envelope plus canonical JSON: explicit fields, zeroed reserved bytes, checksum.
 // Missing/corrupt/invalid files and decode errors preserve caller output.
-// Encode requires enough caller storage for the resolved record; failure preserves output/bytes.
+// Encode takes a record of kClientThemeStorageMaximumBytes and a valid snapshot; failure preserves output/bytes.
 ClientThemeStorageResult client_theme_storage_encode(const ClientThemeStorageSnapshot&, Slice<u8>,
                                                      u32* bytes) noexcept;
 ClientThemeStorageResult client_theme_storage_decode(ConstSlice<u8>, Slice<u32> document_scratch,
@@ -133,8 +133,8 @@ bool client_theme_io_submit_save(ClientThemeIo*, const ClientThemeStorageSnapsho
 bool client_theme_io_submit_catalog(ClientThemeIo*, u64* generation) noexcept;
 HANDLE client_theme_io_completion_event(const ClientThemeIo*) noexcept;
 // One active job plus replaceable latest request/completion; no growing queue.
-// Success copies complete owning snapshot. ready=false leaves completion untouched.
-bool client_theme_io_poll(ClientThemeIo*, ClientThemeIoCompletion*, bool* ready) noexcept;
+// True when a completion was ready: it is copied to the output, which is untouched otherwise.
+bool client_theme_io_poll(ClientThemeIo*, ClientThemeIoCompletion*) noexcept;
 // True when a completion awaits client_theme_io_poll; copies nothing. io must be live.
 bool client_theme_io_completion_pending(ClientThemeIo*) noexcept;
 // Cancels publication of this exact generation; cancels it if still queued.

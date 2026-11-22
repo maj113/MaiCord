@@ -19,7 +19,7 @@ enum class ApplicationActionCaptchaPhase : u8 {
     solved,   // the retry can be armed
     failed,
 };
-// subject identifies the retried request (message nonce, invite/user key).
+// kind is never none. subject identifies the retried request (message nonce, invite/user key).
 bool application_action_captcha_capture(ApplicationActionCaptchaKind, u64 subject,
                                         const RestClientResponse&, const Utf8View& body) noexcept;
 ApplicationActionCaptchaPhase application_action_captcha_phase(ApplicationActionCaptchaKind, u64 subject) noexcept;
@@ -27,7 +27,7 @@ ApplicationActionCaptchaPhase application_action_captcha_phase(ApplicationAction
 u64 application_action_captcha_subject(ApplicationActionCaptchaKind) noexcept;
 // Starts the bridge and opens the browser; true when the challenge is open.
 bool application_action_captcha_verify(ApplicationActionCaptchaKind, u64 subject) noexcept;
-// Arms the solved retry on the request about to be submitted; one shot.
+// Arms the solved retry on the request about to be submitted (request_id: the lane's, never 0); one shot.
 bool application_action_captcha_arm(ApplicationActionCaptchaKind, u64 subject, u64 request_id,
                                     bool details) noexcept;
 void application_action_captcha_cancel() noexcept;

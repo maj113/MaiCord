@@ -12,18 +12,14 @@ struct HeldStop {
     volatile LONG calls;
     DWORD worker_id;
     u32 received_timeout;
-    u64 received_monotonic;
-    u64 received_unix;
     bool fail;
 };
 
-AccountHostStopResult held_stop(AccountHost* host, u32 timeout, u64 monotonic, u64 unix_time) noexcept {
+AccountHostStopResult held_stop(AccountHost* host, u32 timeout) noexcept {
     auto* held = static_cast<HeldStop*>(host->instance);
     InterlockedIncrement(&held->calls);
     held->worker_id = GetCurrentThreadId();
     held->received_timeout = timeout;
-    held->received_monotonic = monotonic;
-    held->received_unix = unix_time;
     SetEvent(held->entered);
     const DWORD released = WaitForSingleObject(held->allowed, 10'000);
     AccountHostStopResult result{};
@@ -81,7 +77,7 @@ void test_account_logout_stop(void (*check)(bool, const char*) noexcept) noexcep
         account_logout_stop_join_for_shutdown(&held->owner, 0, &result) && result.native_error == 91 &&
         result.error == AccountHostError::module_symbol,
         "logout stop: idle poll and bounded idempotent shutdown preserve unpublished outputs");
-    const auto started = account_logout_stop_start(&held->owner, &held->host, 250, 1234, 5678, held_stop);
+    const auto started = account_logout_stop_start(&held->owner, &held->host, 250, held_stop);
     check(started.ok(), "logout stop: start returns while the fake host stop is still gated");
     if (!started.ok()) { cleanup(held, check); return; }
     const HANDLE completion = account_logout_stop_notification(held->owner);
@@ -89,9 +85,9 @@ void test_account_logout_stop(void (*check)(bool, const char*) noexcept) noexcep
     check(entered && account_logout_stop_owned(held->owner) && completion &&
         WaitForSingleObject(completion, 0) == WAIT_TIMEOUT &&
         held->worker_id != GetCurrentThreadId() && read_acquire(&held->calls) == 1 &&
-        held->received_timeout == 250 && held->received_monotonic == 1234 && held->received_unix == 5678,
+        held->received_timeout == 250,
         "logout stop: actual background thread alone receives exact immutable stop arguments without a UI wait");
-    const auto duplicate = account_logout_stop_start(&held->owner, &held->host, 500, 9999, 9999, held_stop);
+    const auto duplicate = account_logout_stop_start(&held->owner, &held->host, 500, held_stop);
     const bool poll_kept = !account_logout_stop_take(&held->owner, &result);
     check(duplicate.error == AccountLogoutStopStartError::active && poll_kept &&
         !account_logout_stop_join_for_shutdown(&held->owner, 0, &result) &&
@@ -119,7 +115,7 @@ void test_account_logout_stop(void (*check)(bool, const char*) noexcept) noexcep
     ResetEvent(held->entered);
     ResetEvent(held->allowed);
     held->fail = false;
-    const bool retry = account_logout_stop_start(&held->owner, &held->host, 250, 1234, 5678, held_stop).ok();
+    const bool retry = account_logout_stop_start(&held->owner, &held->host, 250, held_stop).ok();
     check(retry && WaitForSingleObject(held->entered, 3'000) == WAIT_OBJECT_0 &&
         read_acquire(&held->calls) == 2 && !account_logout_stop_join_for_shutdown(&held->owner, 0, &result),
         "logout stop: explicit retry uses same retained host and bounded shutdown cannot abandon it");
@@ -134,7 +130,7 @@ void test_account_logout_stop(void (*check)(bool, const char*) noexcept) noexcep
     for (u32 i = 0; i < 8; ++i) {
         // Empty real hosts stop immediately; exercise publication even when
         // account_host_stop returns before CreateThread's caller is scheduled.
-        if (!account_logout_stop_start(&held->owner, &held->host, 250, 1234, 5678).ok() ||
+        if (!account_logout_stop_start(&held->owner, &held->host, 250).ok() ||
             WaitForSingleObject(account_logout_stop_notification(held->owner), 3'000) != WAIT_OBJECT_0 ||
             !account_logout_stop_take(&held->owner, &result) || !result.ok() || !idle(held->owner)) {
             fast_stops = false;

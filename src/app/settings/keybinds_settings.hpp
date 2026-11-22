@@ -19,6 +19,7 @@ bool application_keybinds_settings_project(SettingBinding, UiSettingsControl*) n
 u32 application_keybinds_settings_list(SettingBinding, Slice<UiSettingsControl>,
                                        Slice<UiSettingsControlPresentation>) noexcept;
 bool application_keybinds_settings_activate(SettingBinding) noexcept;
+// control_id is one of this page's rows (application_keybinds_settings_row).
 bool application_keybinds_settings_activate_row(u64 control_id, u32 choice) noexcept;
 // List rows of this page (custom or default keybinds).
 bool application_keybinds_settings_row(u64 control_id) noexcept;

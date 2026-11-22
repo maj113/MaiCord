@@ -21,13 +21,14 @@ inline bool application_phone_edit_ready(const SecureEdit* edit) noexcept {
         edit->anchor <= kLoginPhoneCodeDigits && edit->caret <= kLoginPhoneCodeDigits &&
         login_phone_cells_valid({reinterpret_cast<const char*>(edit->storage.data), edit->storage.bytes});
 }
-inline bool application_phone_materialize(SecureEdit* edit) noexcept {
-    if (!application_phone_edit_ready(edit)) return false;
-    // Materializing projected empty ACP cells changes neither text nor its
-    // revision; subsequent generic rendering sees the same six-cell document.
+// Materializing projected empty ACP cells changes neither text nor its
+// revision; subsequent generic rendering sees the same six-cell document.
+inline void application_phone_fill(SecureEdit* edit) noexcept {
     for (u32 i = edit->storage.bytes; i < kLoginPhoneCodeDigits; ++i) edit->storage.data[i] = ' ';
     edit->storage.bytes = kLoginPhoneCodeDigits;
-    return true;
+}
+inline bool application_phone_materialize(SecureEdit* edit) noexcept {
+    return application_phone_edit_ready(edit) && (application_phone_fill(edit), true);
 }
 inline char application_phone_cell(const SecureEdit& edit, u32 cell) noexcept {
     return cell < edit.storage.bytes ? static_cast<char>(edit.storage.data[cell]) : ' ';
@@ -35,7 +36,7 @@ inline char application_phone_cell(const SecureEdit& edit, u32 cell) noexcept {
 inline SecureEditResult application_phone_select(SecureEdit* edit, TextInputSelection selection) noexcept {
     if (!application_phone_edit_ready(edit) || selection.anchor > kLoginPhoneCodeDigits ||
         selection.caret > kLoginPhoneCodeDigits) return SecureEditResult::invalid_input;
-    if (!application_phone_materialize(edit)) return SecureEditResult::invalid_input;
+    application_phone_fill(edit);
     const bool changed = edit->anchor != selection.anchor || edit->caret != selection.caret;
     edit->anchor = selection.anchor; edit->caret = selection.caret;
     edit->pending_high_surrogate = 0;
@@ -60,7 +61,7 @@ inline SecureEditResult application_phone_replace(SecureEdit* edit, u32 first, u
     for (u32 i = 0; i < kLoginPhoneCodeDigits; ++i)
         changed |= cells[i] != application_phone_cell(*edit, i);
     SecureEditResult result = SecureEditResult::unchanged;
-    if (!application_phone_materialize(edit)) { SecureZeroMemory(cells, sizeof(cells)); return SecureEditResult::invalid_input; }
+    application_phone_fill(edit);
     if (changed) result = secure_edit_assign(edit, {cells, kLoginPhoneCodeDigits});
     SecureZeroMemory(cells, sizeof(cells));
     if (result != SecureEditResult::changed && result != SecureEditResult::unchanged) return result;
@@ -178,7 +179,7 @@ inline SecureTextRect application_login_pixel_rect(const UiRect& rectangle, u32 
 
 inline bool application_phone_range_geometry(const SecureEdit& edit, UiRect bounds, u32 dpi,
     POINT origin, u32 first, u32 last, SecureTextRect* output, bool* clipped, const UiRect* visible_bounds = nullptr) noexcept {
-    if (!output || !clipped || !dpi || !application_phone_edit_ready(&edit) || first > last || last > kLoginPhoneCodeDigits) return false;
+    if (!dpi || !application_phone_edit_ready(&edit) || last > kLoginPhoneCodeDigits) return false;
     const auto original = login_phone_range_rectangle(bounds, first, last);
     if (!ui_rect_has_area(original)) return false;
     const auto rectangle = ui_rect_intersection(original, visible_bounds ? *visible_bounds : bounds);
@@ -191,11 +192,11 @@ inline bool application_phone_range_geometry(const SecureEdit& edit, UiRect boun
 // Model ACP is relative to the complete locked field; retained geometry is
 // relative to its scalar-safe 48-codepoint display window. This helper owns no
 // state and is shared by the production TSF callback and its geometry fixture.
+// Both text stores pass their own outputs and a range with first <= last.
 inline bool application_login_range_geometry(const SecureEdit& edit,
     const TextEditLayoutOwner& layout, UiRect bounds, u32 dpi, POINT origin,
     u32 first, u32 last, SecureTextRect* output, bool* clipped) noexcept {
-    if (!output || !clipped || edit.password || !dpi || !layout.active ||
-        !ui_rect_has_area(bounds) || first > last ||
+    if (edit.password || !dpi || !layout.active || !ui_rect_has_area(bounds) ||
         layout.viewport_left != bounds.left || layout.viewport_top != bounds.top ||
         layout.width != ui_rect_width(bounds) || layout.height != ui_rect_height(bounds)) return false;
     const auto model = secure_edit_view(edit);

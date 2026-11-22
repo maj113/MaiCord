@@ -26,11 +26,9 @@ bool valid_source(const AccountProfile& source) noexcept {
 
 AccountProfilePromotionResult account_profile_promotion_stage(AccountProfilePromotion* promotion,
                                                               AccountProfile* source) noexcept {
-    if (!promotion || !source || static_cast<void*>(promotion) == static_cast<void*>(source) ||
-        promotion->state.phase != AccountProfilePromotionPhase::empty ||
-        promotion->profile.credential.data || !valid_source(*source)) {
-        return failure(promotion ? promotion->state.phase : AccountProfilePromotionPhase::empty,
-                       AccountProfilePromotionError::invalid_input, ERROR_INVALID_PARAMETER);
+    if (promotion->state.phase != AccountProfilePromotionPhase::empty || promotion->profile.credential.data ||
+        !valid_source(*source)) {
+        return failure(promotion->state.phase, AccountProfilePromotionError::invalid_input, ERROR_INVALID_PARAMETER);
     }
     if (!secure_buffer_transfer(&promotion->profile.credential, &source->credential)) {
         promotion->state =
@@ -45,11 +43,8 @@ AccountProfilePromotionResult account_profile_promotion_stage(AccountProfileProm
 
 AccountProfilePromotionResult account_profile_promotion_commit(AccountProfilePromotion* promotion,
                                                                const wchar_t* path) noexcept {
-    if (!promotion || !path || promotion->state.phase != AccountProfilePromotionPhase::staged ||
-        !valid_source(promotion->profile)) {
-        return failure(promotion ? promotion->state.phase : AccountProfilePromotionPhase::empty,
-                       AccountProfilePromotionError::invalid_input, ERROR_INVALID_PARAMETER);
-    }
+    if (promotion->state.phase != AccountProfilePromotionPhase::staged || !valid_source(promotion->profile))
+        return failure(promotion->state.phase, AccountProfilePromotionError::invalid_input, ERROR_INVALID_PARAMETER);
     const AccountProfileResult saved =
         account_profile_save(path, promotion->profile.metadata, promotion->profile.credential);
     if (!saved.ok()) {
@@ -63,9 +58,6 @@ AccountProfilePromotionResult account_profile_promotion_commit(AccountProfilePro
 }
 
 void account_profile_promotion_release(AccountProfilePromotion* promotion) noexcept {
-    if (!promotion) {
-        return;
-    }
     account_profile_release(&promotion->profile);
     reset_value<AccountProfilePromotion>(promotion);
 }

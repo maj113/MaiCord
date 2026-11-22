@@ -329,8 +329,7 @@ WebAuthnMfaResult decode_name(const Members& entity, u32 index, char* output) no
 // CollectedClientData: the type's prefix up to the challenge, the challenge, then discord.com as the origin.
 WebAuthnMfaResult write_client_data(const u8* challenge, u32 challenge_bytes, const Utf8View& prefix,
                                     Slice<u8> output) noexcept {
-    if (challenge_bytes == 0 || challenge_bytes > kWebAuthnMfaMaximumChallengeBytes ||
-        (!output.data && output.count != 0)) {
+    if (challenge_bytes == 0 || challenge_bytes > kWebAuthnMfaMaximumChallengeBytes) {
         return failure(WebAuthnMfaError::invalid_input);
     }
     const u32 challenge_encoded = encoded_size(challenge_bytes);
@@ -470,8 +469,7 @@ WebAuthnMfaResult write_credential(const char* body, const CredentialValues& val
 WebAuthnMfaResult webauthn_mfa_decode_request(Utf8View json, Slice<u32> structural_scratch,
                                               u32 maximum_depth,
                                               WebAuthnMfaRequestOptions* output) noexcept {
-    if (!output || !json.data || json.bytes == 0 || !structural_scratch.data ||
-        structural_scratch.count == 0 || maximum_depth == 0) {
+    if (json.bytes == 0) {
         return failure(WebAuthnMfaError::invalid_input);
     }
     const Document document{structural_scratch, maximum_depth};
@@ -550,7 +548,7 @@ WebAuthnMfaResult webauthn_mfa_write_assertion(const WebAuthnMfaAssertionView& a
                                                Slice<u8> output) noexcept {
     if (!valid_binary(assertion.credential_id, true) || !valid_binary(assertion.client_data_json, true) ||
         !valid_binary(assertion.authenticator_data, true) || !valid_binary(assertion.signature, true) ||
-        !valid_binary(assertion.user_handle, false) || (!output.data && output.count != 0)) {
+        !valid_binary(assertion.user_handle, false)) {
         return failure(WebAuthnMfaError::invalid_input);
     }
     return write_credential(R"("authenticatorData":")" "\2" R"(","clientDataJSON":")" "\3" R"(","signature":")" "\4"
@@ -563,8 +561,7 @@ WebAuthnMfaResult webauthn_mfa_write_assertion(const WebAuthnMfaAssertionView& a
 
 WebAuthnMfaResult webauthn_mfa_decode_creation(Utf8View json, Slice<u32> structural_scratch, u32 maximum_depth,
                                                WebAuthnMfaCreationOptions* output) noexcept {
-    if (!output || !json.data || json.bytes == 0 || !structural_scratch.data || structural_scratch.count == 0 ||
-        maximum_depth == 0) {
+    if (json.bytes == 0) {
         return failure(WebAuthnMfaError::invalid_input);
     }
     const Document document{structural_scratch, maximum_depth};
@@ -739,7 +736,7 @@ WebAuthnMfaResult webauthn_mfa_write_attestation_object(const WebAuthnMfaAttesta
     const ConstSlice<u8>& statement = object.attestation_statement;
     const ConstSlice<u8>& data = object.authenticator_data;
     if (!object.format.data || object.format.bytes == 0 || object.format.bytes > 23 || !valid_binary(statement, false) ||
-        !valid_binary(data, true) || data.count > 0xFFFFu || (!output.data && output.count != 0)) {
+        !valid_binary(data, true) || data.count > 0xFFFFu) {
         return failure(WebAuthnMfaError::invalid_input);
     }
     // A map of three: "fmt" and its text, "attStmt" and its map, "authData" and its byte string.
@@ -859,8 +856,7 @@ void webauthn_mfa_clear_aaguid(u8* authenticator_data, u32 bytes) noexcept {
 WebAuthnMfaResult webauthn_mfa_write_attestation(const WebAuthnMfaAttestationView& attestation,
                                                  Slice<u8> output) noexcept {
     if (!valid_binary(attestation.credential_id, true) || !valid_binary(attestation.client_data_json, true) ||
-        !valid_binary(attestation.attestation_object, true) || !valid_binary(attestation.authenticator_data, true) ||
-        (!output.data && output.count != 0)) {
+        !valid_binary(attestation.attestation_object, true) || !valid_binary(attestation.authenticator_data, true)) {
         return failure(WebAuthnMfaError::invalid_input);
     }
     return write_credential(R"("attestationObject":")" "\2" R"(","authenticatorData":")" "\3"

@@ -25,7 +25,7 @@ bool host_empty(const AccountHost& host) noexcept {
 
 // A module with an open login owner that no failed stop has blocked.
 bool login_live(const AccountHost* host) noexcept {
-    return host->module && host->login_instance && !host->stop_failed;
+    return host->login_instance && !host->stop_failed;
 }
 bool login_startable(const AccountHost* host) noexcept {
     return host->module && !host->login_instance && !host->stop_failed;
@@ -59,12 +59,8 @@ void account_host_move(AccountHost* destination, AccountHost* source) noexcept {
     clear_bytes(source, sizeof(*source));
 }
 
-AccountHostResult account_host_release(AccountHost* host) noexcept {
-    if (host->instance || host->login_instance) {
-        return failure(AccountHostError::active, ERROR_BUSY);
-    }
+void account_host_release(AccountHost* host) noexcept {
     clear_bytes(host, sizeof(*host));
-    return AccountHostResult{};
 }
 
 u32 account_host_observe(AccountHost* host, const AccountModuleStatus& status) noexcept {
@@ -91,16 +87,14 @@ u32 account_host_observe(AccountHost* host, const AccountModuleStatus& status) n
 }
 
 AccountModuleStartResult account_host_start(AccountHost* host, const wchar_t* profile_path,
-                                            const wchar_t* session_path, u64 monotonic_now_ms,
-                                            u64 unix_now_ms) noexcept {
-    if (!host->module || host->instance || !profile_path || !session_path) {
+                                            const wchar_t* session_path, u64 monotonic_now_ms) noexcept {
+    if (host->instance) {
         AccountModuleStartResult invalid{};
         invalid.native_error = ERROR_INVALID_PARAMETER;
         invalid.error = AccountModuleError::invalid_input;
         return invalid;
     }
-    AccountModuleStartResult started =
-        account_module_start(profile_path, session_path, monotonic_now_ms, unix_now_ms);
+    AccountModuleStartResult started = account_module_start(profile_path, session_path, monotonic_now_ms);
     if (started.ok()) {
         host->instance = started.instance;
     }
@@ -108,53 +102,39 @@ AccountModuleStartResult account_host_start(AccountHost* host, const wchar_t* pr
 }
 
 AccountLoginStatus account_host_login_start(AccountHost* host, const wchar_t* profile_path) noexcept {
-    return login_startable(host) && profile_path
+    return login_startable(host)
                ? kept(host, account_module_login_start(&host->login_instance, profile_path)) : login_refused();
 }
 
 AccountLoginStatus account_host_login_start_reset(AccountHost* host, const wchar_t* profile_path) noexcept {
-    return login_startable(host) && profile_path
+    return login_startable(host)
                ? kept(host, account_module_login_start_reset(&host->login_instance, profile_path)) : login_refused();
 }
 
 AccountLoginStatus account_host_login_submit_reset(AccountHost* host, const SecureBuffer* link_token,
                                                    const SecureBuffer* password) noexcept {
-    return login_live(host) && password
+    return login_live(host)
                ? kept(host, account_module_login_submit_reset(host->login_instance, link_token, password))
                : login_refused();
 }
 
-AccountModuleStatus account_host_pump(AccountHost* host, u64 monotonic_now_ms, u64 unix_now_ms,
-                                      u32* observations) noexcept {
-    if (observations) {
-        *observations = 0;
-    }
-    if (!host->module || !host->instance || host->stop_failed) {
-        AccountModuleStatus invalid{};
-        invalid.native_error = ERROR_INVALID_PARAMETER;
-        invalid.error = AccountModuleError::invalid_input;
-        invalid.failed = true;
-        return invalid;
-    }
-    const AccountModuleStatus status = account_module_pump(host->instance, monotonic_now_ms, unix_now_ms);
-    const u32 changed = account_host_observe(host, status);
-    if (observations) {
-        *observations = changed;
-    }
+AccountModuleStatus account_host_pump(AccountHost* host, u64 monotonic_now_ms, u32* observations) noexcept {
+    const AccountModuleStatus status = account_module_pump(host->instance, monotonic_now_ms);
+    *observations = account_host_observe(host, status);
     return status;
 }
 
 AccountLoginStatus account_host_login_submit_verification(AccountHost* host,
                                                           const SecureBuffer* link_token) noexcept {
-    return login_live(host) && link_token
+    return login_live(host)
                ? kept(host, account_module_login_submit_verification(host->login_instance, link_token))
                : login_refused();
 }
 
 AccountLoginStatus account_host_login_submit_recovery(AccountHost* host,
                                                       const SecureBuffer* login) noexcept {
-    return login_live(host) && login ? kept(host, account_module_login_submit_recovery(host->login_instance, login))
-                                     : account_login_invalid_input();
+    return login_live(host) ? kept(host, account_module_login_submit_recovery(host->login_instance, login))
+                            : account_login_invalid_input();
 }
 
 AccountLoginStatus account_host_login_pump(AccountHost* host) noexcept {
@@ -163,8 +143,8 @@ AccountLoginStatus account_host_login_pump(AccountHost* host) noexcept {
 
 AccountLoginStatus account_host_login_submit_phone_verify(AccountHost* host,
                                                           const SecureBuffer* code) noexcept {
-    return login_live(host) && code ? kept(host, account_module_login_submit_phone_verify(host->login_instance, code))
-                                    : account_login_invalid_input();
+    return login_live(host) ? kept(host, account_module_login_submit_phone_verify(host->login_instance, code))
+                            : account_login_invalid_input();
 }
 AccountLoginStatus account_host_login_submit_phone_resend(AccountHost* host) noexcept {
     return login_live(host) ? kept(host, account_module_login_submit_phone_resend(host->login_instance))
@@ -185,7 +165,7 @@ SecureBufferResult account_host_login_take_phone_reset_token(AccountHost* host, 
 }
 
 AccountLoginStatus account_host_login_stop(AccountHost* host, u32 timeout_ms) noexcept {
-    if (!host->module || !host->login_instance || timeout_ms == 0)
+    if (!host->login_instance)
         return login_refused();
     host->login_status = account_module_login_stop(&host->login_instance, timeout_ms);
     if (host->login_instance) {
@@ -196,21 +176,8 @@ AccountLoginStatus account_host_login_stop(AccountHost* host, u32 timeout_ms) no
     return host->login_status;
 }
 
-AccountHostStopResult account_host_stop(AccountHost* host, u32 timeout_ms, u64 monotonic_now_ms,
-                                        u64 unix_now_ms) noexcept {
+AccountHostStopResult account_host_stop(AccountHost* host, u32 timeout_ms) noexcept {
     AccountHostStopResult result{};
-    if (timeout_ms == 0) {
-        result.native_error = ERROR_INVALID_PARAMETER;
-        result.error = AccountHostError::invalid_input;
-        return result;
-    }
-    if (!host->module) {
-        if (!host_empty(*host)) {
-            result.native_error = ERROR_INVALID_STATE;
-            result.error = AccountHostError::invalid_input;
-        }
-        return result;
-    }
     if (host->login_instance) {
         result.login_status = account_host_login_stop(host, timeout_ms);
         if (host->login_instance) {
@@ -220,7 +187,7 @@ AccountHostStopResult account_host_stop(AccountHost* host, u32 timeout_ms, u64 m
         }
     }
     if (host->instance) {
-        result.account_status = account_module_stop(&host->instance, timeout_ms, monotonic_now_ms, unix_now_ms);
+        result.account_status = account_module_stop(&host->instance, timeout_ms);
         result.observations = account_host_observe(host, result.account_status);
         if (host->instance) {
             host->stop_failed = true;
@@ -231,19 +198,12 @@ AccountHostStopResult account_host_stop(AccountHost* host, u32 timeout_ms, u64 m
     } else {
         result.account_status = host->status;
     }
-    const AccountHostResult released = account_host_release(host);
-    if (!released.ok()) {
-        result.native_error = released.native_error;
-        result.error = released.error;
-    }
+    account_host_release(host);
     return result;
 }
 
 u32 account_host_notification_handles(const AccountHost* host, HANDLE* output) noexcept {
     constexpr u32 capacity = kAccountHostNotificationHandleCapacity;
-    if (!host->module) {
-        return 0;
-    }
     u32 count = 0;
     if (host->instance && !host->stop_failed) {
         count = account_module_notification_handles(host->instance, output, capacity);

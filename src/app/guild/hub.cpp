@@ -1087,9 +1087,8 @@ void consent_set(bool grant) noexcept {
                                         dialog->guild_id))
         consent_busy = true;
 }
+// A hook of the dialog's layer: the dialog exists whenever it runs.
 void sharing_activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcept {
-    if (!dialog)
-        return;
     auto& d = *dialog;
     const auto target = activation.value.target;
     const bool checked = activation.value.checked;

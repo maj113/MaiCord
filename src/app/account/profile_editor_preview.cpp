@@ -41,8 +41,10 @@ ChatStateStore& state() noexcept {
 Slice<u32> json_scratch() noexcept {
     return {g_app.account_ui->message_history_page_structurals, 32 * 1024};
 }
+// scope_current, busy, saving and changes run only where the owner exists; editable refuses a null owner itself
+// (SettingsEditors calls it from a binding's ready callback).
 bool scope_current() noexcept {
-    if (!owner || !application_account_available() || owner->account_scope != g_app.plugin_account_scope_serial ||
+    if (!application_account_available() || owner->account_scope != g_app.plugin_account_scope_serial ||
         owner->profile_id != g_app.account.status.profile_id || state().self_user_id != owner->self_user_id)
         return false;
     if (owner->tab != ProfileEditorTab::guild || !owner->guild_id)
@@ -51,10 +53,10 @@ bool scope_current() noexcept {
     return guild && guild->generation == owner->guild_generation && !guild->unavailable;
 }
 bool busy() noexcept {
-    return owner && (owner->queued || owner->request_id);
+    return owner->queued || owner->request_id;
 }
 bool saving() noexcept {
-    return owner && owner->saving;
+    return owner->saving;
 }
 bool editable() noexcept {
     return owner && owner->scene.active && owner->loaded && !saving() && owner->dialog_kind == Dialog::none;
@@ -255,7 +257,7 @@ ProfileEditorDraft current_draft() noexcept {
     return d;
 }
 u16 changes() noexcept {
-    return owner && owner->loaded ? profile_editor_changes(owner->tab, owner->base, current_draft()) : 0;
+    return owner->loaded ? profile_editor_changes(owner->tab, owner->base, current_draft()) : 0;
 }
 // Fresh draft from the saved values (Reset, a tab or server change, a save).
 void discard() noexcept {
@@ -481,8 +483,9 @@ Picked* picked_for(MediaAssetKey key) noexcept {
             return picked;
     return nullptr;
 }
+// Its callers (application_profile_editor_synchronize, poll_picker) have an owner.
 bool pump_previews(u64 now) noexcept {
-    if (!owner || !g_app.account.instance)
+    if (!g_app.account.instance)
         return false;
     bool changed = false;
     Picked* candidates[] = {&owner->staged, &owner->avatar, &owner->banner};
@@ -873,7 +876,7 @@ bool project() noexcept {
                 utf8_literal("Save Changes"),
                 utf8_literal("Reset"),
                 changed != 0 || saving() || p.failed,
-                changed && valid && connected() && !busy() && p.loaded,
+                changed && valid && connected() && !busy(),
                 saving(),
                 p.failed};
     p.content.controls = {p.controls, p.control_count};

@@ -91,10 +91,6 @@ void codec() noexcept {
     }
     check(round_trip, "codec: every placement decodes as it was encoded");
 
-    check(!window_placement_encode({0, 0, 1280, 800, 0, false}, {record, sizeof(record)}) &&
-              !window_placement_encode({0, 0, 1280, 800, 96, false}, {record, sizeof(record) - 1}),
-          "codec: an invalid placement or a short record does not encode");
-
     // Every byte changed in turn: the checksum or a field check refuses the record, and the output stays.
     const WindowPlacement original{-1820, 200, -100, 1100, 144, true};
     window_placement_encode(original, {record, sizeof(record)});

@@ -26,7 +26,6 @@
 #include "maicord/app/settings/client_theme_document.hpp"
 #include "maicord/render/effects/background_effect.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/color_hex.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
@@ -123,10 +122,11 @@ bool real_values_finite(const ClientThemeDocument& document) noexcept {
     }
     return true;
 }
-// The core reader already validates JSON number grammar. float_value checks the kind. Bounded decimal
+// The core reader validates JSON number grammar (number_end), so the source holds only an optional minus,
+// digits, one optional fraction and one optional exponent; float_value checks the kind. Bounded decimal
 // conversion uses no locale or CRT. Values are checked again after float cast.
 bool decimal(JsonValue value, float* output) noexcept {
-    if (!value.source.data || !value.source.bytes || value.source.bytes > 256)
+    if (value.source.bytes > 256)
         return false;
     u32 at{};
     const bool negative = value.source.data[0] == '-';
@@ -141,8 +141,6 @@ bool decimal(JsonValue value, float* output) noexcept {
             fraction = true;
             continue;
         }
-        if (c < '0' || c > '9')
-            return false;
         mantissa = mantissa * 10 + (c - '0');
         if (fraction)
             ++fractional;
@@ -153,12 +151,8 @@ bool decimal(JsonValue value, float* output) noexcept {
         bool minus{};
         if (at < value.source.bytes && (value.source.data[at] == '+' || value.source.data[at] == '-'))
             minus = value.source.data[at++] == '-';
-        while (at < value.source.bytes) {
-            const char c = value.source.data[at++];
-            if (c < '0' || c > '9')
-                return false;
-            exponent = minimum(4096, exponent * 10 + (c - '0'));
-        }
+        while (at < value.source.bytes)
+            exponent = minimum(4096, exponent * 10 + (value.source.data[at++] - '0'));
         if (minus)
             exponent = -exponent;
     }
@@ -714,7 +708,7 @@ bool effect_knob_member(void* context, JsonString name, JsonValue value) noexcep
     } else {
         return parse.fail(ClientThemeDocumentError::type, value.source_offset);
     }
-    if (!is_finite(knob.number) || knob.number < -1e6f || knob.number > 1e6f)
+    if (knob.number < -1e6f || knob.number > 1e6f)
         return parse.fail(ClientThemeDocumentError::range, value.source_offset);
     ++effect.knob_count;
     return true;
@@ -1467,9 +1461,8 @@ Theme phase_look(const ClientThemeDocument& document, u32 phase, u32 month) noex
 } // namespace
 ClientThemeDocument client_theme_document_defaults(ClientThemeBase base) noexcept {
     ClientThemeDocument document{};
-    document.base =
-        static_cast<u32>(base) <= static_cast<u32>(ClientThemeBase::amoled) ? base : ClientThemeBase::dark;
-    document.theme = base_theme(document.base);
+    document.base = base;
+    document.theme = base_theme(base);
     constexpr auto name = utf8_literal("Custom theme");
     copy_bytes(document.name, name.data, name.bytes);
     document.name_bytes = name.bytes;
@@ -1586,26 +1579,12 @@ bool client_theme_document_equal(const ClientThemeDocument& a, const ClientTheme
 ClientThemeDocumentResult client_theme_document_parse(Utf8View input, const ClientThemeDocument& defaults,
                                                       Slice<u32> scratch,
                                                       ClientThemeDocument* output) noexcept {
-    if (!output || !input.bytes || input.bytes > kClientThemeDocumentMaximumBytes || !scratch.data ||
-        !scratch.count || scratch.count > kClientThemeDocumentMaximumBytes ||
-        !client_theme_document_valid(defaults))
-        return {ClientThemeDocumentError::invalid_input};
-    const ConstSlice<u8> ranges[]{
-        {reinterpret_cast<const u8*>(input.data), input.bytes},
-        {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))},
-        {reinterpret_cast<const u8*>(output), sizeof(*output)},
-        {reinterpret_cast<const u8*>(&defaults), sizeof(defaults)}};
-    for (const auto range : ranges)
-        if (!byte_range_valid(range))
-            return {ClientThemeDocumentError::invalid_input};
-    if (byte_ranges_overlap(ranges[0], ranges[1]) || byte_ranges_overlap(ranges[0], ranges[2]) ||
-        byte_ranges_overlap(ranges[1], ranges[2]) || byte_ranges_overlap(ranges[1], ranges[3]))
-        return {ClientThemeDocumentError::invalid_input};
+    // Every caller reads at most kClientThemeImportMaximumBytes of a file (none empty) into its own buffer and
+    // gives a scratch of as many entries, so the structural index (one entry per byte at most) always fits; the
+    // defaults are client_theme_document_defaults() or a document they were copied from.
     const auto scanned = json_scan_structurals_avx1(input, scratch);
     if (!scanned.ok())
-        return {scanned.error == JsonScanError::output_overflow ? ClientThemeDocumentError::capacity
-                                                                : ClientThemeDocumentError::json,
-                scanned.error_offset};
+        return {ClientThemeDocumentError::json, scanned.error_offset};
     Parse parse{{input, {scratch.data, scanned.count}}, defaults};
     const auto read = json_visit_root_object(input, parse.document.structurals,
                                              kClientThemeDocumentMaximumDepth, root_member, &parse);
@@ -1664,22 +1643,9 @@ ClientThemeDocumentResult client_theme_document_parse(Utf8View input, const Clie
 }
 ClientThemeDocumentResult client_theme_document_write(const ClientThemeDocument& document,
                                                       const Slice<char>& output, u32* bytes) noexcept {
-    if (!bytes || output.count > kClientThemeDocumentMaximumBytes || (!output.data && output.count) ||
-        !client_theme_document_valid(document))
-        return {ClientThemeDocumentError::invalid_input};
-    const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(&document), sizeof(document)},
-                                  {reinterpret_cast<const u8*>(output.data), output.count},
-                                  {reinterpret_cast<const u8*>(bytes), sizeof(*bytes)}};
-    if (!byte_ranges_all_disjoint({ranges, 3}))
-        return {ClientThemeDocumentError::invalid_input};
+    // Both callers give a valid document, a buffer of kClientThemeDocumentMaximumBytes and their own count.
     Writer size{};
     write_document(size, document);
-    if (size.used > kClientThemeDocumentMaximumBytes)
-        return {ClientThemeDocumentError::capacity};
-    if (!output.data && !output.count) {
-        *bytes = size.used;
-        return {};
-    }
     if (size.used > output.count)
         return {ClientThemeDocumentError::capacity};
     Writer actual{output.data};

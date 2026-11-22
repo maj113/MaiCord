@@ -131,8 +131,7 @@ AccountProfileResult account_profile_save(const wchar_t* path, const AccountProf
 AccountProfileResult account_profile_load(const wchar_t* path, AccountProfile* profile) noexcept {
     const u32 characters =
         wide_length(path, kAccountProfileMaximumPathCharacters);
-    if (characters == 0 || characters >= kAccountProfileMaximumPathCharacters || !profile ||
-        profile->credential.data) {
+    if (characters == 0 || characters >= kAccountProfileMaximumPathCharacters) {
         return failure(AccountProfileError::invalid_input, ERROR_INVALID_PARAMETER);
     }
     auto* file_bytes = static_cast<u8*>(
@@ -186,9 +185,6 @@ AccountProfileResult account_profile_load(const wchar_t* path, AccountProfile* p
 }
 
 void account_profile_release(AccountProfile* profile) noexcept {
-    if (!profile) {
-        return;
-    }
     secure_buffer_release(&profile->credential);
     reset_value<AccountProfile>(profile);
 }

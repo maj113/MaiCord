@@ -93,8 +93,6 @@ bool package_slug_valid(Utf8View slug) noexcept {
 }
 
 bool package_link_parse(Utf8View text, PackageLink* link) noexcept {
-    if (!link)
-        return false;
     clear_bytes(link, sizeof(*link));
     if (!text.data || !text.bytes || text.bytes > kTextMaximum)
         return false;
@@ -145,9 +143,8 @@ bool package_link_parse(Utf8View text, PackageLink* link) noexcept {
 
 bool package_link_parse_wide(ConstSlice<wchar_t> text, PackageLink* link) noexcept {
     char ascii[kTextMaximum];
-    if (!link || !text.data || !text.count || text.count > kTextMaximum) {
-        if (link)
-            clear_bytes(link, sizeof(*link));
+    if (text.count > kTextMaximum) {
+        clear_bytes(link, sizeof(*link));
         return false;
     }
     for (u32 i = 0; i < text.count; ++i) {
@@ -161,7 +158,7 @@ bool package_link_parse_wide(ConstSlice<wchar_t> text, PackageLink* link) noexce
 }
 
 bool package_link_location(const PackageLink& link, UpdateLocation* location) noexcept {
-    return link.type == PackageLinkType::url && location && location_of(link.url, link.url_bytes, location);
+    return link.type == PackageLinkType::url && location_of(link.url, link.url_bytes, location);
 }
 
 } // namespace maicord

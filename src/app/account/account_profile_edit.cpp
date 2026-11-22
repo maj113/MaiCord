@@ -59,7 +59,7 @@ RestClientSubmitResult account_profile_edit_submit(RestClient* rest, const Profi
 }
 
 bool account_profile_image(ProfileImageRequest* request) noexcept {
-    if (!request || !request->info || !request->source.data || !request->source.count)
+    if (!request->source.data || !request->source.count)
         return false;
     request->data_uri_bytes = 0;
     if (!request->crop.width) {

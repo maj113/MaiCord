@@ -26,7 +26,7 @@ void application_emoji_preferences_synchronize() noexcept;
 // emoji_preferences_visit_frecency; empty when not loaded for this account.
 ConstSlice<u8> application_emoji_preferences_sticker_frecency() noexcept;
 bool application_emoji_preferences_pending(u64 now_ms) noexcept;
-bool application_emoji_preferences_submit(u64 request_id, u64 now_ms) noexcept;
+bool application_emoji_preferences_submit(u64 request_id, u64 now_ms) noexcept; // request_id: the lane's, never 0
 bool application_emoji_preferences_response(const RestClientResponse&, Utf8View body) noexcept;
 void application_emoji_preferences_response_drained() noexcept;
 Slice<u8> application_emoji_preferences_response_buffer() noexcept;

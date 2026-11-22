@@ -67,10 +67,6 @@ u32 loopback_join(LoopbackServer* server, u32 timeout_ms) noexcept;
 void loopback_close_client(LoopbackServer* server) noexcept;
 // Releases handles and storage and frees the block of owner_bytes.
 void loopback_destroy(LoopbackServer* server, u32 owner_bytes) noexcept;
-// An output buffer must be locked and disjoint from the arena, the runtime
-// block, the owner's handle and its own descriptor.
-bool loopback_external_output(const LoopbackServer* server, const void* handle, u32 handle_bytes,
-                              u32 owner_bytes, const SecureBuffer* output) noexcept;
 
 // Helpers for the owners' runtime blocks. A runtime derives from
 // LoopbackServer and holds `status` (phase, error, native_error) after it; its

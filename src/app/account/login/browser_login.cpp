@@ -4,7 +4,7 @@ namespace maicord {
 
 BrowserSignInReceiverStatus browser_login_start(BrowserLogin* owner, u64 generation,
                                                 u32 timeout_ms) noexcept {
-    if (!owner || owner->receiver.runtime || owner->status.generation || owner->authenticated)
+    if (owner->receiver.runtime || owner->status.generation || owner->authenticated)
         return {
             0, 0, 0, 0, 0, BrowserSignInReceiverPhase::empty, BrowserSignInReceiverError::invalid_input};
     owner->status = browser_sign_in_receiver_start(&owner->receiver, generation, timeout_ms);
@@ -12,8 +12,6 @@ BrowserSignInReceiverStatus browser_login_start(BrowserLogin* owner, u64 generat
 }
 
 BrowserSignInReceiverStatus browser_login_status(BrowserLogin* owner) noexcept {
-    if (!owner)
-        return {};
     if (owner->receiver.runtime)
         owner->status = browser_sign_in_receiver_status(&owner->receiver);
     return owner->status;
@@ -21,7 +19,7 @@ BrowserSignInReceiverStatus browser_login_status(BrowserLogin* owner) noexcept {
 
 BrowserLoginPumpResult browser_login_pump(BrowserLogin* owner, UserAuthCoordinator* coordinator) noexcept {
     BrowserLoginPumpResult result{};
-    if (!owner || !coordinator || owner->authenticated)
+    if (owner->authenticated)
         return result;
     auto status = browser_login_status(owner);
     if (!status.ok() || status.phase == BrowserSignInReceiverPhase::expired ||
@@ -72,7 +70,7 @@ BrowserLoginPumpResult browser_login_pump(BrowserLogin* owner, UserAuthCoordinat
 
 HANDLE browser_login_notification_handle(const BrowserLogin* owner,
                                          const UserAuthCoordinator* coordinator) noexcept {
-    if (!owner || !owner->receiver.runtime)
+    if (!owner->receiver.runtime)
         return nullptr;
     const auto status = browser_sign_in_receiver_status(&owner->receiver);
     return status.phase == BrowserSignInReceiverPhase::exchange_pending
@@ -81,8 +79,6 @@ HANDLE browser_login_notification_handle(const BrowserLogin* owner,
 }
 
 BrowserSignInReceiverStatus browser_login_stop(BrowserLogin* owner, u32 timeout_ms) noexcept {
-    if (!owner)
-        return {};
     owner->status = browser_sign_in_receiver_stop(&owner->receiver, timeout_ms);
     return owner->status;
 }

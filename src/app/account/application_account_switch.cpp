@@ -624,8 +624,7 @@ bool account_switch_stop_begin() noexcept {
     application_prepare_account_stop();
     account_host_move(&g_switch.stop_host, &host);
     g_switch.host_transferred = true;
-    const auto started = account_logout_stop_start(&g_switch.stop, &g_switch.stop_host, kAccountStopTimeoutMs,
-                                                   clock_monotonic_milliseconds(), clock_unix_milliseconds());
+    const auto started = account_logout_stop_start(&g_switch.stop, &g_switch.stop_host, kAccountStopTimeoutMs);
     if (started.ok())
         return true;
     account_host_move(&host, &g_switch.stop_host);

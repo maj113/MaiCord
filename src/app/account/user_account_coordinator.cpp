@@ -20,11 +20,10 @@ UserAccountCoordinatorResult rest_start_failure(const RestClientResult& started)
     return result;
 }
 
+// The one caller (user_account_coordinator_start) checked the source credential first.
 bool duplicate_credential(const SecureBuffer& source, SecureBuffer* destination) noexcept {
-    if (destination->data || !source.data || !source.locked || source.bytes == 0 ||
-        source.bytes > kAccountProfileMaximumCredentialBytes) {
+    if (destination->data || source.bytes > kAccountProfileMaximumCredentialBytes)
         return false;
-    }
     const SecureBufferResult initialized = secure_buffer_initialize(destination, source.bytes);
     if (!initialized.ok()) {
         return false;
@@ -60,8 +59,7 @@ UserAccountCoordinatorResult user_account_coordinator_start(UserAccountCoordinat
                                                             AccountProfile* profile,
                                                             const GatewayUserClientConfiguration* configuration,
                                                             Utf8View timezone, Utf8View accept_language) noexcept {
-    if (!coordinator || !profile || !configuration ||
-        coordinator->state.phase != UserAccountCoordinatorPhase::empty ||
+    if (coordinator->state.phase != UserAccountCoordinatorPhase::empty ||
         profile->metadata.profile_id == 0 || !profile->credential.data || !profile->credential.locked ||
         profile->credential.bytes == 0 || !gateway_user_client_configuration_validate(*configuration)) {
         return invalid_result();
@@ -131,9 +129,6 @@ u32 user_account_coordinator_restart_delay(u32 attempt) noexcept {
 
 UserAccountCoordinatorResult user_account_coordinator_pump(UserAccountCoordinator* coordinator,
                                                            u64 now_ms) noexcept {
-    if (!coordinator) {
-        return invalid_result();
-    }
     if (coordinator->state.phase == UserAccountCoordinatorPhase::gateway_connecting ||
         coordinator->state.phase == UserAccountCoordinatorPhase::running) {
         const AccountRequirement required = gateway_client_required_action(&coordinator->gateway);
@@ -177,7 +172,7 @@ UserAccountCoordinatorResult user_account_coordinator_pump(UserAccountCoordinato
 
 bool user_account_coordinator_gateway_restart_due(const UserAccountCoordinator* coordinator,
                                                   u64 now_ms) noexcept {
-    return coordinator && coordinator->state.gateway_restart_at_ms &&
+    return coordinator->state.gateway_restart_at_ms &&
            now_ms >= coordinator->state.gateway_restart_at_ms &&
            (coordinator->state.phase == UserAccountCoordinatorPhase::gateway_connecting ||
             coordinator->state.phase == UserAccountCoordinatorPhase::running);
@@ -186,9 +181,8 @@ bool user_account_coordinator_gateway_restart_due(const UserAccountCoordinator* 
 UserAccountCoordinatorResult user_account_coordinator_restart_gateway(
     UserAccountCoordinator* coordinator, const GatewayUserClientConfiguration* configuration,
     u64 now_ms) noexcept {
-    if (!coordinator || !configuration ||
-        !user_account_coordinator_gateway_restart_due(coordinator, now_ms))
-        return coordinator ? coordinator->state : invalid_result();
+    if (!user_account_coordinator_gateway_restart_due(coordinator, now_ms))
+        return coordinator->state;
     AccountProfile profile{};
     const GatewayClientResult stopped =
         gateway_client_stop_return_user_profile(&coordinator->gateway, 5'000, &profile);
@@ -218,12 +212,12 @@ UserAccountCoordinatorResult user_account_coordinator_restart_gateway(
 
 UserAccountCoordinatorResult user_account_coordinator_status(
     const UserAccountCoordinator* coordinator) noexcept {
-    return coordinator ? coordinator->state : invalid_result();
+    return coordinator->state;
 }
 
 bool user_account_coordinator_snapshot_session(const UserAccountCoordinator* coordinator,
                                                GatewayUserSessionSnapshot* snapshot) noexcept {
-    if (!coordinator || !snapshot || coordinator->metadata.profile_id == 0 ||
+    if (coordinator->metadata.profile_id == 0 ||
         coordinator->state.phase == UserAccountCoordinatorPhase::empty ||
         coordinator->state.phase == UserAccountCoordinatorPhase::stopped) {
         return false;
@@ -233,7 +227,7 @@ bool user_account_coordinator_snapshot_session(const UserAccountCoordinator* coo
 
 bool user_account_coordinator_take_refreshed_credential(UserAccountCoordinator* coordinator,
                                                         SecureBuffer* output) noexcept {
-    if (!coordinator || !output || !gateway_client_take_refreshed_credential(&coordinator->gateway, output))
+    if (!gateway_client_take_refreshed_credential(&coordinator->gateway, output))
         return false;
     // REST writes every later request head with it; a 401 to a request already sent with the old one is not a
     // rejection of the session.
@@ -247,7 +241,7 @@ bool user_account_coordinator_take_refreshed_credential(UserAccountCoordinator* 
 
 bool user_account_coordinator_replace_credential(UserAccountCoordinator* coordinator,
                                                  ConstSlice<u8> token) noexcept {
-    if (!coordinator || !gateway_client_replace_credential(&coordinator->gateway, token))
+    if (!gateway_client_replace_credential(&coordinator->gateway, token))
         return false;
     coordinator->credential_replaced = true;
     if (coordinator->rest.runtime)
@@ -260,7 +254,7 @@ bool user_account_coordinator_replace_credential(UserAccountCoordinator* coordin
 UserAccountCoordinatorResult user_account_coordinator_stop(UserAccountCoordinator* coordinator,
                                                            u32 timeout_ms,
                                                            GatewayUserSessionSnapshot* snapshot) noexcept {
-    if (!coordinator || timeout_ms == 0 || coordinator->state.phase == UserAccountCoordinatorPhase::empty ||
+    if (timeout_ms == 0 || coordinator->state.phase == UserAccountCoordinatorPhase::empty ||
         coordinator->state.phase == UserAccountCoordinatorPhase::stopped) {
         return invalid_result();
     }
@@ -299,7 +293,7 @@ UserAccountCoordinatorResult user_account_coordinator_stop(UserAccountCoordinato
 
 u32 user_account_coordinator_notification_handles(const UserAccountCoordinator* coordinator, HANDLE* output,
                                                   u32 capacity) noexcept {
-    if (!coordinator || !output || capacity == 0) {
+    if (capacity == 0) {
         return 0;
     }
     u32 count = 0;
@@ -318,14 +312,13 @@ u32 user_account_coordinator_notification_handles(const UserAccountCoordinator* 
 }
 
 RestClient* user_account_coordinator_rest(UserAccountCoordinator* coordinator, bool details) noexcept {
-    return coordinator && coordinator->rest.runtime &&
-                   coordinator->state.phase == UserAccountCoordinatorPhase::running
+    return coordinator->rest.runtime && coordinator->state.phase == UserAccountCoordinatorPhase::running
                ? (details ? &coordinator->details : &coordinator->rest)
                : nullptr;
 }
 
 RestClient* user_account_coordinator_startup_rest(UserAccountCoordinator* coordinator) noexcept {
-    return coordinator && coordinator->rest.runtime &&
+    return coordinator->rest.runtime &&
                    (coordinator->state.phase == UserAccountCoordinatorPhase::gateway_connecting ||
                     coordinator->state.phase == UserAccountCoordinatorPhase::running)
                ? &coordinator->rest
@@ -344,7 +337,7 @@ RestClientTakeResult user_account_coordinator_take(UserAccountCoordinator* coord
 }
 
 GatewayClient* user_account_coordinator_gateway(UserAccountCoordinator* coordinator) noexcept {
-    return coordinator && coordinator->gateway.runtime ? &coordinator->gateway : nullptr;
+    return coordinator->gateway.runtime ? &coordinator->gateway : nullptr;
 }
 
 } // namespace maicord

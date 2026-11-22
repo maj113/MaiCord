@@ -1,6 +1,5 @@
 #include "maicord/protocol/auth/captcha_bridge.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/json_scan.hpp"
@@ -220,7 +219,7 @@ bool captcha_bridge_sitekey_valid(Utf8View sitekey) noexcept {
     return true;
 }
 bool captcha_bridge_rqdata_valid(Utf8View rqdata) noexcept {
-    if ((!rqdata.data && rqdata.bytes) || rqdata.bytes > kCaptchaBridgeMaximumRqdataBytes) return false;
+    if (rqdata.bytes > kCaptchaBridgeMaximumRqdataBytes) return false;
     for (u32 i = 0; i < rqdata.bytes; ++i) {
         const char c = rqdata.data[i];
         if (!ascii_is_alnum(c) && c != '-' && c != '_' && c != '+' && c != '/' && c != '=' && c != '.') return false;
@@ -231,7 +230,7 @@ bool captcha_bridge_user_flow_valid(const Utf8View& user_flow) noexcept {
     return user_flow.bytes <= kCaptchaBridgeMaximumUserFlowBytes && utf8_validate(user_flow).valid;
 }
 bool captcha_bridge_token_valid(Utf8View token) noexcept {
-    if (!token.data || token.bytes < kCaptchaBridgeMinimumTokenBytes || token.bytes > kCaptchaBridgeMaximumTokenBytes)
+    if (token.bytes < kCaptchaBridgeMinimumTokenBytes || token.bytes > kCaptchaBridgeMaximumTokenBytes)
         return false;
     for (u32 i = 0; i < token.bytes; ++i) {
         const char c = token.data[i];
@@ -241,7 +240,7 @@ bool captcha_bridge_token_valid(Utf8View token) noexcept {
 }
 
 CaptchaBridgeParseResult captcha_bridge_parse_request(ConstSlice<u8> input, u16 port, Utf8View state) noexcept {
-    if (!port_valid(port) || !input.data || !byte_range_valid(input) || !captcha_bridge_hex_valid(state, kCaptchaBridgeStateBytes))
+    if (!port_valid(port) || !captcha_bridge_hex_valid(state, kCaptchaBridgeStateBytes))
         return reject(CaptchaBridgeProtocolError::invalid_input);
     if (input.count > kCaptchaBridgeMaximumHeaderBytes + kCaptchaBridgeMaximumBodyBytes)
         return reject(CaptchaBridgeProtocolError::capacity);
@@ -316,9 +315,6 @@ CaptchaBridgeParseResult captcha_bridge_parse_request(ConstSlice<u8> input, u16 
 }
 
 CaptchaBridgeWriteResult captcha_bridge_write_hex(ConstSlice<u8> random, Slice<u8> output) noexcept {
-    if (!random.data || random.count != 16 || !output.data || !byte_range_valid(random) ||
-        !byte_range_valid({output.data, output.count}) || byte_ranges_overlap(random, {output.data, output.count}))
-        return {0, CaptchaBridgeProtocolError::invalid_input};
     if (output.count < 32) return {32, CaptchaBridgeProtocolError::capacity};
     static constexpr char digits[] = "0123456789abcdef";
     for (u32 i = 0; i < 16; ++i) {
@@ -329,9 +325,7 @@ CaptchaBridgeWriteResult captcha_bridge_write_hex(ConstSlice<u8> random, Slice<u
 }
 
 CaptchaBridgeWriteResult captcha_bridge_write_url(u16 port, Utf8View state, Slice<u8> output) noexcept {
-    if (!port_valid(port) || !captcha_bridge_hex_valid(state, kCaptchaBridgeStateBytes) || !output.data ||
-        !byte_range_valid({output.data, output.count}) ||
-        byte_ranges_overlap({output.data, output.count}, {reinterpret_cast<const u8*>(state.data), state.bytes}))
+    if (!port_valid(port) || !captcha_bridge_hex_valid(state, kCaptchaBridgeStateBytes))
         return {0, CaptchaBridgeProtocolError::invalid_input};
     Writer out{output.data, output.count, 0, false};
     out.literal("http://127.0.0.1:"); out.decimal(port); out.literal("/c/"); out.text(state);
@@ -344,14 +338,8 @@ CaptchaBridgeWriteResult captcha_bridge_write_page(const CaptchaBridgePage& page
     if (!sources.code || !port_valid(page.port) || !captcha_bridge_sitekey_valid(page.sitekey) ||
         !captcha_bridge_rqdata_valid(page.rqdata) || !captcha_bridge_user_flow_valid(page.user_flow) ||
         !captcha_bridge_hex_valid(page.state, kCaptchaBridgeStateBytes) ||
-        !captcha_bridge_hex_valid(page.nonce, kCaptchaBridgeNonceBytes) || !output.data ||
-        !byte_range_valid({output.data, output.count}))
+        !captcha_bridge_hex_valid(page.nonce, kCaptchaBridgeNonceBytes))
         return {0, CaptchaBridgeProtocolError::invalid_input};
-    const ConstSlice<u8> destination{output.data, output.count};
-    const Utf8View sources_in[]{page.sitekey, page.rqdata, page.state, page.nonce, page.user_flow};
-    for (const Utf8View source : sources_in)
-        if (byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(source.data), source.bytes}))
-            return {0, CaptchaBridgeProtocolError::invalid_input};
     Writer measure{nullptr, 0, 0, false};
     write_body(measure, page, sources);
     Writer out{output.data, output.count, 0, false};
@@ -368,7 +356,6 @@ CaptchaBridgeWriteResult captcha_bridge_write_page(const CaptchaBridgePage& page
 
 CaptchaBridgeWriteResult captcha_bridge_write_response(CaptchaBridgeResponse response,
                                                        const Slice<u8>& output) noexcept {
-    if (!output.data || !byte_range_valid({output.data, output.count})) return {0, CaptchaBridgeProtocolError::invalid_input};
     Writer out{output.data, output.count, 0, false};
     if (response == CaptchaBridgeResponse::accepted) {
         out.literal("HTTP/1.1 204 No Content\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\n"

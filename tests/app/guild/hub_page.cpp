@@ -104,11 +104,6 @@ void board(u32 count, const char* label) noexcept {
         whole += row.y >= pane.y && row.y + row.h <= pane.y + pane.h;
         ++rows;
     }
-    test_write_line(label);
-    test_write_metric("  rows=", rows);
-    test_write_metric("  pane_height=", static_cast<u64>(pane.h));
-    test_write_metric("  rows_height=", static_cast<u64>(total));
-    test_write_metric("  rows_shown_whole=", whole);
     check(rows == count, "hub_page_one_row_per_leader");
     check(pitch, count <= 8 ? "hub_page_short_board_row_pitch" : "hub_page_long_board_row_pitch");
     if (count * kRowPitch <= kListHeight) {

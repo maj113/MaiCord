@@ -909,8 +909,6 @@ bool start_ceremony(bool registering) noexcept {
 
 KeyFailure failure_of(WebAuthnCeremonyError error) noexcept {
     switch (error) {
-    case WebAuthnCeremonyError::unavailable:
-        return KeyFailure::unavailable;
     case WebAuthnCeremonyError::cancelled:
         return KeyFailure::cancelled;
     case WebAuthnCeremonyError::timed_out:
@@ -1955,7 +1953,7 @@ bool application_account_settings_activate(SettingBinding binding, bool checked,
 bool application_account_settings_activate_row(u64 id, bool checked, u32 choice) noexcept {
     scope();
     const auto* b = g_owner.bank;
-    if (!b || id < kSettingsListFirst || !online() || action_pending() || g_owner.form_shown)
+    if (!b || !online() || action_pending() || g_owner.form_shown)
         return false;
     const auto binding = settings_list_binding(id);
     const u32 index = settings_list_index(id);
@@ -2013,7 +2011,7 @@ u64 application_account_settings_next_wake() noexcept {
 }
 
 bool application_account_settings_submit(u64 request_id, u64 now_ms) noexcept {
-    if (!request_id || !application_account_settings_pending(now_ms) || !bank())
+    if (!application_account_settings_pending(now_ms) || !bank())
         return false;
     auto& b = *g_owner.bank;
     AccountSettingsRequest request{};
