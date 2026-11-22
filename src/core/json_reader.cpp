@@ -968,49 +968,76 @@ bool json_string_equals_utf8(const JsonString& value, const Utf8View& text) noex
     return source == value.encoded.bytes && target == text.bytes;
 }
 
-// Whether all eight bytes of chunk are ASCII digits: each high nibble is 3, and adding 6 keeps it 3.
-static __forceinline bool eight_digits(u64 chunk) noexcept {
-    return ((chunk & 0xF0F0'F0F0'F0F0'F0F0ull) | ((chunk + 0x0606'0606'0606'0606ull) & 0xF0F0'F0F0'F0F0'F0F0ull) >> 4) ==
-           0x3333'3333'3333'3333ull;
-}
-// The number that eight ASCII digits spell, the first in the low byte: pairs, then fours, then all eight, two
-// lanes for each multiply (Lemire, "Number Parsing at a Gigabyte per Second", 2021).
-static __forceinline u64 eight_digit_value(u64 chunk) noexcept {
-    chunk -= 0x3030'3030'3030'3030ull;
-    chunk = chunk * 10 + (chunk >> 8);
-    return ((chunk & 0x0000'00FF'0000'00FFull) * (100 + (1'000'000ull << 32)) +
-            (chunk >> 16 & 0x0000'00FF'0000'00FFull) * (1 + (10'000ull << 32))) >> 32;
-}
-// The decimal number that data[0, bytes) spells, eight digits at a time while eight bytes remain. In a string (not
-// null), a backslash starts an escape that may spell a digit. Any other byte that is not a digit fails, and so does
-// a value past 2^64 - 1. One copy serves strings and numbers.
-__declspec(noinline) static bool decimal_to_u64(const char* data, u32 bytes, const JsonString* string,
-                                                u64* output) noexcept {
-    u32 offset = 0;
+// A string number in which a byte of the last 16 is not a plain digit, or a head byte before them: an escape that
+// spells a digit, else a failure. One scalar at a time; rare, so out of line, and the path of plain digits keeps no
+// register live across a call.
+__declspec(noinline) static bool decimal_escaped(const JsonString& string, u64* output) noexcept {
+    const char* const data = string.encoded.data;
     u64 result = 0;
-    for (;;) {
-        for (; bytes - offset >= 8; offset += 8) {
-            const u64 chunk = *reinterpret_cast<const u64 __unaligned*>(data + offset);
-            if (!eight_digits(chunk))
-                break;
-            if (__builtin_mul_overflow(result, u64{100'000'000}, &result) ||
-                __builtin_add_overflow(result, eight_digit_value(chunk), &result))
+    for (u32 offset = 0; offset < string.encoded.bytes;) {
+        u32 codepoint = static_cast<u8>(data[offset]);
+        if (codepoint == '\\') {
+            if (!decode_string_scalar(string, &offset, &codepoint))
                 return false;
+        } else {
+            ++offset;
         }
-        u32 digit = 0;
-        for (; offset < bytes && (digit = static_cast<u32>(static_cast<u8>(data[offset])) - '0') <= 9; ++offset)
-            if (__builtin_mul_overflow(result, u64{10}, &result) || __builtin_add_overflow(result, u64{digit}, &result))
-                return false;
-        if (offset == bytes) {
-            *output = result;
-            return true;
-        }
-        u32 codepoint;
-        if (!string || data[offset] != '\\' || !decode_string_scalar(*string, &offset, &codepoint) ||
-            (digit = codepoint - '0') > 9 || __builtin_mul_overflow(result, u64{10}, &result) ||
+        const u32 digit = codepoint - '0';
+        if (digit > 9 || __builtin_mul_overflow(result, u64{10}, &result) ||
             __builtin_add_overflow(result, u64{digit}, &result))
             return false;
     }
+    *output = result;
+    return true;
+}
+constexpr u64 kPowersOfTen[17]{1,          10,          100,          1000,          10000,          100000,
+                               1000000,    10000000,    100000000,    1000000000,    10000000000,    100000000000,
+                               1000000000000, 10000000000000, 100000000000000, 1000000000000000,
+                               10000000000000000};
+// The decimal number that data[0, bytes) (bytes > 0) spells. The bytes before the last 16 go one at a time (a
+// snowflake has at most 3 of them); the last 16 or fewer are one SSE step: right-aligned in a register with zeros
+// below, checked, then pairs, fours and eights of digits by multiply-adds (the digit reduction of simdjson; Lemire,
+// "Number Parsing at a Gigabyte per Second", 2021). In a string (not null), a backslash starts an escape that may
+// spell a digit. Any other byte that is not a digit fails, and so does a value past 2^64 - 1. One copy serves
+// strings and numbers.
+__declspec(noinline) static bool decimal_to_u64(const char* data, u32 bytes, const JsonString* string,
+                                                u64* output) noexcept {
+    const u32 head = bytes > 16 ? bytes - 16 : 0;
+    u64 result = 0;
+    for (u32 offset = 0; offset < head; ++offset) {
+        const u32 digit = static_cast<u32>(static_cast<u8>(data[offset])) - '0';
+        if (digit > 9)
+            return string && decimal_escaped(*string, output);
+        if (__builtin_mul_overflow(result, u64{10}, &result) || __builtin_add_overflow(result, u64{digit}, &result))
+            return false;
+    }
+    // One 16-byte load from the first digit when it stays in that digit's page, else the 16 bytes that end with the
+    // last digit: those lie in the digit's page and the next one, which the text reaches. Either way the read
+    // cannot fault. The asm hides the text's size from the compiler, which could otherwise treat it as undefined.
+    const u32 tail = bytes - head, below = 16 - tail;
+    const char* last = data + head;
+    const bool forward = (reinterpret_cast<usize>(last) & 4095) <= 4080;
+    const char* block = forward ? last : last + tail - 16;
+    __asm__("" : "+r"(block));
+    const __m128i lanes = _mm_setr_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    // Lane j takes the digit that ends the number in lane 15, or zero (a control byte from 0x80 up) below it.
+    const __m128i control =
+        _mm_or_si128(_mm_sub_epi8(lanes, _mm_set1_epi8(static_cast<char>(forward ? below : 0))),
+                     _mm_cmpgt_epi8(_mm_set1_epi8(static_cast<char>(below)), lanes));
+    const __m128i digits = _mm_shuffle_epi8(
+        _mm_sub_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i_u*>(block)), _mm_set1_epi8('0')), control);
+    const __m128i nine = _mm_set1_epi8(9);
+    if (_mm_movemask_epi8(_mm_cmpeq_epi8(_mm_max_epu8(digits, nine), nine)) != 0xFFFF)
+        return string && decimal_escaped(*string, output);
+    const __m128i pairs = _mm_maddubs_epi16(digits, _mm_set1_epi16(0x010A));
+    const __m128i fours = _mm_madd_epi16(pairs, _mm_set1_epi32(0x0001'0064));
+    const __m128i eights = _mm_madd_epi16(_mm_packus_epi32(fours, fours), _mm_set1_epi32(0x0001'2710));
+    const u64 halves = static_cast<u64>(_mm_cvtsi128_si64(eights));
+    const u64 value = (halves & 0xFFFF'FFFFull) * 100'000'000 + (halves >> 32);
+    if (__builtin_mul_overflow(result, kPowersOfTen[tail], &result) || __builtin_add_overflow(result, value, &result))
+        return false;
+    *output = result;
+    return true;
 }
 
 bool json_string_to_u64(const JsonString& value, u64* output) noexcept {
