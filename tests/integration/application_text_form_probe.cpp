@@ -189,7 +189,7 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
     // Move renderer ownership for this synchronous fixture, then restore it.
     // Rebase self-referential geometry pointers on each transfer.
     g_app.renderer = renderer;
-    renderer = {};
+    reset_value(&renderer);
     g_app.renderer.composer_layout.selections = g_app.renderer.edit_selections;
     g_app.renderer.login_edit.selections = g_app.renderer.edit_selections;
     g_app.renderer.edit_selection_owner = &g_app.renderer.composer_layout;
@@ -715,7 +715,7 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
     cache = ui->text_measure_cache;
     cache.backend_context = &renderer;
     renderer = g_app.renderer;
-    g_app.renderer = {};
+    reset_value(&g_app.renderer);
     renderer.composer_layout.selections = renderer.edit_selections;
     renderer.login_edit.selections = renderer.edit_selections;
     renderer.edit_selection_owner = &renderer.composer_layout;

@@ -125,13 +125,13 @@ bool attachment_presentation(const MessageScene& scene, MessageMediaCommand* out
 
 void take_renderer(Application& application, D3D11Renderer& renderer) noexcept {
     application.renderer = renderer;
-    renderer = {};
+    reset_value(&renderer);
     rebase_renderer_views(application.renderer);
 }
 
 void return_renderer(Application& application, D3D11Renderer& renderer) noexcept {
     renderer = application.renderer;
-    application.renderer = {};
+    reset_value(&application.renderer);
     rebase_renderer_views(renderer);
 }
 

@@ -60,7 +60,7 @@ bool call(bool (*operation)(void*) noexcept, void* context = nullptr) noexcept {
     auto& r = *forum_adapter->renderer;
     const bool login = r.edit_selection_owner == &r.login_edit;
     g_app.renderer = r;
-    r = {};
+    reset_value(&r);
     rebase(g_app.renderer, login);
     forum_adapter->transferred = true;
     forum_adapter->measure->backend_context = &g_app.renderer;
@@ -68,7 +68,7 @@ bool call(bool (*operation)(void*) noexcept, void* context = nullptr) noexcept {
     const bool result = operation(context);
     r = g_app.renderer;
     rebase(r, g_app.renderer.edit_selection_owner == &g_app.renderer.login_edit);
-    g_app.renderer = {};
+    reset_value(&g_app.renderer);
     g_app.renderer.width = r.width;
     g_app.renderer.height = r.height;
     g_app.renderer.dpi = r.dpi;

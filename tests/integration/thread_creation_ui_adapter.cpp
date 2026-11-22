@@ -37,7 +37,7 @@ bool call(bool (*operation)(void*) noexcept, void* context = nullptr) noexcept {
     auto& r = *creation_adapter->renderer;
     const bool login = r.edit_selection_owner == &r.login_edit;
     g_app.renderer = r;
-    r = {};
+    reset_value(&r);
     rebase(g_app.renderer, login);
     creation_adapter->transferred = true;
     creation_adapter->measure->backend_context = &g_app.renderer;
@@ -45,7 +45,7 @@ bool call(bool (*operation)(void*) noexcept, void* context = nullptr) noexcept {
     const bool result = operation(context);
     r = g_app.renderer;
     rebase(r, g_app.renderer.edit_selection_owner == &g_app.renderer.login_edit);
-    g_app.renderer = {};
+    reset_value(&g_app.renderer);
     g_app.renderer.width = r.width; g_app.renderer.height = r.height; g_app.renderer.dpi = r.dpi;
     g_app.renderer.text_form = r.text_form;
     g_app.account_ui->text_measure_cache.backend_context = &r;
