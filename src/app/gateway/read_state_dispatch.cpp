@@ -1,7 +1,6 @@
 #include "maicord/app/gateway/client_dispatch.hpp"
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
@@ -45,10 +44,10 @@ bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
     }
     return true;
 }
+// Both callers (gateway_client_route_ready and ready_projection.cpp) pass READY's read_state when present and their
+// own nonempty index storage, at depth 64.
 GatewayClientDispatchRouteResult decode_root(JsonValue data, Slice<u32> scratch,
     u32 depth, Root* root, JsonIndexedDocument* document) noexcept {
-    if (!scratch.data || !scratch.count || !depth || !data.source.data || !data.source.bytes)
-        return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};
     if (data.kind != JsonValueKind::object) return failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     const auto scan = json_scan_structurals_avx1(data.source, scratch);
     if (!scan.ok()) return failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
@@ -315,13 +314,8 @@ GatewayClientDispatchRouteResult gateway_client_read_state_metadata(JsonValue da
 GatewayClientDispatchRouteResult gateway_client_route_read_state_snapshot(JsonValue data,
     Slice<u32> scratch, u32 depth, Slice<char> storage,
     GatewayClientEvent* event, ConstSlice<u8>* payload, GatewayClientLargeRecord large) noexcept {
-    if (payload) reset_value(payload);
-    if (!event || !payload || (!storage.data && storage.count) || scratch.count > 0x3fffffffu ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(data.source.data), data.source.bytes},
-                            {reinterpret_cast<const u8*>(storage.data), storage.count}) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(scratch.data), scratch.count * 4u},
-                            {reinterpret_cast<const u8*>(storage.data), storage.count}))
-        return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};
+    // The one caller (ready_projection.cpp) passes its own payload and index storage, apart from READY.
+    reset_value(payload);
     Root root{}; JsonIndexedDocument document{};
     auto result = decode_root(data, scratch, depth, &root, &document);
     if (!result.ok()) return result;

@@ -14,7 +14,7 @@ GatewayGuildSubscription thread(u64 guild, u64 id) noexcept {
 GatewayGuildSubscription normal(u64 guild, u64 channel) noexcept {
     GatewayGuildSubscription result{};
     result.guild_id = guild; result.channel_id = channel;
-    result.range_last = 99; result.typing = result.activities = result.threads = true;
+    result.range_count = 1; result.ranges[0] = {0, 99}; result.typing = result.activities = result.threads = true;
     return result;
 }
 bool exact(const GatewayGuildSubscription& subscription, Utf8View expected) noexcept {
@@ -28,12 +28,10 @@ bool exact(const GatewayGuildSubscription& subscription, Utf8View expected) noex
     const auto exact_result = gateway_write_guild_subscriptions_bulk(subscription, {output, expected.bytes});
     return exact_result.ok() && exact_result.bytes == expected.bytes && bytes_equal(output, expected.data, expected.bytes) && output[expected.bytes] == 0xA5;
 }
-bool invalid_unchanged(const GatewayGuildSubscription& subscription) noexcept {
-    for (auto& byte : output) byte = 0xA5;
-    const auto result = gateway_write_guild_subscriptions_bulk(subscription, {output, sizeof(output)});
-    if (result.error != GatewayCommandError::invalid_input) return false;
-    for (const auto byte : output) if (byte != 0xA5) return false;
-    return true;
+// The worker's frame for a desired one.
+GatewayGuildSubscription prepared(const GatewaySubscriptionThreadOwner& owner, GatewayGuildSubscription desired) noexcept {
+    gateway_subscription_thread_owner_prepare(owner, &desired);
+    return desired;
 }
 }
 void test_thread_subscriptions(void (*check)(bool, const char*) noexcept) noexcept {
@@ -59,27 +57,9 @@ void test_thread_subscriptions(void (*check)(bool, const char*) noexcept) noexce
     for (u32 i = 0; i < 5; ++i) maximum_ranges.ranges[i] = {i * 100, i * 100 + 99};
     check(exact(maximum_ranges, utf8_literal("{\"op\":37,\"d\":{\"subscriptions\":{\"18446744073709551615\":{\"typing\":true,\"activities\":true,\"threads\":true,\"channels\":{\"18446744073709551615\":[[0,99],[100,199],[200,299],[300,399],[400,499]]}}}}}")),
         "five bounded channel ranges retain exact JSON and capacity checks");
-    auto maximum_index = normal(~0ull, ~0ull); maximum_index.range_first = maximum_index.range_last = ~0u;
+    auto maximum_index = normal(~0ull, ~0ull); maximum_index.ranges[0] = {~0u, ~0u};
     check(exact(maximum_index, utf8_literal("{\"op\":37,\"d\":{\"subscriptions\":{\"18446744073709551615\":{\"typing\":true,\"activities\":true,\"threads\":true,\"channels\":{\"18446744073709551615\":[[4294967295,4294967295]]}}}}}")),
         "maximum channel range endpoints cannot overflow preflight byte count");
-    auto bad = thread(7, 71); bad.thread_member_lists_present = false;
-    check(invalid_unchanged(bad), "thread ID requires explicit thread field presence");
-    bad = thread(7, 71); bad.channel_id = 70;
-    check(invalid_unchanged(bad), "omitted channel ranges cannot carry channel identity");
-    bad = thread(7, 71); bad.range_count = 1;
-    check(invalid_unchanged(bad), "ordinary thread subscription rejects accidental channel range records");
-    bad = thread(7, 71); bad.clear_thread_guild_id = 7;
-    check(invalid_unchanged(bad), "duplicate guild keys cannot represent thread clear and replacement");
-    bad = thread(7, 0); bad.thread_member_lists_present = false;
-    check(invalid_unchanged(bad), "subscription cannot omit every mutable field");
-    bad = maximum_ranges; bad.range_count = 6;
-    check(invalid_unchanged(bad), "six channel ranges exceed bounded writer admission");
-    bad = maximum_ranges; bad.ranges[1].first = 99;
-    check(invalid_unchanged(bad), "overlapping channel ranges are rejected before writing");
-    bad = maximum_ranges; bad.ranges[0].last = 100;
-    check(invalid_unchanged(bad), "explicit channel range cannot exceed 100 positions");
-    bad = normal(7, 70); bad.range_last = 1000;
-    check(invalid_unchanged(bad), "legacy scalar channel range cannot exceed 1000 positions");
     auto followed = thread(7, 0); followed.thread_member_lists_present = false;
     followed.members_present = true; followed.member_count = 2; followed.members[0] = 20; followed.members[1] = 31;
     check(exact(followed, utf8_literal("{\"op\":37,\"d\":{\"subscriptions\":{\"7\":{\"members\":[\"20\",\"31\"]}}}}")),
@@ -90,71 +70,68 @@ void test_thread_subscriptions(void (*check)(bool, const char*) noexcept) noexce
     auto beside = normal(7, 70); beside.members_present = true; beside.member_count = 1; beside.members[0] = 20;
     check(exact(beside, utf8_literal("{\"op\":37,\"d\":{\"subscriptions\":{\"7\":{\"typing\":true,\"activities\":true,\"threads\":true,\"members\":[\"20\"],\"channels\":{\"70\":[[0,99]]}}}}}")),
         "followed users sit between the feature flags and the channel ranges");
-    bad = followed; bad.member_count = 1; bad.members[0] = 0;
-    check(invalid_unchanged(bad), "a followed user needs an ID");
-    bad = followed; bad.member_count = 2; bad.members[0] = bad.members[1] = 20;
-    check(invalid_unchanged(bad), "followed users are distinct");
-    bad = followed; bad.member_count = kGatewayGuildSubscriptionMaximumMembers + 1;
-    check(invalid_unchanged(bad), "at most 50 users are followed");
-    bad = followed; bad.members_present = false; bad.member_count = 1; bad.members[0] = 20;
-    check(invalid_unchanged(bad), "followed users need the explicit members field");
-    followed.member_count = kGatewayGuildSubscriptionMaximumMembers;
-    for (u32 i = 0; i < followed.member_count; ++i) followed.members[i] = ~0ull - i;
-    check(gateway_write_guild_subscriptions_bulk(followed, {output, sizeof(output)}).ok(),
-        "fifty maximum-width followed users fit one command");
-    bad = normal(7, 70); bad.range_first = 100; bad.range_last = 99;
-    check(invalid_unchanged(bad), "descending channel range rejects without unsigned subtraction overflow");
-    bad = thread(0, 71);
-    check(invalid_unchanged(bad), "thread subscription needs a guild scope");
+    // gateway_client_subscribe_guild_members writes every frame into a command buffer without a size check.
+    auto largest = maximum_ranges; largest.clear_thread_guild_id = ~0ull - 1; largest.thread_member_lists_present = true;
+    largest.typing = largest.activities = largest.threads = false;
+    for (auto& range : largest.ranges) range = {~0u, ~0u};
+    largest.thread_id = ~0ull; largest.members_present = true; largest.member_count = kGatewayGuildSubscriptionMaximumMembers;
+    for (u32 i = 0; i < largest.member_count; ++i) largest.members[i] = ~0ull - i;
+    largest.channel_count = kGatewayGuildSubscriptionMaximumChannels - 1;
+    for (u32 c = 0; c < largest.channel_count; ++c) {
+        largest.channels[c] = {~0ull - 1 - c, {}, kGatewayMemberSubscriptionMaximumRanges};
+        for (u32 i = 0; i < kGatewayMemberSubscriptionMaximumRanges; ++i) largest.channels[c].ranges[i] = {~0u, ~0u};
+    }
+    check(gateway_write_guild_subscriptions_bulk(largest, {output, kGatewayUserMaximumCommandBytes}).ok(),
+        "the largest op 37 frame fits one command");
 
-    GatewaySubscriptionThreadOwner owner{}; GatewayGuildSubscription frame{}, probe{};
-    check(gateway_subscription_thread_owner_prepare(owner, thread(7, 71), &frame) && !frame.clear_thread_guild_id,
-        "untransmitted desired selection does not claim worker thread ownership");
+    GatewaySubscriptionThreadOwner owner{}; GatewayGuildSubscription frame{};
+    frame = prepared(owner, thread(7, 71));
+    check(!frame.clear_thread_guild_id, "untransmitted desired selection does not claim worker thread ownership");
     gateway_subscription_thread_owner_admit(&owner, frame);
-    check(gateway_subscription_thread_owner_prepare(owner, thread(8, 81), &probe) && !probe.clear_thread_guild_id,
+    check(!prepared(owner, thread(8, 81)).clear_thread_guild_id,
         "admitted inflight thread frame has separate pending owner");
     gateway_subscription_thread_owner_complete(&owner, true);
-    check(gateway_subscription_thread_owner_prepare(owner, thread(8, 81), &probe) && probe.clear_thread_guild_id == 7,
+    check(prepared(owner, thread(8, 81)).clear_thread_guild_id == 7,
         "completed transport write commits actual thread guild owner");
-    check(gateway_subscription_thread_owner_prepare(owner, normal(7, 70), &frame) && !frame.thread_member_lists_present && !frame.clear_thread_guild_id,
+    frame = prepared(owner, normal(7, 70));
+    check(!frame.thread_member_lists_present && !frame.clear_thread_guild_id,
         "same guild channel-only delta does not invent an absent thread clear field");
     gateway_subscription_thread_owner_admit(&owner, frame); gateway_subscription_thread_owner_complete(&owner, true);
-    check(gateway_subscription_thread_owner_prepare(owner, thread(8, 81), &frame) && frame.clear_thread_guild_id == 7 &&
-        gateway_subscription_thread_owner_prepare(owner, thread(9, 91), &frame) && frame.guild_id == 9 && frame.clear_thread_guild_id == 7,
+    const u64 superseded = prepared(owner, thread(8, 81)).clear_thread_guild_id;
+    frame = prepared(owner, thread(9, 91));
+    check(superseded == 7 && frame.guild_id == 9 && frame.clear_thread_guild_id == 7,
         "latest desired supersession preserves old completed guild cleanup");
     check(exact(frame, utf8_literal("{\"op\":37,\"d\":{\"subscriptions\":{\"7\":{\"thread_member_lists\":[]},\"9\":{\"thread_member_lists\":[\"91\"]}}}}")),
         "latest wins publishes latest guild plus worker retained old clear");
-    gateway_subscription_thread_owner_prepare(owner, thread(8, 81), &frame);
-    gateway_subscription_thread_owner_admit(&owner, frame);
+    gateway_subscription_thread_owner_admit(&owner, prepared(owner, thread(8, 81)));
     const auto latest = thread(9, 91);
     gateway_subscription_thread_owner_complete(&owner, true);
-    check(gateway_subscription_thread_owner_prepare(owner, latest, &frame) && frame.clear_thread_guild_id == 8 && frame.guild_id == 9,
+    frame = prepared(owner, latest);
+    check(frame.clear_thread_guild_id == 8 && frame.guild_id == 9,
         "completion of inflight old selection cannot erase cleanup required by newer desired guild");
     gateway_subscription_thread_owner_admit(&owner, frame);
     gateway_subscription_thread_owner_complete(&owner, false);
-    check(gateway_subscription_thread_owner_prepare(owner, latest, &frame) && frame.clear_thread_guild_id == 8,
+    check(prepared(owner, latest).clear_thread_guild_id == 8,
         "failed send commits no new thread owner and retry retains old cleanup");
     reset_value(&owner);
-    check(gateway_subscription_thread_owner_prepare(owner, latest, &frame) && !frame.clear_thread_guild_id,
+    frame = prepared(owner, latest);
+    check(!frame.clear_thread_guild_id,
         "fresh READY clears completed old-session thread ownership before republishing desired scope");
     gateway_subscription_thread_owner_admit(&owner, frame); gateway_subscription_thread_owner_complete(&owner, true);
-    auto channel = normal(10, 100);
-    check(gateway_subscription_thread_owner_prepare(owner, channel, &frame) && frame.clear_thread_guild_id == 9 && frame.thread_member_lists_present && !frame.thread_id,
+    frame = prepared(owner, normal(10, 100));
+    check(frame.clear_thread_guild_id == 9 && frame.thread_member_lists_present && !frame.thread_id,
         "channel-only latest selection acquires explicit old thread cleanup from worker owner");
     gateway_subscription_thread_owner_admit(&owner, frame); gateway_subscription_thread_owner_complete(&owner, true);
-    check(gateway_subscription_thread_owner_prepare(owner, thread(12, 121), &probe) && !probe.clear_thread_guild_id,
+    check(!prepared(owner, thread(12, 121)).clear_thread_guild_id,
         "completed compound channel selection releases actual thread interest");
-    gateway_subscription_thread_owner_prepare(owner, thread(7, 71), &frame);
-    gateway_subscription_thread_owner_admit(&owner, frame); gateway_subscription_thread_owner_complete(&owner, true);
-    check(gateway_subscription_thread_owner_prepare(owner, thread(7, 0), &frame) && !frame.clear_thread_guild_id,
+    gateway_subscription_thread_owner_admit(&owner, prepared(owner, thread(7, 71)));
+    gateway_subscription_thread_owner_complete(&owner, true);
+    frame = prepared(owner, thread(7, 0));
+    check(!frame.clear_thread_guild_id,
         "same guild explicit release clears current thread field without duplicate guild key");
     gateway_subscription_thread_owner_admit(&owner, frame); gateway_subscription_thread_owner_complete(&owner, true);
-    check(gateway_subscription_thread_owner_prepare(owner, thread(12, 121), &probe) && !probe.clear_thread_guild_id,
+    check(!prepared(owner, thread(12, 121)).clear_thread_guild_id,
         "same guild empty thread array releases owner only after completed transport write");
-    bad = thread(7, 71); bad.clear_thread_guild_id = 8;
-    frame = thread(11, 111);
-    check(!gateway_subscription_thread_owner_prepare(owner, bad, &frame) && frame.guild_id == 11,
-        "caller supplied cleanup cannot forge worker ownership or alter prepared output");
     // The official client writes its guild's remembered channels (up to five,
     // most recent first) in every frame, each with at least one range.
     auto remembered = normal(7, 80);
@@ -163,14 +140,6 @@ void test_thread_subscriptions(void (*check)(bool, const char*) noexcept) noexce
     remembered.channels[1] = {60, {{0, 99}}, 1};
     check(exact(remembered, utf8_literal("{\"op\":37,\"d\":{\"subscriptions\":{\"7\":{\"typing\":true,\"activities\":true,\"threads\":true,\"channels\":{\"80\":[[0,99]],\"70\":[[0,99],[100,199]],\"60\":[[0,99]]}}}}}")),
         "remembered channels follow the current one with their own ranges");
-    bad = remembered; bad.channels[1].range_count = 0;
-    check(invalid_unchanged(bad), "a remembered channel never writes an empty range array");
-    bad = remembered; bad.channels[1].channel_id = 70;
-    check(invalid_unchanged(bad), "a remembered channel is written once");
-    bad = remembered; bad.channels[0].channel_id = 80;
-    check(invalid_unchanged(bad), "the current channel is not repeated among remembered ones");
-    bad = remembered; bad.channel_count = 5;
-    check(invalid_unchanged(bad), "at most five channels per guild");
 
     MemberListChannelMemory memory{};
     GatewayGuildSubscription memory_frame{};

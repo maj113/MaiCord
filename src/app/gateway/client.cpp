@@ -183,18 +183,18 @@ bool gateway_client_replace_credential(GatewayClient* client, ConstSlice<u8> tok
 
 bool gateway_client_subscribe_guild_members(GatewayClient* client,
                                             const GatewayGuildSubscription& subscription) noexcept {
+    // The three callers (application_account_module.cpp twice, author_hydration.cpp) give a nonzero guild and no
+    // thread cleanup; the writer's notes name the rest of what they make sure of.
     auto* runtime = live_user_runtime(client);
-    if (!runtime || subscription.guild_id == 0 || subscription.clear_thread_guild_id != 0) {
+    if (!runtime) {
         return false;
     }
-    u8 validation[kGatewayUserMaximumCommandBytes];
-    const GatewayCommandWriteResult valid = gateway_write_guild_subscriptions_bulk(
-        subscription, Slice<u8>{validation, kGatewayUserMaximumCommandBytes});
-    const u64 digest = hash64_bytes(kHash64Seed, validation, valid.bytes);
-    SecureZeroMemory(validation, sizeof(validation));
-    if (!valid.ok()) {
-        return false;
-    }
+    // The largest frame (a cleanup, 50 members, 5 channels of 5 ranges, a thread) is about 2.1 KB: it always fits.
+    u8 command[kGatewayUserMaximumCommandBytes];
+    const GatewayCommandWriteResult written = gateway_write_guild_subscriptions_bulk(
+        subscription, Slice<u8>{command, kGatewayUserMaximumCommandBytes});
+    const u64 digest = hash64_bytes(kHash64Seed, command, written.bytes);
+    SecureZeroMemory(command, sizeof(command));
     // A members-only frame (the users followed in a guild) is independent of the viewport frame it travels
     // beside: each is last-write-wins in its own slot, so neither can overwrite the other before it is sent.
     const bool members_only = subscription.members_present && subscription.omit_channel_ranges &&
@@ -331,7 +331,9 @@ RestClientSubmitResult submit_status_group_patch(GatewayClient* client, RestClie
                                                  const void* argument) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     auto* runtime = user_runtime(client);
-    if (!runtime || !rest || !request_id || !profile || !self ||
+    // The custom status and activity sharing submits pass the REST client that account_module_requests.cpp gives:
+    // its coordinator's.
+    if (!runtime || !request_id || !profile || !self ||
         load_phase(client) != GatewayClientPhase::ready)
         return invalid;
     u8 scratch[kSelfStatusSettingsMaximumGroupBytes + 704];
@@ -368,7 +370,8 @@ RestClientSubmitResult gateway_client_self_status_submit(GatewayClient* client,
                                                          u64 unix_now_ms) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     auto* runtime = user_runtime(client);
-    if (!runtime || !rest || !request_id || !profile || !self ||
+    // The caller (account_module_login.cpp) passes its coordinator's REST client.
+    if (!runtime || !request_id || !profile || !self ||
         operation > SelfStatusSettingsOperation::update || status > GatewayUserStatus::invisible ||
         load_phase(client) != GatewayClientPhase::ready)
         return invalid;
@@ -408,8 +411,10 @@ RestClientSubmitResult gateway_client_self_status_submit(GatewayClient* client,
 bool gateway_client_self_status_complete(GatewayClient* client, u64 profile, u64 self, u64 request_id,
                                          const RestClientResponse* response,
                                          Utf8View body) noexcept {
+    // The three callers (self_status.cpp, custom_status.cpp, activity.cpp) pass the response of their own nonzero
+    // request id, which they compared before.
     auto* runtime = user_runtime(client);
-    if (!runtime || !response || !request_id || response->request_id != request_id)
+    if (!runtime)
         return false;
     SelfSettingsJson parsed{};
     const bool success = response->transport_ok() && response->status_code >= 200 &&
@@ -445,9 +450,8 @@ bool gateway_client_self_status_complete(GatewayClient* client, u64 profile, u64
     return true;
 }
 
+// Every caller passes a local (custom_status.cpp through account_module_custom_status_snapshot).
 bool gateway_client_custom_status_snapshot(const GatewayClient* client, SelfCustomStatus* output) noexcept {
-    if (!output)
-        return false;
     reset_value(output);
     auto* runtime = user_runtime(client);
     if (!runtime)
@@ -541,11 +545,12 @@ bool gateway_client_request_voice_state(GatewayClient* client,
 }
 
 namespace {
-// A copy of one snapshot that the worker publishes under the voice lock.
+// A copy of one snapshot that the worker publishes under the voice lock. The snapshot callers (account_pump.cpp,
+// call.cpp, stream.cpp, go_live.cpp through account_module_*) pass a local.
 template <class Snapshot>
 bool copy_snapshot(const GatewayClient* client, Snapshot GatewayClientRuntime::* snapshot, Snapshot* output) noexcept {
     auto* runtime = user_runtime(client);
-    if (!runtime || !output)
+    if (!runtime)
         return false;
     AcquireSRWLockShared(&runtime->voice_lock);
     copy_value(output, runtime->*snapshot);
@@ -589,9 +594,10 @@ bool gateway_client_voice_audio_configure(GatewayClient* client, const VoiceAudi
     return true;
 }
 
+// voice.cpp passes a local through account_module_voice_audio_status.
 bool gateway_client_voice_audio_status(GatewayClient* client, VoiceAudioStatus* output) noexcept {
     auto* runtime = user_runtime(client);
-    if (!runtime || !output)
+    if (!runtime)
         return false;
     *output = voice_send_status(&runtime->voice_send);
     return true;

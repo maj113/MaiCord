@@ -20,10 +20,8 @@ u64 mix_ranges(u64 hash, const GatewayMemberSubscriptionRange* ranges, u32 count
 
 // The member list ranges of every channel the frame names.
 u64 ranges_digest(const GatewayGuildSubscription& subscription) noexcept {
-    const GatewayMemberSubscriptionRange single{subscription.range_first, subscription.range_last};
-    u64 hash = mix_ranges(hash64_mix(kHash64Seed, subscription.channel_id),
-                          subscription.range_count ? subscription.ranges : &single,
-                          subscription.range_count ? subscription.range_count : 1);
+    u64 hash = mix_ranges(hash64_mix(kHash64Seed, subscription.channel_id), subscription.ranges,
+                          subscription.range_count);
     for (u32 c = 0; c < subscription.channel_count; ++c)
         hash = mix_ranges(hash64_mix(hash, subscription.channels[c].channel_id), subscription.channels[c].ranges,
                           subscription.channels[c].range_count);
@@ -87,25 +85,22 @@ OutboundDrive drive_guild_subscription(GatewayClientRuntime* runtime, u64 now_ms
     if (!changed) {
         return OutboundDrive::idle;
     }
-    GatewayGuildSubscription prepared{};
-    if (!gateway_subscription_thread_owner_prepare(runtime->thread_subscription_owner, subscription,
-                                                   &prepared))
-        return OutboundDrive::failed;
+    gateway_subscription_thread_owner_prepare(runtime->thread_subscription_owner, &subscription);
     GatewayClientRuntime::SentGuildSubscription* sent = nullptr;
     u64 ranges = 0;
-    if (!shape_guild_subscription(runtime, &prepared, &sent, &ranges)) {
+    if (!shape_guild_subscription(runtime, &subscription, &sent, &ranges)) {
         runtime->sent_subscription_revision = revision; // The server already holds all of it.
         return OutboundDrive::idle;
     }
     if (!acquire_send(runtime, now_ms))
         return OutboundDrive::rate_limited;
     const GatewayCommandWriteResult command = gateway_write_guild_subscriptions_bulk(
-        prepared, Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
+        subscription, Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
     const auto result = send_control_command(runtime, command, SendPurpose::guild_subscription);
     if (result == OutboundDrive::sending) {
         runtime->active_subscription_revision = revision;
-        gateway_subscription_thread_owner_admit(&runtime->thread_subscription_owner, prepared);
-        note_guild_subscription(runtime, sent, prepared.guild_id, ranges);
+        gateway_subscription_thread_owner_admit(&runtime->thread_subscription_owner, subscription);
+        note_guild_subscription(runtime, sent, subscription.guild_id, ranges);
     }
     return result;
 }

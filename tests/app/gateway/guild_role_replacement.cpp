@@ -17,7 +17,7 @@ struct ReplacementFixture {
     RoleRecord roles[8];
     PermissionOverwriteRecord overwrites[2];
     CustomEmojiRecord emojis[2];
-    // Global storage deliberately fits one over-limit per-emoji restriction set.
+    // Global emoji restriction storage: one full per-emoji set and one more ID.
     u64 emoji_roles[kGuildRoleMaximum + 1];
     u16 guild_order[3], channel_order[2];
     u8 names[1024];
@@ -136,26 +136,12 @@ void common_packet(Utf8View guild_name = {}) noexcept {
     add_role(21, {}, new_permissions);
     add_role(22, utf8_literal("Same"));
 }
-void add_emoji(u64 first, u64 second = 0, bool two = false) noexcept {
+void add_emoji(u64 role) noexcept {
     GatewayClientEmojiMutation emoji{};
-    emoji.id = 501; emoji.name_bytes = 3; emoji.role_count = two ? 2 : 1;
+    emoji.id = 501; emoji.name_bytes = 3; emoji.role_count = 1;
     emoji.flags = gateway_client_emoji_available;
     copy_bytes(packet.bytes + packet.used, &emoji, sizeof(emoji)); packet.used += sizeof(emoji);
-    byte_store_le64(packet.bytes + packet.used, first); packet.used += 8;
-    if (two) { byte_store_le64(packet.bytes + packet.used, second); packet.used += 8; }
-    copy_bytes(packet.bytes + packet.used, "new", 3); packet.used += 3;
-    packet.event.state.emojis_known = true;
-    packet.event.state.emoji_count = 1;
-    packet.event.state.emoji_role_count = emoji.role_count;
-}
-void add_oversized_emoji() noexcept {
-    GatewayClientEmojiMutation emoji{};
-    emoji.id = 501; emoji.name_bytes = 3; emoji.role_count = kGuildRoleMaximum + 1;
-    emoji.flags = gateway_client_emoji_available;
-    copy_bytes(packet.bytes + packet.used, &emoji, sizeof(emoji)); packet.used += sizeof(emoji);
-    for (u32 i = 0; i < emoji.role_count; ++i) {
-        byte_store_le64(packet.bytes + packet.used, static_cast<u64>(i) + 1); packet.used += 8;
-    }
+    byte_store_le64(packet.bytes + packet.used, role); packet.used += 8;
     copy_bytes(packet.bytes + packet.used, "new", 3); packet.used += 3;
     packet.event.state.emojis_known = true;
     packet.event.state.emoji_count = 1;
@@ -246,9 +232,8 @@ void test_role_offsets(void (*check)(bool, const char*) noexcept) noexcept {
     }
     check(create_agrees, "guild role offsets: create packet uses the same immutable role-prefix reader");
     packet.event.dispatch_kind = GatewayClientDispatchKind::guild_update;
-    check(!gateway_client_event_guild_role_offsets(packet.event, payload, {offsets, 3}) &&
-        !gateway_client_event_guild_role_offsets(packet.event, payload, {nullptr, 4}),
-        "guild role offsets: insufficient or null transient output table rejects");
+    check(!gateway_client_event_guild_role_offsets(packet.event, payload, {offsets, 3}),
+        "guild role offsets: insufficient transient output table rejects");
     GatewayClientRoleMutation role{}; Utf8View name{};
     check(!gateway_client_event_guild_role_at(packet.event, payload, 36, &role, &name) &&
         !gateway_client_event_guild_role_at(packet.event, payload, packet.used, &role, &name) &&
@@ -266,24 +251,6 @@ void test_role_offsets(void (*check)(bool, const char*) noexcept) noexcept {
     check(!gateway_client_event_guild_role_offsets(packet.event, {packet.bytes, short_descriptor}, {offsets, 4}) &&
         !gateway_client_event_guild_role(packet.event, {packet.bytes, short_descriptor}, 3, &role, &name),
         "guild role offsets: truncated final descriptor rejects without assuming scratch rollback");
-    packet.event.dispatch_payload_bytes = packet.used;
-    byte_store_le64(packet.bytes + last_offset, 0);
-    check(!gateway_client_event_guild_role_offsets(packet.event, payload, {offsets, 4}) &&
-        !gateway_client_event_guild_role(packet.event, payload, 3, &role, &name),
-        "guild role offsets: malformed zero-ID final entry rejects in table and ordinal readers");
-    byte_store_le64(packet.bytes + last_offset, 24);
-
-    u8 saved_payload[256]; copy_bytes(saved_payload, packet.bytes, packet.used);
-    check(!gateway_client_event_guild_role_offsets(packet.event, payload,
-            {reinterpret_cast<u32*>(packet.bytes), 4}) && bytes_equal(saved_payload, packet.bytes, packet.used),
-        "guild role offsets: used output alias with immutable payload rejects before changing source bytes");
-    check(!gateway_client_event_guild_role_offsets(packet.event, payload,
-            {reinterpret_cast<u32*>(&packet.event), 4}) &&
-        packet.event.kind == GatewayClientEventKind::dispatch &&
-        packet.event.dispatch_kind == GatewayClientDispatchKind::guild_update &&
-        packet.event.dispatch_payload_bytes == packet.used && packet.event.state.id == 20 &&
-        packet.event.state.role_count == 4 && packet.event.state.name_bytes == 5 && packet.event.state.icon_bytes == 32,
-        "guild role offsets: used output alias with immutable event rejects before changing routing or counts");
 }
 } // namespace
 
@@ -329,16 +296,7 @@ void test_guild_role_replacement(void (*check)(bool, const char*) noexcept) noex
     check(seed(), "guild replacement: overflow fixture initializes");
     common_packet(utf8_literal("Changed")); add_role(24); add_role(25);
     reject_unchanged(check, "guild replacement: final-count overflow leaves all semantic records banks counters and restore metadata unchanged");
-    check(seed(), "guild replacement: malformed fixture initializes");
-    common_packet(utf8_literal("Changed")); add_role(0);
-    reject_unchanged(check, "guild replacement: malformed final role rejects before publication");
-    check(seed(), "guild replacement: oversized role fixture initializes");
     char long_name[401]; for (u32 i = 0; i < sizeof(long_name); ++i) long_name[i] = 'x';
-    common_packet(utf8_literal("Changed")); add_role(23, {long_name, sizeof(long_name)});
-    reject_unchanged(check, "guild replacement: typed 401-byte final role rejects without partial guild common-role or name writes");
-    check(seed(), "guild replacement: duplicate fixture initializes");
-    common_packet(utf8_literal("Changed")); add_role(21, utf8_literal("Duplicate"));
-    reject_unchanged(check, "guild replacement: duplicate role IDs reject without changing count arithmetic or records");
 
     check(seed(), "guild replacement: oversized guild fixture initializes");
     common_packet({long_name, sizeof(long_name)}); add_role(24);
@@ -351,17 +309,6 @@ void test_guild_role_replacement(void (*check)(bool, const char*) noexcept) noex
     add_role(22, utf8_literal("Same")); add_role(24);
     reject_unchanged(check, "guild replacement: typed invalid guild icon rejects before any guild or role mutation");
 
-    check(seed(), "guild replacement: emoji zero-role fixture initializes");
-    common_packet(utf8_literal("Changed")); add_role(23); add_emoji(0);
-    reject_unchanged(check, "guild replacement: zero emoji restriction rejects before guild role permission and emoji changes");
-    check(seed(), "guild replacement: emoji duplicate-role fixture initializes");
-    common_packet(utf8_literal("Changed")); add_role(23); add_emoji(21, 21, true);
-    reject_unchanged(check, "guild replacement: duplicate emoji restriction rejects before any semantic mutation");
-    check(seed(), "guild replacement: oversized emoji restriction fixture initializes");
-    common_packet(utf8_literal("Changed")); add_role(23); add_oversized_emoji();
-    check(fixture.state.emoji_role_capacity == kGuildRoleMaximum + 1,
-        "guild replacement: global emoji restriction bank fits 257 IDs so per-emoji admission is isolated");
-    reject_unchanged(check, "guild replacement: 257 distinct nonzero emoji restrictions reject before any semantic mutation");
     check(seed(), "guild replacement: valid emoji fixture initializes");
     common_packet(); add_role(24); add_emoji(21);
     check(apply_packet().ok() && fixture.state.emoji_count == 1 && fixture.state.emoji_role_count == 1 &&
@@ -391,20 +338,6 @@ void test_guild_role_replacement(void (*check)(bool, const char*) noexcept) noex
         live_names() == 24 && role_name(21, utf8_literal("K")) && role_name(24, utf8_literal("NineBytes")) &&
         permission_selection(),
         "guild replacement: reversed packet order also fits the 32-byte name bank with identical final names");
-
-    for (u32 bank_index = 0; bank_index < 2; ++bank_index) {
-        check(seed(), "guild replacement: borrowed name-bank payload fixture initializes");
-        common_packet(utf8_literal("Changed")); add_role(24, utf8_literal("New"));
-        const u32 offset = bank_index == 0 ? 256 : fixture.state.name_bank_bytes;
-        copy_bytes(fixture.names + offset, packet.bytes, packet.used);
-        packet.event.dispatch_payload_bytes = packet.used;
-        before = fixture;
-        const auto aliased = chat_state_apply_gateway_event(&fixture.state, packet.event,
-            {fixture.names + offset, packet.used}, {});
-        check(!aliased.ok() && semantic_unchanged(), bank_index == 0
-            ? "guild replacement: active name-bank payload alias rejects before overwriting borrowed packet bytes"
-            : "guild replacement: inactive name-bank payload alias rejects before a future compaction can overwrite it");
-    }
 
     check(seed(), "guild replacement: route fixture initializes");
     u32 structurals[256]; char routed_bytes[1024]; GatewayEnvelope envelope{};

@@ -1105,7 +1105,6 @@ void subscription_once(void (*check)(bool, const char*) noexcept) noexcept {
     GatewayGuildSubscription viewport{};
     viewport.guild_id = 8;
     viewport.channel_id = 80;
-    viewport.range_last = 99;
     viewport.range_count = 1;
     viewport.ranges[0] = {0, 99};
     viewport.typing = viewport.activities = viewport.threads = true;

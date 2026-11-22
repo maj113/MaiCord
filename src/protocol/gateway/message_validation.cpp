@@ -2,8 +2,7 @@
 #include "maicord/protocol/encoding/base64.hpp"
 #include "maicord/core/time.hpp"
 
-// Message validators: the dispatch packer, the rich message store, the message decoders and the attachment
-// upload call them.
+// Message validators: the message decoders, the rich message store and the attachment upload call them.
 namespace maicord {
 namespace {
 
@@ -33,66 +32,6 @@ bool gateway_message_waveform_valid(Utf8View waveform) noexcept {
     const auto result = base64_decode(waveform, {});
     return (result.ok() || result.error == Base64Error::output_too_small) &&
            result.bytes <= kGatewayMessageWaveformMaximumSamples;
-}
-
-bool gateway_message_poll_valid(const GatewayMessagePoll& poll) noexcept {
-    constexpr u32 allowed = gateway_message_poll_field_question | gateway_message_poll_field_answers |
-                            gateway_message_poll_field_expiry | gateway_message_poll_field_multiselect |
-                            gateway_message_poll_field_layout | gateway_message_poll_field_results;
-    const auto bounded = [](Utf8View value, u32 byte_limit, u32 scalar_limit) noexcept {
-        if ((!value.data && value.bytes) || value.bytes > byte_limit)
-            return false;
-        const auto valid = utf8_validate(value);
-        return valid.valid && valid.codepoints <= scalar_limit;
-    };
-    if (!poll.present)
-        return !poll.fields && !poll.question.bytes && !poll.answers.count && !poll.answer_counts.count &&
-               !poll.expiry_ms && !poll.layout_type && !poll.allow_multiselect && !poll.expiry_null &&
-               !poll.results_known && !poll.is_finalized;
-    if (!poll.fields || (poll.fields & ~allowed) ||
-        poll.answers.count > kGatewayMessagePollMaximumAnswers ||
-        poll.answer_counts.count > kGatewayMessagePollMaximumAnswers ||
-        (!poll.answers.data && poll.answers.count) ||
-        (!poll.answer_counts.data && poll.answer_counts.count) ||
-        !bounded(poll.question, kGatewayMessagePollQuestionMaximumBytes,
-                 kGatewayMessagePollQuestionMaximumScalars) ||
-        (!(poll.fields & gateway_message_poll_field_question) && poll.question.bytes) ||
-        (!(poll.fields & gateway_message_poll_field_answers) && poll.answers.count) ||
-        (!(poll.fields & gateway_message_poll_field_expiry) && (poll.expiry_ms || poll.expiry_null)) ||
-        (poll.expiry_null && poll.expiry_ms) ||
-        (!(poll.fields & gateway_message_poll_field_multiselect) && poll.allow_multiselect) ||
-        (!(poll.fields & gateway_message_poll_field_layout) && poll.layout_type != 0) ||
-        (((poll.fields & gateway_message_poll_field_results) != 0) != poll.results_known) ||
-        (!poll.results_known && (poll.answer_counts.count || poll.is_finalized)))
-        return false;
-    for (u32 i = 0; i < poll.answers.count; ++i) {
-        const auto& answer = poll.answers[i];
-        if (!answer.answer_id ||
-            !bounded(answer.text, kGatewayMessagePollAnswerMaximumBytes,
-                     kGatewayMessagePollAnswerMaximumScalars) ||
-            !bounded(answer.emoji_name, kGatewayMessagePollEmojiMaximumBytes,
-                     kGatewayMessagePollEmojiMaximumBytes))
-            return false;
-        for (u32 j = 0; j < i; ++j)
-            if (poll.answers[j].answer_id == answer.answer_id)
-                return false;
-    }
-    for (u32 i = 0; i < poll.answer_counts.count; ++i) {
-        const auto& count = poll.answer_counts[i];
-        if (!count.answer_id)
-            return false;
-        for (u32 j = 0; j < i; ++j)
-            if (poll.answer_counts[j].answer_id == count.answer_id)
-                return false;
-        if (poll.fields & gateway_message_poll_field_answers) {
-            bool found = false;
-            for (u32 j = 0; j < poll.answers.count; ++j)
-                found |= count.answer_id == poll.answers[j].answer_id;
-            if (!found)
-                return false;
-        }
-    }
-    return true;
 }
 
 bool parse_iso_timestamp(const JsonString& value, u64* timestamp_ms) noexcept {

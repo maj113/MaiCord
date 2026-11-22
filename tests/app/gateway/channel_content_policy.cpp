@@ -95,11 +95,6 @@ void test_channel_content_policy(void (*check)(bool, const char*) noexcept) noex
     GatewayClientEvent event{}; ConstSlice<u8> output{};
     for (const auto wire : malformed)
         check(!f.route(wire, &event, &output), "invalid or duplicate nonnullable nsfw metadata never publishes");
-    check(f.route(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"80","guild_id":"7","type":0,"nsfw":true}})"), &event, &output),
-        "individual channel age update routes");
-    event.state.content_policy_known = false;
-    check(!chat_state_apply_gateway_event(&f.state, event, output, {}).ok() && !parent->content_policy,
-        "impossible packed policy without presence cannot overwrite the resident channel");
     check(f.apply(utf8_literal(R"({"op":0,"t":"GUILD_UPDATE","d":{"id":"7","name":"Guild","owner_id":"1","roles":[{"id":"7","name":"Everyone","permissions":"1024"}],"nsfw":false,"nsfw_level":3}})")) &&
         f.guild.nsfw_level_known && f.guild.nsfw_level == 3 && chat_state_store_channel_age_restricted(f.state, *ordinary),
         "documented age-restricted guild classification restricts every channel");

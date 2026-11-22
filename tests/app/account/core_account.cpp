@@ -792,7 +792,7 @@ void test_gateway_client_contract() noexcept {
                               utf8_literal("19045"), 603738},
         0, GatewayUserStatus::online, false, false};
     GatewayUserClientConfiguration invalid_configuration = configuration;
-    invalid_configuration.properties.client_launch_id = utf8_literal("not-a-launch-id");
+    invalid_configuration.properties.os_version = {};
 
     GatewayEndpoint endpoint{};
     expect(gateway_user_client_configuration_validate(configuration) &&

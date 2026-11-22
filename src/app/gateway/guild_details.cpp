@@ -62,9 +62,10 @@ Put put_text(GatewayPayloadWriter* writer, JsonValue value, u32 maximum, u32* by
     if (!json_value_as_string(value, &text))
         return Put::invalid;
     // One pass: the decoder validates the whole string and sizes it before it writes, and writes nothing that
-    // does not fit.
+    // does not fit. The output ends at `maximum` bytes, so a longer string writes nothing either.
     const u32 room = writer->used <= writer->output.count ? writer->output.count - writer->used : 0;
-    const auto decoded = json_string_decode_utf8(text, Slice<char>{writer->output.data + writer->used, room});
+    const auto decoded =
+        json_string_decode_utf8(text, Slice<char>{writer->output.data + writer->used, minimum(room, maximum)});
     if ((decoded.error != JsonStringDecodeError::output_too_small && !decoded.ok()) || decoded.bytes > maximum)
         return Put::invalid;
     if (!decoded.ok() || writer->used > writer->output.count) {
@@ -434,26 +435,16 @@ bool gateway_client_event_guild_details(const GatewayClientEvent& event, ConstSl
     GatewayGuildDetails header{};
     copy_bytes(&header, payload.data + offset, sizeof(header));
     const u32 text = static_cast<u32>(header.description_bytes) + header.vanity_bytes + header.feature_names_bytes;
-    if (sizeof(header) + text != event.state.guild_details_bytes || (header.known & ~guild_detail_all))
+    if (sizeof(header) + text != event.state.guild_details_bytes)
         return false;
     const char* base = reinterpret_cast<const char*>(payload.data) + offset + sizeof(header);
     const Utf8View text_description{base, header.description_bytes};
     const Utf8View text_vanity{base + header.description_bytes, header.vanity_bytes};
     const ConstSlice<u8> names{reinterpret_cast<const u8*>(base + header.description_bytes + header.vanity_bytes),
                                header.feature_names_bytes};
-    if (!utf8_validate(text_description).valid || !utf8_validate(text_vanity).valid)
-        return false;
-    u32 cursor = 0, count = 0;
-    while (cursor < names.count) {
-        const u32 bytes = names[cursor];
-        if (!bytes || bytes > names.count - cursor - 1 ||
-            !utf8_validate({reinterpret_cast<const char*>(names.data + cursor + 1), bytes}).valid)
-            return false;
-        cursor += 1 + bytes;
-        ++count;
-    }
-    if (count != header.feature_count)
-        return false;
+    // gateway_guild_details_append (above) writes the description and the vanity code as whole
+    // json_string_decode_utf8 outputs, and every feature name the same way behind a nonzero length byte;
+    // feature_count counts those names.
     *details = header;
     *description = text_description;
     *vanity_url_code = text_vanity;

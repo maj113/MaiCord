@@ -253,40 +253,10 @@ void test_permission_prefix(void (*check)(bool, const char*) noexcept) noexcept 
         state.role_backed_count == 6 && state.overwrite_backed_count == 4 && roles_sorted() && suffix_untouched(),
         "permission prefix: guild-create retry uses retained backing and per-record writes issue no extra reserve calls");
 
-    check(seed(), "permission prefix: malformed guild role fixture seeds");
-    routed = route(kCreate, &event, &payload); check(routed, "permission prefix: malformed-role source packet routes");
-    if (!routed) return;
-    u32 role_offsets[4]{};
-    const bool offsets = gateway_client_event_guild_role_offsets(event, payload, {role_offsets, 4});
-    if (offsets) {
-        GatewayClientRoleMutation invalid{};
-        copy_bytes(&invalid, payload.data + role_offsets[3], sizeof(invalid)); invalid.id = 0;
-        copy_bytes(const_cast<u8*>(payload.data) + role_offsets[3], &invalid, sizeof(invalid));
-    }
-    watch(); const u32 malformed_role_calls = prefix.reserve.calls;
-    check(offsets && !apply(event, payload).ok() && prefix.reserve.calls == malformed_role_calls && semantic_unchanged(true),
-        "permission prefix: malformed final typed guild role rejects before reserve or any publication");
-    check(seed(), "permission prefix: malformed guild overwrite fixture seeds");
-    routed = route(kCreate, &event, &payload); check(routed, "permission prefix: malformed-overwrite source packet routes");
-    if (!routed) return;
-    u32 cursor = 0, index = 0; bool changed = false;
-    while (index < event.state.record_count) {
-        GatewayClientStateMutation channel{}; Utf8View name{}; ConstSlice<u8> overwrite_bytes{};
-        if (!gateway_client_event_next_guild_channel(event, payload, &cursor, &index, &channel, &name, &overwrite_bytes)) break;
-        if (channel.id == 210 && overwrite_bytes.count == sizeof(GatewayClientPermissionOverwriteMutation)) {
-            GatewayClientPermissionOverwriteMutation invalid{};
-            copy_bytes(&invalid, overwrite_bytes.data, sizeof(invalid)); invalid.id = 0;
-            copy_bytes(const_cast<u8*>(overwrite_bytes.data), &invalid, sizeof(invalid)); changed = true;
-        }
-    }
-    watch(); const u32 malformed_overwrite_calls = prefix.reserve.calls;
-    check(changed && !apply(event, payload).ok() && prefix.reserve.calls == malformed_overwrite_calls && semantic_unchanged(true),
-        "permission prefix: invalid last ordinary-channel overwrite rejects before whole-event reserve");
-
     check(seed(), "permission prefix: duplicate typed channel fixture seeds");
     routed = route(kCreate, &event, &payload); check(routed, "permission prefix: duplicate-channel source routes");
     if (!routed) return;
-    cursor = index = 0; changed = false;
+    u32 cursor = 0, index = 0; bool changed = false;
     while (index < event.state.record_count) {
         GatewayClientStateMutation channel{}; Utf8View name{}; ConstSlice<u8> overwrites{};
         if (!gateway_client_event_next_guild_channel(event, payload, &cursor, &index, &channel, &name, &overwrites)) break;
@@ -298,48 +268,6 @@ void test_permission_prefix(void (*check)(bool, const char*) noexcept) noexcept 
     watch(); const u32 duplicate_channel_calls = prefix.reserve.calls;
     check(changed && !apply(event, payload).ok() && prefix.reserve.calls == duplicate_channel_calls && semantic_unchanged(true),
         "permission prefix: duplicate typed channel IDs reject before reserve removal or name publication");
-
-    check(seed(), "permission prefix: 401-byte final channel fixture seeds");
-    routed = route(kCreate, &event, &payload); check(routed, "permission prefix: oversized-channel source routes");
-    if (!routed) return;
-    cursor = index = 0; changed = false;
-    while (index < event.state.record_count) {
-        GatewayClientStateMutation channel{}; Utf8View name{}; ConstSlice<u8> overwrites{};
-        if (!gateway_client_event_next_guild_channel(event, payload, &cursor, &index, &channel, &name, &overwrites)) break;
-        if (index == event.state.record_count && channel.id == 201) {
-            const u32 name_offset = static_cast<u32>(reinterpret_cast<const u8*>(name.data) - payload.data);
-            const u32 record_offset = name_offset - sizeof(channel);
-            if (name_offset + name.bytes == payload.count && name_offset + 401 <= sizeof(prefix_payload)) {
-                channel.name_bytes = 401;
-                copy_bytes(const_cast<u8*>(payload.data) + record_offset, &channel, sizeof(channel));
-                for (u32 i = 0; i < 401; ++i) prefix_payload[name_offset + i] = 'x';
-                payload.count = name_offset + 401; event.dispatch_payload_bytes = payload.count; changed = true;
-            }
-        }
-    }
-    watch(); const u32 oversized_channel_calls = prefix.reserve.calls;
-    check(changed && !apply(event, payload).ok() && prefix.reserve.calls == oversized_channel_calls && semantic_unchanged(true),
-        "permission prefix: complete valid-UTF8 401-byte final typed channel name rejects before reserve or earlier mutations");
-
-    check(seed(), "permission prefix: duplicate typed self-role fixture seeds");
-    routed = route(kCreate, &event, &payload); check(routed, "permission prefix: duplicate-self-role source routes");
-    if (!routed) return;
-    u32 self_offsets[4]{}; GatewayClientRoleMutation final_role{}; Utf8View final_name{};
-    changed = gateway_client_event_guild_role_offsets(event, payload, {self_offsets, 4}) &&
-        gateway_client_event_guild_role_at(event, payload, self_offsets[3], &final_role, &final_name);
-    if (changed) {
-        const u32 self_begin = self_offsets[3] + sizeof(final_role) + final_name.bytes;
-        const u32 self_end = self_begin + 8;
-        changed = event.state.member_role_count == 1 && self_end <= payload.count && payload.count + 8 <= sizeof(prefix_payload);
-        if (changed) {
-            copy_bytes(prefix_payload + self_end + 8, prefix_payload + self_end, payload.count - self_end);
-            copy_bytes(prefix_payload + self_end, prefix_payload + self_begin, 8);
-            ++event.state.member_role_count; payload.count += 8; event.dispatch_payload_bytes = payload.count;
-        }
-    }
-    watch(); const u32 duplicate_self_calls = prefix.reserve.calls;
-    check(changed && !apply(event, payload).ok() && prefix.reserve.calls == duplicate_self_calls && semantic_unchanged(true),
-        "permission prefix: duplicate valid packet self-role IDs reject before reserve or member assignment publication");
 
     check(seed(), "permission prefix: valid zero-channel guild-create fixture seeds");
     routed = route(utf8_literal(R"({"op":0,"t":"GUILD_CREATE","d":{"id":"20","name":"Zero channels","owner_id":"999","roles":[{"id":"20","name":"Everyone","permissions":"66560"},{"id":"21","name":"Common","permissions":"274877906944"}],"members":[{"user":{"id":"42"},"roles":["21"]}],"channels":[]}})"), &event, &payload);
@@ -459,21 +387,6 @@ void test_permission_prefix(void (*check)(bool, const char*) noexcept) noexcept 
     check(routed && apply(event, payload).ok() && prefix.reserve.calls == range_calls &&
         state.overwrite_count == 3 && chat_state_store_find_channel(state, 200)->overwrite_count == 2,
         "permission prefix: omitted overwrites preserve existing channel slice without reserve");
-
-    check(seed(), "permission prefix: malformed channel-overwrite fixture seeds");
-    routed = route(kChannelUpdate, &event, &payload); check(routed, "permission prefix: malformed channel source routes");
-    if (!routed) return;
-    ConstSlice<u8> channel_overwrites{};
-    changed = gateway_client_event_channel_overwrites(event, payload, &channel_overwrites);
-    if (changed) {
-        GatewayClientPermissionOverwriteMutation invalid{};
-        const u32 offset = 2 * sizeof(invalid);
-        copy_bytes(&invalid, channel_overwrites.data + offset, sizeof(invalid)); invalid.id = 0;
-        copy_bytes(const_cast<u8*>(channel_overwrites.data) + offset, &invalid, sizeof(invalid));
-    }
-    watch(); const u32 bad_channel_calls = prefix.reserve.calls;
-    check(changed && !apply(event, payload).ok() && prefix.reserve.calls == bad_channel_calls && semantic_unchanged(true),
-        "permission prefix: invalid final channel overwrite rejects before reserve rename or old-range clearing");
 
     check(seed(), "permission prefix: full logical bank fixture seeds");
     check(chat_state_store_prepare_permissions(&state, 8, 8) &&

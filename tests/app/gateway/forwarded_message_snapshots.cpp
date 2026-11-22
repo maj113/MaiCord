@@ -127,27 +127,6 @@ void test_forwarded_message_snapshots(void (*check)(bool, const char*) noexcept)
               snapshot_users.count == 1 && snapshot_users.id == 7 &&
               utf8_equal(snapshot_users.name, utf8_literal("nested mention")),
           "snapshot named-user hydration reads validated scoped names without media decoding");
-    if (transported) {
-        const u32 snapshot_offset =
-            routed.message.transient_bytes + routed.message.mention_role_count * sizeof(u64) +
-            routed.message.member_role_count * sizeof(u64) +
-            routed.message.mention_user_count * sizeof(GatewayClientNamedUserMutation) +
-            sizeof(GatewayClientMessageRichHeader) + sizeof(GatewayClientMessageAttachmentMutation);
-        constexpr u32 presence_offset = 40;
-        const char original = mailbox[snapshot_offset + presence_offset];
-        mailbox[snapshot_offset + presence_offset] = 2;
-        GatewayMessageEvent invalid_transport{};
-        check(!gateway_client_event_as_message(routed, payload, rich_scratch(), &invalid_transport),
-              "Gateway snapshot mailbox rejects corrupt presence discriminator");
-        mailbox[snapshot_offset + presence_offset] = original;
-        const u32 user_reserved_offset = snapshot_offset + sizeof(GatewayClientMessageSnapshotHeader) + 14;
-        mailbox[user_reserved_offset] = 1;
-        SnapshotUsers rejected{};
-        check(!gateway_client_event_visit_message_snapshot_mention_users(routed, payload, &rejected, collect) &&
-                  !rejected.count,
-              "snapshot hydration rejects invalid user list before exposing any identities");
-        mailbox[user_reserved_offset] = 0;
-    }
     MessageRichStore store{};
     check(message_rich_store_initialize(&store, {fixture.records, 8}, {fixture.order, 4},
                                         {fixture.owned_text, 8192}) &&

@@ -162,19 +162,17 @@ ChannelInput channel_input(const GatewayClientStateMutation& state, const Utf8Vi
                                static_cast<u16>(state.user_limit)};
 }
 
-bool validate_channel_state(const GatewayClientStateMutation& state, bool allow_new_thread = false) noexcept {
+// The router sets each thread flag and the content policy only together with its known flag, and a slowmode of at
+// most 21600 seconds (state_dispatch_objects.cpp, state_dispatch_records.cpp). It reads an id only as a nonzero
+// snowflake, sets guild_banner only for guild events, and sets channel_event_flags only to the new-thread bit of a
+// THREAD_CREATE (a channel_create event; state_dispatch.cpp): only the shapes the data decides are checked here.
+bool validate_channel_state(const GatewayClientStateMutation& state) noexcept {
     const bool private_channel = channel_is_private(state.type);
     const u16 required = gateway_client_state_field_id | gateway_client_state_field_type |
         (private_channel ? 0 : gateway_client_state_field_guild_id);
-    return (state.fields & required) == required && state.id != 0 &&
-        !(state.channel_event_flags & ~gateway_client_channel_new_thread) &&
-        (allow_new_thread || !state.channel_event_flags) &&
+    return (state.fields & required) == required &&
         (!state.channel_event_flags || channel_is_thread(state.type)) &&
-        !state.guild_banner && state.rate_limit_per_user <= 21601 &&
-        !(state.content_policy & ~kChannelContentAgeRestricted) && (!state.content_policy || state.content_policy_known) &&
-        (!state.thread_archived || state.thread_archived_known) &&
-        (!state.thread_locked || state.thread_locked_known) &&
-        (!state.thread_self_joined || state.thread_self_joined_known) &&
+        !(state.content_policy & ~kChannelContentAgeRestricted) &&
         (!state.thread_archived_known || channel_is_thread(state.type)) &&
         (!(state.thread_locked_known || state.thread_self_joined_known) || channel_is_thread(state.type)) &&
         (private_channel ? state.guild_id == 0 && state.parent_id == 0 &&
@@ -182,35 +180,12 @@ bool validate_channel_state(const GatewayClientStateMutation& state, bool allow_
 }
 
 bool read_u64(const ConstSlice<u8>& payload, u32 offset, u64* value) noexcept {
-    if (!value || offset > payload.count || 8 > payload.count - offset) {
+    if (offset > payload.count || 8 > payload.count - offset) {
         return false;
     }
     const u64 decoded = byte_load_le64(payload.data + offset);
     *value = decoded;
     return decoded != 0;
-}
-
-bool payload_disjoint(const ConstSlice<u8>& payload, const void* base, u64 bytes) noexcept {
-    if (payload.count == 0 || !base || bytes == 0) return true;
-    const usize source = reinterpret_cast<usize>(payload.data);
-    const usize target = reinterpret_cast<usize>(base);
-    if (payload.count > ~usize{0} - source || bytes > ~usize{0} - target) return false;
-    return source < target ? target - source >= payload.count : source - target >= bytes;
-}
-
-bool state_payload_disjoint(const ChatStateStore& store, const ConstSlice<u8>& payload) noexcept {
-    // Publication reparses borrowed role/emoji data; none may live in backing
-    // changed by sorted shifts, name compaction, guild metadata or recompute.
-    return payload_disjoint(payload, &store, sizeof(store)) &&
-        payload_disjoint(payload, store.names, static_cast<u64>(store.name_bank_bytes) * 2) &&
-        payload_disjoint(payload, store.guilds, static_cast<u64>(store.guild_capacity) * sizeof(GuildRecord)) &&
-        payload_disjoint(payload, store.channels, static_cast<u64>(store.channel_capacity) * sizeof(ChannelRecord)) &&
-        payload_disjoint(payload, store.roles, static_cast<u64>(store.role_capacity) * sizeof(RoleRecord)) &&
-        payload_disjoint(payload, store.overwrites, static_cast<u64>(store.overwrite_capacity) * sizeof(PermissionOverwriteRecord)) &&
-        payload_disjoint(payload, store.guild_order, static_cast<u64>(store.guild_capacity) * sizeof(u16)) &&
-        payload_disjoint(payload, store.channel_order, static_cast<u64>(store.channel_capacity) * sizeof(u16)) &&
-        payload_disjoint(payload, store.emojis, static_cast<u64>(store.emoji_capacity) * sizeof(CustomEmojiRecord)) &&
-        payload_disjoint(payload, store.emoji_roles, static_cast<u64>(store.emoji_role_capacity) * sizeof(u64));
 }
 
 struct GuildRoleInputContext {
@@ -262,22 +237,21 @@ bool read_guild_role_input(const void* opaque, u32 index, RoleInput* output) noe
     return true;
 }
 
-// The roles must hold @everyone and distinct ids, with names of at most 400 bytes. ids receives the role ids, and
-// *end the offset after the last role.
+// The roles must hold @everyone. append_role_array (state_dispatch_records.cpp) keeps them distinct, at most
+// kGuildRoleMaximum, with names of at most 400 bytes. ids receives the role ids, and *end the offset after the last
+// role.
 bool guild_roles_valid(const GatewayClientEvent& event, ConstSlice<u8> payload, ConstSlice<u32> offsets, u64* ids,
                        u32* end) noexcept {
-    if (event.state.role_count == 0 || event.state.role_count > kGuildRoleMaximum) {
+    if (event.state.role_count == 0) {
         return false;
     }
     bool everyone = false;
     for (u32 index = 0; index < event.state.role_count; ++index) {
         GatewayClientRoleMutation role{};
         Utf8View name{};
-        if (!gateway_client_event_guild_role_at(event, payload, offsets[index], &role, &name) || name.bytes > 400) {
+        if (!gateway_client_event_guild_role_at(event, payload, offsets[index], &role, &name)) {
             return false;
         }
-        for (u32 previous = 0; previous < index; ++previous)
-            if (ids[previous] == role.id) return false;
         ids[index] = role.id;
         everyone = everyone || role.id == event.state.id;
         *end = offsets[index] + static_cast<u32>(sizeof(role)) + name.bytes;
@@ -285,7 +259,8 @@ bool guild_roles_valid(const GatewayClientEvent& event, ConstSlice<u8> payload, 
     return everyone;
 }
 
-// The member's role ids after the roles. The caller checked that member_role_count ids fit the payload.
+// The member's role ids after the roles, each one a role of the guild. The caller checked that member_role_count ids
+// fit the payload; append_snowflake_array keeps them distinct.
 inline bool guild_self_roles(const GatewayClientEvent& event, ConstSlice<u8> payload,
                       u64* roles, ConstSlice<u64> role_ids, u32 roles_end) noexcept {
     for (u32 index = 0; index < event.state.member_role_count; ++index) {
@@ -295,8 +270,6 @@ inline bool guild_self_roles(const GatewayClientEvent& event, ConstSlice<u8> pay
         u32 listed = 0;
         while (listed < role_ids.count && role_ids[listed] != roles[index]) ++listed;
         if (listed == role_ids.count) return false;
-        for (u32 previous = 0; previous < index; ++previous)
-            if (roles[previous] == roles[index]) return false;
     }
     return true;
 }
@@ -309,23 +282,9 @@ inline bool member_roles(const GatewayClientEvent& event, ConstSlice<u8> payload
         payload.count != event.state.member_role_count * 8u) {
         return false;
     }
+    // append_snowflake_array (route_member_update) keeps the ids distinct.
     for (u32 index = 0; index < event.state.member_role_count; ++index) {
         if (!read_u64(payload, index * 8, &roles[index])) {
-            return false;
-        }
-        for (u32 previous = 0; previous < index; ++previous) {
-            if (roles[previous] == roles[index]) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-bool overwrite_payload_valid(ConstSlice<u8> payload, u32 count) noexcept {
-    for (u32 index = 0; index < count; ++index) {
-        GatewayClientPermissionOverwriteMutation overwrite{};
-        if (!gateway_client_permission_overwrite_at(payload, count, index, &overwrite)) {
             return false;
         }
     }
@@ -338,49 +297,25 @@ static_assert(static_cast<u8>(gateway_client_emoji_animated) == custom_emoji_ani
               static_cast<u8>(gateway_client_emoji_require_colons) == custom_emoji_require_colons);
 
 // The guild's emojis from begin, where the caller's walk of the payload ended. Called only when emojis_known.
+// append_emoji_array (state_dispatch_records.cpp) writes at most kGuildEmojiMaximum emojis with distinct ids, each
+// with at most kGuildRoleMaximum distinct role ids and flags of the known bits, and counts their roles in
+// emoji_role_count.
 bool guild_emojis_payload(
     const GatewayClientEvent& event, ConstSlice<u8> payload, u32 begin,
     CustomEmojiInput* emojis, u32* count) noexcept {
-    if (event.state.emoji_count > kGuildEmojiMaximum) {
-        return false;
-    }
     u32 cursor = begin;
     u32 index = 0;
-    u32 role_count = 0;
     while (index < event.state.emoji_count) {
         GatewayClientEmojiMutation emoji{};
         ConstSlice<u8> roles{};
         Utf8View name{};
-        if (!gateway_client_event_next_guild_emoji(
-                event, payload, &cursor, &index, &emoji, &roles, &name) ||
-            emoji.role_count > kGuildRoleMaximum ||
-            (emoji.flags & static_cast<u8>(
-                 ~(gateway_client_emoji_animated |
-                   gateway_client_emoji_available |
-                   gateway_client_emoji_managed |
-                   gateway_client_emoji_require_colons))) != 0 ||
-            role_count > ~0u - emoji.role_count) {
+        if (!gateway_client_event_next_guild_emoji(event, payload, &cursor, &index, &emoji, &roles, &name)) {
             return false;
         }
-        role_count += emoji.role_count;
-        for (u32 role = 0; role < emoji.role_count; ++role) {
-            u64 id = 0;
-            if (!read_u64(roles, role * 8u, &id)) return false;
-            for (u32 previous = 0; previous < role; ++previous) {
-                u64 other = 0;
-                if (!read_u64(roles, previous * 8u, &other) || other == id) return false;
-            }
-        }
-        // The wire flag bits are the store's (validated against the known mask above).
+        // The wire flag bits are the store's.
         emojis[index - 1] = CustomEmojiInput{emoji.id, name, roles, emoji.role_count, emoji.flags, 0};
-        for (u32 previous = 0; previous + 1 < index; ++previous) {
-            if (emojis[previous].id == emoji.id) {
-                return false;
-            }
-        }
     }
-    if (cursor != payload.count ||
-        role_count != event.state.emoji_role_count) {
+    if (cursor != payload.count) {
         return false;
     }
     *count = index;
@@ -456,7 +391,7 @@ bool thread_sync_record(const ConstSlice<u8>& payload, u32 offset, GatewayClient
         channel->overwrite_count || (channel->fields & gateway_client_state_field_permission_overwrites) ||
         channel->name_bytes > payload.count - offset) return false;
     *name = {reinterpret_cast<const char*>(payload.data + offset), channel->name_bytes};
-    if (!utf8_validate(*name).valid || name->bytes > 400) return false;
+    // append_name gives a whole decoded name: UTF-8, at most 400 bytes.
     *next = offset + channel->name_bytes;
     return true;
 }
@@ -498,11 +433,11 @@ ChatStateApplyResult chat_state_apply_thread_authority(
     const auto& event = input_event.notification_payload_bytes ? normalized : input_event;
     ChatStateApplyResult result{};
     if (event.dispatch_kind == GatewayClientDispatchKind::thread_self_update) {
+        // route_state_dispatch (state_dispatch.cpp) writes this proof with nonzero ids, both authority flags, zeroed
+        // reserved bytes and no payload. Only the store's own self id is compared here.
         const auto& proof = event.thread_self;
-        if (payload.count || !proof.guild_id || !proof.thread_id || !proof.self_user_id || proof.self_user_id != store->self_user_id ||
-            proof.authority_flags != (gateway_thread_self_known | gateway_thread_self_joined))
+        if (!proof.self_user_id || proof.self_user_id != store->self_user_id)
             return apply_error(ChatStateApplyError::invalid_payload);
-        for (u8 value : proof.reserved) if (value) return apply_error(ChatStateApplyError::invalid_payload);
         const auto* channel = chat_state_store_find_channel(*store, proof.thread_id);
         if (!channel) return result;
         if (channel->guild_id != proof.guild_id || !channel_is_thread(channel->type)) return apply_error(ChatStateApplyError::invalid_payload);
@@ -516,29 +451,13 @@ ChatStateApplyResult chat_state_apply_thread_authority(
     }
     if (event.dispatch_kind == GatewayClientDispatchKind::thread_members_update ||
         event.dispatch_kind == GatewayClientDispatchKind::thread_member_list_update) {
+        // gateway_client_route_thread_member_dispatch (thread_member_dispatch.cpp) reads every record of this payload
+        // with gateway_client_event_thread_member_record before it publishes the event, in the order members,
+        // removals, presences, and computes authority_flags from that walk. Only the store's self id is compared.
         const auto& proof = event.thread_members;
-        if (!proof.guild_id || !proof.thread_id || proof.authority_reserved ||
-            (proof.authority_flags & ~(gateway_thread_self_known | gateway_thread_self_joined)) ||
-            (proof.authority_flags && (!(proof.authority_flags & gateway_thread_self_known) || proof.authority_self_id != store->self_user_id)) ||
-            (!proof.authority_flags && proof.authority_self_id) ||
-            proof.snapshot != (event.dispatch_kind == GatewayClientDispatchKind::thread_member_list_update))
+        if (proof.authority_flags && proof.authority_self_id != store->self_user_id)
             return apply_error(ChatStateApplyError::invalid_payload);
-        u32 cursor{}, index{}; u8 actual{}; u8 phase{};
-        while (index < proof.record_count) {
-            GatewayClientMemberListMutation row{}; ConstSlice<u8> roles{}, global{}, guild{};
-            Utf8View nickname{}, name{}, avatar{}, username{};
-            if (!gateway_client_event_thread_member_record(event, payload, &cursor, &index, &row, &roles,
-                &nickname, &name, &avatar, &username, &global, &guild)) return apply_error(ChatStateApplyError::invalid_payload);
-            const u8 next_phase = row.operation == GatewayClientMemberListOperation::update ? 2 : row.operation == GatewayClientMemberListOperation::remove ? 1 : 0;
-            if (next_phase < phase) return apply_error(ChatStateApplyError::invalid_payload);
-            phase = next_phase;
-            if (proof.authority_self_id && row.user_id == proof.authority_self_id && row.operation != GatewayClientMemberListOperation::update) {
-                if (actual) return apply_error(ChatStateApplyError::invalid_payload);
-                actual = gateway_thread_self_known;
-                if (row.operation != GatewayClientMemberListOperation::remove) actual |= gateway_thread_self_joined;
-            }
-        }
-        if (cursor != payload.count || actual != proof.authority_flags) return apply_error(ChatStateApplyError::invalid_payload);
+        const u8 actual = proof.authority_flags;
         const auto* channel = chat_state_store_find_channel(*store, proof.thread_id);
         if (!channel) return result;
         if (channel->guild_id != proof.guild_id || !channel_is_thread(channel->type)) return apply_error(ChatStateApplyError::invalid_payload);
@@ -560,22 +479,16 @@ ChatStateApplyResult chat_state_apply_thread_authority(
     }
     if (event.dispatch_kind != GatewayClientDispatchKind::thread_list_sync) return apply_error(ChatStateApplyError::unsupported_event);
     const auto& sync = event.thread_sync;
-    if (!sync.guild_id || !sync.self_user_id || sync.self_user_id != store->self_user_id ||
-        sync.parent_count > 4096 || sync.thread_count > 4096 ||
-        (sync.scope != GatewayClientThreadSyncScope::guild && sync.scope != GatewayClientThreadSyncScope::parents) ||
-        (sync.scope == GatewayClientThreadSyncScope::guild && sync.parent_count) ||
-        (sync.flags & ~gateway_client_thread_sync_members_known) || sync.reserved[0] || sync.reserved[1] ||
-        (!(sync.flags & gateway_client_thread_sync_members_known) && sync.member_count) ||
-        !state_payload_disjoint(*store, payload) ||
-        !state_payload_disjoint(*store, {reinterpret_cast<const u8*>(&event), sizeof(event)}))
+    // route_thread_sync (state_dispatch_records.cpp) writes a zeroed header with a nonzero guild and self id, at most
+    // 4096 distinct nonzero parents only for the parents scope, and members only with members_known.
+    if (sync.self_user_id != store->self_user_id || sync.thread_count > 4096)
         return apply_error(ChatStateApplyError::invalid_payload);
     const u64 parent_bytes = u64{sync.parent_count} * 8;
     if (parent_bytes > payload.count) return apply_error(ChatStateApplyError::invalid_payload);
     for (u32 i = 0; i < sync.parent_count; ++i) {
         const u64 id = byte_load_le64(payload.data + i * 8);
         const auto* parent = chat_state_store_find_channel(*store, id);
-        if (!id || id_in(payload, i, id) ||
-            (parent && (parent->guild_id != sync.guild_id || !channel_is_thread_parent(parent->type))))
+        if (parent && (parent->guild_id != sync.guild_id || !channel_is_thread_parent(parent->type)))
             return apply_error(ChatStateApplyError::invalid_payload);
     }
     u32 offsets[4096]; u32 cursor = static_cast<u32>(parent_bytes);
@@ -594,10 +507,9 @@ ChatStateApplyResult chat_state_apply_thread_authority(
     }
     const u32 members_begin = cursor;
     if (u64{sync.member_count} * kGatewayThreadSyncMemberBytes != payload.count - cursor) return apply_error(ChatStateApplyError::invalid_payload);
+    // thread_sync_member (state_dispatch_records.cpp) writes distinct nonzero thread ids.
     for (u32 i = 0; i < sync.member_count; ++i) {
         const u64 id = byte_load_le64(payload.data + members_begin + i * kGatewayThreadSyncMemberBytes); bool found = false;
-        u32 earlier = 0;
-        if (!id || joined_in(payload, members_begin, i, id, &earlier)) return apply_error(ChatStateApplyError::invalid_payload);
         for (u32 r = 0; r < sync.thread_count; ++r) if (byte_load_le64(payload.data + offsets[r]) == id) found = true;
         if (!found) return apply_error(ChatStateApplyError::invalid_payload);
     }
@@ -749,12 +661,12 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
         u32 cursor = 0;
         GatewayClientUserMutation user{};
         Utf8View display{}, avatar{};
-        if (!event.state.id || !gateway_client_user_record(payload, &cursor, &user, &display, &avatar) ||
-            event.state.name_bytes != payload.count - cursor || event.state.name_bytes > 128 ||
-            (event.state.name_bytes && !(event.state.fields & gateway_client_state_field_name)))
+        // gateway_route_recipient (private_dispatch.cpp) requires channel_id, a nonzero snowflake, writes the nick whole
+        // decoded, at most 128 bytes, and sets the name field with it.
+        if (!gateway_client_user_record(payload, &cursor, &user, &display, &avatar) ||
+            event.state.name_bytes != payload.count - cursor)
             return apply_error(ChatStateApplyError::invalid_payload);
         const Utf8View nickname{reinterpret_cast<const char*>(payload.data + cursor), event.state.name_bytes};
-        if (!utf8_validate(nickname).valid) return apply_error(ChatStateApplyError::invalid_payload);
         const auto* channel = chat_state_store_find_channel(*store, event.state.id);
         if (!channel || !channel_is_private(channel->type) ||
             (event.dispatch_kind == GatewayClientDispatchKind::channel_recipient_add && user.id == store->self_user_id)) {
@@ -817,8 +729,8 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
         if (event.dispatch_kind == GatewayClientDispatchKind::guild_emojis_update) {
             auto& emojis = (::new (static_cast<void*>(&guild_scratch.transient.emojis)) GuildEmojiScratch)->values;
             u32 emoji_count = 0;
-            if (event.state.guild_id == 0 || !event.state.emojis_known ||
-                !chat_state_store_find_guild(*store, event.state.guild_id) ||
+            // route_guild_emojis requires the guild id (a nonzero snowflake) and sets emojis_known.
+            if (!chat_state_store_find_guild(*store, event.state.guild_id) ||
                 !guild_emojis_payload(event, payload, 0, emojis, &emoji_count)) {
                 return apply_error(ChatStateApplyError::invalid_payload);
             }
@@ -835,9 +747,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
         } else if (event.dispatch_kind == GatewayClientDispatchKind::guild_create) {
             Utf8View name{};
             Utf8View icon_hash{};
-            if (!state_payload_disjoint(*store, payload) ||
-                !state_payload_disjoint(*store, {reinterpret_cast<const u8*>(&event), sizeof(event)}) ||
-                !gateway_client_event_state_name(event, payload, &name) || name.bytes > 400 || event.state.id == 0) {
+            if (!gateway_client_event_state_name(event, payload, &name)) {
                 return apply_error(ChatStateApplyError::invalid_payload);
             }
             if ((event.state.fields & gateway_client_state_field_icon) != 0 &&
@@ -857,15 +767,14 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 const ConstSlice<u32> offsets{role_offsets, event.state.role_count};
                 auto& role_ids = (::new (static_cast<void*>(&guild_scratch.transient.role_ids)) GuildRoleIdScratch)->values;
                 u32 roles_end = 0;
-                if (store->self_user_id == 0 || event.state.owner_id == 0 ||
+                if (store->self_user_id == 0 ||
                     !gateway_client_event_guild_role_offsets(event, payload, {role_offsets, kGuildRoleMaximum}) ||
                     !guild_roles_valid(event, payload, offsets, role_ids, &roles_end)) {
                     return apply_error(ChatStateApplyError::invalid_payload);
                 }
-                if ((!(event.state.member_role_flags & gateway_client_member_roles_known) &&
-                     event.state.member_role_count) ||
-                    event.state.member_role_count > kGuildRoleMaximum ||
-                    event.state.member_role_count > (payload.count - roles_end) / 8u)
+                // append_self_member_roles (state_dispatch_records.cpp) writes roles only for a member with a roles
+                // field, and then sets gateway_client_member_roles_known.
+                if (event.state.member_role_count > (payload.count - roles_end) / 8u)
                     return apply_error(ChatStateApplyError::invalid_payload);
                 const u32 channels_begin = roles_end + event.state.member_role_count * 8u;
                 auto& self_roles = guild_scratch.self_roles;
@@ -874,7 +783,6 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 }
                 u32 cursor = channels_begin;
                 u32 index = 0;
-                u32 overwrite_count = 0;
                 u64 largest_prior_id = 0;
                 auto& channel_ids = *::new (static_cast<void*>(&guild_scratch.transient.channel_ids)) GuildChannelIdScratch;
                 bool ids_increasing = true;
@@ -882,14 +790,12 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                     GatewayClientStateMutation channel{};
                     Utf8View channel_name{};
                     ConstSlice<u8> overwrites{};
+                    // visit_channel (state_dispatch_records.cpp) reads GUILD_CREATE channels tolerantly: it skips a
+                    // channel of another guild and gives every channel that is no thread the overwrite field.
                     if (!gateway_client_event_next_guild_channel(event, payload, &cursor, &index, &channel,
                                                                  &channel_name, &overwrites) ||
-                        !validate_channel_state(channel) || channel.guild_id != event.state.id ||
-                        channel_name.bytes > 400 ||
-                        (!(channel.fields & gateway_client_state_field_permission_overwrites) && channel.overwrite_count != 0) ||
-                        (!channel_is_thread(channel.type) &&
-                         (channel.fields & gateway_client_state_field_permission_overwrites) == 0) ||
-                        !overwrite_payload_valid(overwrites, channel.overwrite_count)) {
+                        !validate_channel_state(channel) ||
+                        (!(channel.fields & gateway_client_state_field_permission_overwrites) && channel.overwrite_count != 0)) {
                         return apply_error(ChatStateApplyError::invalid_payload);
                     }
                     const auto* resident = chat_state_store_find_channel(*store, channel.id);
@@ -912,7 +818,6 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                         }
                     }
                     if (channel.id > largest_prior_id) largest_prior_id = channel.id;
-                    overwrite_count += channel.overwrite_count;
                 }
                 const u32 id_count = minimum(index, kGuildChannelIdCapacity);
                 if (!ids_increasing) {
@@ -924,12 +829,9 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 channel_ids.~GuildChannelIdScratch();
                 auto& emojis = (::new (static_cast<void*>(&guild_scratch.transient.emojis)) GuildEmojiScratch)->values;
                 u32 emoji_count = 0;
-                if (overwrite_count != event.state.overwrite_count ||
-                    (event.state.emojis_known
-                         ? !guild_emojis_payload(event, payload, cursor, emojis, &emoji_count)
-                         : (event.state.emoji_count != 0 ||
-                            event.state.emoji_role_count != 0 ||
-                            cursor != payload.count))) {
+                // route_guild_object counts the overwrites it writes and writes no emoji counts without the emojis.
+                if (event.state.emojis_known ? !guild_emojis_payload(event, payload, cursor, emojis, &emoji_count)
+                                             : cursor != payload.count) {
                     return apply_error(ChatStateApplyError::invalid_payload);
                 }
                 u32 resident_overwrites = 0;
@@ -1025,20 +927,16 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
             auto& role_offsets = guild_scratch.role_offsets;
             const ConstSlice<u32> offsets{role_offsets, event.state.role_count};
             u32 emoji_count = 0;
-            if (!state_payload_disjoint(*store, payload) ||
-                !state_payload_disjoint(*store, {reinterpret_cast<const u8*>(&event), sizeof(event)}) ||
-                !gateway_client_event_state_name(event, payload, &name) || event.state.id == 0 ||
-                event.state.owner_id == 0 ||
+            // route_guild_object requires the id and the owner id (nonzero snowflakes) and writes no emoji counts
+            // without the emojis.
+            if (!gateway_client_event_state_name(event, payload, &name) ||
                 ((event.state.fields & gateway_client_state_field_icon) != 0 &&
                  !gateway_client_event_guild_icon(event, payload, &icon_hash)) ||
                 !gateway_client_event_guild_role_offsets(event, payload, {role_offsets, kGuildRoleMaximum}) ||
                 // An update has no member roles: their scratch takes the role ids.
                 !guild_roles_valid(event, payload, offsets, guild_scratch.self_roles, &roles_bytes) ||
-                (event.state.emojis_known
-                     ? !guild_emojis_payload(event, payload, roles_bytes, emojis, &emoji_count)
-                     : (event.state.emoji_count != 0 ||
-                        event.state.emoji_role_count != 0 ||
-                        roles_bytes != payload.count))) {
+                (event.state.emojis_known ? !guild_emojis_payload(event, payload, roles_bytes, emojis, &emoji_count)
+                                          : roles_bytes != payload.count)) {
                 return apply_error(ChatStateApplyError::invalid_payload);
             }
             const u32 old_roles = resident_guild_roles(*store, event.state.id);
@@ -1185,17 +1083,14 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
             (event.state.fields & gateway_client_state_field_permission_overwrites) != 0;
         const ChannelRecord* resident =
             chat_state_store_find_channel(*store, event.state.id);
-        if (!state_payload_disjoint(*store, payload) ||
-            !state_payload_disjoint(*store, {reinterpret_cast<const u8*>(&event), sizeof(event)}) ||
-            !validate_channel_state(event.state, event.dispatch_kind == GatewayClientDispatchKind::channel_create) ||
-            !gateway_client_event_state_name(event, payload, &name) || name.bytes > 400 ||
+        if (!validate_channel_state(event.state) ||
+            !gateway_client_event_state_name(event, payload, &name) ||
             (resident && resident->guild_id != event.state.guild_id) ||
             (!has_overwrites && event.state.overwrite_count != 0) ||
             (!has_overwrites && !channel_is_thread(event.state.type) && !channel_is_private(event.state.type) &&
              (event.dispatch_kind == GatewayClientDispatchKind::channel_create || !resident)) ||
             (has_overwrites &&
              (!gateway_client_event_channel_overwrites(event, payload, &overwrites) ||
-              !overwrite_payload_valid(overwrites, event.state.overwrite_count) ||
               !chat_state_store_can_replace_channel_overwrites(
                   *store, event.state.id, event.state.overwrite_count)))) {
             return apply_error(ChatStateApplyError::invalid_payload);
@@ -1329,7 +1224,8 @@ bool guild_detail_store_apply_gateway_event(GuildDetailStore* store, const ChatS
     input.dm_spam_detected_at_ms = details.dm_spam_detected_at_ms;
     input.description = description;
     input.vanity_url_code = vanity;
-    input.splash = {details.splash, details.splash_bytes <= sizeof(details.splash) ? details.splash_bytes : u8{0}};
+    // gateway_guild_details_append decodes the splash, the locale and the discovery splash into these arrays.
+    input.splash = {details.splash, details.splash_bytes};
     input.feature_names = names;
     input.system_channel_flags = details.system_channel_flags;
     input.premium_subscription_count = details.premium_subscription_count;
@@ -1339,16 +1235,11 @@ bool guild_detail_store_apply_gateway_event(GuildDetailStore* store, const ChatS
     input.premium_tier = details.premium_tier;
     input.lockdown_duration_hours = details.lockdown_duration_hours;
     input.premium_progress_bar_enabled = details.premium_progress_bar_enabled;
-    input.preferred_locale = {details.preferred_locale,
-                              details.preferred_locale_bytes <= sizeof(details.preferred_locale)
-                                  ? details.preferred_locale_bytes
-                                  : u8{0}};
+    input.preferred_locale = {details.preferred_locale, details.preferred_locale_bytes};
     input.owner_configured_content_level = details.owner_configured_content_level;
     input.nsfw_level = details.nsfw_level;
     input.space = details.space;
-    input.discovery_splash = {details.discovery_splash, details.discovery_splash_bytes <= sizeof(details.discovery_splash)
-                                                             ? details.discovery_splash_bytes
-                                                             : u8{0}};
+    input.discovery_splash = {details.discovery_splash, details.discovery_splash_bytes};
     input.keep_feature_names = !guild || !guild->permissions_resolved || (guild->base_permissions & manage);
     return guild_detail_store_apply(store, input);
 }

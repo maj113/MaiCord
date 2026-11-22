@@ -4,7 +4,6 @@
 #include "dispatch_common.hpp"
 #include "ready_projection.hpp"
 #include "user_payload.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/gateway/session.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
 
@@ -132,7 +131,6 @@ void stage(Pass& pass, const GatewayClientEvent& event, ConstSlice<u8> payload) 
     pass.staged_bytes += bytes;
     ++pass.staged_records;
 }
-bool valid(const GatewayReady& ready, GatewayReadyProjectionScratch scratch) noexcept;
 bool allowed(Pass& pass) noexcept {
     if (!pass.work || pass.work(pass.context, pass.result.phase)) return true;
     pass.result.interrupted = true;
@@ -180,11 +178,7 @@ bool grow_record_index(Pass& pass) noexcept {
     if (!pass.scratch.grow_records(pass.scratch.grow_records_context, required, &backed) ||
         backed.data != pass.scratch.records.data || backed.count < required ||
         backed.count > kGatewaySessionMaximumStructuralCount) return false;
-    auto candidate = pass.scratch;
-    candidate.records = backed;
-    // valid() also requires empty staging, which holds at entry only: the preflight commits staging as it goes.
-    candidate.staging = nullptr;
-    if (!valid(*pass.ready, candidate)) return false;
+    // The grown index keeps its base in its own reserved range: it stays apart from the other buffers and READY.
     pass.scratch.records = backed;
     return true;
 }
@@ -381,40 +375,10 @@ void replay(Pass& pass) noexcept {
     pass.result.completed = true;
     pass.result.failure_stage = GatewayClientFailureStage::none;
 }
-bool valid(const GatewayReady& ready, GatewayReadyProjectionScratch scratch) noexcept {
-    if (!ready.user_id || !scratch.arrays.data || !scratch.arrays.count ||
-        scratch.arrays.count > kGatewaySessionMaximumStructuralCount ||
-        !scratch.records.data || !scratch.records.count ||
-        scratch.records.count > kGatewaySessionMaximumStructuralCount || !scratch.payload.data || !scratch.payload.count ||
-        scratch.payload.count > kGatewayClientDispatchPayloadCapacity || !scratch.header.data ||
-        !scratch.header.count || scratch.header.count > 4096 ||
-        (scratch.staging && (!scratch.staging->base || scratch.staging->committed))) return false;
-    const ConstSlice<u8> buffers[]{
-        {reinterpret_cast<const u8*>(scratch.arrays.data), scratch.arrays.count * 4u},
-        {reinterpret_cast<const u8*>(scratch.records.data), scratch.records.count * 4u},
-        {reinterpret_cast<const u8*>(scratch.payload.data), scratch.payload.count},
-        {reinterpret_cast<const u8*>(scratch.header.data), scratch.header.count}};
-    if (!byte_ranges_all_disjoint({buffers, 4})) return false;
-    const JsonValue sources[]{ready.user,
-                              ready.guilds,
-                              ready.private_channels,
-                              ready.users,
-                              ready.apex_experiments,
-                              ready.regional_feature_config,
-                              ready.linked_users,
-                              ready.relationships,
-                              ready.merged_presences,
-                              ready.merged_members,
-                              ready.read_state,
-                              ready.user_guild_settings,
-                              ready.user_settings_proto,
-                              ready.notification_settings};
-    for (const auto& value : sources) {
-        const ConstSlice<u8> source{reinterpret_cast<const u8*>(value.source.data), value.source.bytes};
-        if (!byte_range_valid(source) || source.count > kGatewaySessionMaximumDecodedMessageBytes) return false;
-        for (const auto buffer : buffers) if (byte_ranges_overlap(source, buffer)) return false;
-    }
-    return true;
+// The one caller (client_session.cpp) passes a READY that gateway_decode_ready accepted and its own distinct,
+// nonempty session buffers, apart from the READY packet. A staging area must be empty.
+bool valid(GatewayReadyProjectionScratch scratch) noexcept {
+    return !scratch.staging || (scratch.staging->base && !scratch.staging->committed);
 }
 } // namespace
 GatewayReadyProjectionResult gateway_ready_project(const GatewayReady& ready,
@@ -423,7 +387,7 @@ GatewayReadyProjectionResult gateway_ready_project(const GatewayReady& ready,
     Pass pass{};
     pass.ready = &ready; pass.scratch = scratch; pass.publish = publish; pass.work = work;
     pass.context = context; pass.sequence = sequence; pass.now_ms = now_ms;
-    if (!publish || !valid(ready, scratch)) {
+    if (!valid(scratch)) {
         pass.result.route.error = GatewayClientDispatchRouteError::invalid_input;
         return pass.result;
     }

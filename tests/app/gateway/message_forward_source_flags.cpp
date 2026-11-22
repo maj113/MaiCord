@@ -70,11 +70,6 @@ void test_message_forward_source_flags(void (*check)(bool, const char*) noexcept
     check(transported && event.forwarding_features == (gateway_message_forwarding_poll | gateway_message_forwarding_activity) &&
         (event.fields & gateway_message_field_call),
         "forward source: pointer-free mailbox preserves typed poll and object policy in unchanged mutation layout");
-    if (transported) {
-        auto invalid = routed; invalid.message.forwarding_features |= 8;
-        check(!gateway_client_event_as_message(invalid, payload, rich, &event),
-            "forward source: mailbox rejects unknown source-policy bits");
-    }
     // A /tts message keeps its flag through the mailbox, beside (not among) the source-policy bits.
     constexpr auto tts_text = utf8_literal(R"({"op":0,"s":2,"t":"MESSAGE_CREATE","d":{"id":"901","channel_id":"7","author":{"id":"11"},"content":"read me","timestamp":"2026-10-05T00:00:00Z","tts":true}})");
     GatewayClientEvent tts_routed{};

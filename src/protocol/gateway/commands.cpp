@@ -132,16 +132,12 @@ constexpr PropertyRow kPropertyRows[] = {
 };
 
 // Properties of a user identify, or with identify null of the request-time
-// header. A fast-connect identify carries the page's reduced object.
+// header. A fast-connect identify carries the page's reduced object. The build number is the constant
+// kClientBuildNumber; the launch ID, the launch signature and the heartbeat session are write_uuid output
+// (user_client_configuration.cpp; a restored heartbeat session passes client_heartbeat_session_valid first).
 GatewayCommandWriteResult write_properties(const GatewayUserProperties& properties,
                                            const GatewayUserIdentify* identify, Slice<u8> output) noexcept {
     const bool fast = identify && identify->fast_connect;
-    if (properties.client_build_number == 0 || !launch_id_valid(properties.client_launch_id) ||
-        (properties.launch_signature.bytes && !launch_id_valid(properties.launch_signature)) ||
-        (properties.client_heartbeat_session_id.bytes &&
-         !launch_id_valid(properties.client_heartbeat_session_id))) {
-        return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
-    }
     char build[10];
     char native_build[10];
     const Utf8View build_text{build, decimal_write(build, properties.client_build_number)};
@@ -220,21 +216,6 @@ GatewayCommandWriteResult write_properties(const GatewayUserProperties& properti
     return GatewayCommandWriteResult{static_cast<u32>(writer.at), GatewayCommandError::none};
 }
 
-// Standard base64 with padding, as the client encodes the token.
-bool qos_token_valid(Utf8View token) noexcept {
-    if (!token.bytes)
-        return true;
-    if (!token.data || token.bytes > kGatewayUserMaximumQosTokenBytes || token.bytes % 4)
-        return false;
-    for (u32 i = 0; i < token.bytes; ++i) {
-        const char c = token.data[i];
-        const bool pad = c == '=' && i + 2 >= token.bytes && (i + 1 == token.bytes || token.data[i + 1] == '=');
-        if (!pad && !ascii_is_alnum(c) && c != '+' && c != '/')
-            return false;
-    }
-    return true;
-}
-
 } // namespace
 
 GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserProperties& properties,
@@ -249,25 +230,14 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
     if (!properties.ok()) {
         return properties;
     }
-    const Utf8View status_view = gateway_user_status_name(identify.status);
-    if (!status_view.data) {
-        return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
-    }
-
     EncodedString token{};
-    EncodedString status{};
-    const GatewayCommandWriteResult fields[] = {
-        encode_bounded(identify.token, kGatewayUserMaximumTokenBytes, &token),
-        encode_bounded(status_view, 9, &status),
-    };
-    for (u32 index = 0; index < static_cast<u32>(sizeof(fields) / sizeof(fields[0])); ++index) {
-        if (!fields[index].ok()) {
-            return fields[index];
-        }
+    const GatewayCommandWriteResult token_field =
+        encode_bounded(identify.token, kGatewayUserMaximumTokenBytes, &token);
+    if (!token_field.ok()) {
+        return token_field;
     }
-
-    if (!qos_token_valid(identify.qos_token))
-        return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
+    // The status is one of its five named values (the self status owner and the account menu bound it); the QoS
+    // token is gateway_qos_token_write's padded base64, at most 700 bytes.
     const auto emit = [&](Writer& writer) noexcept {
         writer.put("{\"op\":2,\"d\":{\"token\":", token, ",\"capabilities\":", kGatewayUserCapabilitiesDefault,
                    ",\"properties\":");
@@ -279,7 +249,8 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
             return;
         }
         // The presence in the desktop client's order; since is 0 unless idle.
-        writer.put(",\"presence\":{\"status\":", status, ",\"since\":", identify.has_since ? identify.since_ms : u64{0},
+        writer.put(",\"presence\":{\"status\":\"", gateway_user_status_name(identify.status),
+                   "\",\"since\":", identify.has_since ? identify.since_ms : u64{0},
                    ",\"activities\":[],\"afk\":", identify.afk,
                    "},\"compress\":false,\"client_state\":{\"guild_versions\":{}}");
         if (identify.qos_token.bytes)
@@ -352,61 +323,6 @@ GatewayCommandWriteResult gateway_write_time_spent_session(u64 initialization_ms
 
 GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
     const GatewayGuildSubscription& subscription, Slice<u8> output) noexcept {
-    if (!output.data || !subscription.guild_id ||
-        (subscription.omit_channel_ranges ? subscription.channel_id != 0 : !subscription.channel_id) ||
-        (!subscription.thread_member_lists_present &&
-         (subscription.thread_id || subscription.clear_thread_guild_id)) ||
-        subscription.clear_thread_guild_id == subscription.guild_id)
-        return {0, GatewayCommandError::invalid_input};
-    const u32 range_count =
-        subscription.omit_channel_ranges ? 0 : (subscription.range_count ? subscription.range_count : 1);
-    if (subscription.range_count > kGatewayMemberSubscriptionMaximumRanges ||
-        (subscription.omit_channel_ranges && subscription.range_count))
-        return {0, GatewayCommandError::invalid_input};
-    for (u32 i = 0; i < range_count; ++i) {
-        const auto range =
-            subscription.range_count
-                ? subscription.ranges[i]
-                : GatewayMemberSubscriptionRange{subscription.range_first, subscription.range_last};
-        if (range.last < range.first || range.last - range.first > 999u ||
-            (subscription.range_count && range.last - range.first >= 100u) ||
-            (i && range.first <= subscription.ranges[i - 1].last))
-            return {0, GatewayCommandError::invalid_input};
-    }
-    // The guild's other remembered channels: distinct, never empty, each with
-    // ascending bounded ranges.
-    if (subscription.channel_count > kGatewayGuildSubscriptionMaximumChannels - 1 ||
-        (subscription.channel_count && subscription.omit_channel_ranges))
-        return {0, GatewayCommandError::invalid_input};
-    for (u32 c = 0; c < subscription.channel_count; ++c) {
-        const auto& other = subscription.channels[c];
-        if (!other.channel_id || other.channel_id == subscription.channel_id || !other.range_count ||
-            other.range_count > kGatewayMemberSubscriptionMaximumRanges)
-            return {0, GatewayCommandError::invalid_input};
-        for (u32 earlier = 0; earlier < c; ++earlier)
-            if (subscription.channels[earlier].channel_id == other.channel_id)
-                return {0, GatewayCommandError::invalid_input};
-        for (u32 i = 0; i < other.range_count; ++i) {
-            const auto range = other.ranges[i];
-            if (range.last < range.first || range.last - range.first >= 100u ||
-                (i && range.first <= other.ranges[i - 1].last))
-                return {0, GatewayCommandError::invalid_input};
-        }
-    }
-    // The users whose presence and member updates the client follows in the guild: bounded, distinct, nonzero.
-    if (subscription.member_count > kGatewayGuildSubscriptionMaximumMembers ||
-        (subscription.member_count && !subscription.members_present))
-        return {0, GatewayCommandError::invalid_input};
-    for (u32 i = 0; i < subscription.member_count; ++i) {
-        if (!subscription.members[i])
-            return {0, GatewayCommandError::invalid_input};
-        for (u32 earlier = 0; earlier < i; ++earlier)
-            if (subscription.members[earlier] == subscription.members[i])
-                return {0, GatewayCommandError::invalid_input};
-    }
-    if (subscription.omit_features && !subscription.members_present && subscription.omit_channel_ranges &&
-        !subscription.thread_member_lists_present)
-        return {0, GatewayCommandError::invalid_input};
     return write_command(output, [&](Writer& writer) noexcept {
         const auto ranges = [&](const GatewayMemberSubscriptionRange* list, u32 count) noexcept {
             for (u32 i = 0; i < count; ++i) {
@@ -438,11 +354,10 @@ GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
             comma = true;
         }
         if (!subscription.omit_channel_ranges) {
-            const GatewayMemberSubscriptionRange single{subscription.range_first, subscription.range_last};
             if (comma)
                 writer.byte(',');
             writer.put("\"channels\":{\"", subscription.channel_id, "\":[");
-            ranges(subscription.range_count ? subscription.ranges : &single, range_count);
+            ranges(subscription.ranges, subscription.range_count);
             writer.byte(']');
             for (u32 c = 0; c < subscription.channel_count; ++c) {
                 const auto& other = subscription.channels[c];

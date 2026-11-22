@@ -458,8 +458,6 @@ void test_gateway_message_poll(void (*check)(bool, const char*) noexcept) noexce
               f.output.answer_counts[0].me_voted,
           "poll decode retains arbitrary answer IDs own votes Unicode and custom emoji from owning text "
           "scratch");
-    check(gateway_message_poll_valid(f.output),
-          "poll decoded DTO satisfies the shared bounded semantic validator");
     const auto before = f.output;
     const auto first_answer = f.answers[0];
     const auto count = f.counts[0];
@@ -644,16 +642,6 @@ void test_gateway_message_poll(void (*check)(bool, const char*) noexcept) noexce
                             2 * sizeof(GatewayClientMessagePollAnswerMutation) +
                             sizeof(GatewayClientMessagePollCountMutation),
           "poll optional mailbox descriptor block leaves ordinary rich header width unchanged");
-    if (routed) {
-        const u32 header_at =
-            payload.count - event.message.rich_payload_bytes + sizeof(GatewayClientMessageRichHeader);
-        GatewayClientMessagePollHeader packed{};
-        copy_bytes(&packed, payload.data + header_at, sizeof(packed));
-        packed.reserved[0] = 1;
-        copy_bytes(f.mailbox + header_at, &packed, sizeof(packed));
-        check(!gateway_client_event_as_message(event, payload, rich(), &decoded_message),
-              "poll forged reserved mailbox metadata is rejected before model publication");
-    }
     writer.used = 0;
     written = protocol_writer_append_literal(
                   &writer, "{\"op\":0,\"s\":2,\"t\":\"MESSAGE_POLL_VOTE_REMOVE\",\"d\":") &&

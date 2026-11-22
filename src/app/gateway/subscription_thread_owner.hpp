@@ -9,17 +9,16 @@ struct GatewaySubscriptionThreadOwner {
     u64 active_guild_id;
     bool active;
 };
-inline bool gateway_subscription_thread_owner_prepare(const GatewaySubscriptionThreadOwner& owner,
-    const GatewayGuildSubscription& desired, GatewayGuildSubscription* frame) noexcept {
-    if (!desired.guild_id || desired.clear_thread_guild_id) return false;
-    auto prepared = desired;
-    if (owner.sent_guild_id && owner.sent_guild_id != desired.guild_id) {
-        prepared.clear_thread_guild_id = owner.sent_guild_id;
+// Adds to the desired frame the cleanup of the thread interest that the last completed write left in another guild.
+// gateway_client_subscribe_guild_members' callers give a nonzero guild and no cleanup of their own.
+inline void gateway_subscription_thread_owner_prepare(const GatewaySubscriptionThreadOwner& owner,
+    GatewayGuildSubscription* frame) noexcept {
+    if (owner.sent_guild_id && owner.sent_guild_id != frame->guild_id) {
+        frame->clear_thread_guild_id = owner.sent_guild_id;
         // An absent thread field does not clear current guild interest. The
         // compound cleanup is explicit about both old and current ownership.
-        prepared.thread_member_lists_present = true;
+        frame->thread_member_lists_present = true;
     }
-    *frame = prepared; return true;
 }
 inline void gateway_subscription_thread_owner_admit(GatewaySubscriptionThreadOwner* owner,
     const GatewayGuildSubscription& frame) noexcept {

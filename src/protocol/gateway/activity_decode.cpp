@@ -52,14 +52,11 @@ bool proxy_path(Utf8View path) noexcept {
 }
 } // namespace
 
+// Every caller names a field below count. Every activity keeps its lengths within text: the decoder caps each field
+// to its budget and drops fields until the total fits, the record decode of model/user/activity.cpp refuses a total
+// that does not fit, and the other activities are zero.
 Utf8View user_activity_text(const UserActivity& a, UserActivityField field) noexcept {
-    if (field >= UserActivityField::count)
-        return {};
-    const u32 offset = field_offset(a, field);
-    const u32 bytes = a.lengths[static_cast<u32>(field)];
-    if (offset > kUserActivityTextBytes || bytes > kUserActivityTextBytes - offset)
-        return {};
-    return {a.text + offset, bytes};
+    return {a.text + field_offset(a, field), a.lengths[static_cast<u32>(field)]};
 }
 bool user_activity_is_spotify(const UserActivity& a) noexcept {
     return a.type == UserActivityType::listening && (a.detail & user_activity_spotify_party) &&

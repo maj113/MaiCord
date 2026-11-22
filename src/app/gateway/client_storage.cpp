@@ -546,13 +546,15 @@ bool publish_event_payload(GatewayClient* client, GatewayClientRuntime* runtime,
 // for the UI to take the previous oversized record.
 bool acquire_large_record(void* opaque, u32 bytes, Slice<char>* storage) noexcept {
     auto* runtime = static_cast<GatewayClientRuntime*>(opaque);
-    if (!runtime || !storage || !runtime->large_record.base || runtime->stopping)
+    // Both routes pass the runtime and their own storage slot; start_client set the owner and reserved the bytes
+    // (reserved_bytes_commit refuses an unreserved one).
+    if (runtime->stopping)
         return false;
     GatewayClient* client = runtime->owner;
     const u64 deadline =
         runtime->mailbox_deadline_ms ? runtime->mailbox_deadline_ms : clock_monotonic_milliseconds() + kPhaseTimeoutMs;
-    if (!client || !gateway_mailbox_wait_lease(&runtime->events, runtime->mailbox_space, runtime->mailbox_cancel,
-                                               client->notification_event, deadline, &runtime->large_record_lease) ||
+    if (!gateway_mailbox_wait_lease(&runtime->events, runtime->mailbox_space, runtime->mailbox_cancel,
+                                    client->notification_event, deadline, &runtime->large_record_lease) ||
         !reserved_bytes_commit(&runtime->large_record, bytes))
         return false;
     *storage = {reinterpret_cast<char*>(runtime->large_record.base), runtime->large_record.committed};

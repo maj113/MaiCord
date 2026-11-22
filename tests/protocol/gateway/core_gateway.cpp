@@ -2534,14 +2534,6 @@ void test_gateway_message_events() noexcept {
                scratch_poisoned(rich_stickers + 1, sizeof(rich_stickers) - sizeof(*rich_stickers)) &&
                scratch_poisoned(rich_components + 4, sizeof(rich_components) - 4 * sizeof(*rich_components)),
            "gateway_client_rich_decode_clears_used_fields_and_preserves_poisoned_tails");
-    if (rich_payload_copied && packed_rich_payload.count != 0) {
-        const u32 final_byte = packed_rich_payload.count - 1;
-        rich_owned_payload[final_byte] = 1;
-        expect(!gateway_client_event_as_message(routed_event, owned_rich_payload, rich_scratch,
-                                                &routed_message),
-               "gateway_client_route_rich_corruption_rejected");
-        rich_owned_payload[final_byte] = 0;
-    }
 
     constexpr Utf8View deleted_custom_snapshot_payloads[] = {
         utf8_literal(R"({"op":0,"d":{"id":"900","channel_id":"7","author":{"id":"11"},"content":"","timestamp":"2024-08-30T12:34:56Z","reactions":[{"count":4,"count_details":{"normal":3,"burst":1},"me":true,"me_burst":true,"emoji":{"id":"44","name":null,"animated":true}}]},"s":92,"t":"MESSAGE_CREATE"})"),
@@ -3236,10 +3228,6 @@ void test_gateway_commands() noexcept {
                                        R"(,"client_heartbeat_session_id":null,"client_app_state":"focused","is_fast_connect":false,"gateway_connect_reasons":"AppSkeleton"},"presence":{"status":"unknown","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}},"qos_token":"CgIIAQ=="}})")),
            "gateway_user_identify_unknown_presence");
     live_identify.status = GatewayUserStatus::online;
-    live_identify.qos_token = utf8_literal("CgII AQ=");
-    expect(gateway_write_user_identify(live_identify, Slice<u8>{output, static_cast<u32>(sizeof(output))}).error ==
-               GatewayCommandError::invalid_input,
-           "gateway_user_identify_qos_token_validation");
     // The fast-connect identify: the page's reduced properties (no launch
     // signature, heartbeat session or app state), no presence, compress or
     // QoS token.
@@ -3294,13 +3282,6 @@ void test_gateway_commands() noexcept {
                "gateway_qos_token_invalid_inputs");
     }
 #undef MAICORD_TEST_PROPERTIES_HEAD
-    live_properties.launch_signature = utf8_literal("10203040-5060-4708-9090-a0b0c0d0e0fg");
-    expect(gateway_write_user_properties(live_properties, {}).error == GatewayCommandError::invalid_input,
-           "gateway_user_properties_launch_signature_validation");
-    live_properties.launch_signature = utf8_literal("10203040-5060-4708-9090-a0b0c0d0e0f0");
-    live_properties.client_heartbeat_session_id = utf8_literal("not-a-session");
-    expect(gateway_write_user_properties(live_properties, {}).error == GatewayCommandError::invalid_input,
-           "gateway_user_properties_heartbeat_session_validation");
     char header[1024]{};
     const Base64Result header_expected =
         base64_encode(expected_user_properties, Slice<char>{header, static_cast<u32>(sizeof(header))});
@@ -3320,25 +3301,6 @@ void test_gateway_commands() noexcept {
     expect(unchanged, "gateway_user_identify_no_partial_secret");
 
     GatewayUserIdentify invalid_user_identify = user_identify;
-    invalid_user_identify.properties.client_launch_id =
-        utf8_literal("00112233-4455-6677-8899-aabbccddeefg");
-    expect(gateway_write_user_identify(invalid_user_identify,
-                                       Slice<u8>{output, static_cast<u32>(sizeof(output))})
-                   .error == GatewayCommandError::invalid_input,
-           "gateway_user_identify_launch_id_validation");
-    invalid_user_identify = user_identify;
-    invalid_user_identify.properties.client_build_number = 0;
-    expect(gateway_write_user_identify(invalid_user_identify,
-                                       Slice<u8>{output, static_cast<u32>(sizeof(output))})
-                   .error == GatewayCommandError::invalid_input,
-           "gateway_user_identify_build_required");
-    invalid_user_identify = user_identify;
-    invalid_user_identify.status = static_cast<GatewayUserStatus>(0xFF);
-    expect(gateway_write_user_identify(invalid_user_identify,
-                                       Slice<u8>{output, static_cast<u32>(sizeof(output))})
-                   .error == GatewayCommandError::invalid_input,
-           "gateway_user_identify_status_validation");
-    invalid_user_identify = user_identify;
     invalid_user_identify.properties.browser_user_agent =
         Utf8View{invalid_utf8, static_cast<u32>(sizeof(invalid_utf8))};
     expect(gateway_write_user_identify(invalid_user_identify,

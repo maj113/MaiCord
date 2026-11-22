@@ -111,25 +111,11 @@ void test_thread_member_pump(void (*check)(bool, const char*) noexcept) noexcept
     check(apply(utf8_literal(R"({"op":0,"t":"THREAD_MEMBER_LIST_UPDATE","d":{"guild_id":"7","thread_id":"81","members":[]}})")).ok() &&
         f.threads.known && !f.threads.count, "thread pump: empty snapshot is a known-empty replacement");
 
-    check(apply(snapshot).ok(), "thread pump: retained snapshot ready for malformed packet");
-    GatewayClientEvent event{}; ConstSlice<u8> payload{};
-    const bool routed = route(utf8_literal(R"({"op":0,"t":"THREAD_MEMBER_LIST_UPDATE","d":{"guild_id":"7","thread_id":"81","members":[{"user_id":"4"},{"user_id":"5","member":{"user":{"id":"5","username":"Later"},"roles":[]}}]}})"), &event, &payload);
-    const u32 before_invalid = f.threads.revision, member_revision = f.members.revision, user_revision = f.users.revision;
-    if (routed && payload.count) {
-        --payload.count; event.dispatch_payload_bytes = payload.count;
-        const auto rejected = message_event_pump_consume(&f.pump, event, payload);
-        check(!rejected.ok() && rejected.kind == MessageEventPumpConsumeKind::rejected &&
-            f.threads.revision == before_invalid && f.members.revision == member_revision && f.users.revision == user_revision &&
-            thread_member_store_contains(f.threads, 2), "thread pump: malformed trailing record applies no earlier membership or profiles");
-    } else check(false, "thread pump: malformed trailing fixture routes");
-
-    // A rejected packet deliberately retires durable thread proof. A fresh
-    // typed metadata/self update is required before exercising another scope.
-    event = channel_event(GatewayClientDispatchKind::channel_update, 82, 12);
+    GatewayClientEvent event = channel_event(GatewayClientDispatchKind::channel_update, 82, 12);
     event.state.thread_self_joined_known = event.state.thread_self_joined = true;
     event.state.thread_locked_known = true;
     check(message_event_pump_consume(&f.pump,event,{}).ok(),
-        "thread pump: fresh private thread metadata and self proof restore after malformed packet gap");
+        "thread pump: fresh private thread metadata and self proof apply");
     f.state.selected_channel_id = 82;
     const auto old_scope = apply(snapshot);
     check(old_scope.ok() && old_scope.kind == MessageEventPumpConsumeKind::ignored_dispatch &&

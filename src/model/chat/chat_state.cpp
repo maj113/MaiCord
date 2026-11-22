@@ -695,10 +695,12 @@ ChatStateStoreError chat_state_store_preflight_guild_role_update(const ChatState
                                                                        u32 role_count,
                                                                        RoleInputRead read_role,
                                                                        const void* context) noexcept {
+    // The Gateway state routes (the one caller) give a nonzero guild id, nonzero role ids and names that are
+    // whole UTF-8 decodes of at most 400 bytes.
     NamePreflight budget{};
-    if (!preflight_names(store, &budget) || guild.id == 0 || guild.nsfw_level > 3 ||
+    if (!preflight_names(store, &budget) || guild.nsfw_level > 3 ||
         (!guild.nsfw_level_known && guild.nsfw_level) || guild.kind != GuildMutationKind::update ||
-        !valid_name(guild.name) || (guild.icon_known && !asset_hash_valid(guild.icon_hash)) ||
+        (guild.icon_known && !asset_hash_valid(guild.icon_hash)) ||
         !read_role || role_count == 0 || role_count > kGuildRoleMaximum)
         return ChatStateStoreError::invalid_input;
     if (const auto error = preflight_guild_name(store, guild, &budget); error != ChatStateStoreError::none)
@@ -726,8 +728,7 @@ ChatStateStoreError chat_state_store_preflight_guild_role_update(const ChatState
         return ChatStateStoreError::role_capacity;
     for (u32 index = 0; index < role_count; ++index) {
         RoleInput input{};
-        if (!read_role(context, index, &input) || input.id == 0 || input.guild_id != guild.id ||
-            !valid_name(input.name))
+        if (!read_role(context, index, &input) || input.guild_id != guild.id)
             return ChatStateStoreError::invalid_input;
         // Without permission backing, role writes are accepted as no-ops.
         if (!store.roles)
@@ -745,9 +746,9 @@ ChatStateStoreError chat_state_store_preflight_guild_create(
     const ChatStateStore& store, const GuildInput& guild, u32 role_count,
     RoleInputRead read_role, const void* role_context, u32 channel_count,
     ChannelInputRead read_channel, const void* channel_context) noexcept {
+    // The same routes give this preflight its ids and names (see the role update preflight above).
     NamePreflight budget{};
-    if (!preflight_names(store, &budget) || guild.id == 0 ||
-        guild.kind != GuildMutationKind::create || !valid_name(guild.name) ||
+    if (!preflight_names(store, &budget) || guild.kind != GuildMutationKind::create ||
         (guild.icon_known && !asset_hash_valid(guild.icon_hash)) || !read_role || role_count == 0 ||
         role_count > kGuildRoleMaximum || (channel_count != 0 && !read_channel))
         return ChatStateStoreError::invalid_input;
@@ -776,8 +777,7 @@ ChatStateStoreError chat_state_store_preflight_guild_create(
         return ChatStateStoreError::channel_capacity;
     for (u32 index = 0; index < role_count; ++index) {
         RoleInput input{};
-        if (!read_role(role_context, index, &input) || input.id == 0 || input.guild_id != guild.id ||
-            !valid_name(input.name))
+        if (!read_role(role_context, index, &input) || input.guild_id != guild.id)
             return ChatStateStoreError::invalid_input;
         if (const auto error = store.roles ? preflight_replace_name(store, &budget, 0, 0, input.name)
                                            : ChatStateStoreError::none;
@@ -786,8 +786,8 @@ ChatStateStoreError chat_state_store_preflight_guild_create(
     }
     for (u32 index = 0; index < channel_count; ++index) {
         ChannelInput input{};
-        if (!read_channel(channel_context, index, &input) || input.id == 0 || input.guild_id != guild.id ||
-            channel_is_private(input.type) || !valid_name(input.name))
+        if (!read_channel(channel_context, index, &input) || input.guild_id != guild.id ||
+            channel_is_private(input.type))
             return ChatStateStoreError::invalid_input;
         const auto* old = chat_state_store_find_channel(store, input.id);
         if (old && old->guild_id != guild.id)

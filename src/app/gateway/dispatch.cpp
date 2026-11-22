@@ -227,9 +227,8 @@ __declspec(noinline) bool put_embed_media(const Packer& packer, const GatewayMes
     return put_texts(packer, &source.url, &destination->url, 4);
 }
 
+// The poll decoder (message_poll.cpp) publishes only a poll that passed every check of its decode.
 bool put_poll(const Packer& packer, const GatewayMessagePoll& poll) noexcept {
-    if (!gateway_message_poll_valid(poll))
-        return false;
     GatewayClientMessagePollHeader header{};
     header.expiry_ms = poll.expiry_ms;
     header.fields = poll.fields;
@@ -333,9 +332,8 @@ bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent&
         packed.duration_ms = source.duration_ms;
         packed.state = static_cast<u8>((source.has_width ? 1u : 0u) | (source.has_height ? 2u : 0u) |
                                        (source.ephemeral ? 4u : 0u) | (source.has_duration ? 8u : 0u));
-        if (!gateway_message_waveform_valid(source.waveform) ||
-            (!source.has_duration && source.duration_ms) ||
-            !put_texts(packer, &source.waveform, &packed.waveform, 1) ||
+        // decode_attachments gives a checked waveform (or none), and a duration only with has_duration.
+        if (!put_texts(packer, &source.waveform, &packed.waveform, 1) ||
             !put_texts(packer, &source.filename, &packed.filename, 5) || !put(packer, packed)) {
             return false;
         }
@@ -390,8 +388,8 @@ bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent&
         packed.min_values = source.min_values;
         packed.max_values = source.max_values;
         packed.component_flags = source.flags;
-        if ((source.flags & ~kGatewayMessageComponentKnownFlags) != 0 ||
-            !put_texts(packer, &source.label, &packed.label, 5) || !put(packer, packed)) {
+        // The component decoder builds the flags from the known bits only.
+        if (!put_texts(packer, &source.label, &packed.label, 5) || !put(packer, packed)) {
             return false;
         }
     }

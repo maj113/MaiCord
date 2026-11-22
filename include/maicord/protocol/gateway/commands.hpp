@@ -39,19 +39,19 @@ struct GatewayChannelSubscription {
 struct GatewayGuildSubscription {
     u64 guild_id;
     u64 channel_id;
-    u32 range_first;
-    u32 range_last;
     bool typing;
     bool activities;
     bool threads;
+    // 1 to 5 ascending ranges of at most 100 rows (member_list_subscription_viewport), unless omit_channel_ranges.
     GatewayMemberSubscriptionRange ranges[kGatewayMemberSubscriptionMaximumRanges];
     u32 range_count;
     // A present field replaces the thread interest stored for the guild; zero writes an empty [].
     u64 thread_id;
-    // Internal worker cleanup only. Public subscription requests reject it.
+    // Set only by the worker's thread owner (gateway_subscription_thread_owner_prepare): another guild, and then
+    // thread_member_lists_present is true.
     u64 clear_thread_guild_id;
     bool thread_member_lists_present;
-    // Thread-only frames omit channels and require channel_id/range_count zero.
+    // Thread-only and members-only frames omit channels: channel_id, range_count and channel_count are zero.
     bool omit_channel_ranges;
     // Releasing interest keeps the guild's existing feature flags.
     bool omit_features;
@@ -170,9 +170,8 @@ struct GatewayUserProperties {
 };
 
 // Writes the properties object, or with a null output measures it. Every
-// required string must be non-empty, valid UTF-8 and within its limit, the
-// launch ID, signature and heartbeat session UUIDs and the build number set.
-// A short output gets output_too_small and no bytes.
+// required string must be non-empty, valid UTF-8 and within its limit (host
+// strings from the system). A short output gets output_too_small and no bytes.
 GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserProperties& properties,
                                                         const Slice<u8>& output) noexcept;
 
@@ -213,6 +212,10 @@ GatewayCommandWriteResult gateway_write_resume(const GatewayResume& resume, Slic
 GatewayCommandWriteResult gateway_write_time_spent_session(u64 initialization_ms, Utf8View session_id,
                                                            Utf8View client_launch_id,
                                                            Slice<u8> output) noexcept;
+// Opcode 37. The writer takes the frames that its producers build (the thread member list frame, the member list
+// channel memory, the followed users, then the worker's thread owner and shaping) as valid: a nonzero guild,
+// distinct nonzero channels and members, at most 5 channels of 1 to 5 ascending ranges, at most 50 members, and at
+// least one field to write. Only the output size is checked.
 GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
     const GatewayGuildSubscription& subscription, Slice<u8> output) noexcept;
 

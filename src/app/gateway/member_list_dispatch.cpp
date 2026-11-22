@@ -1,7 +1,6 @@
 #include "maicord/app/gateway/client_dispatch.hpp"
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/protocol/gateway/message_events.hpp"
-#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/user/store.hpp"
 #include "maicord/model/chat/chat_state.hpp"
@@ -899,8 +898,9 @@ GatewayClientDispatchRouteResult gateway_client_route_member_list_dispatch(
     if (!*handled) {
         return result(GatewayClientDispatchRouteError::none);
     }
-    // The envelope's index serves the whole route, except for GUILD_MEMBER_UPDATE: the state route scans
-    // its data before it declines a member other than the user. A hand-built envelope is scanned here too.
+    // The envelope's index serves the whole route, except for GUILD_MEMBER_UPDATE, which is scanned again here after
+    // the state route read it through the frame index and declined a member other than the user (time only). A
+    // hand-built envelope is scanned here too.
     const bool indexed = event_index != 1 && envelope.document.structurals.data &&
                          envelope.document.structurals.data == structural_scratch.data;
     JsonIndexedDocument scanned{};
@@ -1063,10 +1063,9 @@ bool gateway_client_event_member_list_record(const GatewayClientEvent& event, Co
     const u32 text_bytes = static_cast<u32>(mutation->nickname_bytes) + mutation->display_name_bytes +
                            mutation->avatar_hash_bytes + mutation->username_bytes +
                            mutation->user_appearance_bytes + mutation->member_appearance_bytes;
+    // append_member_item writes every text: at most 128 bytes (gateway_member_string_size), an avatar hash of at most
+    // kUserAvatarHashMaximumBytes, and UTF-8 (a scanned JSON string or a whole json_string_decode_utf8 output).
     if ((member && (mutation->user_id == 0 || mutation->display_name_bytes == 0)) ||
-        mutation->nickname_bytes > 128 || mutation->display_name_bytes > 128 ||
-        mutation->avatar_hash_bytes > kUserAvatarHashMaximumBytes ||
-        mutation->username_bytes > 128 ||
         (!member && ((!group && !summary && mutation->user_id != 0) || mutation->role_count != 0 ||
                      text_bytes != 0)) ||
         (mutation->operation == GatewayClientMemberListOperation::invalidate &&
@@ -1096,35 +1095,17 @@ bool gateway_client_event_member_list_record(const GatewayClientEvent& event, Co
     *cursor += mutation->user_appearance_bytes;
     const ConstSlice<u8> guild_extra{payload.data + *cursor, mutation->member_appearance_bytes};
     *cursor += mutation->member_appearance_bytes;
-    UserAppearance decoded;
-    u32 appearance_bytes = 0;
-    // Validation only; the consumer thread reads one record at a time.
-    static UserActivitySet activities;
-    if (member &&
-        (!user_appearance_read(global_extra, mutation->user_id, 0, &decoded) ||
-         !user_appearance_read_prefix(guild_extra, mutation->user_id, event.member_list.guild_id, &decoded,
-                                      &appearance_bytes) ||
-         (appearance_bytes < guild_extra.count &&
-          (!(mutation->hydration_flags & gateway_member_activities_known) ||
-           !user_activities_read({guild_extra.data + appearance_bytes, guild_extra.count - appearance_bytes},
-                                 mutation->user_id, &activities)))))
-        return false;
+    // append_member_appearances writes both appearances with user_appearance_write from user_appearance_decode and
+    // activity_decode_list outputs, and the activity tail with user_activities_write from user_activities_decode_list
+    // only together with gateway_member_activities_known: user_appearance_read and user_activities_read accept them.
     if (user_appearance)
         *user_appearance = global_extra;
     if (member_appearance)
         *member_appearance = guild_extra;
-    // The avatar hash needs no UTF-8 check: gateway_avatar_hash_valid accepts hex digits only.
-    if (!utf8_validate(*nickname).valid || !utf8_validate(*display_name).valid ||
-        !utf8_validate(login_name).valid || !gateway_avatar_hash_valid(*avatar_hash))
+    // The writer does not check that the avatar hash is hex. It writes the roles that gateway_visit_member_roles
+    // read: nonzero snowflakes without a repeat.
+    if (!gateway_avatar_hash_valid(*avatar_hash))
         return false;
-    for (u32 role = 0; role < mutation->role_count; ++role) {
-        const u64 id = byte_load_le64(role_payload->data + role * 8);
-        if (!id)
-            return false;
-        for (u32 previous = 0; previous < role; ++previous)
-            if (byte_load_le64(role_payload->data + previous * 8) == id)
-                return false;
-    }
     ++*index;
     if (*index == event.member_list.record_count && *cursor != payload.count) {
         return false;

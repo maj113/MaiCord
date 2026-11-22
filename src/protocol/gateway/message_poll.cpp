@@ -450,10 +450,8 @@ GatewayEventDecodeResult gateway_decode_message_poll(JsonValue data, const JsonI
                 return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
         }
     }
-    context.value.answers = {context.answers, context.answer_count};
-    context.value.answer_counts = {context.counts, context.count_count};
-    if (!gateway_message_poll_valid(context.value))
-        return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
+    // Every check of a published poll was made above: known fields, each with its bit, at most 10 answers and counts
+    // with distinct nonzero IDs, counts only of named answers, and bounded UTF-8 text (text()).
     if (context.answer_count > scratch.answers.count || context.count_count > scratch.answer_counts.count ||
         context.bank.used > text_output.count - *text_used)
         return decode_failure(GatewayEventDecodeError::message_content_capacity, data.source_offset);

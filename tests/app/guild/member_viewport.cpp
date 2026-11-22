@@ -166,7 +166,7 @@ u32 test_member_viewport_ranges_and_sparse_scene() noexcept {
     check(member_list_subscription_fail(&retry, 2'050) && retry.retry_at_ms == 2'150);
     check(member_list_subscription_viewport(&retry, 7, 80, 100'000, 9'000, 20, true, 2'060) &&
         retry.ranges[1].first == 8'900 && retry.failures == 0 && retry.retry_at_ms == 2'110);
-    GatewayGuildSubscription command{7, 80, 0, 99, true, true, true};
+    GatewayGuildSubscription command{7, 80, true, true, true};
     command.range_count = retry.range_count;
     for (u32 i = 0; i < retry.range_count; ++i) command.ranges[i] = retry.ranges[i];
     u8 output[256]{};

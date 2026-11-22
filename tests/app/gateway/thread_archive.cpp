@@ -108,13 +108,6 @@ void forum_parent_activity(void (*check)(bool, const char*) noexcept) noexcept {
     };
     for (const auto wire : malformed)
         check(!archive_route(wire, &event, &payload), "forum reads: malformed and duplicate newly_created fields reject before publication");
-    check(archive_route(utf8_literal(R"({"op":0,"t":"THREAD_UPDATE","d":{"id":"150","guild_id":"7","type":11}})"), &event, &payload),
-        "forum reads: normalized flag-validation fixture routes");
-    event.state.channel_event_flags = gateway_client_channel_new_thread;
-    check(!archive_apply(event, payload), "forum reads: a forged creation bit on an update cannot alter the parent");
-    event.dispatch_kind = GatewayClientDispatchKind::channel_create;
-    event.state.channel_event_flags = 2;
-    check(!archive_apply(event, payload), "forum reads: unknown normalized channel-event flags reject before mutation");
     check(chat_state_store_remove_channel(&f.state, 120) &&
         chat_state_store_upsert_channel(&f.state, {120, 7, 80, utf8_literal("Recreated"), 0, 0, 11}).ok() &&
         archive_read(80, 90, 2, true) &&
@@ -158,14 +151,8 @@ void test_thread_archive(void (*check)(bool, const char*) noexcept) noexcept {
     };
     for (const auto wire : malformed)
         check(!archive_route(wire, &event, &payload), "thread archive: invalid or duplicate metadata rejected before publication");
-    routed = archive_route(utf8_literal(R"({"op":0,"t":"THREAD_UPDATE","d":{"id":"81","guild_id":"7","type":11,"thread_metadata":{"archived":false}}})"), &event, &payload);
-    check(routed, "thread archive: unarchive fixture routes");
-    if (!routed) return;
-    event.state.thread_archived = true; event.state.thread_archived_known = false;
-    check(!archive_apply(event, payload) && chat_state_store_find_channel(f.state, 81)->thread_archived,
-        "thread archive: impossible packed flags preserve previous state");
-    event.state.thread_archived = false; event.state.thread_archived_known = true;
-    check(archive_apply(event, payload) && !chat_state_store_find_channel(f.state, 81)->thread_archived,
+    check(archive_route(utf8_literal(R"({"op":0,"t":"THREAD_UPDATE","d":{"id":"81","guild_id":"7","type":11,"thread_metadata":{"archived":false}}})"), &event, &payload) &&
+              archive_apply(event, payload) && !chat_state_store_find_channel(f.state, 81)->thread_archived,
         "thread archive: valid unarchive restores active state");
     forum_parent_activity(check);
 }

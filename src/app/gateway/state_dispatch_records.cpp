@@ -9,11 +9,12 @@ namespace {
 
 // Decodes `source` (at most `maximum` bytes) into the writer; a full writer sets its overflow flag. One pass: the
 // decoder validates the whole string and reports its size before it writes, and writes nothing when it does not fit.
+// The output ends at `maximum` bytes, so a longer string writes nothing either.
 template <typename Size>
 bool append_text(PayloadWriter* writer, JsonString source, u32 maximum, Size* bytes) noexcept {
     const u32 room = writer->used <= writer->output.count ? writer->output.count - writer->used : 0;
     const JsonStringDecodeResult decoded =
-        json_string_decode_utf8(source, Slice<char>{writer->output.data + writer->used, room});
+        json_string_decode_utf8(source, Slice<char>{writer->output.data + writer->used, minimum(room, maximum)});
     if ((decoded.error != JsonStringDecodeError::output_too_small && !decoded.ok()) || decoded.bytes > maximum)
         return false;
     if (!decoded.ok() || writer->used > writer->output.count) {

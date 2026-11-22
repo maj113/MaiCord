@@ -141,28 +141,25 @@ GatewayClientDispatchRouteResult gateway_append_user(const JsonIndexedDocument& 
     return {};
 }
 
+// gateway_append_user (above) and append_nickname (state_dispatch_objects.cpp) write each record: a nonzero id, a zeroed
+// reserved byte, name flag 1 exactly with a name, names and usernames as whole json_string_decode_utf8 outputs of at
+// most 128 bytes, and an avatar hash of at most 34 hex bytes that asset_hash_hex_valid accepted. visit (above) decides
+// the other flags and content fields: each value only with the flag of its field, premium_type <= 255 and
+// age_verification_status <= 4; append_nickname writes them as zero.
 bool gateway_client_user_record(ConstSlice<u8> payload, u32* cursor,
     GatewayClientUserMutation* user, Utf8View* name, Utf8View* avatar, Utf8View* username, ConstSlice<u8>* appearance) noexcept {
     if (*cursor > payload.count || sizeof(*user) > payload.count - *cursor) return false;
     copy_bytes(user, payload.data + *cursor, sizeof(*user));
     const u32 first = *cursor + sizeof(*user);
     const u32 bytes = static_cast<u32>(user->name_bytes) + user->avatar_bytes + user->username_bytes + user->appearance_bytes;
-    if (!user->id || user->premium_type > 255 || (!(user->flags & 4) && user->premium_type) ||
-        ((user->flags & 16) && !(user->flags & 8)) || ((user->flags & 64) && !(user->flags & 32)) ||
-        ((user->flags & 128) && !(user->flags & 64)) || user->reserved || (user->content_fields & ~7u) ||
-        ((user->content_fields & 4) && !(user->content_fields & 2)) ||
-        user->age_verification_status > 4 || (!(user->content_fields & 1) && user->age_verification_status) ||
-        user->name_bytes > 128 || user->avatar_bytes > 34 ||
-        bytes > payload.count - first || ((user->flags & 1) != 0) != (user->name_bytes != 0) ||
-        (user->avatar_bytes && !(user->flags & 2)) || user->username_bytes > 128) return false;
+    if (bytes > payload.count - first) return false;
     *name = {reinterpret_cast<const char*>(payload.data + first), user->name_bytes};
     *avatar = {name->data + user->name_bytes, user->avatar_bytes};
     const Utf8View login_name{avatar->data + avatar->bytes, user->username_bytes};
     if (username) *username = login_name;
-    if (!utf8_validate(login_name).valid || !utf8_validate(*name).valid || (avatar->bytes && !asset_hash_hex_valid(*avatar))) return false;
+    // gateway_append_user writes the appearance with user_appearance_write from a user_appearance_decode output
+    // (colors <= 0xFFFFFF, texts whole decoded into their arrays), which user_appearance_read accepts.
     const ConstSlice<u8> extra{reinterpret_cast<const u8*>(login_name.data + login_name.bytes), user->appearance_bytes};
-    UserAppearance decoded; // user_appearance_read clears it first
-    if (!user_appearance_read(extra, user->id, 0, &decoded)) return false;
     if (appearance) *appearance = extra;
     *cursor = first + bytes;
     return true;

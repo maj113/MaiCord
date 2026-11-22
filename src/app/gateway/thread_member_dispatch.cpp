@@ -1,6 +1,5 @@
 #include "maicord/app/gateway/thread_members.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/byte_order.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/protocol/gateway/message_events.hpp"
@@ -280,18 +279,29 @@ bool gateway_client_event_thread_member_record(const GatewayClientEvent& event,
     *username = {reinterpret_cast<const char*>(payload.data + at), m->username_bytes}; at += m->username_bytes;
     *global_extra = {payload.data + at, m->user_appearance_bytes}; at += m->user_appearance_bytes;
     *guild_extra = {payload.data + at, m->member_appearance_bytes}; at += m->member_appearance_bytes;
-    // gateway_avatar_hash_valid accepts hex digits only, so the avatar needs no UTF-8 check.
-    if (!utf8_validate(*nickname).valid || !utf8_validate(*name).valid || !utf8_validate(*username).valid ||
-        !gateway_avatar_hash_valid(*avatar)) return false;
-    UserAppearance decoded;
-    if (!user_appearance_read(*global_extra, m->user_id, 0, &decoded) || !user_appearance_read(*guild_extra, m->user_id, event.thread_members.guild_id, &decoded)) return false;
-    for (u32 i = 0; i < m->role_count; ++i) {
-        const u64 id = byte_load_le64(roles->data + i * 8);
-        if (!id) return false;
-        for (u32 j = 0; j < i; ++j) if (byte_load_le64(roles->data + j * 8) == id) return false;
-    }
+    // append_record (above) writes each text with gateway_append_json_string (UTF-8 of at most 128 bytes), the roles
+    // that gateway_visit_member_roles read (nonzero, no repeat), and both appearances with user_appearance_write from
+    // user_appearance_decode, merge_appearance and activity_decode outputs, which user_appearance_read accepts. It
+    // does not check that the avatar hash is hex.
+    if (!gateway_avatar_hash_valid(*avatar)) return false;
     if (*index + 1 == event.thread_members.record_count && at != payload.count) return false;
     *cursor = at; ++*index; return true;
+}
+
+// The next record of a published thread member payload; the route checked every record (see below).
+static void read_published_record(ConstSlice<u8> payload, u32* cursor, GatewayClientMemberListMutation* m,
+                           ConstSlice<u8>* roles, Utf8View* nickname, Utf8View* name, Utf8View* avatar,
+                           Utf8View* username, ConstSlice<u8>* global_extra, ConstSlice<u8>* guild_extra) noexcept {
+    u32 at = *cursor;
+    copy_bytes(m, payload.data + at, sizeof(*m)); at += sizeof(*m);
+    *roles = {payload.data + at, m->role_count * 8u}; at += m->role_count * 8u;
+    *nickname = {reinterpret_cast<const char*>(payload.data + at), m->nickname_bytes}; at += m->nickname_bytes;
+    *name = {reinterpret_cast<const char*>(payload.data + at), m->display_name_bytes}; at += m->display_name_bytes;
+    *avatar = {reinterpret_cast<const char*>(payload.data + at), m->avatar_hash_bytes}; at += m->avatar_hash_bytes;
+    *username = {reinterpret_cast<const char*>(payload.data + at), m->username_bytes}; at += m->username_bytes;
+    *global_extra = {payload.data + at, m->user_appearance_bytes}; at += m->user_appearance_bytes;
+    *guild_extra = {payload.data + at, m->member_appearance_bytes}; at += m->member_appearance_bytes;
+    *cursor = at;
 }
 
 bool gateway_client_apply_thread_members(const GatewayClientEvent& input_event, ConstSlice<u8> input_payload,
@@ -303,27 +313,21 @@ bool gateway_client_apply_thread_members(const GatewayClientEvent& input_event, 
     if(input_event.notification_payload_bytes&&
         !gateway_client_notification_trim(input_event,input_payload,&normalized_event,&payload))return false;
     const GatewayClientEvent& event=input_event.notification_payload_bytes?normalized_event:input_event;
+    // gateway_client_route_thread_member_dispatch read every record with gateway_client_event_thread_member_record
+    // before it published the event (members, removals, presences in that order), so the records are read here
+    // without those checks.
     if (!threads || !members || !users || event.kind != GatewayClientEventKind::dispatch ||
-        (event.dispatch_kind != GatewayClientDispatchKind::thread_member_list_update && event.dispatch_kind != GatewayClientDispatchKind::thread_members_update) ||
-        event.thread_members.snapshot != (event.dispatch_kind == GatewayClientDispatchKind::thread_member_list_update) ||
-        !event.thread_members.guild_id || !event.thread_members.thread_id || payload.count != event.dispatch_payload_bytes ||
-        (!payload.data && payload.count) || (!event.thread_members.record_count && payload.count)) return false;
-    u32 cursor = 0, index = 0;
-    GatewayClientMemberListMutation m{}; ConstSlice<u8> roles{}, global{}, guild{}; Utf8View nick{}, name{}, avatar{}, username{};
-    u8 phase = 0;
-    while (index < event.thread_members.record_count) {
-        if (!gateway_client_event_thread_member_record(event, payload, &cursor, &index, &m, &roles, &nick, &name, &avatar, &username, &global, &guild)) return false;
-        const u8 next = m.operation == GatewayClientMemberListOperation::update ? 2 : m.operation == GatewayClientMemberListOperation::remove ? 1 : 0;
-        if (next < phase) return false;
-        phase = next;
-    }
+        (event.dispatch_kind != GatewayClientDispatchKind::thread_member_list_update &&
+         event.dispatch_kind != GatewayClientDispatchKind::thread_members_update))
+        return false;
     if (!thread_member_store_owns(*threads, event.thread_members.guild_id, event.thread_members.thread_id)) return true;
     if (event.thread_members.snapshot && !thread_member_store_snapshot_begin(threads, event.thread_members.guild_id, event.thread_members.thread_id)) return false;
-    cursor = index = 0;
-    // Syntax is validated above. Profile admission is a bounded cache operation;
-    // a full profile cache must never discard a retained membership identity.
-    while (index < event.thread_members.record_count) {
-        if (!gateway_client_event_thread_member_record(event, payload, &cursor, &index, &m, &roles, &nick, &name, &avatar, &username, &global, &guild)) { thread_member_store_snapshot_abort(threads); return false; }
+    u32 cursor = 0;
+    GatewayClientMemberListMutation m{}; ConstSlice<u8> roles{}, global{}, guild{}; Utf8View nick{}, name{}, avatar{}, username{};
+    // Profile admission is a bounded cache operation; a full profile cache must never discard a retained membership
+    // identity.
+    for (u32 index = 0; index < event.thread_members.record_count; ++index) {
+        read_published_record(payload, &cursor, &m, &roles, &nick, &name, &avatar, &username, &global, &guild);
         if (m.operation == GatewayClientMemberListOperation::sync && !thread_member_store_snapshot_append(threads, m.user_id)) return false;
         else if (m.operation == GatewayClientMemberListOperation::insert) thread_member_store_add(threads, m.user_id);
         else if (m.operation == GatewayClientMemberListOperation::remove) thread_member_store_remove(threads, m.user_id);

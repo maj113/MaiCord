@@ -481,6 +481,4 @@ struct GatewayMessageBulkDeleteEvent {
     u32 id_count;
 };
 
-bool gateway_message_poll_valid(const GatewayMessagePoll& poll) noexcept;
-
 } // namespace maicord

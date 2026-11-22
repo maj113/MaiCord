@@ -967,17 +967,6 @@ void account_content_metadata(void (*check)(bool, const char*) noexcept) noexcep
         probe.self_content.flags == 96 && probe.self_content.age_verification_status == 3 &&
         probe.self_content.content_fields == 1 && probe.content_region_flags == 7,
         "READY content policy: own eligibility and age proof stay independent while canonical top-level parent state wins");
-    GatewayReady borrowed{};
-    check(decode(own, &borrowed), "READY content policy: borrowed regional fixture decodes");
-    borrowed.regional_feature_config.source = {payload, 2};
-    Probe alias{};
-    const auto rejected = gateway_ready_project(borrowed, scratch(), 88, 99, publish, work, &alias);
-    check(!rejected.ok() && !alias.admitted,
-        "READY content policy: borrowed regional policy cannot alias mutable projection scratch");
-    check(decode(own, &borrowed), "READY content policy: linked alias fixture restores immutable source");
-    borrowed.linked_users.source = {payload, 2};
-    check(!gateway_ready_project(borrowed, scratch(), 88, 99, publish, work, &alias).ok() && !alias.admitted,
-        "READY content policy: borrowed linked users cannot alias mutable projection scratch");
 }
 } // namespace ready_projection_probe
 
@@ -1116,12 +1105,6 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
     const auto exhausted = gateway_ready_project(decoded, tiny, 88, 99, publish, work, &capacity);
     check(!exhausted.ok() && !capacity.admitted && exhausted.phase == GatewayReadyProjectionPhase::preflight,
         "current typed output exhaustion is discovered before destructive READY publication");
-    auto alias = scratch(); alias.header = {reinterpret_cast<char*>(source), sizeof(header)};
-    const u64 before_alias = hash(small);
-    Probe aliased{};
-    check(!gateway_ready_project(decoded, alias, 88, 99, publish, work, &aliased).ok() &&
-        !aliased.admitted && hash(small) == before_alias,
-        "source and mutable scratch overlap is rejected before changing immutable READY bytes");
     auto overlap = scratch(); overlap.records = {arrays, 16384};
     Probe overlapping{};
     check(!gateway_ready_project(decoded, overlap, 88, 99, publish, work, &overlapping).ok() && !overlapping.admitted,
@@ -1169,9 +1152,6 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
     scalar_event.dispatch_payload_bytes=sizeof(scalar_header);scalar_event.message.rich_payload_bytes=sizeof(scalar_header);scalar_event.message.fields=gateway_message_field_interaction;
     check(gateway_client_event_message_interaction_user(scalar_event,{unaligned+1,sizeof(scalar_header)},&interaction_user)&&interaction_user==1,
         "interaction scalar copies an unaligned mailbox header safely");
-    scalar_header.reserved[0]=1;copy_bytes(unaligned+1,&scalar_header,sizeof(scalar_header));interaction_user=77;
-    check(!gateway_client_event_message_interaction_user(scalar_event,{unaligned+1,sizeof(scalar_header)},&interaction_user)&&interaction_user==77,
-        "interaction scalar rejects nonzero reserved header bytes");
     const auto metadata_message=utf8_literal(R"({"id":"101","channel_id":"20","type":20,"author":{"id":"2","username":"peer"},"content":"hi","timestamp":"2026-10-02T00:00:00Z","interaction_metadata":{"user":{"id":"3"}}})");
     envelope.data={metadata_message,0,JsonValueKind::object};
     check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&message,&message_payload, gateway_test_message_scratch()).ok()&&

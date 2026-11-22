@@ -22,6 +22,8 @@ using protocol_detail::read_failure;
 using protocol_detail::skim_member_index;
 
 inline constexpr u32 kGatewayGuildRoleMaximum = 256;
+// The chat state apply takes at most kGatewayGuildRoleMaximum member roles without its own count check.
+static_assert(kGatewayGuildRoleMaximum == kGuildRoleMaximum);
 inline constexpr u32 kGatewayGuildIconHashMaximumBytes = 34;
 
 struct StateObjectContext {

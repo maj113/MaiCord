@@ -772,7 +772,7 @@ void test_secure_buffer() noexcept {
     expect(secure_buffer_transfer(&transferred, &secret) && !secret.data && transferred.data &&
                transferred.bytes == sizeof(token),
            "secure_buffer_transfer_ownership");
-    expect(!secure_buffer_transfer(&secret, &secret) && secure_buffer_transfer(&secret, &transferred),
+    expect(secure_buffer_transfer(&secret, &transferred),
            "secure_buffer_transfer_restore");
 
     const SecureBufferResult protected_size = secure_buffer_protect_user_bound(secret, {}, Slice<u8>{nullptr, 0});

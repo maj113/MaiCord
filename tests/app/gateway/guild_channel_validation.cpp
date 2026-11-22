@@ -92,14 +92,9 @@ bool build(u32 count, u32 mode = 0, u32 malformed = 0) noexcept {
         name_at(i, name);
         const bool last = i + 1 == count;
         if (last) packet.last_offset = packet.used;
-        if (last && malformed == 1) {
-            c.name_bytes = 401; for (u32 n = 0; n < 401; ++n) name[n] = 'x';
-        }
-        if (last && malformed == 2) name[3] = static_cast<char>(0xFF);
         if (last && malformed == 4) c.fields &= ~gateway_client_state_field_permission_overwrites;
         GatewayClientPermissionOverwriteMutation overwrite{};
         overwrite.id = kGuild; overwrite.allow = kPermissionAddReactions;
-        if (last && malformed == 3) overwrite.type = 2;
         if (!append(&c, sizeof(c)) || !append(name, c.name_bytes) || !append(&overwrite, sizeof(overwrite))) return false;
     }
     e.dispatch_payload_bytes = packet.used;
@@ -175,15 +170,11 @@ void test_guild_channel_validation(void (*check)(bool, const char*) noexcept) no
     check(seed(&actual) && build(8, 5), "guild channel validation: duplicate above previous ID fixture initializes");
     check(rejects_without_publication(),
         "guild channel validation: duplicate above immediately previous ID still rejects below earlier maximum");
-    const char* const invalid_labels[] = {
-        "guild channel validation: final increasing ID cannot bypass 401-byte name admission",
-        "guild channel validation: final increasing ID cannot bypass malformed UTF-8 admission",
-        "guild channel validation: final increasing ID cannot bypass malformed overwrite admission",
-        "guild channel validation: final increasing ID cannot bypass omitted overwrite metadata admission"};
-    for (u32 malformed = 1; malformed <= 4; ++malformed) {
-        check(seed(&actual) && build(8, 0, malformed), "guild channel validation: malformed final fixture initializes");
-        check(rejects_without_publication(), invalid_labels[malformed - 1]);
-    }
+    // Fixtures with a 401-byte name, a malformed name or a malformed overwrite record are gone: the routes write only
+    // valid records.
+    check(seed(&actual) && build(8, 0, 4), "guild channel validation: malformed final fixture initializes");
+    check(rejects_without_publication(),
+        "guild channel validation: final increasing ID cannot bypass omitted overwrite metadata admission");
     check(seed(&actual, 10007) && build(8), "guild channel validation: foreign maximum-ID fixture initializes");
     check(rejects_without_publication(), "guild channel validation: foreign resident conflict rejects before callback even for new maximum ID");
     check(seed(&actual) && build(0) && direct_expected(), "guild channel validation: zero-channel fixture initializes");

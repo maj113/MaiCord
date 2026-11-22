@@ -246,23 +246,6 @@ void test_guild_channel_uniqueness(void (*check)(bool, const char*) noexcept) no
     if (valid) { auto value = wire_channel(20); value.fields &= static_cast<u16>(~gateway_client_state_field_type); replace_channel(20, value); valid = rejection(); }
     check(valid, "guild uniqueness missing typed field rejects without scratch publication");
     valid = build(64, 2, true, true) && reset(&actual, true);
-    if (valid) { auto value = wire_channel(20); value.id = 0; replace_channel(20, value); valid = rejection(); }
-    check(valid, "guild uniqueness zero ID is rejected before entering the transient ID prefix");
-    valid = build(64, 2, true, true) && reset(&actual, true);
-    if (valid) {
-        auto value = wire_channel(20); value.overwrite_count = 1; replace_channel(20, value);
-        const u32 offset = channel_offsets[20] + sizeof(value) + value.name_bytes;
-        GatewayClientPermissionOverwriteMutation overwrite{}; overwrite.id = kGuild; overwrite.type = 2;
-        copy_bytes(payload + offset + sizeof(overwrite), payload + offset, used - offset);
-        copy_bytes(payload + offset, &overwrite, sizeof(overwrite));
-        used += sizeof(overwrite); event.state.overwrite_count = 1; event.dispatch_payload_bytes = used;
-        valid = rejection();
-    }
-    check(valid, "guild uniqueness invalid typed overwrite is rejected before an ID scratch write");
-    valid = build(64, 2, true, true) && reset(&actual, true);
-    if (valid) { event.state.overwrite_count = 1; valid = rejection(); }
-    check(valid, "guild uniqueness overwrite total mismatch remains atomic before emoji/model adoption");
-    valid = build(64, 2, true, true) && reset(&actual, true);
     if (valid) { --used; event.dispatch_payload_bytes = used; valid = rejection(); }
     check(valid, "guild uniqueness truncated emoji payload after sort remains atomic");
     valid = build(64, 2, true, true) && reset(&actual, true);

@@ -298,8 +298,8 @@ bool gateway_client_event_guild_role(const GatewayClientEvent& event, ConstSlice
 // output prefix; only a successful table may be used with guild_role_at.
 bool gateway_client_event_guild_role_offsets(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                              Slice<u32> offsets) noexcept;
-// offset must come from successful guild_role_offsets for this same packet, which validated the record: this
-// reader checks only its bounds.
+// offset must come from successful guild_role_offsets for this same packet, which checked the record's bounds: this
+// reader checks only its bounds again.
 bool gateway_client_event_guild_role_at(const GatewayClientEvent& event, ConstSlice<u8> payload, u32 offset,
                                         GatewayClientRoleMutation* role, Utf8View* name) noexcept;
 inline bool gateway_client_event_guild_role(const GatewayClientEvent& event, ConstSlice<u8> payload,
@@ -353,9 +353,8 @@ bool gateway_client_event_message_member_nick(const GatewayClientEvent& event, C
                                               Utf8View* nick) noexcept;
 bool gateway_client_event_message_mention_user_at(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                                   u32 index, u64* user_id, Utf8View* name) noexcept;
-// Validate the complete snapshot user list before the first synchronous call.
-// Stop at the first false callback. Names borrow payload storage. The callback
-// must not modify or invalidate the event or payload during this visit.
+// Finds the snapshot user list before the first synchronous call. Stops at the first false callback. Names borrow
+// payload storage. The callback must not modify or invalidate the event or payload during this visit.
 bool gateway_client_event_visit_message_snapshot_mention_users(
     const GatewayClientEvent& event, ConstSlice<u8> payload, void* context,
     bool (*visit)(void*, u64, Utf8View) noexcept) noexcept;

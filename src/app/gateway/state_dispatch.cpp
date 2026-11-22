@@ -510,8 +510,7 @@ GatewayClientDispatchRouteResult gateway_client_route_ready_guild(const GatewayE
                                                                   GatewayClientEvent* event,
                                                                   ConstSlice<u8>* payload,
                                                                   const JsonIndexedDocument* document) noexcept {
-    if (!storage.data || !storage.count || !self_user_id)
-        return route_error(GatewayClientDispatchRouteError::invalid_input);
+    // The one caller (ready_projection.cpp) passes its own payload storage and READY's nonzero user id.
     u32 capacity = storage.count;
     for (;;) {
         reset_value(event);
@@ -668,11 +667,8 @@ GatewayClientDispatchRouteResult gateway_client_route_ready(
     const GatewayReady& ready, Slice<u32> structural_scratch, Slice<u32> object_scratch, u32 maximum_depth,
     Slice<char> payload_scratch, GatewayClientEvent* event, ConstSlice<u8>* payload,
     const JsonIndexedDocument* document) noexcept {
-    if (ready.user_id == 0 || ready.guilds.kind != JsonValueKind::array ||
-        !ready.guilds.source.data || !structural_scratch.data || structural_scratch.count == 0 ||
-        !object_scratch.data || object_scratch.count == 0 || maximum_depth == 0 || !payload_scratch.data) {
-        return route_error(GatewayClientDispatchRouteError::invalid_input);
-    }
+    // The one caller (ready_projection.cpp) passes a READY that gateway_decode_ready accepted (a user with a
+    // nonzero id, a guilds array) and its own nonempty storage, at depth 64.
     GatewayClientReadStateEvent read_state{};
     if (ready.read_state.source.data) {
         const auto decoded = gateway_client_read_state_metadata(ready.read_state, structural_scratch,

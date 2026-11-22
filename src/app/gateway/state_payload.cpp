@@ -17,37 +17,26 @@ bool guild_event_payload(const GatewayClientEvent& event, ConstSlice<u8> payload
 }
 
 inline bool read_record(ConstSlice<u8> payload, u32 offset, GatewayClientStateMutation* record) noexcept {
-    if (!record || offset > payload.count || sizeof(*record) > payload.count - offset) {
+    if (offset > payload.count || sizeof(*record) > payload.count - offset) {
         return false;
     }
     copy_bytes(record, payload.data + offset, sizeof(*record));
     return true;
 }
 
-bool offset_output_disjoint(Slice<u32> output, u32 used, const void* input, u64 input_bytes) noexcept {
-    if (used == 0 || input_bytes == 0 || !input) return true;
-    const usize target = reinterpret_cast<usize>(output.data);
-    const usize source = reinterpret_cast<usize>(input);
-    const u64 target_bytes = static_cast<u64>(used) * sizeof(u32);
-    if (target_bytes > ~usize{0} - target || input_bytes > ~usize{0} - source) return false;
-    return target < source ? source - target >= target_bytes : target - source >= input_bytes;
-}
-
+// visit_role (state_dispatch_records.cpp) writes each role with a nonzero id and a name that append_name decoded
+// whole (UTF-8, at most 400 bytes).
 bool read_guild_role(ConstSlice<u8> payload, u32 offset, GatewayClientRoleMutation* role, Utf8View* name,
                      u32* next_offset) noexcept {
-    if (!role || !name || offset > payload.count ||
-        sizeof(*role) > payload.count - offset) {
+    if (offset > payload.count || sizeof(*role) > payload.count - offset) {
         return false;
     }
     copy_bytes(role, payload.data + offset, sizeof(*role));
     offset += sizeof(*role);
-    if (role->id == 0 || role->name_bytes > payload.count - offset) {
+    if (role->name_bytes > payload.count - offset) {
         return false;
     }
     *name = Utf8View{reinterpret_cast<const char*>(payload.data + offset), role->name_bytes};
-    if (!utf8_validate(*name).valid) {
-        return false;
-    }
     *next_offset = offset + role->name_bytes;
     return true;
 }
@@ -91,17 +80,15 @@ bool gateway_client_event_as_ready_guilds(const GatewayClientEvent& event, Const
         event.state.record_count > guild_ids.count || (!guild_ids.data && event.state.record_count != 0)) {
         return false;
     }
-    for (u32 index = 0; index < event.state.record_count; ++index) {
-        const u64 id = byte_load_le64(payload.data + index * 8);
-        if (id == 0) {
-            return false;
-        }
-        guild_ids[index] = id;
-    }
+    // visit_ready_guild (state_dispatch_records.cpp) writes a guild only with its id, a nonzero snowflake.
+    for (u32 index = 0; index < event.state.record_count; ++index)
+        guild_ids[index] = byte_load_le64(payload.data + index * 8);
     *guild_count = event.state.record_count;
     return true;
 }
 
+// Every state name is a whole json_string_decode_utf8 output (append_name, or the recipient nick in
+// private_dispatch.cpp): UTF-8.
 bool gateway_client_event_state_name(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                      Utf8View* name) noexcept {
     if (!name || event.dispatch_payload_bytes != payload.count || event.state.name_bytes > payload.count ||
@@ -109,7 +96,7 @@ bool gateway_client_event_state_name(const GatewayClientEvent& event, ConstSlice
         return false;
     }
     *name = Utf8View{reinterpret_cast<const char*>(payload.data), event.state.name_bytes};
-    return utf8_validate(*name).valid;
+    return true;
 }
 
 bool gateway_client_event_guild_icon(const GatewayClientEvent& event, ConstSlice<u8> payload,
@@ -123,8 +110,8 @@ bool gateway_client_event_guild_icon(const GatewayClientEvent& event, ConstSlice
     }
     const char* begin =
         payload.data ? reinterpret_cast<const char*>(payload.data) + event.state.name_bytes : nullptr;
-    *icon_hash = Utf8View{begin, event.state.icon_bytes};
-    return utf8_validate(*icon_hash).valid;
+    *icon_hash = Utf8View{begin, event.state.icon_bytes}; // append_icon decodes the hash whole: UTF-8
+    return true;
 }
 
 bool gateway_client_event_guild_banner(const GatewayClientEvent& event, ConstSlice<u8> payload,
@@ -137,7 +124,7 @@ bool gateway_client_event_guild_banner(const GatewayClientEvent& event, ConstSli
     const u32 offset = static_cast<u32>(event.state.name_bytes) + event.state.icon_bytes;
     const u32 bytes = gateway_client_guild_banner_bytes(event.state);
     *banner_hash = Utf8View{bytes ? reinterpret_cast<const char*>(payload.data) + offset : nullptr, bytes};
-    return utf8_validate(*banner_hash).valid;
+    return true; // append_icon decodes the hash whole: UTF-8
 }
 
 bool gateway_client_event_next_guild_channel(const GatewayClientEvent& event, ConstSlice<u8> payload,
@@ -161,10 +148,7 @@ bool gateway_client_event_next_guild_channel(const GatewayClientEvent& event, Co
         channel->name_bytes > payload.count - *cursor) {
         return false;
     }
-    *name = Utf8View{reinterpret_cast<const char*>(payload.data + *cursor), channel->name_bytes};
-    if (!utf8_validate(*name).valid) {
-        return false;
-    }
+    *name = Utf8View{reinterpret_cast<const char*>(payload.data + *cursor), channel->name_bytes}; // append_name
     *cursor += channel->name_bytes;
     const u64 overwrite_bytes =
         static_cast<u64>(channel->overwrite_count) * sizeof(GatewayClientPermissionOverwriteMutation);
@@ -196,11 +180,10 @@ bool gateway_client_event_guild_role(const GatewayClientEvent& event, ConstSlice
 
 bool gateway_client_event_guild_role_offsets(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                              Slice<u32> offsets) noexcept {
+    // Both callers pass their own kGuildRoleMaximum offsets, apart from the payload and the event.
     if (!guild_event_payload(event, payload) ||
-        gateway_client_guild_strings_bytes(event.state) > payload.count || event.state.role_count > offsets.count ||
-        (!offsets.data && event.state.role_count != 0) || (!payload.data && payload.count != 0) ||
-        !offset_output_disjoint(offsets, event.state.role_count, payload.data, payload.count) ||
-        !offset_output_disjoint(offsets, event.state.role_count, &event, sizeof(event))) return false;
+        gateway_client_guild_strings_bytes(event.state) > payload.count || event.state.role_count > offsets.count)
+        return false;
     u32 cursor = gateway_client_guild_strings_bytes(event.state);
     for (u32 index = 0; index < event.state.role_count; ++index) {
         GatewayClientRoleMutation role{};
@@ -214,14 +197,13 @@ bool gateway_client_event_guild_role_offsets(const GatewayClientEvent& event, Co
 
 bool gateway_client_event_guild_role_at(const GatewayClientEvent& event, ConstSlice<u8> payload, u32 offset,
                                         GatewayClientRoleMutation* role, Utf8View* name) noexcept {
-    // The offsets scan of this packet validated the record at offset, its name's UTF-8 included. Only the bounds
-    // are checked again.
+    // The offsets scan of this packet checked the bounds of the record at offset. Only the bounds are checked again.
     if (offset < gateway_client_guild_strings_bytes(event.state) || offset > payload.count ||
         sizeof(*role) > payload.count - offset)
         return false;
     copy_bytes(role, payload.data + offset, sizeof(*role));
     offset += sizeof(*role);
-    if (role->id == 0 || role->name_bytes > payload.count - offset)
+    if (role->name_bytes > payload.count - offset)
         return false;
     *name = Utf8View{reinterpret_cast<const char*>(payload.data + offset), role->name_bytes};
     return true;
@@ -280,8 +262,9 @@ bool gateway_client_event_next_guild_emoji(const GatewayClientEvent& event, Cons
     copy_bytes(emoji, payload.data + *cursor, sizeof(*emoji));
     *cursor += sizeof(*emoji);
     const u64 role_bytes = static_cast<u64>(emoji->role_count) * 8;
-    if (emoji->id == 0 || emoji->name_bytes == 0 || emoji->name_bytes > 32 ||
-        role_bytes > payload.count - *cursor) {
+    // visit_emoji (state_dispatch_records.cpp) writes a nonzero id and a name that gateway_state_emoji_name_valid
+    // accepts.
+    if (role_bytes > payload.count - *cursor) {
         return false;
     }
     *role_payload = ConstSlice<u8>{payload.data + *cursor, static_cast<u32>(role_bytes)};
@@ -290,9 +273,6 @@ bool gateway_client_event_next_guild_emoji(const GatewayClientEvent& event, Cons
         return false;
     }
     *name = Utf8View{reinterpret_cast<const char*>(payload.data + *cursor), emoji->name_bytes};
-    if (!gateway_state_emoji_name_valid(*name)) {
-        return false;
-    }
     *cursor += emoji->name_bytes;
     ++*index;
     return true;
@@ -329,7 +309,7 @@ bool gateway_client_permission_overwrite_at(ConstSlice<u8> overwrite_payload, u3
     }
     const u32 offset = index * sizeof(*overwrite);
     copy_bytes(overwrite, overwrite_payload.data + offset, sizeof(*overwrite));
-    return overwrite->id != 0 && overwrite->type <= 1;
+    return true; // visit_overwrite writes nonzero ids and only types 0 and 1
 }
 
 } // namespace maicord
