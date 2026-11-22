@@ -7,7 +7,7 @@
 // kernels compile for speed; the per-frame and per-granule work around them,
 // and the rare block transitions, compile for size (minsize).
 #include "maicord/media/audio/mp3_decoder.h"
-#include "maicord/sys/simd.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 #include <string.h>
 
 typedef __m256 V;
@@ -1146,8 +1146,11 @@ static void flush(V* block, float* pcm, uint32_t q, uint32_t stride, uint32_t co
 // Polyphase synthesis of one channel in place, 8 slots at a time: slot t's 32
 // subband samples at pcm[t * stride + 32 * channel] become its 32 PCM samples;
 // channel 1's interleave with channel 0's. history holds each DCT row's last
-// 15 slots.
-static void synthesize(float* pcm, uint32_t slots, uint32_t stride, uint32_t channel, float* history) {
+// 15 slots. The window's products are fused into its sums (no output of this
+// decoder keeps exact rounding).
+MAICORD_HASWELL_FMA static void synthesize(float* pcm, uint32_t slots, uint32_t stride, uint32_t channel,
+                                           float* history) {
+#pragma clang fp contract(off)
     const V zero = _mm256_setzero_ps();
     for (uint32_t first = 0; first < slots; first += 8) {
         const uint32_t count = slots - first < 8 ? slots - first : 8;
@@ -1182,20 +1185,20 @@ static void synthesize(float* pcm, uint32_t slots, uint32_t stride, uint32_t cha
         for (uint32_t j = 0; j < 16; ++j) {
             const float *even = rows + 16 * (16 + j), *odd = rows + 16 * (16 - j), *c = kSynthesis[j][0];
             float *even_old = history + 15 * (16 + j), *odd_old = history + 15 * (16 - j);
-            V sum = zero, mirror = zero;
+            V sum = zero, sum_old = zero, mirror = zero, mirror_old = zero;
 #pragma clang loop unroll(disable)
             for (uint32_t i = 0; i < 4; ++i) {
                 const V e = _mm256_loadu_ps(even + 8 - 2 * i), d = _mm256_loadu_ps(odd + 7 - 2 * i);
                 const V e7 = _mm256_loadu_ps(even_old + 1 + 2 * i), d7 = _mm256_loadu_ps(odd_old + 2 * i);
                 const V a = splat(c[2 * i]), b = splat(c[2 * i + 1]);
                 const V a7 = splat(c[14 - 2 * i]), b7 = splat(c[15 - 2 * i]);
-                const V sum0 = _mm256_add_ps(_mm256_mul_ps(e, a), _mm256_mul_ps(d, b));
-                const V sum7 = _mm256_add_ps(_mm256_mul_ps(e7, a7), _mm256_mul_ps(d7, b7));
-                const V mirror0 = _mm256_sub_ps(_mm256_mul_ps(d, a7), _mm256_mul_ps(e, b7));
-                const V mirror7 = _mm256_sub_ps(_mm256_mul_ps(d7, a), _mm256_mul_ps(e7, b));
-                sum = _mm256_add_ps(sum, _mm256_add_ps(sum0, sum7));
-                mirror = _mm256_add_ps(mirror, _mm256_add_ps(mirror0, mirror7));
+                sum = _mm256_fmadd_ps(d, b, _mm256_fmadd_ps(e, a, sum));
+                sum_old = _mm256_fmadd_ps(d7, b7, _mm256_fmadd_ps(e7, a7, sum_old));
+                mirror = _mm256_fmadd_ps(e, negate(b7), _mm256_fmadd_ps(d, a7, mirror));
+                mirror_old = _mm256_fmadd_ps(e7, negate(b), _mm256_fmadd_ps(d7, a, mirror_old));
             }
+            sum = _mm256_add_ps(sum, sum_old);
+            mirror = _mm256_add_ps(mirror, mirror_old);
             retire(even_old, even, count);
             stage[32 + j] = sum;
             if (j) {

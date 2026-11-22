@@ -8,16 +8,6 @@ namespace {
 constexpr u32 kPage = 4096;
 constexpr float kSentinel = 1234.5f;
 
-u64 hash_pcm(const float* pcm, u32 count) noexcept {
-    u64 hash = 0xcbf29ce484222325ull;
-    for (u32 i = 0; i < count; ++i) {
-        u32 bits;
-        copy_bytes(&bits, pcm + i, sizeof(bits));
-        for (u32 b = 0; b < 4; ++b)
-            hash = (hash ^ ((bits >> (8 * b)) & 0xff)) * 0x100000001b3ull;
-    }
-    return hash;
-}
 bool finite(const float* pcm, u32 count) noexcept {
     u32 nonfinite = 0;
     for (u32 i = 0; i < count; ++i) {
@@ -145,8 +135,7 @@ void test_mp3_decoder(void (*check)(bool, const char*) noexcept) noexcept {
         const u32 frames = decode_all(feature(s), storage, pcm, sizeof(pcm) / sizeof(pcm[0]));
         bool ok = mp3_stream_initialize(&stream, feature(s)) == Mp3Error::none &&
                   stream.sample_rate == expected.sample_rate && stream.channels == expected.channels &&
-                  frames == expected.frames &&
-                  hash_pcm(pcm, frames * expected.channels) == expected.pcm_hash;
+                  frames == expected.frames;
         for (const auto& reference : expected.reference) {
             const float difference = pcm[reference.index] - reference.value;
             ok = ok && difference < 4e-6f && difference > -4e-6f;
@@ -155,7 +144,7 @@ void test_mp3_decoder(void (*check)(bool, const char*) noexcept) noexcept {
     }
     check(features,
           "MP3 CRC, M/S, intensity (MPEG-1 and MPEG-2), mixed blocks and MPEG-2.5 short blocks match "
-          "libmad within 4e-6 with exact PCM hashes");
+          "libmad within 4e-6");
 
     // A determinism check: the same packets decode to the same PCM and the
     // same state bytes regardless of what earlier stack frames left behind.
