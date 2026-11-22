@@ -640,6 +640,12 @@ void test_composer_autocomplete() noexcept {
     CustomEmojiRecord custom_emojis[3]{};
     u64 emoji_roles[1]{};
     state.emojis = custom_emojis; state.emoji_count = 3; state.emoji_roles = emoji_roles;
+    // Server 99 holds emojis 800 and 801, server 100 emoji 802.
+    GuildRecord emoji_guilds[2]{};
+    u16 emoji_guild_order[2]{0, 1};
+    emoji_guilds[0].id = 99; emoji_guilds[0].emoji_count = 2;
+    emoji_guilds[1].id = 100; emoji_guilds[1].emoji_first = 2; emoji_guilds[1].emoji_count = 1;
+    state.guilds = emoji_guilds; state.guild_order = emoji_guild_order; state.guild_count = 2;
     state.selected_guild_id = 99;
     for (u32 i = 0; i < 3; ++i) {
         custom_emojis[i].id = 800 + i; custom_emojis[i].guild_id = i == 2 ? 100 : 99;

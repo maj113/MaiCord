@@ -222,12 +222,16 @@ struct GuildRecord {
     // The server has ENHANCED_ROLE_COLORS: its roles' secondary and tertiary colours paint gradient names. A role keeps
     // its colours when the server loses the feature; the official client then shows the primary colour only.
     bool enhanced_role_colors;
+    // The guild's emojis: records [emoji_first, emoji_first + emoji_count) of the store's emoji table. A guild's
+    // emojis are replaced together, so they are one run of the table.
+    u32 emoji_first;
+    u32 emoji_count;
     // The guild's channels. The store keeps the list for each mutation, so a reader of one guild does not read
     // every channel record.
     ChannelList channel_list;
     GuildSettings settings;
 };
-static_assert(sizeof(GuildSettings) == 32 && sizeof(GuildRecord) == 160);
+static_assert(sizeof(GuildSettings) == 32 && sizeof(GuildRecord) == 168);
 
 struct ChannelRecord {
     u64 id;
@@ -715,6 +719,8 @@ bool chat_state_store_channel_unread(const ChatStateStore& store,
 bool chat_state_store_self_has_role(const ChatStateStore& store, u64 guild_id, u64 role_id) noexcept;
 const CustomEmojiRecord* chat_state_store_find_emoji(const ChatStateStore& store,
                                                          u64 emoji_id) noexcept;
+// The guild's emojis, one run of the table; empty for an unknown guild.
+ConstSlice<CustomEmojiRecord> chat_state_store_guild_emojis(const ChatStateStore& store, u64 guild_id) noexcept;
 Utf8View chat_state_store_emoji_name(const CustomEmojiRecord& record) noexcept;
 bool chat_state_store_emoji_usable(const ChatStateStore& store,
                                       const CustomEmojiRecord& record) noexcept;
@@ -723,6 +729,7 @@ bool chat_state_store_emoji_usable(const ChatStateStore& store,
 // or an out-of-range request.
 ChatStateStoreError chat_state_store_guild_emoji_admission(const ChatStateStore& store, u64 guild_id,
                                                            u32 emoji_count, u32 role_count) noexcept;
+// Appends the guild's new emojis as its run; false, without change, for a guild the store does not hold.
 bool chat_state_store_replace_guild_emojis(ChatStateStore* store, u64 guild_id,
                                               ConstSlice<CustomEmojiInput> emojis) noexcept;
 void chat_state_store_remove_guild_emojis(ChatStateStore* store, u64 guild_id) noexcept;

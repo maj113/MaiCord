@@ -31,11 +31,12 @@ void project_emoji(Bank& bank) noexcept {
     const auto query = editor_text(editor_search);
     const auto& s = state();
     p.row_count = 0;
-    for (u32 i = 0; i < s.emoji_count && p.row_count < kRowCapacity; ++i) {
-        const auto& emoji = s.emojis[i];
-        if (emoji.guild_id != p.guild_id || !guild_settings_text_matches(query, {emoji.name, emoji.name_bytes}))
+    const auto run = chat_state_store_guild_emojis(s, p.guild_id);
+    for (u32 i = 0; i < run.count && p.row_count < kRowCapacity; ++i) {
+        const auto& emoji = run[i];
+        if (!guild_settings_text_matches(query, {emoji.name, emoji.name_bytes}))
             continue;
-        p.member_order[p.row_count] = i;
+        p.member_order[p.row_count] = static_cast<u32>(&emoji - s.emojis);
         p.row_ids[p.row_count++] = emoji.id;
     }
     push_count_heading(bank, "Emoji — ", counts.static_count + counts.animated_count);
@@ -175,10 +176,10 @@ inline const GuildStickerRecord* sticker(u64 id) noexcept {
     return nullptr;
 }
 const CustomEmojiRecord* emoji(u64 id) noexcept {
-    const auto& s = state();
-    for (u32 i = 0; i < s.emoji_count; ++i)
-        if (s.emojis[i].id == id && s.emojis[i].guild_id == owner->guild_id)
-            return &s.emojis[i];
+    const auto run = chat_state_store_guild_emojis(state(), owner->guild_id);
+    for (u32 i = 0; i < run.count; ++i)
+        if (run[i].id == id)
+            return &run[i];
     return nullptr;
 }
 void set_asset_text(char* storage, u16* bytes, u32 capacity, const Utf8View& text) noexcept {

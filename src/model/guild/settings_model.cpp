@@ -125,17 +125,11 @@ bool guild_role_icons_available(u8 premium_tier, u64 features) noexcept {
 }
 
 GuildEmojiCounts guild_emoji_counts(const ChatStateStore& store, u64 guild_id) noexcept {
-    GuildEmojiCounts counts{};
-    for (u32 i = 0; i < store.emoji_count; ++i) {
-        const auto& emoji = store.emojis[i];
-        if (emoji.guild_id != guild_id)
-            continue;
-        if (emoji.flags & custom_emoji_animated)
-            ++counts.animated_count;
-        else
-            ++counts.static_count;
-    }
-    return counts;
+    const auto run = chat_state_store_guild_emojis(store, guild_id);
+    u32 animated = 0;
+    for (u32 i = 0; i < run.count; ++i)
+        animated += (run[i].flags & custom_emoji_animated) != 0;
+    return {run.count - animated, animated};
 }
 
 u32 guild_emoji_name_from_filename(Utf8View filename, Slice<char> output) noexcept {
@@ -508,6 +502,7 @@ bool guild_server_profile_write(const GuildServerProfileDraft& draft, Utf8View i
         value.visibility = p.visibility;
     }
     value.brand_color_primary = {p.brand_color, p.brand_color_bytes};
+    const auto guild_emojis = chat_state_store_guild_emojis(state, guild_id);
     u32 count = 0;
     for (u32 i = 0; i < kGuildAdminProfileTraits; ++i) {
         const auto& t = p.traits[i];
@@ -519,9 +514,9 @@ bool guild_server_profile_write(const GuildServerProfileDraft& draft, Utf8View i
         // A custom emoji is looked up among the guild's emoji and written from
         // that record; one that is gone is left out.
         if (t.emoji_id) {
-            for (u32 e = 0; e < state.emoji_count; ++e) {
-                const auto& emoji = state.emojis[e];
-                if (emoji.id != t.emoji_id || emoji.guild_id != guild_id)
+            for (u32 e = 0; e < guild_emojis.count; ++e) {
+                const auto& emoji = guild_emojis[e];
+                if (emoji.id != t.emoji_id)
                     continue;
                 trait.emoji_id = emoji.id;
                 trait.emoji_name = {emoji.name, emoji.name_bytes};

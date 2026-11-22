@@ -3,12 +3,14 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
+#include "../guild/activity.hpp"
 #include "chat_state_backing.hpp"
 
 // Not machine-outlined (see src/app/gateway/chat_state_dispatch.cpp).
 #pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord {
+using chat_activity_detail::mutable_guild;
 using chat_state_detail::back_range;
 namespace {
 
@@ -55,15 +57,59 @@ inline bool roles_valid(ConstSlice<u8> roles, u32 role_count) noexcept {
     return true;
 }
 
-// The emojis and emoji roles the guild holds now.
-inline void resident_counts(const ChatStateStore& store, u64 guild_id, u32* emojis, u32* roles) noexcept {
-    *emojis = *roles = 0;
-    for (u32 index = 0; index < store.emoji_count; ++index) {
-        if (store.emojis[index].guild_id == guild_id) {
-            ++*emojis;
-            *roles += store.emojis[index].role_count;
-        }
+// The guild's emoji role IDs. They are packed in record order, so the run's IDs end where the next record's begin.
+inline u32 run_roles(const ChatStateStore& store, const GuildRecord& guild) noexcept {
+    if (!guild.emoji_count)
+        return 0;
+    const u32 end = guild.emoji_first + guild.emoji_count;
+    return (end < store.emoji_count ? store.emojis[end].role_offset : store.emoji_role_count) -
+           store.emojis[guild.emoji_first].role_offset;
+}
+
+// A guild the store does not hold yet (the GUILD_CREATE preflight) has no emojis.
+ChatStateStoreError admit(const ChatStateStore& store, const GuildRecord* guild, u32 emoji_count,
+                          u32 role_count) noexcept {
+    if (!store.emojis || !store.emoji_roles || emoji_count > kGuildEmojiMaximum)
+        return ChatStateStoreError::invalid_input;
+    const u32 old_emojis = guild ? guild->emoji_count : 0;
+    const u32 old_roles = guild ? run_roles(store, *guild) : 0;
+    // A replacement removes the guild's emojis before appending, so each array
+    // peaks at its final count; back both before admitting.
+    if (emoji_count > store.emoji_capacity - (store.emoji_count - old_emojis) ||
+        !back_range(store, ChatStateBacking::emojis, 0, store.emoji_backed_count, store.emoji_capacity,
+                    store.emoji_count - old_emojis + emoji_count))
+        return ChatStateStoreError::emoji_capacity;
+    if (role_count > store.emoji_role_capacity - (store.emoji_role_count - old_roles) ||
+        !back_range(store, ChatStateBacking::emoji_roles, 0, store.emoji_role_backed_count,
+                    store.emoji_role_capacity, store.emoji_role_count - old_roles + role_count))
+        return ChatStateStoreError::emoji_role_capacity;
+    return ChatStateStoreError::none;
+}
+
+// The records and role IDs after the guild's run move down over it, and the runs after it start lower.
+void remove_run(ChatStateStore* store, GuildRecord* guild) noexcept {
+    const u32 first = guild->emoji_first, count = guild->emoji_count;
+    if (!count)
+        return;
+    const u32 end = first + count;
+    const u32 role_start = store->emojis[first].role_offset;
+    const u32 roles = run_roles(*store, *guild);
+    copy_bytes(store->emojis + first, store->emojis + end,
+               (store->emoji_count - end) * static_cast<u32>(sizeof(CustomEmojiRecord)));
+    copy_bytes(store->emoji_roles + role_start, store->emoji_roles + role_start + roles,
+               (store->emoji_role_count - role_start - roles) * 8u);
+    store->emoji_count -= count;
+    store->emoji_role_count -= roles;
+    for (u32 index = first; index < store->emoji_count; ++index)
+        store->emojis[index].role_offset -= roles;
+    clear_bytes(store->emojis + store->emoji_count, count * static_cast<u32>(sizeof(CustomEmojiRecord)));
+    clear_bytes(store->emoji_roles + store->emoji_role_count, roles * 8u);
+    for (u32 index = 0; index < store->guild_count; ++index) {
+        GuildRecord& other = store->guilds[store->guild_order[index]];
+        if (other.emoji_first >= end)
+            other.emoji_first -= count;
     }
+    guild->emoji_first = guild->emoji_count = 0;
 }
 
 } // namespace
@@ -98,6 +144,12 @@ const CustomEmojiRecord* chat_state_store_find_emoji(const ChatStateStore& store
     return nullptr;
 }
 
+ConstSlice<CustomEmojiRecord> chat_state_store_guild_emojis(const ChatStateStore& store, u64 guild_id) noexcept {
+    const GuildRecord* guild = chat_state_store_find_guild(store, guild_id);
+    return guild ? ConstSlice<CustomEmojiRecord>{store.emojis + guild->emoji_first, guild->emoji_count}
+                 : ConstSlice<CustomEmojiRecord>{};
+}
+
 Utf8View chat_state_store_emoji_name(const CustomEmojiRecord& record) noexcept {
     return record.id != 0 && record.guild_id != 0 && record.name_bytes != 0
                ? Utf8View{record.name, record.name_bytes}
@@ -125,63 +177,16 @@ bool chat_state_store_emoji_usable(const ChatStateStore& store,
 
 ChatStateStoreError chat_state_store_guild_emoji_admission(const ChatStateStore& store, u64 guild_id,
                                                            u32 emoji_count, u32 role_count) noexcept {
-    if (!store.emojis || !store.emoji_roles || guild_id == 0 || emoji_count > kGuildEmojiMaximum)
-        return ChatStateStoreError::invalid_input;
-    u32 old_emojis = 0, old_roles = 0;
-    resident_counts(store, guild_id, &old_emojis, &old_roles);
-    // A replacement removes the guild's emojis before appending, so each array
-    // peaks at its final count; back both before admitting.
-    if (emoji_count > store.emoji_capacity - (store.emoji_count - old_emojis) ||
-        !back_range(store, ChatStateBacking::emojis, 0, store.emoji_backed_count, store.emoji_capacity,
-                    store.emoji_count - old_emojis + emoji_count))
-        return ChatStateStoreError::emoji_capacity;
-    if (role_count > store.emoji_role_capacity - (store.emoji_role_count - old_roles) ||
-        !back_range(store, ChatStateBacking::emoji_roles, 0, store.emoji_role_backed_count,
-                    store.emoji_role_capacity, store.emoji_role_count - old_roles + role_count))
-        return ChatStateStoreError::emoji_role_capacity;
-    return ChatStateStoreError::none;
+    return guild_id ? admit(store, chat_state_store_find_guild(store, guild_id), emoji_count, role_count)
+                    : ChatStateStoreError::invalid_input;
 }
 
 void chat_state_store_remove_guild_emojis(ChatStateStore* store, u64 guild_id) noexcept {
     if (!store || !store->emojis || !store->emoji_roles || guild_id == 0) {
         return;
     }
-    // The records before the guild's first emoji, and their role IDs, stay in place: the role IDs are packed in
-    // record order.
-    u32 first = 0;
-    while (first < store->emoji_count && store->emojis[first].guild_id != guild_id)
-        ++first;
-    if (first == store->emoji_count) {
-        saturating_increment(store->emoji_mutations);
-        return;
-    }
-    const u32 role_start = store->emojis[first].role_offset;
-    u32 output = first;
-    for (u32 index = first; index < store->emoji_count; ++index) {
-        const CustomEmojiRecord record = store->emojis[index];
-        if (record.guild_id != guild_id) {
-            store->emojis[output++] = record;
-        }
-    }
-    for (u32 index = output; index < store->emoji_count; ++index) {
-        reset_value<CustomEmojiRecord>(&store->emojis[index]);
-    }
-    store->emoji_count = output;
-
-    u32 role_output = role_start;
-    for (u32 index = first; index < store->emoji_count; ++index) {
-        CustomEmojiRecord& record = store->emojis[index];
-        const u32 source = record.role_offset;
-        for (u32 role = 0; role < record.role_count; ++role) {
-            store->emoji_roles[role_output + role] = store->emoji_roles[source + role];
-        }
-        record.role_offset = role_output;
-        role_output += record.role_count;
-    }
-    for (u32 index = role_output; index < store->emoji_role_count; ++index) {
-        store->emoji_roles[index] = 0;
-    }
-    store->emoji_role_count = role_output;
+    if (GuildRecord* guild = mutable_guild(store, guild_id))
+        remove_run(store, guild);
     saturating_increment(store->emoji_mutations);
 }
 
@@ -205,11 +210,15 @@ bool chat_state_store_replace_guild_emojis(ChatStateStore* store, u64 guild_id,
             }
         }
     }
-    if (chat_state_store_guild_emoji_admission(*store, guild_id, emojis.count, role_count) !=
-        ChatStateStoreError::none) {
+    // The dispatch adds the guild before its emojis.
+    GuildRecord* guild = mutable_guild(store, guild_id);
+    if (!guild || admit(*store, guild, emojis.count, role_count) != ChatStateStoreError::none) {
         return false;
     }
-    chat_state_store_remove_guild_emojis(store, guild_id);
+    remove_run(store, guild);
+    saturating_increment(store->emoji_mutations);
+    guild->emoji_first = store->emoji_count;
+    guild->emoji_count = emojis.count;
     for (u32 index = 0; index < emojis.count; ++index) {
         const CustomEmojiInput& input = emojis[index];
         CustomEmojiRecord& record = store->emojis[store->emoji_count++];

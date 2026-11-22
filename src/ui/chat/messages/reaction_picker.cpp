@@ -129,28 +129,7 @@ bool snapshot_custom_emojis(ReactionPickerModel* picker, const ChatStateStore* s
     picker->custom_emoji_count = picker->guild_count = 0;
     picker->state = state;
     picker->emoji_mutations = state->emoji_mutations;
-    if (!state->emojis)
-        return true;
-    // A server's emoji are replaced together, so each forms a run of the
-    // array; the runs are found once instead of scanning it per server.
-    struct Run {
-        u64 guild_id;
-        u32 first, count;
-    };
-    const u32 emoji_count = minimum(state->emoji_count, kReactionPickerCustomEmojiCapacity);
     const CustomEmojiRecord* emojis = state->emojis;
-    u32 run_count = 0;
-    for (u32 index = 0; index < emoji_count; ++index)
-        run_count += !index || emojis[index].guild_id != emojis[index - 1].guild_id;
-    const ArenaMark mark = arena_mark(&picker->storage);
-    Run* runs = arena_allocate<Run>(&picker->storage, run_count);
-    if (run_count && !runs)
-        return false;
-    for (u32 index = 0, run = 0; index < emoji_count; ++index) {
-        if (!index || emojis[index].guild_id != emojis[index - 1].guild_id)
-            runs[run++] = {emojis[index].guild_id, index, 0};
-        ++runs[run - 1].count;
-    }
     bool valid = true;
     // Selected server first, followed by the account's server order.
     for (u32 pass = 0; valid && pass <= state->guild_count; ++pass) {
@@ -161,20 +140,17 @@ bool snapshot_custom_emojis(ReactionPickerModel* picker, const ChatStateStore* s
         if (picker->guild_count == kReactionPickerGuildCapacity)
             break;
         const u32 first = picker->custom_emoji_count;
-        for (u32 run = 0; valid && run < run_count; ++run) {
-            if (runs[run].guild_id != guild->id)
+        // Each server's emoji are one run of the table.
+        for (u32 index = guild->emoji_first; index < guild->emoji_first + guild->emoji_count; ++index) {
+            const auto& source = emojis[index];
+            if (!chat_state_store_emoji_usable(*state, source))
                 continue;
-            for (u32 index = runs[run].first; index < runs[run].first + runs[run].count; ++index) {
-                const auto& source = emojis[index];
-                if (!chat_state_store_emoji_usable(*state, source))
-                    continue;
-                const auto name = chat_state_store_emoji_name(source);
-                if (!name.bytes || name.bytes > kCustomEmojiNameMaximumBytes) {
-                    valid = false;
-                    break;
-                }
-                picker->custom_order[picker->custom_emoji_count++] = index;
+            const auto name = chat_state_store_emoji_name(source);
+            if (!name.bytes || name.bytes > kCustomEmojiNameMaximumBytes) {
+                valid = false;
+                break;
             }
+            picker->custom_order[picker->custom_emoji_count++] = index;
         }
         const u32 count = picker->custom_emoji_count - first;
         if (!valid || !count)
@@ -196,7 +172,6 @@ bool snapshot_custom_emojis(ReactionPickerModel* picker, const ChatStateStore* s
             return custom_before(emojis[left], emojis[right]);
         });
     }
-    arena_rewind(&picker->storage, mark);
     return valid;
 }
 

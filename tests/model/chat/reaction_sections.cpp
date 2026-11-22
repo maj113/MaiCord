@@ -101,6 +101,15 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
     state.emojis = emojis;
     state.emoji_count = kFixtureEmoji;
     state.emoji_roles = roles;
+    // Each server's emoji are one run of the table, `per` each in server order.
+    const auto set_runs = [&](u32 per, u32 total) noexcept {
+        for (u32 i = 0; i < kReactionPickerGuildCapacity; ++i) {
+            GuildRecord& guild = guilds[guild_order[i]];
+            guild.emoji_first = minimum(i * per, total);
+            guild.emoji_count = minimum(i * per + per, total) - guild.emoji_first;
+        }
+    };
+    set_runs(16, kFixtureEmoji);
     for (u32 i = 0; valid && i < kReactionPreferenceFavoriteCapacity; ++i)
         valid = reaction_preferences_toggle_favorite_emoji(&preferences, reaction_emoji_unicode(static_cast<u16>(i))).ok();
     for (u32 i = 0; valid && i < kReactionPreferenceFrequentCapacity; ++i)
@@ -155,6 +164,7 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
         copy_bytes(emojis[i].name, i % 2 ? "wave" : "blob", 4);
     }
     state.emoji_count = kHeavyEmoji;
+    set_runs(250, kHeavyEmoji);
     valid = reaction_picker_open(&picker, 89, &preferences, 1000, &state, 1100, &edit).ok();
     const u32 selected = find_section(picker, kReactionPickerSectionGuild, 1100);
     ReactionPickerSelection first{}, last{};

@@ -278,9 +278,10 @@ void append_mention_extras(ComposerAutocomplete* autocomplete, const MessageComp
     RoleCandidate roles[kMentionAutocompleteLimit]{};
     const u32 role_room = kMentionAutocompleteLimit - autocomplete->count;
     u32 role_count = 0;
-    for (u32 index = 0; state.roles && index < state.role_count; ++index) {
-        const RoleRecord& role = state.roles[index];
-        if (role.guild_id != guild_id || role.id == guild_id || !(role.mentionable || mention_everyone))
+    const auto guild_roles = chat_state_store_guild_roles(state, guild_id);
+    for (u32 index = 0; index < guild_roles.count; ++index) {
+        const RoleRecord& role = guild_roles[index];
+        if (role.id == guild_id || !(role.mentionable || mention_everyone))
             continue;
         const Utf8View name = chat_state_store_role_name(state, role);
         if (!name.data || !name.bytes || !subsequence_folded_ascii(name, query))
@@ -665,9 +666,10 @@ void append_emoji_suggestions(ComposerAutocomplete* autocomplete, const ChatStat
     ranking.prepare(preferences ? reaction_preferences_table(*preferences, ReactionPreferenceKind::message) : nullptr);
     const Utf8View search{key, key_bytes};
     emoji_catalog_search(search, offer_unicode_emoji, &ranking);
-    for (u32 i = 0; i < state.emoji_count; ++i) {
-        const auto& emoji = state.emojis[i];
-        if (emoji.guild_id != state.selected_guild_id || !chat_state_store_emoji_usable(state, emoji))
+    const auto guild_emojis = chat_state_store_guild_emojis(state, state.selected_guild_id);
+    for (u32 i = 0; i < guild_emojis.count; ++i) {
+        const auto& emoji = guild_emojis[i];
+        if (!chat_state_store_emoji_usable(state, emoji))
             continue;
         const auto name = chat_state_store_emoji_name(emoji);
         if (emoji_search_name_matches(name, search))

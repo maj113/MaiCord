@@ -15,7 +15,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/app/chat/search/account_message_search.hpp"
-#include "maicord/model/guild/permission_bits.hpp"
+#include "maicord/model/guild/permission_compute.hpp"
 #include "../../account/account_ui_runtime.hpp"
 #include "maicord/protocol/gateway/reaction_events.hpp"
 
@@ -106,9 +106,10 @@ bool member_reaction_add_restricted(const ChannelRecord& channel) noexcept {
         return false;
     // Use assigned role permissions: the two-factor gate can strip the
     // effective Administrator bit without removing this exemption.
-    for (u32 i = 0; i < state.role_count; ++i) {
-        const auto& role = state.roles[i];
-        if (role.guild_id == guild->id && (role.id == guild->id || role.self_assigned) &&
+    const auto roles = chat_state_store_guild_roles(state, guild->id);
+    for (u32 i = 0; i < roles.count; ++i) {
+        const auto& role = roles[i];
+        if ((role.id == guild->id || role.self_assigned) &&
             (role.permissions & kPermissionAdministrator))
             return false;
     }

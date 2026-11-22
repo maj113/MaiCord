@@ -2870,6 +2870,7 @@ void test_emoji_category_rail() noexcept {
         emojis[i].id = 500 + i; emojis[i].guild_id = 100 + i;
         emojis[i].flags = custom_emoji_available; emojis[i].name_bytes = 4;
         copy_bytes(emojis[i].name, "blob", 4);
+        guilds[guild_order[i]].emoji_first = i; guilds[guild_order[i]].emoji_count = 1;
     }
     state.emojis = emojis; state.emoji_count = 8; state.emoji_roles = roles;
     ReactionPickerModel picker{};

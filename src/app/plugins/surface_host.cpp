@@ -391,8 +391,8 @@ bool plugin_host_read_guild(u64 guild_id, PluginGuildInput* out) noexcept {
         out->channel_count += channel.guild_id == guild_id && !channel_is_thread(channel.type) &&
                               chat_state_store_channel_visible(state, channel);
     }
-    for (u32 i = 0; i < state.role_count; ++i) out->role_count += state.roles[i].guild_id == guild_id;
-    for (u32 i = 0; i < state.emoji_count; ++i) out->emoji_count += state.emojis[i].guild_id == guild_id;
+    out->role_count = chat_state_store_guild_roles(state, guild_id).count;
+    out->emoji_count = guild->emoji_count;
     return true;
 }
 // What a user can do in a server (or one of its channels): computed from the cached roles and overwrites.
