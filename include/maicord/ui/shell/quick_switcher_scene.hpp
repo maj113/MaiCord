@@ -25,6 +25,7 @@ struct UiQuickSwitcherRow {
     UiPresence presence{};
     bool mobile{};
 };
+// The rows of one revision have distinct keys.
 struct UiQuickSwitcherSource {
     void* context{};
     u32 count{}, revision{};

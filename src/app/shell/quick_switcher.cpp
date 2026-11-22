@@ -106,7 +106,7 @@ inline UiPresence user_presence(u64 user, bool* mobile) noexcept {
 bool resolve_row(void* opaque, u32 index, UiQuickSwitcherRow* out) noexcept {
     auto* q = static_cast<ApplicationQuickSwitcher*>(opaque);
     QuickSwitcherTarget target{};
-    if (!out || !source_current(q) ||
+    if (!source_current(q) ||
         !quick_switcher_resolve(q->controller, scope(), sources(), index, q->source.revision, &target)) return false;
     const auto& row = q->controller.rows[index];
     *out = {target.id, target.guild_id, target.channel_id, target.user_id, static_cast<UiQuickSwitcherKind>(target.kind),

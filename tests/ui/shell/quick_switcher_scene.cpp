@@ -5,12 +5,11 @@
 
 namespace maicord {
 namespace {
-struct QuickFixture { u32 calls{}; u64 base{1000}; bool current{true}, duplicate{}, mixed{}; };
+struct QuickFixture { u32 calls{}; u64 base{1000}; bool current{true}, mixed{}; };
 bool quick_current(void* opaque) noexcept { return static_cast<QuickFixture*>(opaque)->current; }
 bool quick_row(void* opaque, u32 index, UiQuickSwitcherRow* row) noexcept {
     auto& f = *static_cast<QuickFixture*>(opaque); ++f.calls;
-    const u64 key = f.duplicate && index == 1 ? f.base : f.base + index;
-    *row = {key, 71, 100 + index, 0, f.mixed && index == 3 ? UiQuickSwitcherKind::guild : UiQuickSwitcherKind::text_channel,
+    *row = {f.base + index, 71, 100 + index, 0, f.mixed && index == 3 ? UiQuickSwitcherKind::guild : UiQuickSwitcherKind::text_channel,
         utf8_literal("release-planning with an intentionally long channel name"),
         utf8_literal("Original server • a useful destination label"), utf8_literal("Channel"), {}, index != 1};
     return true;
@@ -168,10 +167,6 @@ void test_quick_switcher_scene(void (*check)(bool, const char*) noexcept) noexce
         ui_quick_switcher_scene_paint(scene, kDefaultTheme, &paint) && !paint.count &&
         ui_quick_switcher_scene_text_output(scene, kDefaultTheme, &output) && !stream.count,
         "quick switcher: retired account or query authority exposes no stale editor routes paint or text");
-    fixture.current = true; fixture.duplicate = true;
-    source.count = 2; ++source.revision; ++content.revision;
-    check(!ui_quick_switcher_scene_update(&scene, &source, &content, viewport) && !ui_quick_switcher_scene_current(scene),
-        "quick switcher: duplicate route identity fails before publishing a partial bank");
     paint_stream_release(&paint); ui_quick_switcher_scene_release(&scene);
     check(!scene.active && !scene.storage.arena.base, "quick switcher: close releases the lazy native bank");
 }

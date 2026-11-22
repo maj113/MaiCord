@@ -406,8 +406,7 @@ u32 shortcut_listing(Utf8View query, Slice<ShortcutListingRow> output) noexcept 
 }
 
 void shortcut_recorder_start(ShortcutRecorder* recorder, ShortcutRecordMode mode) noexcept {
-    if (recorder)
-        *recorder = {mode, true};
+    *recorder = {mode, true};
 }
 bool shortcut_key_is_modifier(u32 key) noexcept {
     return key == key::shift || key == key::ctrl || key == key::alt || key == key::left_shift || key == key::right_shift ||
@@ -474,7 +473,7 @@ CustomKeybindError custom_keybind_check(const CustomKeybinds& keybinds, CustomKe
     return CustomKeybindError::none;
 }
 bool custom_keybinds_add(CustomKeybinds* keybinds, CustomKeybind keybind, CustomKeybindError* error) noexcept {
-    const auto result = keybinds ? custom_keybind_check(*keybinds, keybind) : CustomKeybindError::invalid;
+    const auto result = custom_keybind_check(*keybinds, keybind);
     if (error)
         *error = result;
     if (result != CustomKeybindError::none)

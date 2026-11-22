@@ -146,10 +146,7 @@ bool ui_quick_switcher_scene_update(UiQuickSwitcherScene* s, const UiQuickSwitch
         s->accepted_count = 0;
         for (u32 i = 0; i < count; ++i) {
             auto& row = s->accepted[i];
-            bool valid = source->resolve(source->context, i, &row) && row_valid(row);
-            for (u32 previous = 0; valid && previous < i; ++previous)
-                valid = s->accepted[previous].key != row.key || s->accepted[previous].kind != row.kind;
-            if (!valid) { s->active = false; return false; }
+            if (!source->resolve(source->context, i, &row) || !row_valid(row)) { s->active = false; return false; }
         }
         s->accepted_count = count; s->selected = ~0u; s->scroll_dips = 0;
         for (u32 i = 0; i < count; ++i)

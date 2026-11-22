@@ -363,9 +363,10 @@ void describe_popup(void*, const UiWidgetManager&, UiWidgetHandle handle, const 
         info->name = popup_name(scene.kind);
         return;
     }
-    for (u32 index = 0; index < scene.rows.count; ++index) {
+    // Open writes rows[i] with source index i for each of its item_count rows; later rows are stale.
+    for (u32 index = 0; index < scene.item_count; ++index) {
         const auto& row = scene.rows[index];
-        if (!ui_widget_handle_equal(row.widget, handle) || row.source_index >= scene.item_count)
+        if (!ui_widget_handle_equal(row.widget, handle))
             continue;
         const auto& item = scene.items[row.source_index];
         info->leaf = true;

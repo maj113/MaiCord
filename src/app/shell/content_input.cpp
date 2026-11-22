@@ -1192,7 +1192,7 @@ bool handle_content_click(const WindowEvent& event) noexcept {
 
 bool application_message_content_cursor(float x, float y, UiCursor* cursor) noexcept {
     const auto& scene = g_app.message_scene;
-    if (!cursor || application_thread_browser_read_blocked() || !g_app.account_ui || !scene.active ||
+    if (application_thread_browser_read_blocked() || !g_app.account_ui || !scene.active ||
         g_app.login.visible || !ui_rect_contains(scene.viewport, x, y))
         return false;
     const UiPoint point{x, y};
