@@ -5,7 +5,6 @@
 #include "maicord/ui/shell/caption_bar.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/widgets/spinner.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "../../support/test_output.hpp"
 

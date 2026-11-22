@@ -52,9 +52,8 @@ struct __declspec(uuid("2cd2d921-c447-44a7-a13c-4adabfc247e3")) __declspec(novta
     MAICORD_COM_UNUSED(GetUINT64);
     MAICORD_COM_UNUSED(GetDouble);
     virtual HRESULT __stdcall GetGUID(const GUID& guidKey, GUID* pguidValue) = 0;
-    virtual HRESULT __stdcall GetStringLength(const GUID& guidKey, UINT32* pcchLength) = 0;
-    virtual HRESULT __stdcall GetString(const GUID& guidKey, LPWSTR pwszValue, UINT32 cchBufSize,
-        UINT32* pcchLength) = 0;
+    MAICORD_COM_UNUSED(GetStringLength);
+    MAICORD_COM_UNUSED(GetString);
     MAICORD_COM_UNUSED(GetAllocatedString);
     virtual HRESULT __stdcall GetBlobSize(const GUID& guidKey, UINT32* pcbBlobSize) = 0;
     virtual HRESULT __stdcall GetBlob(const GUID& guidKey, UINT8* pBuf, UINT32 cbBufSize, UINT32* pcbBlobSize) = 0;

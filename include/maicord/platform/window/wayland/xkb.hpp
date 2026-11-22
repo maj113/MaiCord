@@ -23,7 +23,6 @@ inline constexpr int kXkbStateModsLocked = 1 << 2;
 inline constexpr int kXkbStateModsEffective = 1 << 3;
 inline constexpr int kXkbLogLevelCritical = 10;
 inline constexpr u32 kXkbModifierInvalid = 0xFFFFFFFFu;
-inline constexpr int kXkbComposeStatusNothing = 0;
 inline constexpr int kXkbComposeStatusComposing = 1;
 inline constexpr int kXkbComposeStatusComposed = 2;
 inline constexpr int kXkbComposeStatusCancelled = 3;

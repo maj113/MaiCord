@@ -52,8 +52,6 @@ struct ITimerSpec {
 
 // <asm-generic/poll.h>
 inline constexpr i16 kPollIn = 0x1;
-inline constexpr i16 kPollError = 0x8;
-inline constexpr i16 kPollHangUp = 0x10;
 inline constexpr i16 kPollInvalid = 0x20;
 struct PollFd {
     int fd;

@@ -9,7 +9,6 @@
 #include "../chat/composer/commands.hpp"
 
 #include "maicord/core/log.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 
 #include "maicord/platform/window/key.hpp"

@@ -1704,14 +1704,12 @@ void error_setting_label_must_be_1_to_64_bytes();
 void error_setting_text_too_long();
 void error_setting_unknown_flags();
 void error_setting_default_out_of_range();
-void error_setting_too_many_items();
 void error_plugin_owner_must_be_nonzero();
 void error_plugin_name_must_be_1_to_64_bytes();
 void error_plugin_version_must_be_1_to_32_bytes();
 void error_plugin_text_too_long();
 void error_plugin_api_level_unsupported();
 void error_plugin_unknown_permissions();
-void error_plugin_too_many_network_hosts();
 
 // The fields every row has: description, flags, visible_if, visible_value.
 template <const auto& O> consteval mc_setting_def setting_def(u32 type, Str key, Str label, u32 offset) {

@@ -12,13 +12,11 @@
 #include "../chat/messages/pinned_messages.hpp"
 #include "../chat/search/search.hpp"
 #include "window_events.hpp"
-#include "../settings/settings.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/ui/theme/styles.hpp"
 

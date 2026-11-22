@@ -12,7 +12,6 @@
 #endif
 
 // <psapi.h>
-#define PSAPI_VERSION 2
 #define GetProcessMemoryInfo K32GetProcessMemoryInfo
 #define QueryWorkingSetEx K32QueryWorkingSetEx
 

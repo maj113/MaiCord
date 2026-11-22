@@ -117,8 +117,6 @@ extern "C" __declspec(dllimport) BOOL WINAPI DeleteDC(HDC hdc);
 extern "C" __declspec(dllimport) BOOL WINAPI DeleteObject(HGDIOBJ ho);
 extern "C" __declspec(dllimport) DWORD WINAPI GetFontData(HDC hdc, DWORD dwTable, DWORD dwOffset, PVOID pvBuffer,
     DWORD cjBuffer);
-extern "C" __declspec(dllimport) DWORD WINAPI GetGlyphIndicesW(HDC hdc, LPCWSTR lpstr, int c, LPWORD pgi, DWORD fl);
 extern "C" __declspec(dllimport) HGDIOBJ WINAPI SelectObject(HDC hdc, HGDIOBJ h);
-extern "C" __declspec(dllimport) COLORREF WINAPI SetTextColor(HDC hdc, COLORREF color);
 extern "C" __declspec(dllimport) COLORREF WINAPI GetPixel(HDC hdc, int x, int y);
 extern "C" __declspec(dllimport) int WINAPI GetTextFaceW(HDC hdc, int c, LPWSTR lpName);

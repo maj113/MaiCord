@@ -19,7 +19,6 @@
 #include "shell/window_state.hpp"
 #include "chat/application_private_conversation.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/hash.hpp"
 #include "maicord/platform/window/clipboard.hpp"
 #include "maicord/protocol/gateway/client_status.hpp"
 #include "maicord/ui/widgets/presence.hpp"

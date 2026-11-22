@@ -1,7 +1,7 @@
 #pragma once
 
 // <linux/io_uring.h>: the part of the kernel's asynchronous I/O interface the network loop uses (Linux 6.1 and later),
-// with the three system calls. The layouts are checked by their sizes; the offsets of the fields follow the header.
+// with its two system calls. The layouts are checked by their sizes; the offsets of the fields follow the header.
 
 #include "maicord/core/base.hpp"
 #include "maicord/sys/linux/syscall.hpp"

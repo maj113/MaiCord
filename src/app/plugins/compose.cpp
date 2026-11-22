@@ -9,7 +9,6 @@
 #include "maicord/protocol/messages/create.hpp"
 #include "pipeline_host.hpp"
 #include "maicord/model/chat/message_composer.hpp"
-#include "../account/account_ui_runtime.hpp"
 
 // Composer integration for plugins: the pre-send and pre-edit hooks, run before application commands, the
 // ordinary send and the ordinary edit save, and the notice a stopped send leaves under the composer.

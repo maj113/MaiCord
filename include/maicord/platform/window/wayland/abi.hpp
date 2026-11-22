@@ -86,18 +86,17 @@ extern ClientApi g_client;
 // of its functions is missing. Idempotent. UI thread only.
 bool client_load() noexcept;
 
-// libwayland-cursor.so.0: XCursor themes loaded into wl_shm buffers, for compositors without cursor-shape.
+// libwayland-cursor.so.0: XCursor themes loaded into wl_shm buffers, for compositors without cursor-shape. The library
+// owns wl_cursor_image and wl_cursor; only their leading members, the ones read here, are declared.
 struct CursorImage {
     u32 width;
     u32 height;
     u32 hotspot_x;
     u32 hotspot_y;
-    u32 delay;
 };
 struct Cursor {
     u32 image_count;
     CursorImage** images;
-    char* name;
 };
 struct CursorTheme;
 struct CursorApi {

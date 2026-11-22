@@ -6,7 +6,6 @@
 
 #include "maicord/app/settings/window_placement_file.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/voice/call_scene.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/theme/style_projection.hpp"

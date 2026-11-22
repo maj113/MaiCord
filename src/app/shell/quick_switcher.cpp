@@ -32,7 +32,6 @@
 #include "maicord/ui/shell/quick_switcher_scene.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
 #include "maicord/app/chat/private_channel_actions.hpp"
-#include "maicord/platform/window/clipboard.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/render/text/form_surface.hpp"

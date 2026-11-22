@@ -21,7 +21,7 @@ set(maicord_sys_headers
     include/maicord/sys/gdi.hpp include/maicord/sys/winsock.hpp include/maicord/sys/crypto.hpp
     include/maicord/sys/sspi.hpp include/maicord/sys/shell.hpp include/maicord/sys/winrt.hpp
     include/maicord/sys/dxgi.hpp include/maicord/sys/d3d11.hpp include/maicord/sys/dcomp.hpp
-    include/maicord/sys/dxva.hpp include/maicord/sys/d2d1.hpp include/maicord/sys/dwrite.hpp
+    include/maicord/sys/dxva.hpp include/maicord/sys/d2d1.hpp
     include/maicord/sys/wasapi.hpp include/maicord/sys/media_foundation.hpp include/maicord/sys/tsf.hpp
     include/maicord/sys/uia.hpp include/maicord/sys/speech.hpp include/maicord/sys/spellcheck.hpp
     include/maicord/sys/webauthn.hpp include/maicord/sys/process_info.hpp include/maicord/sys/desktop_capture.hpp

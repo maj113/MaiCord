@@ -17,7 +17,6 @@
 #include "maicord/ui/account/login_text_presentation.hpp"
 #include "../account/login/ui.hpp"
 #include "maicord/ui/voice/audio_controls.hpp"
-#include "maicord/ui/voice/video_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {

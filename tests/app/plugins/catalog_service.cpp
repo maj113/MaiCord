@@ -12,7 +12,6 @@
 #include "maicord/app/plugins/binding.hpp"
 #include "maicord/app/plugins/consent.hpp"
 #include "maicord/app/plugins/dispatch.hpp"
-#include "maicord/app/plugins/pipeline.hpp"
 #include "maicord/core/memory.hpp"
 #include "catalog_fixture.hpp"
 #include "fake_transport.hpp"

@@ -1,6 +1,5 @@
 #include "maicord/app/plugins/consent.hpp"
 #include "maicord/app/plugins/http.hpp"
-#include "maicord/app/plugins/pipeline.hpp"
 #include "maicord/app/plugins/ui.hpp"
 #include "maicord/app/plugins/settings_page.hpp"
 #include "maicord/core/ascii.hpp"
