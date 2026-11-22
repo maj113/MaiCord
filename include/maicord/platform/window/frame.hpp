@@ -15,8 +15,10 @@ struct FrameBarRects {
 };
 
 // `part` is the caption element under the point (FrameHit::client below the caption bar). A restored window resizes
-// from the native side and bottom borders outside the client and from a top band of `border` pixels inside it; a
-// maximized one does not, and nothing outside it is part of the window.
+// from the native side and bottom borders outside the client and from a top band of `border` pixels inside it, except
+// over a window button (minimize, maximize, close): the button reaches the top edge, as it shows its hover there, and
+// the corner resizes from the side border beside it. A maximized or full-screen window (`maximized`) does not resize,
+// and nothing outside it is part of the window.
 constexpr FrameHit window_frame_hit(i32 x, i32 y, i32 client_width, i32 client_height, i32 border, bool maximized,
                                     FrameHit part) noexcept {
     const bool inside = x >= 0 && y >= 0 && x < client_width && y < client_height;
@@ -32,7 +34,7 @@ constexpr FrameHit window_frame_hit(i32 x, i32 y, i32 client_width, i32 client_h
             return top ? FrameHit::top_left : bottom ? FrameHit::bottom_left : FrameHit::left;
         if (x >= client_width)
             return top ? FrameHit::top_right : bottom ? FrameHit::bottom_right : FrameHit::right;
-        if (y < 0 || top)
+        if (y < 0 || (top && (part < FrameHit::minimize || part > FrameHit::close)))
             return left ? FrameHit::top_left : right ? FrameHit::top_right : FrameHit::top;
     }
     return part;

@@ -50,6 +50,8 @@ struct CaptionState {
     bool hidden;
     bool active;
     bool maximized;
+    // Full screen as the platform last reported it (state_changed); like a maximized window it has no resize band.
+    bool fullscreen;
     // The app icon's pixel size on the renderer, zero until decoded.
     u32 icon_extent;
     // Visible frame pixels beside the client beyond those above it; stale
@@ -106,8 +108,8 @@ UiCaptionBarLayout layout_for(i32 client_width, u32 dpi, bool fresh = false) noe
                                  static_cast<float>(dpi) / 96.0f);
 }
 
-// What the platform does with a press on a part: only the caption, the window menu and (where the system's snap
-// layouts want it) the maximize button are frame; the rest of the bar is client.
+// The part as the frame hit test sees it: the caption, the window menu and the window buttons (which keep their whole
+// rectangle over the top resize band); the rest of the bar is client.
 inline FrameHit frame_part(UiCaptionPart part) noexcept {
     switch (ui_caption_bar_native(part)) {
     case UiCaptionNative::caption:
@@ -115,9 +117,11 @@ inline FrameHit frame_part(UiCaptionPart part) noexcept {
     case UiCaptionNative::system_menu:
         return FrameHit::system_menu;
     case UiCaptionNative::maximize:
-        return window_caps().native_caption_buttons ? FrameHit::maximize : FrameHit::client;
+        return FrameHit::maximize;
     default:
-        return FrameHit::client;
+        return part == UiCaptionPart::minimize ? FrameHit::minimize
+               : part == UiCaptionPart::close  ? FrameHit::close
+                                               : FrameHit::client;
     }
 }
 
@@ -631,6 +635,11 @@ bool application_caption_event(const WindowEvent& event) noexcept {
     // The bar's height follows the scale of the monitor the window is on.
     else if (event.type == EventType::scale_changed)
         renderer_set_caption_height(&g_app.renderer, application_caption_pixels(input_dpi(event)));
+    // A maximized or full-screen window shows Restore and does not resize from the bar.
+    else if (event.type == EventType::state_changed) {
+        application_caption_maximized((event.window_state.state & state_maximized) != 0);
+        g_caption.fullscreen = (event.window_state.state & state_fullscreen) != 0;
+    }
     return g_app.renderer.caption_height && item_pointer(event);
 }
 
@@ -642,9 +651,11 @@ FrameHit application_caption_hit(float x, float y) noexcept {
     UiCaptionPart part = UiCaptionPart::none;
     if (py >= 0 && py < caption && px >= 0 && px < width)
         part = ui_caption_bar_part(layout_for(width, dpi), to_dips(px, dpi), to_dips(py, dpi));
-    return window_frame_hit(px, py, width, g_window_state.client_height,
-                            static_cast<i32>(window_resize_border(g_app.window, dpi)), g_caption.maximized,
-                            frame_part(part));
+    const FrameHit hit = window_frame_hit(px, py, width, g_window_state.client_height,
+                                          static_cast<i32>(window_resize_border(g_app.window, dpi)),
+                                          g_caption.maximized || g_caption.fullscreen, frame_part(part));
+    // The bar's own items are client to the platform: Minimize, Close, and Maximize where it has no snap layouts.
+    return bar_item(button_part(hit)) ? FrameHit::client : hit;
 }
 
 void application_caption_maximized(bool maximized) noexcept {

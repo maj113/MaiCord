@@ -21,7 +21,8 @@ namespace maicord::app_detail {
 // Before the window exists: the creation-time frame messages already apply it.
 void application_caption_enable() noexcept;
 // Every window event, first: pointer input over the bar's own items (update badge, Settings, the window buttons the
-// platform does not draw as frame), the scale and size changes the bar follows. True when the bar took the event.
+// platform does not draw as frame), the scale, size and window state changes the bar follows. True when the bar took
+// the event.
 bool application_caption_event(const WindowEvent& event) noexcept;
 // The bar's height at a DPI, zero without a shown bar.
 u32 application_caption_pixels(u32 dpi) noexcept;

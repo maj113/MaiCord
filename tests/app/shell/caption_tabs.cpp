@@ -656,6 +656,47 @@ void connection() noexcept {
           "caption connection: the title returns");
 }
 
+// Issue #29: the window buttons keep their whole rectangle. Over a restored window's top resize band the hit test
+// answers the button the pointer hovers there and the corner resizes beside Close; a maximized or full-screen window
+// answers no resize code on the bar.
+void frame_hits() noexcept {
+    check(fixture(1000), "caption frame: fixture");
+    const UiCaptionBarLayout layout = bar();
+    static constexpr UiCaptionPart kParts[]{UiCaptionPart::minimize, UiCaptionPart::maximize, UiCaptionPart::close};
+    // The headless window has snap layouts: Maximize is frame, Minimize and Close are the bar's own.
+    static constexpr FrameHit kHits[]{FrameHit::client, FrameHit::maximize, FrameHit::client};
+    const auto report = [](u32 bits) noexcept {
+        WindowEvent event = window_test::plain(EventType::state_changed);
+        event.window_state.state = bits;
+        event.window_state.changed = state_maximized | state_fullscreen;
+        send(event);
+    };
+    const auto resizes = [](FrameHit hit) noexcept { return hit >= FrameHit::left && hit <= FrameHit::bottom_right; };
+    const float title = centre_x(layout.title);
+    bool buttons = true;
+    for (u32 i = 0; i < kUiCaptionButtonCount; ++i) {
+        const float x = centre_x(layout.buttons[i]);
+        send(pointer_move(x, 0));
+        buttons = buttons && application_caption_hit(x, 0) == kHits[i] &&
+                  (kHits[i] != FrameHit::client || application_caption_state().hovered == kParts[i]);
+    }
+    check(buttons, "caption frame: a restored window's buttons win over the top resize band, where they hover");
+    check(application_caption_hit(1000, 0) == FrameHit::top_right && application_caption_hit(title, 0) == FrameHit::top,
+          "caption frame: the corner beside Close and the band over the caption resize a restored window");
+    static constexpr u32 kFixed[]{state_maximized, state_fullscreen};
+    for (const u32 bits : kFixed) {
+        report(bits);
+        bool still = !resizes(application_caption_hit(title, 0)) && application_caption_hit(1000, 0) == FrameHit::nowhere;
+        for (u32 i = 0; i < kUiCaptionButtonCount; ++i)
+            still = still && application_caption_hit(centre_x(layout.buttons[i]), 0) == kHits[i];
+        check(still && application_caption_state().maximized == (bits == state_maximized),
+              "caption frame: a maximized or full-screen window answers no resize code on the bar");
+    }
+    report(0);
+    check(application_caption_hit(title, 0) == FrameHit::top && !application_caption_state().maximized,
+          "caption frame: a restored window resizes from the band again");
+}
+
 void run() noexcept {
     clicks();
     drags();
@@ -669,6 +710,7 @@ void run() noexcept {
     accessibility();
     access_details();
     connection();
+    frame_hits();
     window_test::close();
 }
 } // namespace maicord::caption_tabs_test

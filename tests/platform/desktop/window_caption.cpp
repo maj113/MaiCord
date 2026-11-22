@@ -178,8 +178,9 @@ u32 hit_code(FrameHit hit) noexcept {
 u32 hit(const HitFixture& f, i32 x, i32 y, bool maximized) noexcept {
     FrameHit part = FrameHit::client;
     if (x >= 0 && y >= 0 && x < f.width && y < f.caption) {
-        switch (ui_caption_bar_native(ui_caption_bar_part(f.layout, static_cast<float>(x) / f.scale,
-                                                          static_cast<float>(y) / f.scale))) {
+        const UiCaptionPart bar =
+            ui_caption_bar_part(f.layout, static_cast<float>(x) / f.scale, static_cast<float>(y) / f.scale);
+        switch (ui_caption_bar_native(bar)) {
         case UiCaptionNative::caption:
             part = FrameHit::caption;
             break;
@@ -190,10 +191,14 @@ u32 hit(const HitFixture& f, i32 x, i32 y, bool maximized) noexcept {
             part = FrameHit::maximize;
             break;
         default:
+            part = bar == UiCaptionPart::minimize ? FrameHit::minimize
+                   : bar == UiCaptionPart::close  ? FrameHit::close
+                                                  : FrameHit::client;
             break;
         }
     }
-    return hit_code(window_frame_hit(x, y, f.width, f.height, f.border, maximized, part));
+    const FrameHit answer = window_frame_hit(x, y, f.width, f.height, f.border, maximized, part);
+    return answer == FrameHit::minimize || answer == FrameHit::close ? HTCLIENT : hit_code(answer);
 }
 
 void hit_testing() noexcept {
@@ -210,6 +215,7 @@ void hit_testing() noexcept {
             const i32 x =
                 static_cast<i32>((f.layout.buttons[i].left + f.layout.buttons[i].right) * .5f * f.scale);
             check(hit(f, x, f.caption - 1, false) == kButtons[i], "button below the resize band");
+            check(hit(f, x, 0, false) == kButtons[i], "button reaches the top edge over the resize band");
             check(hit(f, x, 0, true) == kButtons[i], "maximized button reaches the screen edge");
             const float width = (f.layout.buttons[i].right - f.layout.buttons[i].left) * f.scale;
             check(near(width, kDefaultTheme.scale.caption_button_width * f.scale), "button width scales");
@@ -217,7 +223,8 @@ void hit_testing() noexcept {
         check(hit(f, f.width / 2, 0, false) == HTTOP, "top edge resizes");
         check(hit(f, 0, 0, false) == HTTOPLEFT && hit(f, f.border - 1, f.border - 1, false) == HTTOPLEFT,
               "top-left corner resizes");
-        check(hit(f, f.width - 1, 0, false) == HTTOPRIGHT, "top-right corner wins over close");
+        check(hit(f, f.width - 1, 0, false) == HTCLIENT && hit(f, f.width, 0, false) == HTTOPRIGHT,
+              "close reaches the top-right corner and the corner resizes beside it");
         check(hit(f, f.width - 1, 0, true) == HTCLIENT &&
                   ui_caption_bar_part(f.layout, (f.width - 1) / f.scale, 0) == UiCaptionPart::close,
               "maximized corner is the close control");
