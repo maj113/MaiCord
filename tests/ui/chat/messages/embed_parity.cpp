@@ -433,12 +433,11 @@ void test_calendar(Check check) noexcept {
         const auto formatted = format_timestamp_calendar(when, now, {text, sizeof(text)});
         return formatted.ok ? Utf8View{text, formatted.bytes} : Utf8View{};
     };
-    check(utf8_starts_with(at(stamp, stamp + 86'400), utf8_literal("Yesterday at ")) &&
-              utf8_starts_with(at(stamp, stamp), utf8_literal("Today at ")) &&
-              utf8_starts_with(at(stamp + 86'400, stamp), utf8_literal("Tomorrow at ")) &&
+    // Today and Yesterday: core_messages.cpp (timestamp_calendar_today_yesterday_and_dated_labels).
+    check(utf8_starts_with(at(stamp + 86'400, stamp), utf8_literal("Tomorrow at ")) &&
               !test_contains(at(stamp + 5 * 86'400, stamp), utf8_literal(":")) &&
               test_contains(at(stamp, stamp + 10 * 86'400), utf8_literal(":")),
-          "embed_footer_calendar_today_yesterday_tomorrow_and_dates");
+          "embed_footer_calendar_tomorrow_and_dates");
 }
 
 } // namespace
@@ -588,11 +587,19 @@ Utf8View c_text(const char* value) noexcept {
         ++bytes;
     return {value, bytes};
 }
-// One MESSAGE_CREATE through the client's dispatch pack/unpack, both stores and
-// a converged text pass. Returns message 1's row; the caller releases the scene.
+bool g_message_live;
+// Releases the scene the last converge_message left, if any.
+void release_message() noexcept {
+    if (g_message_live)
+        message_scene_release(&fixture.scene);
+    g_message_live = false;
+}
+// One MESSAGE_CREATE through the client's dispatch pack/unpack, both stores and a converged text pass, after the
+// previous message's scene is released. Returns message 1's row.
 const MessageSceneRowWidget* converge_message(Utf8View payload,
                                               GatewayMessageEvent* decoded = nullptr) noexcept {
     auto& f = fixture;
+    release_message();
     GatewayMessageEvent message{};
     bool ok = decode_message(payload, &message);
     if (decoded)
@@ -606,8 +613,9 @@ const MessageSceneRowWidget* converge_message(Utf8View payload,
                                                 &kDefaultTheme, finish, nullptr, 1'788'552'480, 1};
     ok = message_scene_update(&f.scene, {0, 0, 900, 1000}).ok() && message_text_coordinator_converge(request).ok();
     const auto* row = ok ? message_scene_find_row(f.scene, 0) : nullptr;
+    g_message_live = true;
     if (!row)
-        message_scene_release(&f.scene);
+        release_message();
     return row;
 }
 const MessageTextCommand* owned_command(const MessageTextPresentation& p, UiWidgetHandle owner) noexcept {
@@ -615,6 +623,17 @@ const MessageTextCommand* owned_command(const MessageTextPresentation& p, UiWidg
         if (p.commands[i].owner.handle.slot == owner.slot && p.commands[i].owner.handle.generation == owner.generation)
             return &p.commands[i];
     return nullptr;
+}
+// A reply (type 19) to Alice's message 5; `referenced` holds the quoted message's members after its author.
+Utf8View reply_payload(const char* referenced) noexcept {
+    static char payload[4096];
+    u32 at = 0;
+    const char* const parts[]{R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","type":19,"author":{"id":"9","username":"Poster"},"content":"reply","timestamp":"2026-09-05T10:00:00Z","message_reference":{"message_id":"5","channel_id":"7"},"referenced_message":{"id":"5","channel_id":"7","author":{"id":"8","username":"alice","global_name":"Alice"},)",
+                              referenced, "}}}"};
+    for (const char* part : parts)
+        while (*part && at + 1 < sizeof(payload))
+            payload[at++] = *part++;
+    return {payload, at};
 }
 struct ReplyCase {
     const char* referenced; // JSON members after the referenced message's author
@@ -649,18 +668,9 @@ void test_reply_previews(Check check) noexcept {
         {R"("content":"https://media.tenor.com/x.gif","embeds":[{"type":"gifv","url":"https://media.tenor.com/x.gif","video":{"url":"https://media.tenor.com/x.mp4","width":4,"height":4}}])",
          "Alice Click to see attachment", true, MessageReplyIcon::image},
     };
-    static char payload[4096];
     u32 passed = 0, failures_logged = 0;
     for (const auto& c : cases) {
-        u32 at = 0;
-        const auto append = [&](const char* text) noexcept {
-            while (*text && at + 1 < sizeof(payload))
-                payload[at++] = *text++;
-        };
-        append(R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","type":19,"author":{"id":"9","username":"Poster"},"content":"reply","timestamp":"2026-09-05T10:00:00Z","message_reference":{"message_id":"5","channel_id":"7"},"referenced_message":{"id":"5","channel_id":"7","author":{"id":"8","username":"alice","global_name":"Alice"},)");
-        append(c.referenced);
-        append("}}}");
-        const auto* row = converge_message({payload, at});
+        const auto* row = converge_message(reply_payload(c.referenced));
         const auto* line = row ? owned_command(f.presentation, row->reply) : nullptr;
         bool ok = line && utf8_equal(line->text, c_text(c.expected));
         bool code_block = false, colored = false, italic = false, monospace = false;
@@ -683,8 +693,6 @@ void test_reply_previews(Check check) noexcept {
         if (!ok && failures_logged++ < 3 && line)
             check(false, c.expected);
         passed += ok ? 1u : 0u;
-        if (row)
-            message_scene_release(&f.scene);
     }
     check(passed == sizeof(cases) / sizeof(cases[0]),
           "reply preview: ANSI fences become one uncoloured inline code run, quotes stay literal, headings and "
@@ -699,8 +707,6 @@ void test_reply_previews(Check check) noexcept {
     check(line && utf8_equal(line->text, utf8_literal("Original message was deleted")) && line->styles.count == 1 &&
               line->styles[0].flags == text_style_italic,
           "reply preview: a deleted original reads \"Original message was deleted\" in italics");
-    if (row)
-        message_scene_release(&f.scene);
 
     // A long truecolor ANSI message still closes its fence inside the bounded
     // preview source, so no raw escape or ``` reaches the line.
@@ -719,8 +725,6 @@ void test_reply_previews(Check check) noexcept {
     bool clean = line && utf8_starts_with(line->text, utf8_literal("Alice WWWW")) && !test_contains(line->text, utf8_literal("`")) &&
                  !test_contains(line->text, utf8_literal("\x1b")) && !test_contains(line->text, utf8_literal("[38;"));
     check(clean, "reply preview: a long truecolor ```ansi message shows its text without escapes or fences");
-    if (row)
-        message_scene_release(&f.scene);
 }
 
 // A reply that pings its quoted author names them "@Author"; a quoted join
@@ -750,16 +754,12 @@ void test_reply_author_and_system_quotes(Check check) noexcept {
                   text_hit.target == MessageInteractionTarget::none,
               "reply preview: the quoted author's avatar and name open their profile, the rest of the line is not theirs");
     }
-    if (row)
-        message_scene_release(&f.scene);
     const auto silent = utf8_literal(
         R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","type":19,"author":{"id":"9","username":"Poster"},"content":"reply","mentions":[{"id":"3","username":"other"}],"timestamp":"2026-09-05T10:00:00Z","message_reference":{"message_id":"5","channel_id":"7"},"referenced_message":{"id":"5","channel_id":"7","author":{"id":"8","username":"alice","global_name":"Alice"},"content":"hello"}}})");
     row = converge_message(silent);
     line = row ? owned_command(f.presentation, row->reply) : nullptr;
     check(line && utf8_equal(line->text, utf8_literal("Alice hello")),
           "reply preview: a reply without the quoted author in its mentions (ping off) keeps the bare name");
-    if (row)
-        message_scene_release(&f.scene);
 
     struct SystemCase {
         const char* referenced;
@@ -776,16 +776,7 @@ void test_reply_author_and_system_quotes(Check check) noexcept {
     };
     u32 passed = 0;
     for (const auto& c : system_cases) {
-        static char payload[2048];
-        u32 at = 0;
-        const auto append = [&](const char* text) noexcept {
-            while (*text && at + 1 < sizeof(payload))
-                payload[at++] = *text++;
-        };
-        append(R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","type":19,"author":{"id":"9","username":"Poster"},"content":"welcome","timestamp":"2026-09-05T10:00:00Z","message_reference":{"message_id":"5","channel_id":"7"},"referenced_message":{"id":"5","channel_id":"7","author":{"id":"8","username":"alice","global_name":"Alice"},)");
-        append(c.referenced);
-        append("}}}");
-        row = converge_message({payload, at});
+        row = converge_message(reply_payload(c.referenced));
         line = row ? owned_command(f.presentation, row->reply) : nullptr;
         char storage[kMessageSystemTextMaximumBytes];
         MessageSystemText expected{};
@@ -803,8 +794,6 @@ void test_reply_author_and_system_quotes(Check check) noexcept {
         if (!ok)
             check(false, c.referenced);
         passed += ok ? 1u : 0u;
-        if (row)
-            message_scene_release(&f.scene);
     }
     check(passed == 4, "reply preview: a quoted join notice, role subscription, app subscription or closed poll shows its "
                        "system line without an author name, leads with its icon and has no trailing icon");
@@ -823,8 +812,6 @@ void test_reply_author_and_system_quotes(Check check) noexcept {
               line->semantics[0].target == static_cast<u64>(MessageMarkdownChipIcon::forward) &&
               line->semantics[0].byte_offset == 6 && line->semantics[0].byte_count == 3,
           "reply preview: a quoted forward leads its text with the forward icon cell");
-    if (row)
-        message_scene_release(&f.scene);
 
     // A reply that points into a clip quotes the clip's title and the moment.
     const auto clip = utf8_literal(
@@ -837,16 +824,12 @@ void test_reply_author_and_system_quotes(Check check) noexcept {
               (rich->reference.quote_flags & gateway_quote_media_mention) &&
               (rich->reference.quote_flags & gateway_quote_media_clip) && row->rich_item_layout.reply_width == 0.0f,
           "reply preview: a clip mention reads the clip's title (bold) and the moment (link) with no trailing icon");
-    if (row)
-        message_scene_release(&f.scene);
     const auto untitled = utf8_literal(
         R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","type":19,"author":{"id":"9","username":"Poster"},"content":"","media_mention":{"attachment_id":"3","timestamp":83000},"timestamp":"2026-09-05T10:00:00Z","message_reference":{"message_id":"5","channel_id":"7"},"referenced_message":{"id":"5","channel_id":"7","author":{"id":"8","username":"alice","global_name":"Alice"},"content":"hi"}}})");
     row = converge_message(untitled);
     line = row ? owned_command(f.presentation, row->reply) : nullptr;
     check(line && utf8_equal(line->text, utf8_literal("Alice Untitled @1:23")),
           "reply preview: a clip mention without a known title reads Untitled");
-    if (row)
-        message_scene_release(&f.scene);
 }
 
 // "<user> used <command>": the line, its layout (muted name, "used", a chip for
@@ -888,8 +871,6 @@ void test_interaction_headers(Check check) noexcept {
                   chip_hit.target == MessageInteractionTarget::command && gap_hit.target == MessageInteractionTarget::none,
               "interaction header: the avatar and name open the user, the chip is its own target and the gap between is none");
     }
-    if (row)
-        message_scene_release(&f.scene);
 
     // A component response (type 0 with a component interaction) names the command as plain link text.
     const auto component = utf8_literal(
@@ -903,8 +884,6 @@ void test_interaction_headers(Check check) noexcept {
               !ui_rect_has_area(plain.chip) && utf8_equal(plain.command.text, utf8_literal("vote")) &&
               plain.used.rectangle.right < plain.command.rectangle.left,
           "interaction header: a command that is not a slash command is plain link-coloured text, not a chip");
-    if (row)
-        message_scene_release(&f.scene);
 }
 
 Utf8View interaction_data_name(void*, InteractionDataEntity entity, u64 id) noexcept {
@@ -1078,8 +1057,6 @@ void test_component_embed(Check check) noexcept {
     check(like.ok && like.underlined == 8 && like.struck == 0 && like.wrong == 0,
           "component embed: each glyph and its underline segment take the run's foreground (first letter's "
           "segment orange like its glyph)");
-    if (row)
-        message_scene_release(&f.scene);
 
     // Lines opened before their colour, and lines over recoloured text, draw
     // in each run's foreground in every text path sharing the parse.
@@ -1089,8 +1066,6 @@ void test_component_embed(Check check) noexcept {
     const AnsiPaint component = ansi_paint(row ? command_containing(f.presentation, utf8_literal("Ansi lined")) : nullptr);
     check(component.ok && component.underlined == 23 && component.struck == 14 && component.wrong == 0,
           "component text ansi: underline and line-through take each run's foreground, opened before it or not");
-    if (row)
-        message_scene_release(&f.scene);
     const auto paths = utf8_literal(
         R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","author":{"id":"9","username":"Poster"},"content":"```ansi\n\u001b[2;4m\u001b[9m\u001b[32mCONTENTLINES\u001b[0m\n```","timestamp":"2026-09-05T10:00:00Z","embeds":[{"type":"rich","title":"t","description":"```ansi\n\u001b[2;4m\u001b[9m\u001b[32mDESCRIBED\u001b[0m\n```","fields":[{"name":"f","value":"```ansi\n\u001b[2;4m\u001b[9m\u001b[31mFIELDVALUE\u001b[0m\n```"}]}]}})");
     row = converge_message(paths);
@@ -1111,8 +1086,6 @@ void test_component_embed(Check check) noexcept {
               utf8_equal(slot_name->text, utf8_literal("f")) && slot_value && slot_value->source_id == 0x8061 &&
               slot_description && slot_description->source_id == 0x8004,
           "embed title, description, field name and field value commands name their rich text slots");
-    if (row)
-        message_scene_release(&f.scene);
 
     // Any embed carrying a components tree renders its text, whatever its
     // type string, instead of an empty card.
@@ -1129,8 +1102,6 @@ void test_component_embed(Check check) noexcept {
     check(card && utf8_equal(text, utf8_literal("**Card** text\n\nsecond")) && card->thumbnail.url.bytes &&
               body && has_style(body, utf8_literal("Card"), text_style_bold),
           "component embed: sections, separators and thumbnail accessories map to the card's text and thumbnail");
-    if (row)
-        message_scene_release(&f.scene);
 }
 
 // Fenced code blocks are framed blocks in embeds and message bodies: each is
@@ -1226,8 +1197,6 @@ void test_code_block_embeds(Check check) noexcept {
     check(paint_ok && cards == 1 && accents == 1 && boxes == 1 && f.paint.batch_count == 1,
           "code block embed: paint draws the card, its corner-following accent and the code box in one batch");
     paint_stream_release(&f.paint);
-    if (c.row)
-        message_scene_release(&f.scene);
 
     // A rich embed: the title links to embed.url in bold at 16 DIPs; the
     // grid pads 2 DIPs plus the block's 8-DIP margin above and 16 below.
@@ -1245,8 +1214,6 @@ void test_code_block_embeds(Check check) noexcept {
               close_to(c.card.bottom - c.box.bottom, kMessageEmbedBottomInset),
           "code block embed: a rich embed's description block is framed full-width, 8 DIPs below the title, "
           "and the card ends 16 DIPs below the box");
-    if (c.row)
-        message_scene_release(&f.scene);
 
     // Message bodies share the blocks: at most 90% of the markup, the text
     // after a block starts at its box, and a leading block's box counts.
@@ -1271,8 +1238,6 @@ void test_code_block_embeds(Check check) noexcept {
               close_to(f.presentation.measurements[0].content_height,
                        after->rectangle.top + after->measured_height - before->rectangle.top),
           "message code block: framed at 90% width between the lines around it, inside the measured body");
-    if (c.row)
-        message_scene_release(&f.scene);
     const auto leading = utf8_literal(
         R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","author":{"id":"9","username":"Poster"},"content":"```\nSimple app\nsecond line\n```","timestamp":"2026-09-05T10:00:00Z"}})");
     c = code_block_case(leading, {});
@@ -1280,8 +1245,6 @@ void test_code_block_embeds(Check check) noexcept {
     check(content && framed_throughout(c.code) && close_to(c.box.top, content->content_rectangle.top) &&
               close_to(f.presentation.measurements[0].content_height, c.box.bottom - c.box.top),
           "message code block: a leading block's box starts the body and its height is the body's");
-    if (c.row)
-        message_scene_release(&f.scene);
 }
 
 // Only a row's author widget carries the author header. Poll labels and card
@@ -1316,7 +1279,6 @@ void test_author_header_isolation(Check check) noexcept {
         command.measurement_slot = 1;
         const bool slot = message_author_layout(f.scene, command, state, users, &f.cache, kDefaultTheme, &header);
         isolated = author && !poll && !content && !slot;
-        message_scene_release(&f.scene);
     }
     check(isolated, "author header: only the author widget's first run becomes the bold name; poll and card "
                     "runs keep their style while a popup is open");
@@ -1352,6 +1314,7 @@ void test_embed_parity(Check check) noexcept {
     test_component_embed(check);
     test_code_block_embeds(check);
     test_author_header_isolation(check);
+    release_message();
     text_set_browser_invisibles(previous);
     text_system_release(&text_system);
 }

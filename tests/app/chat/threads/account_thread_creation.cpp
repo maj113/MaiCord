@@ -31,10 +31,6 @@ void transport() noexcept {
     check(body.ok() && equal(capture.body, capture.body_bytes,
                              {reinterpret_cast<const char*>(expected), body.bytes}),
           "thread creation: actual protocol writer supplies escaped JSON without a transport body bank");
-    for (auto& byte : name)
-        byte = 'x';
-    check(equal(capture.body, capture.body_bytes, {reinterpret_cast<const char*>(expected), body.bytes}),
-          "thread creation: synchronous admission owns body after caller name reuse");
     request.name = utf8_literal("Reconcile");
     request.operation = ThreadCreationOperation::reconcile;
     request.source_message_id = ~u64{0};

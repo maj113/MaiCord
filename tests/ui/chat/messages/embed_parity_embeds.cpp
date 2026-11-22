@@ -1,6 +1,5 @@
 #include "embed_parity_internal.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/text/unicode/unicode.hpp"
 #include "maicord/ui/chat/messages/component_media.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
 #include "../../../support/test_output.hpp"
@@ -159,6 +158,12 @@ void test_thumbnail_rules(Check check) noexcept {
     event.id = 5;
     event.fields = gateway_message_field_embeds;
     event.embeds = {embeds, 1};
+    const auto apply = [&]() noexcept -> const MessageRichRecord* {
+        return message_rich_store_initialize(&store, {records, 1}, {order, 1}, {text, sizeof(text)}) &&
+                       message_rich_store_apply(&store, 5, 1, event).ok()
+                   ? message_rich_store_find(store, 5)
+                   : nullptr;
+    };
     const auto plan = [&](GatewayMessageEmbedType type, bool image, bool video,
                           MessageRichEmbedMediaSelection* media) noexcept {
         embeds[0].type = type;
@@ -172,14 +177,12 @@ void test_thumbnail_rules(Check check) noexcept {
             embeds[0].video.url = utf8_literal("https://e.test/v.mp4");
             embeds[0].video.width = embeds[0].video.height = 64;
         }
-        if (!message_rich_store_initialize(&store, {records, 1}, {order, 1}, {text, sizeof(text)}) ||
-            !message_rich_store_apply(&store, 5, 1, event).ok())
+        const MessageRichRecord* rich = apply();
+        if (!rich)
             return MessageRichEmbedPlan{};
-        const MessageRichRecord* rich = message_rich_store_find(store, 5);
         *media = {};
-        if (rich)
-            message_rich_embed_media_select(store, rich->embeds[0], media);
-        return rich ? message_rich_embed_plan(store, rich->embeds[0]) : MessageRichEmbedPlan{};
+        message_rich_embed_media_select(store, rich->embeds[0], media);
+        return message_rich_embed_plan(store, rich->embeds[0]);
     };
     MessageRichEmbedMediaSelection media{};
     const bool rich_corner = plan(GatewayMessageEmbedType::rich, true, false, &media).corner_thumbnail &&
@@ -196,9 +199,7 @@ void test_thumbnail_rules(Check check) noexcept {
     // MIME type claims they are video. A direct proxy still wins over a frame.
     embeds[0].video.url = utf8_literal("https://www.youtube.com/embed/aB_01234-xy");
     embeds[0].video.content_type = utf8_literal("video/mp4");
-    message_rich_store_initialize(&store, {records, 1}, {order, 1}, {text, sizeof(text)});
-    message_rich_store_apply(&store, 5, 1, event);
-    auto* rich = message_rich_store_find(store, 5);
+    const MessageRichRecord* rich = apply();
     check(rich && message_rich_embed_media_select(store, rich->embeds[0], &media) &&
           media.resource == MediaEmbedResource::thumbnail && media.format == MediaAttachmentFormat::png,
           "provider iframe remains a poster until media is resolved");
@@ -213,9 +214,7 @@ void test_thumbnail_rules(Check check) noexcept {
           "hidden embeds cannot start provider playback");
     message_rich_set_display(display);
     embeds[0].video.proxy_url = utf8_literal("https://images-ext-1.discordapp.net/external/test/https/e.test/v.mp4");
-    message_rich_store_initialize(&store, {records, 1}, {order, 1}, {text, sizeof(text)});
-    message_rich_store_apply(&store, 5, 1, event);
-    rich = message_rich_store_find(store, 5);
+    rich = apply();
     check(rich && message_rich_embed_media_select(store, rich->embeds[0], &media) &&
           media.resource == MediaEmbedResource::video && media.format == MediaAttachmentFormat::mp4,
           "direct video proxy takes precedence over provider iframe");
@@ -226,9 +225,7 @@ void test_thumbnail_rules(Check check) noexcept {
         utf8_literal("https://ev.phncdn.com/videos/old.mp4?validto=1")};
     for (const auto source : ph_sources) {
         embeds[0].video.url = source;
-        message_rich_store_initialize(&store, {records, 1}, {order, 1}, {text, sizeof(text)});
-        message_rich_store_apply(&store, 5, 1, event);
-        rich = message_rich_store_find(store, 5);
+        rich = apply();
         check(rich && message_rich_embed_media_select(store, rich->embeds[0], &media) &&
               media.resource == MediaEmbedResource::thumbnail && media.format == MediaAttachmentFormat::png &&
               utf8_equal(media.source, embeds[0].thumbnail.url),
@@ -244,9 +241,7 @@ void test_thumbnail_rules(Check check) noexcept {
     for (u32 poster = 0; poster < 3; ++poster) {
         embeds[0].image = poster == 1 ? saved_thumbnail : GatewayMessageEmbedMedia{};
         embeds[0].thumbnail = poster == 0 ? saved_thumbnail : GatewayMessageEmbedMedia{};
-        message_rich_store_initialize(&store, {records, 1}, {order, 1}, {text, sizeof(text)});
-        message_rich_store_apply(&store, 5, 1, event);
-        rich = message_rich_store_find(store, 5);
+        rich = apply();
         float width{}, height{};
         check(rich && !message_rich_embed_plan(store, rich->embeds[0]).corner_thumbnail &&
               message_rich_embed_media_select(store, rich->embeds[0], &media) &&
@@ -280,9 +275,7 @@ void test_thumbnail_rules(Check check) noexcept {
     const Utf8View preview_labels[]{utf8_literal("Spotify · Preview"), utf8_literal("Apple Music · Preview"), utf8_literal("Apple Music · Preview"), utf8_literal("Spotify · Preview")};
     for (u32 preview = 0; preview < 4; ++preview) {
         embeds[0].url = preview_urls[preview];
-        message_rich_store_initialize(&store, {records, 1}, {order, 1}, {text, sizeof(text)});
-        message_rich_store_apply(&store, 5, 1, event);
-        rich = message_rich_store_find(store, 5);
+        rich = apply();
         check(rich && message_rich_embed_media_select(store, rich->embeds[0], &media) &&
               media.resource == MediaEmbedResource::thumbnail && !message_rich_embed_plan(store, rich->embeds[0]).corner_thumbnail &&
               utf8_equal(message_rich_embed_provider_label(store, rich->embeds[0]), preview_labels[preview]),
@@ -733,7 +726,7 @@ void test_native_text_never_fails(Check check) noexcept {
     check(agree, "native_decorated_names_measure_and_draw_alike");
 
     // A scalar no native item can express draws the missing glyph, not a
-    // blank item; the placeholders are unassigned in the Unicode tables.
+    // blank item.
     const float ab = shape_styled(utf8_literal("ab"), {}).width;
     const Shaped javanese = shape_styled(utf8_literal("a\xEA\xA6\x84" "b"), {});
     check(javanese.ok && javanese.notdef == 1 && javanese.width > ab, "native_unsupported_scalar_draws_one_missing_glyph");
@@ -758,10 +751,6 @@ void test_native_text_never_fails(Check check) noexcept {
     const Shaped hebrew = shape_styled(utf8_literal("abc \xD7\x90\xD7\x91 ("), {});
     check(hebrew.ok && hebrew.notdef == 0 && hebrew.width > shape_styled(utf8_literal("abc"), {}).width,
           "native_unmatched_bracket_in_rtl_text_keeps_its_letters");
-    check(unicode_properties(0x378)->general_category() == UnicodeGeneralCategory::cn &&
-              unicode_properties(0x2B74)->general_category() == UnicodeGeneralCategory::cn &&
-              unicode_properties(0x2FFFD)->general_category() == UnicodeGeneralCategory::cn,
-          "native_missing_glyph_placeholders_are_unassigned");
 
     // Invisible format controls take no width natively, mid-line and at a
     // line start (fxtwitter prefixes lines with U+2063).

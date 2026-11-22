@@ -247,9 +247,9 @@ void test_within_and_across_groups(Fixture& f) noexcept {
           "selection: a drag upwards copies the same text in timeline order");
 
     // Middle messages are selected whole: every command between the ends lies in the highlighted span.
-    check(drag(f, first, 6, other, 5), "selection: a drag over four messages");
+    const bool dragged = drag(f, first, 6, other, 5);
     span = message_text_selection_span(f.range, p);
-    bool middle = span.valid && span.first == first && span.last == other && span.last_offset == 5;
+    bool middle = dragged && span.valid && span.first == first && span.last == other && span.last_offset == 5;
     for (u32 i = second; middle && i <= third; ++i)
         middle = i > span.first && i < span.last;
     check(middle && bob > span.first && bob < span.last,
@@ -522,19 +522,17 @@ void test_message_cap() noexcept {
                                                 Utf8View{out, bytes}, 0})
                     .ok();
     }
-    check(ready, "message cap: the stores hold more messages than the cap");
     // Plain text messages: no rich store (it would need room for every message).
     ready = ready && ui_variable_list_initialize(&m.list, {m.units, kMany}, {m.fenwick, kMany}, kMany, units) &&
             message_timeline_initialize(&m.timeline, &m.store, &m.list, units, ui_extent_units(ui_rect_height(kShort)),
                                         false);
-    check(ready, "message cap: the timeline lays them out");
     ready = ready &&
             message_scene_initialize_owned(&m.scene, &m.timeline, kMessageSceneTestRows, kRowCount,
                                            {widgets, kWidgets}, {layout, kWidgets}) &&
             message_text_presentation_initialize(&m.presentation, {commands, 256}, {display, sizeof(display)},
                                                  {styles, 256}, {semantics, 128}, {measurements, kRowCount * 2},
                                                  {reveals, 16}, {scratch, 8192});
-    check(ready, "message cap: the scene and presentation initialize");
+    check(ready, "message cap: the stores, timeline, scene and presentation initialize");
     ready = ready && many_build(m, 0);
     const u32 first = ready ? many_content(m, 0) : kMessageTextSelectionNoCommand;
     check(ready && first != kMessageTextSelectionNoCommand &&

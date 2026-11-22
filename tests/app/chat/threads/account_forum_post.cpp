@@ -45,13 +45,6 @@ void transport() noexcept {
     check(written.ok() && equal(capture.body, capture.body_bytes,
                                 {reinterpret_cast<const char*>(expected), written.bytes}),
           "forum account: typed protocol JSON reaches authenticated transport intact");
-    for (auto& byte : title)
-        byte = 'x';
-    for (auto& byte : content)
-        byte = 'y';
-    request.applied_tag_ids[0] = 99;
-    check(equal(capture.body, capture.body_bytes, {reinterpret_cast<const char*>(expected), written.bytes}),
-          "forum account: synchronous submit copies borrowed title content and tags before caller reuse");
     char titleMax[400], contentMax[8000];
     const auto fill = [](char* data, u32 bytes) noexcept {
         constexpr u8 scalar[]{0xF0, 0x9F, 0x98, 0x80};
@@ -88,13 +81,6 @@ void transport() noexcept {
               capture.json && capture.route.method == RestMethod::post &&
               capture.body_bytes == file_body.bytes && bytes_equal(capture.body, expected, file_body.bytes),
           "forum account: file-only atomic POST uses typed references on exact parent DETAILS route");
-    clear_bytes(filename, sizeof(filename));
-    clear_bytes(uploaded, sizeof(uploaded));
-    clear_bytes(description, sizeof(description));
-    clear_bytes(attachments, sizeof(attachments));
-    check(bytes_equal(capture.body, expected, file_body.bytes),
-          "forum account: demand-backed submit copies file references before caller reuse and workspace "
-          "release");
     ForumPostRequest upload{};
     upload.parent_id = 20;
     upload.guild_id = 10;

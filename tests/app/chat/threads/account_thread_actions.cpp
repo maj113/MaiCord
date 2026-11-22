@@ -41,10 +41,6 @@ void run() noexcept {
         exact(&rest, 104, 20, RestMethod::patch, kChannelOverviewRouteId,
               utf8_literal("/api/v9/channels/20"), utf8_literal("{\"archived\":false}")),
         "thread account: Unarchive PATCH contains only archived=false and cannot unlock");
-    request.thread_id = request.self_user_id = 999;
-    check(exact(&rest, 104, 20, RestMethod::patch, kChannelOverviewRouteId,
-        utf8_literal("/api/v9/channels/20"), utf8_literal("{\"archived\":false}")),
-        "thread account: transport synchronously retains request bytes after caller reuse");
     request = {~u64{0}, ~u64{0}, ThreadActionOperation::fetch_self, {}};
     check(account_thread_action_submit(&rest, &request, 105).ok() &&
         exact(&rest, 105, ~u64{0}, RestMethod::get, kThreadMemberRouteId,

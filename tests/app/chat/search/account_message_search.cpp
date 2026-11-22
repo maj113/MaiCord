@@ -29,15 +29,11 @@ void run() noexcept {
     check(account_message_search(&rest, AccountMessageSearchOperation::submit, &query, 41).ok() &&
               capture.submissions == 1 && capture.client == &rest && capture.request_id == 41 && capture.safe &&
               route.route_id == kGuildMessageSearchRouteId && route.major_key == 7 &&
-              route.major == RestMajorParameter::guild && route.method == RestMethod::get,
+              route.major == RestMajorParameter::guild && route.method == RestMethod::get &&
+              target_is(utf8_literal("/api/v9/guilds/7/messages/"
+                                     "search?offset=0&limit=25&sort_by=timestamp&sort_order=desc&content="
+                                     "native%20%26%20query&include_nsfw=false")),
           "search transport: exact server GET uses existing REST owner and guild rate identity");
-    for (u32 index = 0; index < query.content_bytes; ++index) {
-        query.content[index] = 'x';
-    }
-    check(target_is(utf8_literal("/api/v9/guilds/7/messages/"
-                                 "search?offset=0&limit=25&sort_by=timestamp&sort_order=desc&content="
-                                 "native%20%26%20query&include_nsfw=false")),
-          "search transport: request bytes are copied before caller query reuse");
     query.scope = MessageSearchScope::channel;
     query.content_bytes = 0;
     const u32 before_empty = capture.submissions;

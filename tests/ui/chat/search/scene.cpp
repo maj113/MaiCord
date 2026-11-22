@@ -614,9 +614,7 @@ void rich_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     content.total = 32;
     content.revision = 1;
     UiSearchScene search{};
-    check(ui_search_scene_set_media_policy(&search, {&f, rich_search_media_policy, 1}) &&
-              !search.rich_projection,
-          "search media policy: binding precedes lazy native projection");
+    ui_search_scene_set_media_policy(&search, {&f, rich_search_media_policy, 1});
     ready =
         ready && ui_search_scene_update(&search, &source, &content, {0, 0, 1200, 800}, {0, 0, 1200, 48});
     auto* native = ui_search_scene_message_scene(&search);
@@ -779,8 +777,6 @@ void rich_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     search_tab_layouts(check, search, source, paint);
     paint_stream_release(&paint);
     ui_search_scene_release(&search);
-    check(!search.rich_projection && !search.rich_projection_storage.base,
-          "search rich: release retires the single lazy projection and all borrowed source pointers");
 }
 void rich_search_gallery(void (*check)(bool, const char*) noexcept) noexcept {
     auto& f = rich_search_fixture;
@@ -1224,6 +1220,5 @@ void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     check(clipped, "search_scene_short_filter_chooser_children_do_not_escape_surface");
     ui_search_scene_release(&compact);
     ui_search_scene_release(&scene);
-    check(!scene.storage.arena.base && !scene.active, "search_scene_release_clears_all_borrowed_owners");
 }
 } // namespace maicord

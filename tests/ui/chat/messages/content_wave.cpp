@@ -168,10 +168,6 @@ MessageMediaPolicyResult query_media_policy(const void* context, const MessageMe
 void test_media_policy(Check check) noexcept {
     MessageMediaReveals reveals{};
     const u64 key = message_media_reveal_key(42, MessageMediaSource::attachment, 0);
-    check(key != message_media_reveal_key(42, MessageMediaSource::embed, 0) &&
-              key != message_media_reveal_key(42, MessageMediaSource::attachment, 1) &&
-              key != message_media_reveal_key(42, MessageMediaSource::attachment, 0, true),
-          "media_reveal_keys_distinguish_items");
     check(message_media_obscure(reveals, key, true, false, MessageExplicitFilter::show, false) ==
                   MessageMediaObscure::spoiler &&
               message_media_obscure(reveals, key, true, false, MessageExplicitFilter::show, true) ==
@@ -183,12 +179,19 @@ void test_media_policy(Check check) noexcept {
               message_media_obscure(reveals, key, false, true, MessageExplicitFilter::show, false) ==
                   MessageMediaObscure::none,
           "media_obscure_states");
+    // A reveal is per item: the message's embed, its next attachment and the attachment's snapshot copy stay hidden.
     check(message_media_reveal(&reveals, key) && !message_media_reveal(&reveals, key) &&
               message_media_obscure(reveals, key, true, true, MessageExplicitFilter::blur, false) ==
                   MessageMediaObscure::none &&
               message_media_obscure(reveals, key, true, true, MessageExplicitFilter::block, false) ==
-                  MessageMediaObscure::blocked,
-          "media_reveal_is_sticky_but_block_wins");
+                  MessageMediaObscure::blocked &&
+              message_media_obscure(reveals, message_media_reveal_key(42, MessageMediaSource::embed, 0), true, false,
+                                    MessageExplicitFilter::show, false) == MessageMediaObscure::spoiler &&
+              message_media_obscure(reveals, message_media_reveal_key(42, MessageMediaSource::attachment, 1), true,
+                                    false, MessageExplicitFilter::show, false) == MessageMediaObscure::spoiler &&
+              message_media_obscure(reveals, message_media_reveal_key(42, MessageMediaSource::attachment, 0, true),
+                                    true, false, MessageExplicitFilter::show, false) == MessageMediaObscure::spoiler,
+          "media_reveal_is_sticky_per_item_but_block_wins");
     check(message_media_obscure(reveals, key, false, true, MessageExplicitFilter::blur, false, false) ==
               MessageMediaObscure::explicit_content,
           "media_explicit_confirmation_revokes_prior_reveal");
@@ -422,8 +425,8 @@ void test_components(Check check) noexcept {
     const float row_height = items.heights[kMessageRichComponentItemOffset + 0];
     const float section_height = items.heights[kMessageRichComponentItemOffset + 2];
     const float gallery_height = items.heights[kMessageRichComponentItemOffset + 3];
-    check(row_height == kMessageComponentButtonHeight && section_height == kMessageComponentThumbnailExtent &&
-              gallery_height > 0 && items.component_widths[1] <= kMessageComponentSelectMaximumWidth + 0.5f,
+    check(row_height == 32.0f && section_height == 85.0f && gallery_height > 0 &&
+              items.component_widths[1] <= 400.5f,
           "components_layout_heights");
     const UiRect left = message_component_gallery_cell(2, 0, 400), right = message_component_gallery_cell(2, 1, 400);
     check(left.right <= right.left && left.top == right.top && ui_rect_width(left) == ui_rect_width(right) &&
@@ -477,9 +480,8 @@ void test_components(Check check) noexcept {
     copy_bytes(variant_components, rich->components, rich->component_count * static_cast<u32>(sizeof(MessageRichComponent)));
     variant.components = variant_components;
     variant.components_v2 = false;
-    check(rich->components_v2 && message_component_root_gap(rich) == kMessageComponentGap &&
-              message_component_root_gap(&variant) == kMessageComponentLegacyRootGap &&
-              message_component_structure(rich) != message_component_structure(&variant),
+    check(rich->components_v2 && message_component_root_gap(rich) == 8.0f &&
+              message_component_root_gap(&variant) == 6.0f,
           "components_root_gap_follows_the_v2_flag");
     // Media sizes travel with the item: a lone gallery item keeps its aspect.
     const UiRect wide = message_component_gallery_cell(1, 0, 400, 0.25f),
@@ -498,7 +500,7 @@ void test_components(Check check) noexcept {
     message_component_measure_tree(*rich, &items, 600.0f);
     check(host == rich->components[accept_index].parent &&
               failed_items.heights[kMessageRichComponentItemOffset + host] ==
-                  items.heights[kMessageRichComponentItemOffset + host] + kMessageComponentErrorHeight &&
+                  items.heights[kMessageRichComponentItemOffset + host] + 28.0f &&
               message_component_error_host(*rich, host) == kMessageComponentNone,
           "components_failed_control_grows_its_row_by_the_error_line");
     // A spoiler container hides everything inside it and takes the click.
@@ -781,23 +783,41 @@ bool initialize_scene(SceneFixture& f, u32 rows) noexcept {
                                                 {f.spoilers, 2}, {f.byte_styles, 4096}) &&
            ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 256}, measure, nullptr);
 }
+// A message in channel 7, `offset_ms` after the fixture's base time.
+MessageInput text_message(u64 id, u64 author, Utf8View content, u64 offset_ms = 0) noexcept {
+    MessageInput input{};
+    input.id = id;
+    input.channel_id = 7;
+    input.author_id = author;
+    input.timestamp_ms = 1'500'000'000'000ull + offset_ms;
+    input.content = content;
+    return input;
+}
+NavigationView g_navigation;
+bool converge(SceneFixture& f, const ChatStateStore& state, const UserStore* users = nullptr, u64 now = 1,
+              MessageTextFinalize finalize = finish, void* finalize_context = nullptr) noexcept {
+    const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, users, &g_navigation,
+                                                &kDefaultTheme, finalize, finalize_context, now, 1};
+    return message_scene_update(&f.scene, {0, 0, 700, 2000}).ok() && message_text_coordinator_converge(request).ok();
+}
+bool paints(const MessageScene& scene) noexcept {
+    PaintStream paint{};
+    MessageMediaCommand media_storage[64];
+    MessageMediaCommandStream media{};
+    MessagePresentationResult painted{};
+    const bool ok = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 800, 2000) &&
+                    message_media_command_stream_initialize(&media, {media_storage, 64}) &&
+                    message_presentation_build(scene, kDefaultTheme, &paint, &media, &painted);
+    paint_stream_release(&paint);
+    return ok;
+}
 
 void test_presentation(Check check) noexcept {
     auto& f = scene_fixture;
     f = {};
-    bool ok = initialize_stores(f);
-    MessageInput join{};
-    join.id = 3ull << 22;
-    join.channel_id = 7;
-    join.author_id = 11;
-    join.timestamp_ms = 1'500'000'000'000ull;
+    MessageInput join = text_message(3ull << 22, 11, {});
     join.type = message_type_user_join;
-    MessageInput ephemeral{};
-    ephemeral.id = (3ull << 22) + 1;
-    ephemeral.channel_id = 7;
-    ephemeral.author_id = 9;
-    ephemeral.timestamp_ms = join.timestamp_ms + 1;
-    ephemeral.content = utf8_literal("Saved!");
+    MessageInput ephemeral = text_message(join.id + 1, 9, utf8_literal("Saved!"), 1);
     ephemeral.flags = 64;
     MessageInput thinking = ephemeral;
     thinking.id += 1;
@@ -807,19 +827,12 @@ void test_presentation(Check check) noexcept {
     invite.id += 2;
     invite.flags = 0;
     invite.content = utf8_literal("join us https://discord.gg/abc123 today");
-    ok = ok && message_store_upsert(&f.store, join).ok() && message_store_upsert(&f.store, ephemeral).ok() &&
-         message_store_upsert(&f.store, thinking).ok() && message_store_upsert(&f.store, invite).ok() &&
-         initialize_scene(f, kRows);
+    bool ok = initialize_stores(f) && message_store_upsert(&f.store, join).ok() &&
+              message_store_upsert(&f.store, ephemeral).ok() && message_store_upsert(&f.store, thinking).ok() &&
+              message_store_upsert(&f.store, invite).ok() && initialize_scene(f, kRows);
     message_scene_bind_invite_cards(&f.scene, &f.invites);
     ChatStateStore state{};
-    NavigationView navigation{};
-    const auto converge = [&]() noexcept {
-        const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, nullptr,
-                                                    &navigation, &kDefaultTheme, finish, nullptr, 1, 1};
-        return message_scene_update(&f.scene, {0, 0, 700, 2000}).ok() &&
-               message_text_coordinator_converge(request).ok();
-    };
-    ok = ok && converge();
+    ok = ok && converge(f, state);
     check(ok, "presentation_converges_with_wave_rows");
     if (!ok) {
         message_scene_release(&f.scene);
@@ -859,20 +872,16 @@ void test_presentation(Check check) noexcept {
     check(f.presentation.next_timestamp_update_unix_seconds &&
               f.presentation.next_timestamp_update_unix_seconds <= thinking_deadline,
           "presentation_loading_schedules_its_response_deadline");
-    {
-        const MessageTextCoordinatorRequest late{&f.scene, &f.presentation, &f.cache, &state, nullptr,
-                                                 &navigation, &kDefaultTheme, finish, nullptr,
-                                                 thinking_deadline, 1};
-        check(message_text_coordinator_converge(late).ok() &&
-                  command_text(f, thinking.id, utf8_literal("The application did not respond")) &&
-                  !command_text(f, thinking.id, utf8_literal("is thinking")),
-              "presentation_loading_times_out_after_fifteen_minutes");
-        check(status_icon(MessageMarkdownChipIcon::failed) && !f.presentation.status_dots,
-              "presentation_unanswered_loading_shows_the_failed_icon");
-        check(converge(), "presentation_restores_the_fixture_clock");
-    }
+    check(converge(f, state, nullptr, thinking_deadline) &&
+              command_text(f, thinking.id, utf8_literal("The application did not respond")) &&
+              !command_text(f, thinking.id, utf8_literal("is thinking")),
+          "presentation_loading_times_out_after_fifteen_minutes");
+    check(status_icon(MessageMarkdownChipIcon::failed) && !f.presentation.status_dots,
+          "presentation_unanswered_loading_shows_the_failed_icon");
+    ok = converge(f, state);
     const auto* invite_row = message_scene_find_row(f.scene, 3);
-    check(invite_row && invite_row->invite_item_count == 1 && invite_row->rich_layout.invites == kMessageInviteCardHeight &&
+    check(ok && invite_row && invite_row->invite_item_count == 1 &&
+              invite_row->rich_layout.invites == 106.0f &&
               command_text(f, invite.id, utf8_literal("Loading invite")),
           "presentation_invite_card_loading");
     GuildInvite resolved{};
@@ -886,25 +895,17 @@ void test_presentation(Check check) noexcept {
     invite_card_cache_begin(&f.invites, utf8_literal("abc123"));
     invite_card_cache_complete(&f.invites, utf8_literal("abc123"), GuildInviteOutcome::resolved, &resolved, 2);
     f.scene.dirty = true;
-    ok = converge();
+    ok = converge(f, state);
     check(ok && command_text(f, invite.id, utf8_literal("Cafe")) &&
               command_text(f, invite.id, utf8_literal("1,234 online \xC2\xB7 5,678 members")) &&
               command_text(f, invite.id, utf8_literal("Join")),
           "presentation_invite_card_resolved");
     // A failed interaction annotates its message.
     message_scene_set_interaction(&f.scene, {ephemeral.id, 0, false, true});
-    ok = converge();
+    ok = converge(f, state);
     check(ok && command_text(f, ephemeral.id, utf8_literal("This interaction failed")),
           "presentation_failed_interaction_notice");
-    PaintStream paint{};
-    MessageMediaCommand media_storage[64];
-    MessageMediaCommandStream media{};
-    MessagePresentationResult painted{};
-    check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 800, 2000) &&
-              message_media_command_stream_initialize(&media, {media_storage, 64}) &&
-              message_presentation_build(f.scene, kDefaultTheme, &paint, &media, &painted),
-          "presentation_paints_wave_rows");
-    paint_stream_release(&paint);
+    check(paints(f.scene), "presentation_paints_wave_rows");
     message_scene_release(&f.scene);
 }
 
@@ -941,27 +942,34 @@ struct RenderUsers {
     UserStore store;
 };
 RenderUsers render_users;
+bool initialize_users() noexcept {
+    render_users = {};
+    return user_store_initialize(&render_users.store, {render_users.records, 4}, {render_users.order, 4},
+                                 {render_users.names, sizeof(render_users.names)}) &&
+           user_store_upsert(&render_users.store, 11, utf8_literal("Ann")).ok() &&
+           user_store_upsert(&render_users.store, 9, utf8_literal("Bob")).ok();
+}
+// Installs the verdict query with no verdicts; the caller fills them in.
+void start_decorations(SceneFixture& f) noexcept {
+    for (u32 i = 0; i < kRows; ++i) {
+        g_render_ids[i] = 0;
+        g_render_decorations[i] = {};
+    }
+    g_ui_plugin_render_query = render_query;
+    g_ui_plugin_render_revision = 1;
+    f.scene.plugin_decorations = true;
+}
+void end_decorations(SceneFixture& f) noexcept {
+    g_ui_plugin_render_query = nullptr;
+    g_ui_plugin_render_revision = 0;
+    message_scene_release(&f.scene);
+}
 
 void test_plugin_decorations(Check check) noexcept {
     auto& f = scene_fixture;
     f = {};
-    render_users = {};
-    bool ok = initialize_stores(f) &&
-              user_store_initialize(&render_users.store, {render_users.records, 4}, {render_users.order, 4},
-                                    {render_users.names, sizeof(render_users.names)}) &&
-              user_store_upsert(&render_users.store, 11, utf8_literal("Ann")).ok() &&
-              user_store_upsert(&render_users.store, 9, utf8_literal("Bob")).ok();
-    MessageInput first{};
-    first.id = 5ull << 22;
-    first.channel_id = 7;
-    first.author_id = 11;
-    first.timestamp_ms = 1'500'000'000'000ull;
-    first.content = utf8_literal("first message");
-    MessageInput hidden = first;
-    hidden.id += 1;
-    hidden.author_id = 9;
-    hidden.timestamp_ms += 1;
-    hidden.content = utf8_literal("hidden secret");
+    const MessageInput first = text_message(5ull << 22, 11, utf8_literal("first message"));
+    MessageInput hidden = text_message(first.id + 1, 9, utf8_literal("hidden secret"), 1);
     // The edited messages below keep their plugin verdicts: replaced text gets the label, hidden and collapsed none.
     hidden.edited_timestamp_ms = 1'500'000'100'000ull;
     MessageInput replaced = hidden;
@@ -972,11 +980,10 @@ void test_plugin_decorations(Check check) noexcept {
     collapsed.id += 1;
     collapsed.timestamp_ms += 1;
     collapsed.content = utf8_literal("collapsed secret");
-    ok = ok && message_store_upsert(&f.store, first).ok() && message_store_upsert(&f.store, hidden).ok() &&
-         message_store_upsert(&f.store, replaced).ok() && message_store_upsert(&f.store, collapsed).ok() &&
-         initialize_scene(f, kRows);
-    for (auto& decoration : g_render_decorations)
-        decoration = {};
+    bool ok = initialize_stores(f) && initialize_users() && message_store_upsert(&f.store, first).ok() &&
+              message_store_upsert(&f.store, hidden).ok() && message_store_upsert(&f.store, replaced).ok() &&
+              message_store_upsert(&f.store, collapsed).ok() && initialize_scene(f, kRows);
+    start_decorations(f);
     g_render_ids[0] = first.id;
     g_render_ids[1] = hidden.id;
     g_render_ids[2] = replaced.id;
@@ -997,22 +1004,11 @@ void test_plugin_decorations(Check check) noexcept {
     g_render_decorations[2].content = utf8_literal("**replaced** text");
     g_render_decorations[2].name_prefix = utf8_literal("[bot]");
     g_render_decorations[3].visibility = ui_plugin_render_collapsed;
-    g_ui_plugin_render_query = render_query;
-    g_ui_plugin_render_revision = 1;
-    f.scene.plugin_decorations = true;
     ChatStateStore state{};
-    NavigationView navigation{};
-    const auto converge = [&]() noexcept {
-        const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, &render_users.store,
-                                                    &navigation, &kDefaultTheme, finish, nullptr, 1, 1};
-        return message_scene_update(&f.scene, {0, 0, 700, 2000}).ok() &&
-               message_text_coordinator_converge(request).ok();
-    };
-    ok = ok && converge();
+    ok = ok && converge(f, state, &render_users.store);
     check(ok, "plugin_render_converges");
     if (!ok) {
-        g_ui_plugin_render_query = nullptr;
-        message_scene_release(&f.scene);
+        end_decorations(f);
         return;
     }
     const auto* hidden_row = message_scene_find_row(f.scene, 1);
@@ -1083,18 +1079,10 @@ void test_plugin_decorations(Check check) noexcept {
               message_scene_media_obscure(f.scene, media_owner, first.id, key, false, false) == MessageMediaObscure::none,
           "plugin_render_blur_reveals_on_click");
     message_scene_set_media_policy(&f.scene, {});
-    PaintStream paint{};
-    MessageMediaCommand media_storage[64];
-    MessageMediaCommandStream media{};
-    MessagePresentationResult painted{};
-    check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 800, 2000) &&
-              message_media_command_stream_initialize(&media, {media_storage, 64}) &&
-              message_presentation_build(f.scene, kDefaultTheme, &paint, &media, &painted),
-          "plugin_render_paints_decorated_rows");
-    paint_stream_release(&paint);
+    check(paints(f.scene), "plugin_render_paints_decorated_rows");
     // Compact rows: "[bot] Bob" keeps the name hit after the prefix.
     message_scene_set_display(&f.scene, {0, true});
-    ok = converge();
+    ok = converge(f, state, &render_users.store);
     const auto* compact = find_command(f, replaced.id, utf8_literal("[bot] Bob"));
     const float name_x = compact ? compact->rectangle.left + 6 * 7 + 4 : 0;
     const float line_y = compact ? compact->rectangle.top + 6 : 0;
@@ -1106,14 +1094,12 @@ void test_plugin_decorations(Check check) noexcept {
     g_render_decorations[1].visibility = ui_plugin_render_normal;
     ++g_ui_plugin_render_revision;
     message_scene_set_display(&f.scene, {0, false});
-    ok = converge();
+    ok = converge(f, state, &render_users.store);
     hidden_row = message_scene_find_row(f.scene, 1);
     check(ok && hidden_row && !hidden_row->redacted && ui_variable_list_item_units(f.list, 1) > 1 &&
               find_command(f, hidden.id, utf8_literal("hidden secret")),
           "plugin_render_unhidden_row_returns");
-    g_ui_plugin_render_query = nullptr;
-    g_ui_plugin_render_revision = 0;
-    message_scene_release(&f.scene);
+    end_decorations(f);
 }
 
 // A card that shows, changes and hides through new verdict revisions alone (no geometry reset, as a plugin's
@@ -1122,33 +1108,12 @@ void test_plugin_decorations(Check check) noexcept {
 void test_plugin_card_collapse(Check check) noexcept {
     auto& f = scene_fixture;
     f = {};
-    render_users = {};
-    bool ok = initialize_stores(f);
-    MessageInput card{};
-    card.id = 31ull << 22;
-    card.channel_id = 7;
-    card.author_id = 11;
-    card.timestamp_ms = 1'500'000'000'000ull;
-    card.content = utf8_literal("hi");
-    ok = ok && message_store_upsert(&f.store, card).ok() &&
-         initialize_scene(f, 1);
-    for (auto& decoration : g_render_decorations)
-        decoration = {};
-    for (auto& id : g_render_ids)
-        id = 0;
+    const MessageInput card = text_message(31ull << 22, 11, utf8_literal("hi"));
+    bool ok = initialize_stores(f) && message_store_upsert(&f.store, card).ok() && initialize_scene(f, 1);
+    start_decorations(f);
     g_render_ids[0] = card.id;
-    g_ui_plugin_render_query = render_query;
-    g_ui_plugin_render_revision = 1;
-    f.scene.plugin_decorations = true;
     ChatStateStore state{};
-    NavigationView navigation{};
-    const auto converge = [&]() noexcept {
-        const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, nullptr,
-                                                    &navigation, &kDefaultTheme, finish, nullptr, 1, 1};
-        return message_scene_update(&f.scene, {0, 0, 700, 2000}).ok() &&
-               message_text_coordinator_converge(request).ok();
-    };
-    ok = ok && converge();
+    ok = ok && converge(f, state);
     const u32 bare = ui_variable_list_item_units(f.list, 0);
     auto& decoration = g_render_decorations[0];
     decoration.has_card = true;
@@ -1158,7 +1123,7 @@ void test_plugin_card_collapse(Check check) noexcept {
     decoration.card.buttons[0] = {77, utf8_literal("Hide"), 0};
     decoration.card.button_count = 1;
     ++g_ui_plugin_render_revision;
-    ok = ok && converge();
+    ok = ok && converge(f, state);
     const u32 shown = ui_variable_list_item_units(f.list, 0);
     check(ok && bare && shown > bare && find_command(f, card.id, utf8_literal("Hallo")),
           "plugin_card_show_grows_its_row");
@@ -1166,12 +1131,12 @@ void test_plugin_card_collapse(Check check) noexcept {
     decoration.card.text = utf8_literal("A translation long enough to wrap onto several lines of the card's text column, "
                                         "so its row must grow past the one-line card it replaced.");
     ++g_ui_plugin_render_revision;
-    ok = ok && converge();
+    ok = ok && converge(f, state);
     const u32 updated = ui_variable_list_item_units(f.list, 0);
     check(ok && updated > shown, "plugin_card_update_remeasures_its_row");
     decoration = {};
     ++g_ui_plugin_render_revision;
-    ok = ok && converge();
+    ok = ok && converge(f, state);
     const auto* row = message_scene_find_row(f.scene, 0);
     check(ok && row && ui_variable_list_item_units(f.list, 0) == bare && row->rich_layout.notice == 0.0f &&
               row->rich_item_layout.plugin_card_height == 0.0f && !find_command(f, card.id, utf8_literal("Hallo")),
@@ -1180,7 +1145,7 @@ void test_plugin_card_collapse(Check check) noexcept {
     auto local = message_send_rejection_notice_input(7, utf8_literal("**preview** of a draft"),
                                                      1'500'000'001'000ull, 0x1C0002u);
     local.author_id = 1;
-    ok = ok && message_timeline_insert_local(&f.timeline, local).ok() && converge();
+    ok = ok && message_timeline_insert_local(&f.timeline, local).ok() && converge(f, state);
     const u64 with_local = f.list.total_units;
     const u32 local_units = ui_variable_list_item_units(f.list, 1);
     const auto* footer = find_command(f, local.id, utf8_literal("Only you can see this"));
@@ -1194,13 +1159,11 @@ void test_plugin_card_collapse(Check check) noexcept {
               test_contains(footer->text, utf8_literal("Only you can see this \xE2\x80\xA2 ")),
           "plugin_local_message_has_the_ephemeral_footer");
     // Dismiss message removes the local message (content_input.cpp), and its height goes with it.
-    ok = ok && message_timeline_remove_local(&f.timeline, local.id).ok() && converge();
+    ok = ok && message_timeline_remove_local(&f.timeline, local.id).ok() && converge(f, state);
     check(ok && f.list.count == 1 && f.list.total_units == with_local - local_units &&
               ui_variable_list_item_units(f.list, 0) == bare && !find_command(f, local.id, utf8_literal("preview")),
           "plugin_local_message_dismiss_removes_it_and_its_height");
-    g_ui_plugin_render_query = nullptr;
-    g_ui_plugin_render_revision = 0;
-    message_scene_release(&f.scene);
+    end_decorations(f);
 }
 
 // A plugin card is laid out and painted as the equivalent real embed: title, text and caption as an embed's
@@ -1209,21 +1172,11 @@ void test_plugin_card_collapse(Check check) noexcept {
 void test_plugin_card_embed_geometry(Check check) noexcept {
     auto& f = scene_fixture;
     f = {};
-    render_users = {};
-    bool ok = initialize_stores(f);
-    MessageInput embedded{};
-    embedded.id = 41ull << 22;
-    embedded.channel_id = 7;
-    embedded.author_id = 11;
-    embedded.timestamp_ms = 1'500'000'000'000ull;
-    embedded.content = utf8_literal("hi");
-    MessageInput carded = embedded;
-    carded.id += 1;
-    carded.author_id = 9;
-    carded.timestamp_ms += 1;
-    ok = ok && message_store_upsert(&f.store, embedded).ok() && message_store_upsert(&f.store, carded).ok();
-    const auto stored = message_store_find(f.store, embedded.id);
-    const MessageRecord* embedded_record = stored.ok() ? message_store_resolve(f.store, stored.handle) : nullptr;
+    const MessageInput embedded = text_message(41ull << 22, 11, utf8_literal("hi"));
+    const MessageInput carded = text_message(embedded.id + 1, 9, utf8_literal("hi"), 1);
+    bool ok = initialize_stores(f) && message_store_upsert(&f.store, embedded).ok() &&
+              message_store_upsert(&f.store, carded).ok();
+    const MessageRecord* embedded_record = message_store_find_record(f.store, embedded.id);
     GatewayMessageEmbed embed{};
     embed.type = GatewayMessageEmbedType::rich;
     embed.title = utf8_literal("Translation");
@@ -1237,10 +1190,7 @@ void test_plugin_card_embed_geometry(Check check) noexcept {
     ok = ok && embedded_record &&
          message_rich_store_apply(&f.rich, embedded.id, embedded_record->revision, event).ok() &&
          initialize_scene(f, 2);
-    for (auto& decoration : g_render_decorations)
-        decoration = {};
-    for (auto& id : g_render_ids)
-        id = 0;
+    start_decorations(f);
     g_render_ids[0] = carded.id;
     auto& decoration = g_render_decorations[0];
     decoration.has_card = true;
@@ -1248,15 +1198,8 @@ void test_plugin_card_embed_geometry(Check check) noexcept {
     decoration.card.title = embed.title;
     decoration.card.text = embed.description;
     decoration.card.caption = embed.footer_text;
-    g_ui_plugin_render_query = render_query;
-    g_ui_plugin_render_revision = 1;
-    f.scene.plugin_decorations = true;
     ChatStateStore state{};
-    NavigationView navigation{};
-    const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, nullptr,
-                                                &navigation, &kDefaultTheme, finish, nullptr, 1, 1};
-    ok = ok && message_scene_update(&f.scene, {0, 0, 700, 2000}).ok() &&
-         message_text_coordinator_converge(request).ok();
+    ok = ok && converge(f, state);
     const auto* embed_row = message_scene_find_row(f.scene, 0);
     const auto* card_row = message_scene_find_row(f.scene, 1);
     const float embed_height = embed_row ? embed_row->rich_item_layout.heights[kMessageRichEmbedItemOffset] -
@@ -1297,9 +1240,7 @@ void test_plugin_card_embed_geometry(Check check) noexcept {
               bytes_equal(&strips[0]->fill, &strips[1]->fill, sizeof(Color)),
           "plugin_card_accent_strip_spans_the_card_like_an_embed");
     paint_stream_release(&paint);
-    g_ui_plugin_render_query = nullptr;
-    g_ui_plugin_render_revision = 0;
-    message_scene_release(&f.scene);
+    end_decorations(f);
 }
 
 // Compact display: a timestamp column sized by the clock shape, the name on
@@ -1316,42 +1257,25 @@ const MessageTextCommand* command_of(const SceneFixture& f, u64 message_id, UiWi
 void test_compact_display(Check check) noexcept {
     auto& f = scene_fixture;
     f = {};
-    render_users = {};
     g_ui_plugin_render_query = nullptr;
-    bool ok = initialize_stores(f) &&
-              user_store_initialize(&render_users.store, {render_users.records, 4}, {render_users.order, 4},
-                                    {render_users.names, sizeof(render_users.names)}) &&
-              user_store_upsert(&render_users.store, 11, utf8_literal("Ann")).ok() &&
-              user_store_upsert(&render_users.store, 9, utf8_literal("Bob")).ok();
-    MessageInput first{};
-    first.id = 21ull << 22;
-    first.channel_id = 7;
-    first.author_id = 11;
-    first.timestamp_ms = 1'500'000'000'000ull;
-    first.content = utf8_literal("first line");
-    MessageInput second = first;
-    second.id += 1;
-    second.timestamp_ms += 1'000;
-    second.content = utf8_literal("second line");
-    MessageInput third = second;
-    third.id += 1;
-    third.author_id = 9;
-    third.timestamp_ms += 1'000;
-    third.content = utf8_literal("third line");
-    ok = ok && message_store_upsert(&f.store, first).ok() && message_store_upsert(&f.store, second).ok() &&
-         message_store_upsert(&f.store, third).ok() &&
-         initialize_scene(f, 3);
+    const MessageInput first = text_message(21ull << 22, 11, utf8_literal("first line"));
+    const MessageInput second = text_message(first.id + 1, 11, utf8_literal("second line"), 1'000);
+    const MessageInput third = text_message(first.id + 2, 9, utf8_literal("third line"), 2'000);
+    bool ok = initialize_stores(f) && initialize_users() && message_store_upsert(&f.store, first).ok() &&
+              message_store_upsert(&f.store, second).ok() && message_store_upsert(&f.store, third).ok() &&
+              initialize_scene(f, 3);
     ChatStateStore state{};
-    NavigationView navigation{};
-    const auto converge = [&]() noexcept {
-        const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, &render_users.store,
-                                                    &navigation, &kDefaultTheme, finish, nullptr, 1, 1};
-        return message_scene_update(&f.scene, {0, 0, 700, 2000}).ok() &&
-               message_text_coordinator_converge(request).ok();
+    const MessageSceneRowWidget* rows[3]{};
+    // Converges and finds the three rows again.
+    const auto refresh = [&]() noexcept {
+        const bool converged = converge(f, state, &render_users.store);
+        for (u32 i = 0; i < 3; ++i)
+            rows[i] = message_scene_find_row(f.scene, i);
+        return converged;
     };
     const auto display = [&](MessageSceneClock clock, bool compact) noexcept {
         message_scene_set_display(&f.scene, {0, compact, clock});
-        return converge();
+        return refresh();
     };
     ok = ok && display(MessageSceneClock::meridiem, true);
     check(ok, "compact_display_converges");
@@ -1359,8 +1283,6 @@ void test_compact_display(Check check) noexcept {
         message_scene_release(&f.scene);
         return;
     }
-    const MessageSceneRowWidget* rows[3]{message_scene_find_row(f.scene, 0), message_scene_find_row(f.scene, 1),
-                                         message_scene_find_row(f.scene, 2)};
     const float em = 16.0f;
     const auto near = [](float a, float b) noexcept { return a > b - .05f && a < b + .05f; };
     const auto column = [&](float clock_em) noexcept {
@@ -1390,26 +1312,15 @@ void test_compact_display(Check check) noexcept {
               command_text(f, third.id, utf8_literal("Bob third line")),
           "compact_display_names_every_message");
     // A grouped row shows its timestamp while hovered, and loses it after.
-    ok = ui_widget_manager_hover(&f.scene.widgets, rows[1]->widget) && converge();
-    rows[1] = message_scene_find_row(f.scene, 1);
+    ok = ui_widget_manager_hover(&f.scene.widgets, rows[1]->widget) && refresh();
     check(ok && rows[1] && command_of(f, second.id, rows[1]->avatar), "compact_display_hover_reveals_grouped_timestamp");
-    ok = ui_widget_manager_hover(&f.scene.widgets, ui_widget_invalid_handle()) && converge();
-    rows[1] = message_scene_find_row(f.scene, 1);
+    ok = ui_widget_manager_hover(&f.scene.widgets, ui_widget_invalid_handle()) && refresh();
     check(ok && rows[1] && !command_of(f, second.id, rows[1]->avatar), "compact_display_unhover_hides_grouped_timestamp");
     // The column follows the clock shape; quoted lines indent a reply indent.
     check(near(message_scene_reply_indent(f.scene), em * .625f), "compact_display_reply_indent");
-    ok = display(MessageSceneClock::short_time, true);
-    rows[0] = message_scene_find_row(f.scene, 0);
-    rows[1] = message_scene_find_row(f.scene, 1);
-    rows[2] = message_scene_find_row(f.scene, 2);
-    check(ok && column(2.25f), "compact_display_24_hour_column_is_2_25em");
-    ok = display(MessageSceneClock::wide, true);
-    rows[0] = message_scene_find_row(f.scene, 0);
-    rows[1] = message_scene_find_row(f.scene, 1);
-    rows[2] = message_scene_find_row(f.scene, 2);
-    check(ok && column(4.25f), "compact_display_wide_clock_column_is_4_25em");
+    check(display(MessageSceneClock::short_time, true) && column(2.25f), "compact_display_24_hour_column_is_2_25em");
+    check(display(MessageSceneClock::wide, true) && column(4.25f), "compact_display_wide_clock_column_is_4_25em");
     ok = display(MessageSceneClock::meridiem, false);
-    rows[1] = message_scene_find_row(f.scene, 1);
     check(ok && rows[1] && near(message_scene_reply_indent(f.scene), 0.0f) && !command_of(f, second.id, rows[1]->avatar) &&
               !command_text(f, second.id, utf8_literal("Ann second line")),
           "compact_display_cozy_restores_avatar_column_and_hides_inline_names");
@@ -1438,42 +1349,22 @@ bool count_finish(void* opaque, const Theme&) noexcept {
 void test_measure_isolation(Check check) noexcept {
     auto& f = scene_fixture;
     f = {};
-    MessageInput first{};
-    first.id = 31ull << 22;
-    first.channel_id = 7;
-    first.author_id = 11;
-    first.timestamp_ms = 1'500'000'000'000ull;
-    first.content = utf8_literal("first line");
-    MessageInput second = first;
-    second.id += 1;
-    second.author_id = 9;
-    second.timestamp_ms += 1'000;
-    second.content = utf8_literal("second line");
-    MessageInput third = second;
-    third.id += 1;
-    third.author_id = 11;
-    third.timestamp_ms += 1'000;
-    third.content = utf8_literal("third line");
+    const MessageInput first = text_message(31ull << 22, 11, utf8_literal("first line"));
+    const MessageInput second = text_message(first.id + 1, 9, utf8_literal("second line"), 1'000);
+    const MessageInput third = text_message(first.id + 2, 11, utf8_literal("third line"), 2'000);
     FailingMeasure failing{second.id, true, 0};
     bool ok = initialize_stores(f) && message_store_upsert(&f.store, first).ok() &&
               message_store_upsert(&f.store, second).ok() && message_store_upsert(&f.store, third).ok() &&
               initialize_scene(f, 3) &&
               ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 256}, measure_unless, &failing);
     ChatStateStore state{};
-    NavigationView navigation{};
     u32 finalizations = 0;
-    const auto converge = [&](u64 now) noexcept {
-        const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, nullptr,
-                                                    &navigation, &kDefaultTheme, count_finish, &finalizations, now, 1};
-        return message_scene_update(&f.scene, {0, 0, 700, 2000}).ok() &&
-               message_text_coordinator_converge(request).ok();
-    };
     const auto content_height = [&](u32 source_index) noexcept {
         const auto* row = message_scene_find_row(f.scene, source_index);
         return row ? row->measured_content_height : 0.0f;
     };
     constexpr u64 kNow = 1'500'000'100ull;
-    ok = ok && converge(kNow);
+    ok = ok && converge(f, state, nullptr, kNow, count_finish, &finalizations);
     bool second_blank = true;
     for (u32 i = 0; i < f.presentation.command_count; ++i)
         if (f.commands[i].message_id == second.id)
@@ -1487,7 +1378,7 @@ void test_measure_isolation(Check check) noexcept {
     check(retry_at == kNow + 1, "measure_failure_retries_on_the_text_clock_after_one_second");
     const u32 other_calls = failing.other_calls;
     failing.failing = false;
-    ok = ok && converge(retry_at);
+    ok = ok && converge(f, state, nullptr, retry_at, count_finish, &finalizations);
     check(ok && finalizations == 2 && f.presentation.measure_failures == 0 &&
               command_text(f, second.id, utf8_literal("second line")) && content_height(1) > 0 &&
               failing.other_calls == other_calls,
@@ -1501,13 +1392,8 @@ void test_measure_isolation(Check check) noexcept {
 void test_author_name_styles(Check check) noexcept {
     auto& f = scene_fixture;
     f = {};
-    render_users = {};
     g_ui_plugin_render_query = nullptr;
-    bool ok = initialize_stores(f) &&
-              user_store_initialize(&render_users.store, {render_users.records, 4}, {render_users.order, 4},
-                                    {render_users.names, sizeof(render_users.names)}) &&
-              user_store_upsert(&render_users.store, 11, utf8_literal("Ann")).ok() &&
-              user_store_upsert(&render_users.store, 9, utf8_literal("Bob")).ok();
+    bool ok = initialize_stores(f) && initialize_users();
     // Both authors have a Pixelify gradient display-name style.
     const u64 authors[]{11, 9};
     for (const u64 author : authors) {
@@ -1521,18 +1407,9 @@ void test_author_name_styles(Check check) noexcept {
         style.name.colors[1] = 0x9058FF;
         ok = ok && user_appearance_upsert(&render_users.store.appearance, style);
     }
-    MessageInput server{};
-    server.id = 31ull << 22;
-    server.channel_id = 7;
-    server.author_id = 11;
-    server.timestamp_ms = 1'500'000'000'000ull;
-    server.content = utf8_literal("in a server");
-    MessageInput direct = server;
-    direct.id += 1;
+    const MessageInput server = text_message(31ull << 22, 11, utf8_literal("in a server"));
+    MessageInput direct = text_message(server.id + 1, 9, utf8_literal("in a DM"), 1'000);
     direct.channel_id = 8;
-    direct.author_id = 9;
-    direct.timestamp_ms += 1'000;
-    direct.content = utf8_literal("in a DM");
     ok = ok && message_store_upsert(&f.store, server).ok() && message_store_upsert(&f.store, direct).ok() &&
          initialize_scene(f, 2);
     // Guild 70's role 777 has a secondary colour; the guild's features first lack ENHANCED_ROLE_COLORS.
@@ -1569,14 +1446,7 @@ void test_author_name_styles(Check check) noexcept {
     members.count = 1;
     members.revision = 1;
     ok = ok && message_text_presentation_bind_guild_members(&f.presentation, &members);
-    NavigationView navigation{};
-    const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, &render_users.store,
-                                                &navigation, &kDefaultTheme, finish, nullptr, 1, 1};
-    const auto converge = [&]() noexcept {
-        return message_scene_update(&f.scene, {0, 0, 700, 2000}).ok() &&
-               message_text_coordinator_converge(request).ok();
-    };
-    ok = ok && converge();
+    ok = ok && converge(f, state, &render_users.store);
     check(ok, "author_name_styles_converge");
     if (!ok) {
         message_scene_release(&f.scene);

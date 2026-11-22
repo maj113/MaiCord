@@ -1548,10 +1548,8 @@ void test_message_history_sync() noexcept {
         mention_state_ready &&
         message_history_apply_mention_flags(&timeline, &mention_state,
                                             ConstSlice<GatewayMessageEvent>{historical_mentions, 2});
-    const MessageRecord* direct_mention_record =
-        message_store_resolve(store, message_store_find(store, 900).handle);
-    const MessageRecord* role_mention_record =
-        message_store_resolve(store, message_store_find(store, 800).handle);
+    const MessageRecord* direct_mention_record = message_store_find_record(store, 900);
+    const MessageRecord* role_mention_record = message_store_find_record(store, 800);
     expect(mention_flags_applied && direct_mention_record && role_mention_record &&
                direct_mention_record->presentation_flags == message_presentation_mentions_current_user &&
                role_mention_record->presentation_flags == message_presentation_mentions_current_user,
@@ -1716,8 +1714,7 @@ void test_message_history_sync() noexcept {
     const MessageHistoryApplyResult refreshed =
         message_history_refresh_attachment(&catchup_timeline, refreshed_message, 50, 7, refresh_revision,
                                            8'008, MessageContentAvailability::available);
-    const MessageRecord* refresh_after =
-        message_store_resolve(catchup_store, message_store_find(catchup_store, 50).handle);
+    const MessageRecord* refresh_after = message_store_find_record(catchup_store, 50);
     const MessageRichRecord* refreshed_rich = message_rich_store_find(catchup_rich, 50);
     expect(refreshed.ok() && refreshed.invalidation.count == 1 && !refreshed.invalidation.structural &&
                refresh_after && refresh_after->revision != refresh_revision && refreshed_rich &&

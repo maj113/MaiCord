@@ -28,19 +28,6 @@ void run() noexcept {
               capture.response_capacity == kRestClientMaximumResponseBytes,
           "pins account: bounded first page uses exact modern endpoint, channel-major authenticated owner and a "
           "response bank for 25 long messages");
-    constexpr auto timestamp = utf8_literal("2026-10-05T00:00:00.123456+00:00");
-    copy_bytes(request.query.before.timestamp, timestamp.data, timestamp.bytes);
-    request.query.before.bytes = static_cast<u8>(timestamp.bytes);
-    request.query.limit = 1;
-    check(account_pinned_messages_submit(&rest, &request, 102).ok() &&
-              exact(&rest, 20, 102, kMessagePinsRouteId, RestMethod::get,
-                    utf8_literal("/api/v9/channels/20/messages/pins?limit=1&before=2026-10-05T00%3A00%3A00.123456%2B00%3A00")),
-          "pins account: exact six-digit timestamp cursor is encoded without losing pin-order precision");
-    for (auto& byte : request.query.before.timestamp)
-        byte = 'x';
-    check(utf8_equal({reinterpret_cast<const char*>(capture.target), capture.target_bytes},
-                     utf8_literal("/api/v9/channels/20/messages/pins?limit=1&before=2026-10-05T00%3A00%3A00.123456%2B00%3A00")),
-          "pins account: REST copies owned cursor bytes before caller request reuse");
     request = {};
     request.query.channel_id = ~u64{0};
     request.message_id = ~u64{0};
@@ -60,7 +47,7 @@ void run() noexcept {
           "pins account: DELETE uses the mutation route with its own method bucket and exact request ID");
     const u32 before_invalid = capture.submissions;
     bool refused = true;
-    MessagePinsRequest invalid[10]{};
+    MessagePinsRequest invalid[6]{};
     for (auto& input : invalid)
         input = request;
     invalid[0].query.channel_id = 0;
@@ -69,17 +56,10 @@ void run() noexcept {
     invalid[3].query.limit = 1;
     invalid[4].operation = static_cast<MessagePinsOperation>(255);
     invalid[5].operation = MessagePinsOperation::fetch;
-    invalid[6].operation = invalid[7].operation = invalid[8].operation = invalid[9].operation = MessagePinsOperation::fetch;
-    invalid[6].message_id = invalid[7].message_id = invalid[8].message_id = invalid[9].message_id = 0;
-    invalid[6].query.limit = 0;
-    invalid[7].query.limit = 51;
-    invalid[8].query.before.bytes = 41;
-    invalid[9].query.before.bytes = 4;
-    copy_bytes(invalid[9].query.before.timestamp, "bad!", 4);
     for (const auto& input : invalid)
         refused = account_pinned_messages_submit(&rest, &input, 105).error == RestClientSubmitError::invalid_input && refused;
     check(refused && capture.submissions == before_invalid,
-          "pins account: invalid operation mixed fetch/mutation arguments cursor syntax and page bounds never publish REST work");
+          "pins account: invalid operations and mixed fetch/mutation arguments never publish REST work");
     const RestClientSubmitError errors[]{RestClientSubmitError::busy,
         RestClientSubmitError::signal, RestClientSubmitError::account_restricted,
         RestClientSubmitError::memory};

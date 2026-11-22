@@ -166,13 +166,12 @@ void private_privacy() noexcept {
     chat_state_store_recompute_guild_permissions(&state, 7);
     constexpr auto mixed = utf8_literal(
         R"search({"total_results":2,"messages":[[{"id":"620","channel_id":"71","guild_id":"7","author":{"id":"3","username":"Private author"},"content":"Private outer secret","timestamp":"2026-01-01T00:00:00Z","hit":true,"message_reference":{"type":1,"message_id":"619","channel_id":"70","guild_id":"7"},"message_snapshots":[{"message":{"type":0,"content":"Private child secret","attachments":[{"id":"110","filename":"private.png","size":17,"width":320,"height":32,"url":"https://cdn.discordapp.com/attachments/70/110/private.png"}]}}]}],[{"id":"610","channel_id":"70","guild_id":"7","author":{"id":"4","username":"Public author"},"content":"Authorized public result","timestamp":"2026-01-01T00:00:00Z","hit":true,"message_reference":{"type":1,"message_id":"609","channel_id":"71","guild_id":"7"},"message_snapshots":[{"message":{"type":0,"content":"Authorized forwarded result","attachments":[{"id":"111","filename":"public.png","size":17,"width":320,"height":32,"url":"https://cdn.discordapp.com/attachments/71/111/public.png"}]}}]}]]})search");
-    check(query(utf8_literal("privacy mixed")) && application_search_submit(960, 1) &&
-              response(960, 200, mixed),
-          "search privacy: real mixed rich decoder and owning sink publish two independent channels");
+    const bool published =
+        query(utf8_literal("privacy mixed")) && application_search_submit(960, 1) && response(960, 200, mixed);
     ApplicationSearchSourceTicket private_ticket{}, public_ticket{};
     ApplicationSearchSourceView view{};
     ApplicationSearchNavigationSource navigation_source{};
-    check(application_search_source_ticket(0, &private_ticket) &&
+    check(published && application_search_source_ticket(0, &private_ticket) &&
               application_search_source_ticket(1, &public_ticket) &&
               application_search_source_resolve(private_ticket, true, &view),
           "search privacy: positive private membership permits outer-owned forwarded media");
@@ -511,8 +510,7 @@ void poll_publication() noexcept {
           "search polls: stale HTTP results preserve newer Gateway counts/own vote and release captured "
           "tickets");
 
-    check(query(utf8_literal("poll content race")) && application_search_submit(973, 1),
-          "search polls: content race has a real submitted Search ticket");
+    const bool content_race = query(utf8_literal("poll content race")) && application_search_submit(973, 1);
     GatewayMessagePoll fresh_question{};
     fresh_question.present = true;
     fresh_question.fields = gateway_message_poll_field_question;
@@ -520,7 +518,7 @@ void poll_publication() noexcept {
     const auto updated =
         message_poll_store_apply(&store, 700, 70, fresh_question, ++ui.poll_gateway_serial);
     const u32 fresh_revision = updated.record ? updated.record->content_revision : 0;
-    check(updated.ok() && updated.changed && response(973, 200, body) &&
+    check(content_race && updated.ok() && updated.changed && response(973, 200, body) &&
               g_app.search->controller.state == MessageSearchState::ready,
           "search polls: authoritative content changes between submission and HTTP completion");
     poll = message_poll_store_find(store, 700);
@@ -532,11 +530,10 @@ void poll_publication() noexcept {
 
     constexpr auto null_body = utf8_literal(
         R"({"total_results":1,"messages":[[{"id":"700","channel_id":"70","guild_id":"7","author":{"id":"3","username":"Poll fixture author"},"content":"","timestamp":"2026-01-01T00:00:00Z","hit":true,"poll":null}]]})");
-    check(query(utf8_literal("poll null race")) && application_search_submit(974, 1),
-          "search polls: explicit-null race captures resident content before the live vote");
+    const bool null_race = query(utf8_literal("poll null race")) && application_search_submit(974, 1);
     const auto next_vote =
         message_poll_store_vote(&store, {70, 700, 6, 7, 5, true, true}, 5, ++ui.poll_gateway_serial);
-    check(next_vote.ok() && next_vote.changed && response(974, 200, null_body) &&
+    check(null_race && next_vote.ok() && next_vote.changed && response(974, 200, null_body) &&
               g_app.search->controller.state == MessageSearchState::ready,
           "search polls: stale explicit-null receipt is still a decoded and accepted Search page");
     poll = message_poll_store_find(store, 700);
@@ -674,10 +671,9 @@ void filter_choices_runtime() noexcept {
         fixed_stable &= application_search_synchronize();
     check(fixed_stable && member_queries == fixed_queries && member_query_withdrawals == fixed_withdrawals,
           "search choices: unchanged non-people suggestions never cancel or reschedule member work");
-    check(choice_draft(utf8_literal("from:zi")) && member_query_active,
-          "search choices: composition cancellation starts from an owned people query");
+    const bool people_query = choice_draft(utf8_literal("from:zi")) && member_query_active;
     composing = true;
-    check(application_search_synchronize() && !member_query_active &&
+    check(people_query && application_search_synchronize() && !member_query_active &&
               member_query_withdrawals == fixed_withdrawals + 1,
           "search choices: beginning composition withdraws the retained member request once");
     const u32 composing_queries = member_queries, composing_withdrawals = member_query_withdrawals;
@@ -692,11 +688,10 @@ void filter_choices_runtime() noexcept {
           "interest");
     check(key(key::escape) && !member_query_active && member_query_withdrawals == composing_withdrawals + 1,
           "search choices: Escape withdraws its current query with the dismissed suggestions");
-    check(choice_draft(utf8_literal("from:zi")) && member_query_active,
-          "search choices: delayed withdrawal starts from a real Search query");
+    const bool delayed_query = choice_draft(utf8_literal("from:zi")) && member_query_active;
     composer_query_owned = true;
     const u32 delayed_withdrawals = member_query_withdrawals;
-    check(application_search_close_panel() && member_query_active &&
+    check(delayed_query && application_search_close_panel() && member_query_active &&
               member_query_withdrawals == delayed_withdrawals + 1 && !g_app.search->member_query_active,
           "search choices: delayed Search close cannot cancel a newer composer-owned query");
     composer_query_owned = member_query_active = false;
@@ -754,14 +749,13 @@ void filter_choices_runtime() noexcept {
               utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("from:3 in:")),
           "search choices: Unicode matching replaces the whole quoted value and preserves an unfinished "
           "unrelated filter");
-    check(choice_draft(utf8_literal("from:\"ži\"")),
-          "search choices: same-token selection reuse captures a real quoted matching source");
+    const bool quoted = choice_draft(utf8_literal("from:\"ži\""));
     bank = g_app.search->choices;
     UiSearchTarget selection_ticket{UiSearchAction::filter_value, 0, 0};
     selection_ticket.source_revision = bank->source.revision;
     selection_ticket.source_index = 0;
     const auto quoted_end = g_app.search->edit.caret;
-    check(message_composer_set_selection(&g_app.search->edit, 6, quoted_end) ==
+    check(quoted && message_composer_set_selection(&g_app.search->edit, 6, quoted_end) ==
                   MessageComposerResult::changed &&
               !choices_current(g_app.search) && !activate(*g_app.search, selection_ticket) &&
               application_search_edit_changed() && bank == g_app.search->choices &&
@@ -868,13 +862,11 @@ void filter_choices_runtime() noexcept {
               utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("in:70 ")),
           "search choices: actual hidden-HWND press/release accepts the exact row while retaining editor "
           "focus");
-    check(choice_draft(utf8_literal("in:")) &&
-              ui_search_scene_filter_choice_geometry(g_app.search->scene, 0, &bounds, &clip) &&
-              application_search_window_event(window_test::pointer_down(window_test::x_of(point(bounds)), window_test::y_of(point(bounds)))),
-          "search choices: stale-release case captures a real current row");
+    const bool pressed = choice_draft(utf8_literal("in:")) &&
+                         ui_search_scene_filter_choice_geometry(g_app.search->scene, 0, &bounds, &clip) &&
+                         application_search_window_event(window_test::pointer_down(window_test::x_of(point(bounds)), window_test::y_of(point(bounds))));
     message_composer_set_selection(&g_app.search->edit, 0, 0);
-    check(
-        application_search_edit_changed() &&
+    check(pressed && application_search_edit_changed() &&
             application_search_window_event(window_test::pointer_up(window_test::x_of(point(bounds)), window_test::y_of(point(bounds)), PointerButton::left)) &&
             utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("in:")),
         "search choices: selection movement retires pointer capture and cannot activate a replacement row");
@@ -885,26 +877,22 @@ void filter_choices_runtime() noexcept {
     check(choice_draft(utf8_literal("from:")) && modifiers(false, true) && key(key::tab) && modifiers() &&
               !g_app.search->focused,
           "search choices: Shift Tab retains ordinary reverse focus instead of accepting a value");
-    check(choice_draft(utf8_literal("from:zi")) && member_query_active,
-          "search choices: scope retirement starts with Search-owned server member interest");
+    const bool scope_query = choice_draft(utf8_literal("from:zi")) && member_query_active;
     const u32 scope_withdrawals = member_query_withdrawals;
-    check(chat_state_store_select_channel(&ui.chat_state, 80).ok(),
-          "search choices: real Core selection admits private scope");
+    const bool private_scope = chat_state_store_select_channel(&ui.chat_state, 80).ok();
     ui.active_channel_id = 80;
-    check(
-        application_search_synchronize() && !g_app.search->choices && !member_query_active &&
-            member_query_withdrawals == scope_withdrawals + 1 && choice_draft(utf8_literal("in:")) &&
-            g_app.search->choices->source.rows.count == 1,
-        "search choices: scope replacement releases the prior bank and projects readable private channel");
+    check(scope_query && private_scope && application_search_synchronize() && !g_app.search->choices &&
+              !member_query_active && member_query_withdrawals == scope_withdrawals + 1 &&
+              choice_draft(utf8_literal("in:")) && g_app.search->choices->source.rows.count == 1,
+          "search choices: scope replacement releases the prior bank and projects readable private channel");
     auto* private_before = ui.chat_state.private_channels;
     const u64 recipient = 4;
-    check(private_channel_store_initialize(&choice_private_store, {choice_private_records, 1},
-                                           {choice_private_recipients, 2}) &&
-              private_channel_store_replace(&choice_private_store,
-                                            {80, 0, {&recipient, 1}, {}, true, false, false}),
-          "search choices: typed private-channel inventory retains the actual current recipient");
+    const bool recipients = private_channel_store_initialize(&choice_private_store, {choice_private_records, 1},
+                                                             {choice_private_recipients, 2}) &&
+                            private_channel_store_replace(&choice_private_store,
+                                                          {80, 0, {&recipient, 1}, {}, true, false, false});
     ui.chat_state.private_channels = &choice_private_store;
-    check(choice_draft(utf8_literal("mentions:")) && g_app.search->choices->source.rows.count == 2 &&
+    check(recipients && choice_draft(utf8_literal("mentions:")) && g_app.search->choices->source.rows.count == 2 &&
               g_app.search->choices->rows[0].id == 5 && g_app.search->choices->rows[1].id == 4,
           "search choices: current private recipient is eligible independently of guild membership");
     auto* dm = const_cast<ChannelRecord*>(chat_state_store_find_channel(ui.chat_state, 80));
@@ -920,16 +908,14 @@ void filter_choices_runtime() noexcept {
         dm->actions = actions;
         ++ui.chat_state.channel_mutations;
     }
-    check(chat_state_store_select_channel(&ui.chat_state, 70).ok(),
-          "search choices: fixture returns through actual Core guild selection");
+    const bool guild_scope = chat_state_store_select_channel(&ui.chat_state, 70).ok();
     ui.active_channel_id = 70;
     ui.chat_state.private_channels = private_before;
     ui.guild_member_store = members_before;
     application_search_synchronize();
-    check(choice_draft(utf8_literal("from:")),
-          "search choices: reopen fence captures current owner source");
+    const bool reopen_source = choice_draft(utf8_literal("from:"));
     old.source_revision = g_app.search->choices->source.revision;
-    check(application_search_close_panel() && !g_app.search->choices &&
+    check(guild_scope && reopen_source && application_search_close_panel() && !g_app.search->choices &&
               choice_draft(utf8_literal("from:")) && !activate(*g_app.search, old) &&
               application_search_close_panel() && !g_app.search->choices &&
               account.submissions == submissions_before && !application_search_pending(1),
@@ -1028,7 +1014,7 @@ void tabs_and_recent() noexcept {
           "search runtime: Clear empties recent searches and keeps the field focused");
     s.tab = s.result_tab = MessageSearchTab::messages;
     s.tabs_unavailable = false;
-    check(click(UiSearchAction::close), "search runtime: tab fixture closes");
+    click(UiSearchAction::close);
 }
 // Over the open thread browser the header field is its single search entry
 // point: scoped to its threads by default, widened by the chip, Backspace or
@@ -1142,7 +1128,7 @@ void indexing_retry_runtime() noexcept {
     check(rejected,
           "search indexing: malformed duplicate negative nonfinite and overflowing retry bodies fail closed");
 
-    check(open(true), "search indexing: native scope opens for retry integration");
+    const bool opened = open(true);
     u64 request = 8000;
     const auto* bank = g_app.search->bank;
     struct RuntimeCase {
@@ -1155,7 +1141,7 @@ void indexing_retry_runtime() noexcept {
         {valid[0].body, 60000, 60000}, {valid[3].body, 0, 5000},
         {invalid[11], 7000, 7000}, {valid[5].body, 0, 5000}, {valid[6].body, 0, 1000},
     };
-    bool floors = true;
+    bool floors = opened;
     for (const auto& item : cases) {
         floors &= query(utf8_literal("index retry floor")) && application_search_submit(++request, 1);
         const u64 before = clock_monotonic_milliseconds();
@@ -1190,11 +1176,10 @@ void indexing_retry_runtime() noexcept {
               !application_search_next_wake() && !application_search_pending(~u64{0}) &&
               !response(request, 202, valid[0].body),
           "search indexing: closing the pane retires its index floor and rejects a duplicate receipt");
-    check(open(true) && query(utf8_literal("index profile receipt")) &&
-              application_search_submit(++request, 1),
-          "search indexing: profile receipt fixture submits one exact ticket");
+    const bool profile_ticket =
+        open(true) && query(utf8_literal("index profile receipt")) && application_search_submit(++request, 1);
     ++g_app.account.status.profile_id;
-    check(application_search_synchronize() && response(request, 202, valid[0].body) &&
+    check(profile_ticket && application_search_synchronize() && response(request, 202, valid[0].body) &&
               !g_app.search->controller.retry_at_ms && !application_search_next_wake() &&
               !application_search_active(),
           "search indexing: old-profile receipt cannot retain or publish an index floor");
@@ -1202,10 +1187,10 @@ void indexing_retry_runtime() noexcept {
 
 void rich_scroll_runtime() noexcept {
     constexpr auto body = utf8_literal(R"json({"total_results":4,"messages":[[{"id":"410","channel_id":"70","author":{"id":"3","username":"Fixture"},"content":"Short result","timestamp":"2026-01-01T00:00:00Z","hit":true}],[{"id":"409","channel_id":"70","author":{"id":"3","username":"Fixture"},"content":"Video result","timestamp":"2026-01-01T00:00:00Z","hit":true,"embeds":[{"type":"video","video":{"url":"https://www.pornhub.com/embed/683dbe0849d99","width":1280,"height":720},"thumbnail":{"url":"https://example.com/poster.jpg","width":1280,"height":720}}]}],[{"id":"408","channel_id":"70","author":{"id":"3","username":"Fixture"},"content":"Second video","timestamp":"2026-01-01T00:00:00Z","hit":true,"embeds":[{"type":"video","video":{"url":"https://www.youtube.com/embed/aB_01234-xy","width":1280,"height":720},"thumbnail":{"url":"https://example.com/second.jpg","width":1280,"height":720}}]}],[{"id":"407","channel_id":"70","author":{"id":"3","username":"Fixture"},"content":"Last result","timestamp":"2026-01-01T00:00:00Z","hit":true}]]})json");
-    check(query(utf8_literal("scroll fixture")) && application_search_submit(980, 1) && response(980, 200, body),
-          "search scrolling: four rich results publish through the real controller");
+    const bool published =
+        query(utf8_literal("scroll fixture")) && application_search_submit(980, 1) && response(980, 200, body);
     auto& s = *g_app.search;
-    check(ui_search_scene_scroll_maximum(s.scene) > 0 &&
+    check(published && ui_search_scene_scroll_maximum(s.scene) > 0 &&
           ui_scrollbar_geometry(s.scene.body, s.scene.scroll_dips, ui_extent_dips(s.bank->list.total_units)).visible,
           "search scrolling: rich media contributes to the scrollbar extent");
     const float maximum = ui_search_scene_scroll_maximum(s.scene);

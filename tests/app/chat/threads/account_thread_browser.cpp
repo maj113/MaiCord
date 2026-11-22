@@ -41,15 +41,6 @@ void transport() noexcept {
               exact(&details, 103, 20,
                     utf8_literal("/api/v9/channels/20/threads/search?name=quote%20%26%2F%3F%23%3D%2B%25")),
           "thread browser account: search name is percent encoded solely inside fixed GET target");
-    for (auto& byte : name)
-        byte = 'x';
-    request.parent_id = 21;
-    request.name = {};
-    check(exact(&details, 103, 20,
-                utf8_literal("/api/v9/channels/20/threads/search?name=quote%20%26%2F%3F%23%3D%2B%25")),
-          "thread browser account: caller request and borrowed name may be reused immediately after "
-          "synchronous submit");
-
     // 100 supplementary scalars use 400 UTF-8 bytes and 1200 percent-encoded
     // bytes. This valid input crosses the previous 1024-byte transport bound.
     char supplementary[400];
@@ -71,26 +62,13 @@ void transport() noexcept {
     check(maximum, "thread browser account: valid maximum Unicode search fits enlarged existing transport "
                    "target storage without truncation");
 
+    // thread_browser_protocol.cpp checks each invalid field; here one refused request must not reach REST.
     const u32 before_invalid = capture.submissions;
-    bool rejected = true;
-    ThreadBrowserRequest invalid[9]{};
-    for (auto& value : invalid)
-        value = request;
-    invalid[0].parent_id = 0;
-    invalid[1].guild_id = 0;
-    invalid[2].mode = static_cast<ThreadBrowserMode>(255);
-    invalid[3].offset = 25;
-    invalid[4].name = {nullptr, 1};
-    invalid[5].name = utf8_literal("   ");
-    for (u32 at = 6; at < 9; ++at)
-        invalid[at].reserved[at - 6] = 1;
-    for (const auto& value : invalid)
-        rejected = account_thread_browser_submit(&details, &value, 105).error ==
-                       RestClientSubmitError::invalid_input &&
-                   rejected;
-    check(rejected && capture.submissions == before_invalid,
-          "thread browser account: zero identities invalid enums offset names and every "
-          "reserved byte reject before transport publication");
+    auto invalid = request;
+    invalid.parent_id = 0;
+    check(account_thread_browser_submit(&details, &invalid, 105).error == RestClientSubmitError::invalid_input &&
+              capture.submissions == before_invalid,
+          "thread browser account: a request the protocol refuses never reaches the transport");
     constexpr RestClientSubmitError errors[]{RestClientSubmitError::busy, RestClientSubmitError::signal,
                                              RestClientSubmitError::account_restricted,
                                              RestClientSubmitError::memory,

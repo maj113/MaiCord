@@ -12,8 +12,6 @@ using Check = void (*)(bool, const char*) noexcept;
 
 extern TextSystem text_system;
 
-extern wchar_t utf16[1024];
-
 extern TextGlyph glyphs[1024];
 
 extern TextRun runs[256];

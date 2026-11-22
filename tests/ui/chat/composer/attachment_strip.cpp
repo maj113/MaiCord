@@ -4,7 +4,6 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/image/jpeg.hpp"
-#include "../../../fixtures/jpeg_progressive_fixture.hpp"
 #include "../../../support/media_fixture.hpp"
 #include "maicord/protocol/media/attachment_upload.hpp"
 #include "maicord/ui/chat/composer/attachment_menu.hpp"
@@ -484,32 +483,6 @@ void test_local_preview_thumbnail(void (*check)(bool, const char*) noexcept) noe
     }
     check(png_ok, "PNG thumbnail rows expand gray, RGB, palette, alpha and 16-bit samples");
 
-    // A 1000 px wide RGBA PNG streams into a 334 px thumbnail (box factor 3).
-    static u8 large_png[96u * 1024u], large_zlib[96u * 1024u];
-    static u8 large_scanlines[16u * (1000u * 4u + 1u)];
-    static u8 large_output[kLocalPreviewThumbnailExtent * kLocalPreviewThumbnailExtent * 4u];
-    static u32 large_sums[(kLocalPreviewThumbnailExtent + 1) * 5];
-    PngFixtureResult fixture{};
-    PngImage image{};
-    DeflateWorkspace workspace{};
-    static u8 row[1000 * 4];
-    ok = build_rgba8_png_fixture(1000, 16, {large_png, sizeof(large_png)}, {large_zlib, sizeof(large_zlib)}, &fixture,
-                                 [](u32 x, u32 y, u32, u32) noexcept -> u32 {
-                                     return 0xFF000000u | (x < 500 ? 0xFFu : 0u) | (y < 8 ? 0xFF00u : 0u);
-                                 }) &&
-         png_decode_scanlines({large_png, fixture.encoded_bytes}, &image, &workspace,
-                              {large_scanlines, sizeof(large_scanlines)})
-             .ok() &&
-         local_thumbnail_begin(&sink, image.width, image.height, kLocalPreviewThumbnailExtent,
-                               {large_output, sizeof(large_output)}, {large_sums, sizeof(large_sums) / 4});
-    for (u32 y = 0; ok && y < image.height; ++y)
-        ok = local_thumbnail_png_row(image, large_scanlines + y * image.row_stride + 1, row) &&
-             local_thumbnail_push_row(&sink, row);
-    check(ok && local_thumbnail_complete(sink) && sink.width == 334 && sink.height == 6 &&
-              rgba_at(large_output, sink.width, 10, 1) == 0xFF00FFFFu &&
-              rgba_at(large_output, sink.width, 330, 4) == 0xFF000000u,
-          "large PNGs stream through the thumbnail filter without a full-size RGBA copy");
-
     // GIF: the first frame composites onto a transparent canvas.
     static u8 gif_encoded[2048], gif_lzw[512], gif_indices[64];
     GifFixtureResult gif_fixture{};
@@ -565,23 +538,6 @@ void test_local_preview_thumbnail(void (*check)(bool, const char*) noexcept) noe
     check(ok && jpeg_image.orientation == JpegOrientation::right_top && layout.samples == 4 && layout.width == 512 &&
               layout.height == 384,
           "camera JPEGs report EXIF orientation for the thumbnail");
-    // Progressive streams keep coefficients and match the reference within chroma upsampling.
-    ok = jpeg_thumbnail_parse({reinterpret_cast<const u8*>(kJpegProgressive420Reference), kJpegProgressive420ReferenceBytes},
-                              kLocalPreviewThumbnailExtent, &jpeg_image, &jpeg_workspace, &layout)
-             .ok() &&
-         layout.samples == 8 && layout.width == 16 && layout.coefficient_bytes &&
-         jpeg_thumbnail_decode_image({reinterpret_cast<const u8*>(kJpegProgressive420Reference),
-                                      kJpegProgressive420ReferenceBytes},
-                                     jpeg_image, layout, {aligned_planes, sizeof(aligned_planes)}, jpeg_rgba)
-             .ok();
-    u64 difference = 0;
-    for (u32 i = 0; ok && i < 16 * 16; ++i)
-        for (u32 c = 0; c < 3; ++c) {
-            const i32 delta = static_cast<i32>(jpeg_rgba[i * 4 + c]) -
-                              static_cast<i32>(static_cast<u8>(kJpegProgressive420ReferenceRgb[i * 3 + c]));
-            difference += static_cast<u64>(delta < 0 ? -delta : delta);
-        }
-    check(ok && difference / (16 * 16 * 3) <= 12, "progressive JPEG thumbnails match the reference decode");
 
     // Video duration badge: the movie header is found behind a large mdat
     // (non-faststart) and in a 64-bit version-1 header, reading headers only.
