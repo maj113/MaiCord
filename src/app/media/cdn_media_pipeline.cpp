@@ -545,7 +545,7 @@ void decode_animated_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encod
                           saved.frames == frames && saved.frame_count <= capacity;
     if (retained) {
         animation = {saved.frames, saved.background_rgba, saved.frame_count, saved.play_count,
-                     saved.width, saved.height, saved.has_alpha, saved.has_color_profile};
+                     saved.width, saved.height, saved.has_alpha};
         out->decode.parse = {AnimatedWebpError::none};
     } else {
         out->decode.parse = animated_webp_parse(encoded, &animation, &workspace);
@@ -610,8 +610,7 @@ void decode_animated_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encod
     }
     if (!retained && content_identity != 0) {
         saved = {content_identity, animation.frames, animation.background_rgba, animation.frame_count,
-                 animation.play_count, animation.width, animation.height, animation.has_alpha,
-                 animation.has_color_profile, lossy_present};
+                 animation.play_count, animation.width, animation.height, animation.has_alpha, lossy_present};
     }
     if (requested.codec == AnimatedWebpCodec::vp8l_lossless) {
         out->rgba8 = ConstSlice<u8>{pipeline->scanline_storage, out->decode.frame_decode.rgba_bytes};

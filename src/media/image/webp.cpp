@@ -566,7 +566,6 @@ WebpParseResult webp_parse(ConstSlice<u8> encoded, WebpImage* image) noexcept {
             canvas_height = byte_load_le24(payload + 7) + 1;
             feature_flags = payload[0];
             image->has_alpha = (payload[0] & 0x10u) != 0;
-            image->has_color_profile = (payload[0] & 0x20u) != 0;
             vp8x_seen = true;
         } else if (type == kVp8l) {
             if (image_seen || size < 5 || payload[0] != 0x2Fu) {
@@ -634,7 +633,6 @@ WebpParseResult webp_parse(ConstSlice<u8> encoded, WebpImage* image) noexcept {
                 return parse_failure(result, iccp_seen ? WebpError::duplicate_chunk : WebpError::chunk);
             }
             iccp_seen = true;
-            image->has_color_profile = true;
         } else if (type == kExif) {
             if (!vp8x_seen || !image_seen || exif_seen || xmp_seen || (feature_flags & 0x08u) == 0) {
                 return parse_failure(result, exif_seen ? WebpError::duplicate_chunk : WebpError::chunk);

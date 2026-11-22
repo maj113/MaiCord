@@ -68,8 +68,6 @@ void notify_locked(Runtime& r) noexcept {
     r.status.consumed_frames = r.ring.consumed;
     r.status.free_frames = media_audio_ring_free(r.ring);
     r.status.observed_epoch = r.observed;
-    r.status.owned_handles = u32(r.thread != nullptr) + u32(r.command != nullptr) + u32(r.stop != nullptr) +
-                             u32(r.render != nullptr);
     const auto& a = r.status;
     const auto& b = r.last_notified;
     const bool changed = a.desired_epoch != b.desired_epoch || a.observed_epoch != b.observed_epoch ||

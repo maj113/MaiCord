@@ -19,6 +19,13 @@
 
 namespace maicord {
 namespace {
+// The pages the cache's entries own.
+u32 used_pages(const EncodedMediaCache& cache) noexcept {
+    u32 used = 0;
+    for (u32 page = 0; page < cache.page_capacity; ++page)
+        used += cache.page_owners[page] != kEncodedMediaCacheFreePage;
+    return used;
+}
 
 // Value-returning forms of the pipeline's in-place operations; production fills caller-owned results.
 #define CDN_TEST_VALUE_FORMS(Result, kind)                                                                     \
@@ -902,7 +909,7 @@ void test_encoded_media_cache() noexcept {
     expect(first.stored() && hit.state == EncodedMediaCacheLookupState::fresh &&
                bytes_equal(hit.bytes, ConstSlice<u8>{one_page, sizeof(one_page)}) &&
                bytes_equal(hit.etag, byte_literal("\"v1\"")) && cache.entry_count == 1 &&
-               cache.used_pages == 1,
+               used_pages(cache) == 1,
            "encoded_media_cache_exact_publish_and_hit");
 
     encoded_media_cache_store(&cache, key2, ConstSlice<u8>{two_pages, sizeof(two_pages)}, fresh);
@@ -914,7 +921,7 @@ void test_encoded_media_cache() noexcept {
                encoded_media_cache_find(&cache, key2, 100).state == EncodedMediaCacheLookupState::miss &&
                encoded_media_cache_find(&cache, key1, 100).found() &&
                encoded_media_cache_find(&cache, key3, 100).found() &&
-               encoded_media_cache_find(&cache, key4, 100).found() && cache.used_pages == 4,
+               encoded_media_cache_find(&cache, key4, 100).found() && used_pages(cache) == 4,
            "encoded_media_cache_contiguous_lru_eviction");
 
     const EncodedMediaCacheStoreResult replaced =
@@ -1015,7 +1022,7 @@ void test_encoded_media_cache_dense_index() noexcept {
                 encoded_media_cache_release(&media.cache, &lease);
     }
     expect(exact && media.cache.entry_count == kAccountMediaCacheEntryCapacity &&
-               media.cache.used_pages == kAccountMediaCacheEntryCapacity && account_media_stop(&media, 5'000),
+               used_pages(media.cache) == kAccountMediaCacheEntryCapacity && account_media_stop(&media, 5'000),
            "encoded_media_cache_full_dense_index_hash_and_lease");
 }
 

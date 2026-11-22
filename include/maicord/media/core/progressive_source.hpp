@@ -53,7 +53,6 @@ struct ProgressiveSource {
     u32 total_bytes;
     u32 block_count;
     u32 resident_blocks;
-    u32 pinned_blocks;
     u32 ahead_bytes;
     bool audio_buffer;
     // Bumped by every write or eviction; consumers recompute derived views.

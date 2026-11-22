@@ -135,7 +135,7 @@ template <u32 N> bool run_case(const FixtureMessage (&messages)[N], u32 initial,
         ConstSlice<u8> output{};
         const auto result = decode(m.data, m.bytes, &output);
         CHECK(result.ok());
-        CHECK(result.output_bytes == m.size && output.count == m.size);
+        CHECK(output.count == m.size);
         fixture_text(m.seed, m.size, m.mode, expected);
         CHECK(bytes_equal(output.data, expected, m.size));
         CHECK(output.data >= storage && output.data + output.count <= storage + decoder.storage.count);
@@ -224,7 +224,7 @@ bool handmade_blocks() noexcept {
     n += 6;
     CHECK(begin(1u << 20, false));
     auto result = decode(message, framed(message, blocks, n), &output);
-    CHECK(result.ok() && result.blocks == 3 && output.count == 12 && bytes_equal(output.data, "raw-----qqqq", 12));
+    CHECK(result.ok() && output.count == 12 && bytes_equal(output.data, "raw-----qqqq", 12));
 
     // Huffman literals with directly stored weights ('a' weight 1, 'b' implied):
     // 1-bit codes, a = 0, b = 1; then a treeless block reusing the table.

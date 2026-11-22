@@ -575,8 +575,7 @@ void test_receiver_bounds(Check check) noexcept {
     payload[0] = 0x7c; // FU-A, IDR, first_mb_in_slice 0.
     payload[1] = 0x85;
     payload[2] = 0x80;
-    check(send(r, 10, 0, {payload, kVideoRtpPacketBytes + 1}, now) == VideoRtpPush::ignored &&
-              video_rtp_find_stream(r, kOracleSsrc)->stats.oversized == 1,
+    check(send(r, 10, 0, {payload, kVideoRtpPacketBytes + 1}, now) == VideoRtpPush::ignored,
           "video payloads larger than a slot are refused");
     MediaPacketLayout layout{};
     u32 bytes = make(96, 11, 0, true, kOracleSsrc, {payload, 4});
@@ -631,7 +630,7 @@ void test_receiver_bounds(Check check) noexcept {
     for (u32 i = 1; i != kVideoRtpPacketSlots + 100; ++i)
         send(r, static_cast<u16>(62000 + i), 6000, {payload, 1200}, now, false);
     check(c.count == 1 && stream->highest + 1 - stream->base <= kVideoRtpPacketSlots &&
-              stream->stats.discarded_packets >= 100 && stream->keyframe_needed,
+              stream->keyframe_needed,
           "the reorder window stays bounded when a unit never ends");
     // A sequence jump wider than the NACK range is skipped at once.
     send(r, static_cast<u16>(62000 + kVideoRtpPacketSlots + 100 + 300), 9000, view(idr), now += 1000);
@@ -645,7 +644,7 @@ void test_receiver_bounds(Check check) noexcept {
     for (u32 i = 0; i != 130; ++i)
         send(r, static_cast<u16>(restart + i), 12000 + i * 3000, view(idr), now += 1000);
     video_rtp_tick(&r, now += 30'000);
-    check(stream->stats.late >= 127 && static_cast<u16>(stream->highest) == restart + 129 && c.count >= 3,
+    check(static_cast<u16>(stream->highest) == restart + 129 && c.count >= 3,
           "sustained late packets restart the sequence space");
     // Zero-payload packets advance the sequence without a gap.
     const u16 next = static_cast<u16>(stream->highest + 1);

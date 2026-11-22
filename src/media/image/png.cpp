@@ -445,10 +445,9 @@ PngDecodeResult png_decode_parsed_scanlines(
                                   ? static_cast<u32>(interlaced_bytes(*image))
                                   : image->inflated_bytes;
     u8* inflate_target = scanlines.data + (image->interlace ? image->inflated_bytes : 0);
-    result.inflate = zlib_inflate(
-        ConstSlice<DeflateInputSpan>{spans, image->idat_span_count},
-        Slice<u8>{inflate_target, inflate_bytes}, inflate_bytes, workspace);
-    if (!result.inflate.ok()) {
+    if (!zlib_inflate(ConstSlice<DeflateInputSpan>{spans, image->idat_span_count},
+                      Slice<u8>{inflate_target, inflate_bytes}, inflate_bytes, workspace)
+             .ok()) {
         result.error = PngError::inflate;
         return result;
     }
@@ -479,7 +478,6 @@ PngDecodeResult png_decode_parsed_scanlines(
         result.error = PngError::palette_index;
         return result;
     }
-    result.reconstructed_bytes = image->inflated_bytes;
     result.error = PngError::none;
     return result;
 }

@@ -42,7 +42,6 @@ struct AnimatedWebpRetainedMetadata {
     u16 width;
     u16 height;
     bool has_alpha;
-    bool has_color_profile;
     bool lossy_present;
 };
 
@@ -64,7 +63,6 @@ struct AnimatedWebpImage {
     u16 width;
     u16 height;
     bool has_alpha;
-    bool has_color_profile;
 };
 
 struct AnimatedWebpParseResult {

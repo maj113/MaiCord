@@ -70,11 +70,8 @@ void clear_slot(VideoRtpStream& stream, u64 sequence) noexcept {
 }
 // Drops every entry in [stream.base, end) and moves base there.
 void discard_until(VideoRtpStream& stream, u64 end) noexcept {
-    for (u64 sequence = stream.base; sequence < end && sequence <= stream.highest; ++sequence) {
-        if (slot_at(stream, sequence).state == present)
-            ++stream.stats.discarded_packets;
+    for (u64 sequence = stream.base; sequence < end && sequence <= stream.highest; ++sequence)
         clear_slot(stream, sequence);
-    }
     if (end > stream.base)
         stream.base = end;
     stream.prev_known = false;
@@ -291,7 +288,6 @@ void assemble(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 now_us) no
             stream.prev_timestamp = stream.last_timestamp = head.timestamp;
             stream.prev_marker = head.marker;
             stream.has_last_timestamp = true;
-            ++stream.stats.discarded_packets;
             clear_slot(stream, stream.base);
             ++stream.base;
             continue;
@@ -446,7 +442,6 @@ VideoRtpPush insert(VideoRtpReceiver& receiver, VideoRtpStream& stream, u16 sequ
         stream.base = stream.first = extended;
     }
     if (extended < stream.base) {
-        ++stream.stats.late;
         if (rtx || ++stream.consecutive_late < kLateRestart)
             return VideoRtpPush::late;
         restart(stream, sequence, now_us);
@@ -611,10 +606,8 @@ VideoRtpPush video_rtp_receive(VideoRtpReceiver* receiver, const VideoRtpSource&
     stream->user_id = source.user_id;
     if (source.rtx)
         stream->rtx_ssrc = layout.ssrc;
-    if (payload.count > kVideoRtpPacketBytes) {
-        ++stream->stats.oversized;
+    if (payload.count > kVideoRtpPacketBytes)
         return VideoRtpPush::ignored; // Left missing: recovery or keyframe handles it.
-    }
     if (source.rtx)
         ++stream->stats.rtx_packets;
     const auto result =

@@ -54,7 +54,7 @@ struct MediaAudioConfig {
 struct MediaAudioStatus {
     u64 desired_epoch,observed_epoch,written_frames,submitted_frames,consumed_frames;
     i64 presentation_time_100ns;u64 clock_frequency;
-    u32 free_frames,owned_handles,native_error,wake_error;MediaAudioError error;
+    u32 free_frames,native_error,wake_error;MediaAudioError error;
     // Connections to the sound server that the worker tried for the current play (Linux only, else 0).
     u32 open_attempts;
     float desired_volume,applied_volume;bool volume_valid;

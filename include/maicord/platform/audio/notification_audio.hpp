@@ -76,10 +76,6 @@ bool notification_audio_status_pending(const NotificationAudio*) noexcept;
 // error the runtime, thread and handles stay attached and release can be retried.
 // Never terminates the thread; reset/submit are rejected once stopping begins.
 NotificationAudioResult notification_audio_release(NotificationAudio*,u32 timeout_ms) noexcept;
-// Counts the attached thread, event and endpoint-observer handles, including an observer's duplicate while
-// attached. A disarmed external observer can keep its own duplicate handle and endpoint ID on Windows;
-// neither refers to this object or the PCM. Linux counts its thread and wake descriptors.
-u32 notification_audio_owned_handles(const NotificationAudio*) noexcept;
 
 // Offline source-rate mixer. No allocation/device/thread.
 // The caller serializes these helpers. Voice descriptors stay valid even after

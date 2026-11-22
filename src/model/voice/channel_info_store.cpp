@@ -59,14 +59,11 @@ bool settle(VoiceChannelInfoStore* s, u64 channel_id) noexcept {
     ++s->revision;
     return true;
 }
-inline bool valid(const VoiceChannelInfoStore* s, u64 guild_id, u64 channel_id) noexcept {
-    return s && guild_id && channel_id;
-}
 } // namespace
 
 bool voice_channel_info_store_set_start(VoiceChannelInfoStore* s, u64 guild_id, u64 channel_id,
                                         u64 start_s) noexcept {
-    if (!valid(s, guild_id, channel_id) || start_s > ~0u)
+    if (!guild_id || !channel_id || start_s > ~0u)
         return false;
     const auto* current = voice_channel_info_store_find(*s, channel_id);
     if (current ? current->start_s == start_s && current->guild_id == guild_id : !start_s)
@@ -80,7 +77,7 @@ bool voice_channel_info_store_set_start(VoiceChannelInfoStore* s, u64 guild_id, 
 
 bool voice_channel_info_store_set_status(VoiceChannelInfoStore* s, u64 guild_id, u64 channel_id,
                                          Utf8View status) noexcept {
-    if (!valid(s, guild_id, channel_id) || (!status.data && status.bytes) ||
+    if (!guild_id || !channel_id || (!status.data && status.bytes) ||
         status.bytes > kVoiceChannelInfoTextBytes)
         return false;
     if (const auto* current = voice_channel_info_store_find(*s, channel_id)) {

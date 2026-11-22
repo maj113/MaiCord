@@ -4,21 +4,11 @@
 
 namespace maicord {
 
-enum class WebpAlphaCompression : u8 {
-    raw,
-    lossless,
-};
-
 enum class WebpAlphaFilter : u8 {
     none,
     horizontal,
     vertical,
     gradient,
-};
-
-enum class WebpAlphaPreprocessing : u8 {
-    none,
-    level_reduction,
 };
 
 enum class WebpAlphaError : u8 {
@@ -37,9 +27,6 @@ enum class WebpAlphaError : u8 {
 struct WebpAlphaDecodeResult {
     WebpDecodeResult lossless;
     u32 alpha_bytes;
-    WebpAlphaCompression compression;
-    WebpAlphaFilter filter;
-    WebpAlphaPreprocessing preprocessing;
     WebpAlphaError error;
 
     constexpr bool ok() const noexcept {

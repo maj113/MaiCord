@@ -844,8 +844,10 @@ ZlibInflateResult gzip_inflate(ConstSlice<u8> input, Slice<u8> output,
                         output.count - result.output_bytes};
         state.workspace = workspace;
         state.window_size = 32768;
-        if (!reader_initialize(&state.reader, {&span, 1}) || !decode_final_blocks(&state))
-            return fail(state.error == ZlibInflateError::none ? ZlibInflateError::truncated : state.error);
+        // One span of at least 8 bytes: the reader starts. A failed decode records its error.
+        reader_initialize(&state.reader, {&span, 1});
+        if (!decode_final_blocks(&state))
+            return fail(state.error);
         cursor += reader_consumed(state.reader);
         if (input.count - cursor < 8)
             return fail(ZlibInflateError::truncated);

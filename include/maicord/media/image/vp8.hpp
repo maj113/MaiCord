@@ -79,14 +79,9 @@ struct Vp8BoolReader {
 struct Vp8Keyframe {
     ConstSlice<u8> first_partition;
     ConstSlice<u8> remaining_data;
-    u32 payload_bytes;
-    u32 first_partition_bytes;
     u16 width;
     u16 height;
-    u8 version;
-    u8 horizontal_scale;
-    u8 vertical_scale;
-    u8 reserved;
+    u8 reserved[4];
 };
 
 struct Vp8SegmentationHeader {
@@ -95,9 +90,8 @@ struct Vp8SegmentationHeader {
     u8 tree_probability[3];
     u8 enabled;
     u8 update_map;
-    u8 update_data;
     u8 absolute_delta;
-    u8 reserved;
+    u8 reserved[2];
 };
 
 struct Vp8LoopFilterHeader {
@@ -107,8 +101,7 @@ struct Vp8LoopFilterHeader {
     u8 sharpness;
     u8 simple;
     u8 use_delta;
-    u8 update_delta;
-    u8 reserved[3];
+    u8 reserved[4];
 };
 
 struct Vp8QuantizationHeader {
@@ -140,14 +133,10 @@ struct Vp8ControlHeader {
     Vp8SegmentationHeader segmentation;
     Vp8LoopFilterHeader loop_filter;
     Vp8QuantizationHeader quantization;
-    u32 coefficient_probability_updates;
-    u8 color_space;
-    u8 clamping_type;
     u8 token_partition_count;
-    u8 refresh_entropy_probabilities;
     u8 use_skip_probability;
     u8 skip_probability;
-    u8 reserved[2];
+    u8 reserved[5];
 };
 
 inline constexpr u32 kVp8MacroblockDimensionMaximum =
@@ -273,13 +262,13 @@ u32 vp8_bool_read_literal(Vp8BoolReader* reader,
                           u32 bit_count) noexcept;
 
 static_assert(sizeof(Vp8BoolReader) == 32);
-static_assert(sizeof(Vp8Keyframe) == 48);
+static_assert(sizeof(Vp8Keyframe) == 40);
 static_assert(sizeof(Vp8SegmentationHeader) == 40);
 static_assert(sizeof(Vp8LoopFilterHeader) == 40);
 static_assert(sizeof(Vp8QuantizationHeader) == 24);
 static_assert(sizeof(Vp8TokenPartition) == 16);
 static_assert(sizeof(Vp8ProbabilityWorkspace) == 1'056);
-static_assert(sizeof(Vp8ControlHeader) == 280);
+static_assert(sizeof(Vp8ControlHeader) == 272);
 static_assert(sizeof(Vp8MacroblockMode) == 20);
 static_assert(sizeof(Vp8ModeWorkspace) == 20'488);
 static_assert(sizeof(Vp8TokenContext) == 9);

@@ -13,7 +13,7 @@ namespace {
 struct Runtime {
     SRWLOCK lock{};MediaAudioConfig config{};MediaAudioRing ring{};MediaAudioStatus status{},last_notified{};
     HANDLE thread{},command{},stop{},render{};u64 observed{},command_serial{};i64 origin{};float volume{};
-    bool desired_play{},stopping{},failed{},wake_pending{},refill_pending{};u32 callback_handles{};
+    bool desired_play{},stopping{},failed{},wake_pending{},refill_pending{};
 };
 static_assert(sizeof(Runtime)+sizeof(PinnedEndpointNotify)<=4096);
 struct Engine {
@@ -24,7 +24,6 @@ struct Engine {
 void notify_locked(Runtime& r) noexcept {
     r.status.written_frames=r.ring.written;r.status.submitted_frames=r.ring.submitted;r.status.consumed_frames=r.ring.consumed;
     r.status.free_frames=media_audio_ring_free(r.ring);r.status.observed_epoch=r.observed;
-    r.status.owned_handles=u32(r.thread!=nullptr)+u32(r.command!=nullptr)+u32(r.stop!=nullptr)+u32(r.render!=nullptr)+r.callback_handles;
     const auto& a=r.status;const auto& b=r.last_notified;
     const bool changed=a.desired_epoch!=b.desired_epoch||a.observed_epoch!=b.observed_epoch||a.error!=b.error||a.native_error!=b.native_error||
         a.playing!=b.playing||a.paused!=b.paused||a.buffering!=b.buffering||a.ended!=b.ended||a.stream_open!=b.stream_open||
@@ -34,9 +33,6 @@ void notify_locked(Runtime& r) noexcept {
     if(r.config.status_event&&!SetEvent(r.config.status_event))r.status.wake_error=thread_last_error();
     if(!r.wake_pending&&r.config.wake.window){r.wake_pending=window_post(r.config.wake,0,0);
         if(!r.wake_pending)r.status.wake_error=thread_last_error();}r.last_notified=r.status;
-}
-__forceinline void close_callback(Runtime& r,Engine& e) noexcept {
-    pinned_endpoint_close(e.enumerator,&e.callback,&r.lock,&r.callback_handles);
 }
 HRESULT close_client(Engine& e) noexcept {
     HRESULT h=S_OK;if(e.client){if(e.started)h=e.client->Stop();const HRESULT reset=e.client->Reset();if(SUCCEEDED(h))h=reset;}
@@ -50,14 +46,11 @@ void failure(Runtime& r,Engine& e,u64 epoch,u64 serial,Error error,HRESULT nativ
         r.status.playing=false;r.status.paused=false;r.status.stream_open=false;r.status.clock_valid=r.status.volume_valid=false;notify_locked(r);}
     ReleaseSRWLockExclusive(&r.lock);
 }
-HRESULT callback(Runtime& r,Engine& e,LPWSTR* id) noexcept {
-    return pinned_endpoint_refresh(e.enumerator,&e.callback,r.command,&r.lock,&r.callback_handles,id);
-}
 bool changed(Engine& e) noexcept {return pinned_endpoint_default_changed(e.enumerator,e.callback);}
 HRESULT open(Runtime& r,Engine& e) noexcept {
     HRESULT h=S_OK;if(!e.enumerator)h=CoCreateInstance(__uuidof(MMDeviceEnumerator),nullptr,CLSCTX_INPROC_SERVER,__uuidof(IMMDeviceEnumerator),reinterpret_cast<void**>(&e.enumerator));
     IMMDevice* device=nullptr;LPWSTR id=nullptr;if(SUCCEEDED(h))h=e.enumerator->GetDefaultAudioEndpoint(eRender,eConsole,&device);
-    if(SUCCEEDED(h))h=device->GetId(&id);if(SUCCEEDED(h))h=callback(r,e,&id);CoTaskMemFree(id);
+    if(SUCCEEDED(h))h=device->GetId(&id);if(SUCCEEDED(h))h=pinned_endpoint_refresh(e.enumerator,&e.callback,r.command,&id);CoTaskMemFree(id);
     if(SUCCEEDED(h))h=device->Activate(__uuidof(IAudioClient),CLSCTX_INPROC_SERVER,nullptr,reinterpret_cast<void**>(&e.client));
     if(SUCCEEDED(h)&&!e.session_ready){h=CoCreateGuid(&e.session);e.session_ready=SUCCEEDED(h);}
     const u16 channels=static_cast<u16>(r.config.channels),stride=static_cast<u16>(channels*4);
@@ -160,7 +153,7 @@ DWORD WINAPI worker(void* pointer) noexcept {
         const u64 epoch=r.status.desired_epoch,serial=r.command_serial;const float volume=r.volume;
         bool available=r.ring.written!=r.ring.consumed;ReleaseSRWLockShared(&r.lock);if(stopping)break;
         bool changed_state=r.observed!=epoch;
-        if(changed_state){close_client(e);close_callback(r,e);
+        if(changed_state){close_client(e);pinned_endpoint_close(e.enumerator,&e.callback);
             AcquireSRWLockExclusive(&r.lock);if(r.status.desired_epoch==epoch){r.observed=epoch;r.status.clock_valid=false;r.status.presentation_time_100ns=r.origin;
                 r.status.stream_open=false;r.status.playing=false;r.status.paused=!playing;r.status.ended=false;
                 // Closing prior-epoch error cannot contaminate the fresh epoch.
@@ -170,7 +163,7 @@ DWORD WINAPI worker(void* pointer) noexcept {
         const LONG dirty=e.callback&&ReadAcquire(&e.callback->dirty)?InterlockedExchange(&e.callback->dirty,0):0;
         if(dirty&&e.client&&((dirty&2)||changed(e))){changed_state=true;
             u32 padding{};if(SUCCEEDED(e.client->GetCurrentPadding(&padding)))clock_snapshot(r,e,epoch,padding);
-            close_client(e);close_callback(r,e);AcquireSRWLockExclusive(&r.lock);if(r.ring.epoch==epoch)media_audio_ring_rewind(&r.ring);ReleaseSRWLockExclusive(&r.lock);}
+            close_client(e);pinned_endpoint_close(e.enumerator,&e.callback);AcquireSRWLockExclusive(&r.lock);if(r.ring.epoch==epoch)media_audio_ring_rewind(&r.ring);ReleaseSRWLockExclusive(&r.lock);}
         // With no epoch change and no device change the worker did nothing since the first hold, and its values
         // stand. A writer that comes later sets the command event, and the loop runs again.
         if(changed_state){AcquireSRWLockShared(&r.lock);const bool current=r.status.desired_epoch==epoch&&r.observed==epoch&&!r.stopping;
@@ -188,7 +181,7 @@ DWORD WINAPI worker(void* pointer) noexcept {
         HANDLE events[]{r.stop,r.command,r.render};const DWORD waited=WaitForMultipleObjects(e.started?3u:2u,events,FALSE,INFINITE);
         if(waited==WAIT_OBJECT_0)break;if(waited==WAIT_FAILED){failure(r,e,epoch,serial,Error::wait,HRESULT_FROM_WIN32(thread_last_error()));break;}
     }
-    if(SUCCEEDED(apartment)){close_callback(r,e);close_client(e);com_release(e.enumerator);CoUninitialize();}
+    if(SUCCEEDED(apartment)){pinned_endpoint_close(e.enumerator,&e.callback);close_client(e);com_release(e.enumerator);CoUninitialize();}
     AcquireSRWLockExclusive(&r.lock);r.status.worker_exited=true;r.status.stream_open=r.status.playing=false;r.status.clock_valid=r.status.volume_valid=false;notify_locked(r);ReleaseSRWLockExclusive(&r.lock);return 0;
 }
 MediaAudioResult free_runtime(MediaAudio& owner) noexcept {

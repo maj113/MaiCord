@@ -59,8 +59,7 @@ struct WebpImage {
     u32 encoded_bytes;
     WebpCodec codec;
     bool has_alpha;
-    bool has_color_profile;
-    u8 reserved;
+    u8 reserved[2];
 };
 
 struct WebpParseResult {

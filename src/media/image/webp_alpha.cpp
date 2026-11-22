@@ -97,8 +97,9 @@ WebpAlphaDecodeResult webp_alpha_decode(
     if ((control & 0xC0u) != 0) {
         return alpha_failure(result, WebpAlphaError::reserved_bits);
     }
+    // Preprocessing 1 (level reduction) only tells how the encoder chose the values: the decode ignores it.
     const u8 preprocessing = (control >> 4) & 3u;
-    const u8 filter = (control >> 2) & 3u;
+    const auto filter = static_cast<WebpAlphaFilter>((control >> 2) & 3u);
     const u8 compression = control & 3u;
     if (preprocessing > 1) {
         return alpha_failure(
@@ -108,13 +109,8 @@ WebpAlphaDecodeResult webp_alpha_decode(
         return alpha_failure(
             result, WebpAlphaError::unsupported_compression);
     }
-    result.preprocessing =
-        static_cast<WebpAlphaPreprocessing>(preprocessing);
-    result.filter = static_cast<WebpAlphaFilter>(filter);
-    result.compression =
-        static_cast<WebpAlphaCompression>(compression);
 
-    if (result.compression == WebpAlphaCompression::raw) {
+    if (compression == 0) {
         if (payload.count != pixel_count + 1) {
             return alpha_failure(result, WebpAlphaError::data_size);
         }
@@ -156,9 +152,9 @@ WebpAlphaDecodeResult webp_alpha_decode(
         }
     }
 
-    for (u32 y = 0; y < height && result.filter != WebpAlphaFilter::none; ++y) {
+    for (u32 y = 0; y < height && filter != WebpAlphaFilter::none; ++y) {
         u8* const row = alpha_output.data + y * width;
-        webp_alpha_unfilter_row(result.filter, row, y ? row - width : nullptr, width);
+        webp_alpha_unfilter_row(filter, row, y ? row - width : nullptr, width);
     }
     result.alpha_bytes = pixel_count;
     result.error = WebpAlphaError::none;

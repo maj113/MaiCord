@@ -16,12 +16,12 @@ struct StageInstance {
 };
 struct StageInstanceStore {
     StageInstance records[kStageInstanceCapacity];
-    u32 count, revision, dropped;
+    u32 count, revision;
 };
 
 void stage_instance_store_reset(StageInstanceStore*) noexcept;
 // Creates or replaces the channel's instance (a zero id removes it). False
-// for invalid input or when full (counted in dropped).
+// for invalid input or when full.
 bool stage_instance_store_apply(StageInstanceStore*, u64 id, u64 guild_id, u64 channel_id, u8 privacy_level,
                                 Utf8View topic) noexcept;
 bool stage_instance_store_remove(StageInstanceStore*, u64 channel_id) noexcept;

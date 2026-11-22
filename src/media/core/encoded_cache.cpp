@@ -113,8 +113,6 @@ bool release_entry_locked(EncodedMediaCache* cache, u32 index) noexcept {
     for (u32 page = entry.first_page; page < entry.first_page + page_count; ++page) {
         cache->page_owners[page] = kEncodedMediaCacheFreePage;
     }
-    cache->used_pages -= page_count;
-    cache->stored_bytes -= entry.bytes;
     --cache->entry_count;
     entry.occupied = false;
     entry.retiring = false;
@@ -385,8 +383,6 @@ EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache,
     }
     touch_entry_locked(cache, &entry);
     ++cache->entry_count;
-    cache->used_pages += required_pages;
-    cache->stored_bytes += encoded.count;
     insert_index_locked(cache, slot);
     maintain_index_locked(cache);
     const EncodedMediaCacheStoreResult result{replacing ? EncodedMediaCacheStoreState::replaced

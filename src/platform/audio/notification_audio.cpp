@@ -25,7 +25,7 @@ struct Runtime {
     NotificationAudioRequest requests[kNotificationAudioQueueCapacity]{};
     NotificationAudioMixer mixer{};
     NotificationAudioStatus status{},last_notified{};
-    u32 head{},count{},reserved{},callback_handles{};
+    u32 head{},count{},reserved{};
     bool stopping{},wake_pending{};
     // Set under the lock with each failed request and at the worker's end; the status read clears it in its hold.
     volatile LONG attention{};
@@ -64,14 +64,8 @@ void close_stream(Runtime& r,Engine& e) noexcept {
         if(notification_audio_record_stream_failure(&r.status,closed_epoch,static_cast<u32>(h)))notify_locked(r);
         ReleaseSRWLockExclusive(&r.lock);}
 }
-__forceinline void close_callback(Runtime& r,Engine& e) noexcept {
-    pinned_endpoint_close(e.enumerator,&e.callback,&r.lock,&r.callback_handles);
-}
 void close_engine(Runtime& r,Engine& e) noexcept {
-    close_callback(r,e);close_stream(r,e);com_release(e.enumerator);
-}
-inline HRESULT refresh_callback(Runtime& r,Engine& e,LPWSTR* id) noexcept {
-    return pinned_endpoint_refresh(e.enumerator,&e.callback,r.command,&r.lock,&r.callback_handles,id);
+    pinned_endpoint_close(e.enumerator,&e.callback);close_stream(r,e);com_release(e.enumerator);
 }
 // The default-role notification is advisory. Revalidate the actual render
 // endpoint on the worker before disturbing an otherwise unchanged stream.
@@ -91,7 +85,7 @@ HRESULT open_engine(Runtime& r,Engine& e,u32 rate) noexcept {
     AcquireSRWLockExclusive(&r.lock);add(r.status.stream_open_attempts);ReleaseSRWLockExclusive(&r.lock);
     h=e.enumerator->GetDefaultAudioEndpoint(eRender,eConsole,&device);
     if(SUCCEEDED(h))h=device->GetId(&id);
-    if(SUCCEEDED(h))h=refresh_callback(r,e,&id);
+    if(SUCCEEDED(h))h=pinned_endpoint_refresh(e.enumerator,&e.callback,r.command,&id);
     CoTaskMemFree(id);
     if(SUCCEEDED(h))h=device->Activate(__uuidof(IAudioClient),CLSCTX_INPROC_SERVER,nullptr,reinterpret_cast<void**>(&e.client));
     const WAVEFORMATEX format{WAVE_FORMAT_PCM,2,rate,rate*4,4,16,0};
@@ -313,11 +307,6 @@ NotificationAudioResult notification_audio_release(NotificationAudio* owner,u32 
     if(wait!=WAIT_OBJECT_0)return fail(wait==WAIT_TIMEOUT?NotificationAudioError::join_pending:NotificationAudioError::wait,
         wait==WAIT_TIMEOUT?WAIT_TIMEOUT:thread_last_error());
     free_runtime(r);reset_value(owner);return {};
-}
-u32 notification_audio_owned_handles(const NotificationAudio* owner) noexcept {
-    auto* r=owner?static_cast<Runtime*>(owner->runtime):nullptr;if(!r)return 0;
-    AcquireSRWLockShared(&r->lock);const u32 n=u32(r->thread!=nullptr)+u32(r->command!=nullptr)+u32(r->stop!=nullptr)+u32(r->render!=nullptr)+r->callback_handles;
-    ReleaseSRWLockShared(&r->lock);return n;
 }
 #if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
 HANDLE notification_audio_fixture_callback_event(IMMNotificationClient* callback) noexcept {

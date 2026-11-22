@@ -155,12 +155,8 @@ void progressive_source_pin(ProgressiveSource* s, u64 offset, u64 bytes) noexcep
     if (!range_valid(*s, offset, bytes) || !bytes)
         return;
     const u32 last = static_cast<u32>((offset + bytes + kBlock - 1) / kBlock);
-    for (u32 b = static_cast<u32>(offset / kBlock); b < last; ++b) {
-        if (!bit(s->pinned, b)) {
-            set_bit(s->pinned, b, true);
-            ++s->pinned_blocks;
-        }
-    }
+    for (u32 b = static_cast<u32>(offset / kBlock); b < last; ++b)
+        set_bit(s->pinned, b, true);
 }
 void progressive_source_set_duration(ProgressiveSource* s, u64 duration_us) noexcept {
     const u64 ahead = duration_us ? u64{s->total_bytes} * kProgressiveAheadSeconds * 1'000'000ull / duration_us

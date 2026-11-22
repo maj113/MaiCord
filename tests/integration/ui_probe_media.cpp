@@ -567,7 +567,7 @@ void setup_vp8_outer_filter_probe() noexcept {
 namespace ui_probe_detail {
 
 bool vp8_gpu_reconstruction_exact() noexcept {
-    const Vp8Keyframe frame{{}, {}, 0, 0, 16, 16, 0, 0, 0, 0};
+    const Vp8Keyframe frame{{}, {}, 16, 16, {}};
     Vp8Keyframe invalid_frame = frame;
     invalid_frame.width = 0;
     if (renderer_reconstruct_vp8_keyframe(&g_probe.renderer, invalid_frame, g_probe.vp8_modes,

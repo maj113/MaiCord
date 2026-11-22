@@ -78,7 +78,7 @@ struct VideoRtpConfig {
     u8 max_nacks;           // NACKs per missing packet.
 };
 struct VideoRtpStreamStats {
-    u64 rtx_packets, late, oversized, discarded_packets, frames, damaged_frames, losses;
+    u64 rtx_packets, frames, damaged_frames, losses;
 };
 struct VideoRtpSlot {
     u64 sequence; // Extended sequence of the entry (valid unless empty).

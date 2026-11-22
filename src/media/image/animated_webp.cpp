@@ -220,7 +220,6 @@ AnimatedWebpParseResult animated_webp_parse(ConstSlice<u8> encoded, AnimatedWebp
                                                        : AnimatedWebpError::order);
             }
             iccp_seen = true;
-            image->has_color_profile = true;
         } else if (type == kAnim) {
             if (!vp8x_seen || anim_seen || image->frame_count != 0 || trailing_seen || size != 6 ||
                 iccp_seen != iccp_flag) {

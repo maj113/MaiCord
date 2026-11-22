@@ -125,36 +125,29 @@ struct PinnedEndpointNotify final : EndpointNotifyBase<PinnedEndpointNotify> {
 };
 
 // The media and notification playback threads share the life of their pinned observer. Each owns the observer
-// (*callback), its device enumerator and, under `lock`, a count of the wake-event duplicates the observers hold
-// (*handles). One out-of-line body of each serves both threads.
+// (*callback) and its device enumerator. One out-of-line body of each serves both threads.
 
 // Unregisters and releases the observer.
-__declspec(noinline) inline void pinned_endpoint_close(IMMDeviceEnumerator* enumerator, PinnedEndpointNotify** callback,
-                                                       SRWLOCK* lock, u32* handles) noexcept {
+__declspec(noinline) inline void pinned_endpoint_close(IMMDeviceEnumerator* enumerator,
+                                                       PinnedEndpointNotify** callback) noexcept {
     PinnedEndpointNotify* const pinned = *callback;
-    const bool attached = pinned && pinned->event;
     if (pinned)
         InterlockedExchange(&pinned->active, 0);
     if (enumerator && pinned)
         enumerator->UnregisterEndpointNotificationCallback(pinned);
     com_release(*callback);
-    if (attached) {
-        AcquireSRWLockExclusive(lock);
-        --*handles;
-        ReleaseSRWLockExclusive(lock);
-    }
 }
 
 // Pins the observer to the endpoint `*id` (taking over the ID's memory), unless it already is; its wake event is a
 // duplicate of `wake`.
 __declspec(noinline) inline HRESULT pinned_endpoint_refresh(IMMDeviceEnumerator* enumerator,
-                                                            PinnedEndpointNotify** callback, HANDLE wake, SRWLOCK* lock,
-                                                            u32* handles, LPWSTR* id) noexcept {
+                                                            PinnedEndpointNotify** callback, HANDLE wake,
+                                                            LPWSTR* id) noexcept {
     if (!*id || !**id)
         return E_UNEXPECTED;
     if (*callback && (*callback)->matches(*id))
         return S_OK;
-    pinned_endpoint_close(enumerator, callback, lock, handles);
+    pinned_endpoint_close(enumerator, callback);
     void* memory = CoTaskMemAlloc(sizeof(PinnedEndpointNotify));
     if (!memory)
         return E_OUTOFMEMORY;
@@ -167,17 +160,12 @@ __declspec(noinline) inline HRESULT pinned_endpoint_refresh(IMMDeviceEnumerator*
         ++pinned->id_chars;
     HRESULT h = S_OK;
     if (!DuplicateHandle(current_process(), wake, current_process(), &pinned->event, 0, FALSE,
-                         DUPLICATE_SAME_ACCESS)) {
+                         DUPLICATE_SAME_ACCESS))
         h = HRESULT_FROM_WIN32(thread_last_error());
-    } else {
-        AcquireSRWLockExclusive(lock);
-        ++*handles;
-        ReleaseSRWLockExclusive(lock);
-    }
     if (SUCCEEDED(h))
         h = enumerator->RegisterEndpointNotificationCallback(pinned);
     if (FAILED(h))
-        pinned_endpoint_close(enumerator, callback, lock, handles);
+        pinned_endpoint_close(enumerator, callback);
     return h;
 }
 

@@ -65,7 +65,7 @@ bool vp8_reconstruct_probe(D3D11Renderer& renderer) noexcept {
                     static_cast<i16>(static_cast<i32>(seed % 8192) - 4096);
             }
         }
-        const Vp8Keyframe frame{{}, {}, 0, 0, size[0], size[1], 0, 0, 0, 0};
+        const Vp8Keyframe frame{{}, {}, size[0], size[1], {}};
         valid = media_atlas_gpu_reconstruct_vp8_keyframe(&gpu, device, context, frame, modes, coefficients).ok();
         D3D11_BUFFER_DESC desc{};
         ID3D11Buffer* staging = nullptr;

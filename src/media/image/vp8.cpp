@@ -747,15 +747,15 @@ Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8Co
         return {Vp8ControlError::boolean_stream};
     }
 
-    header->color_space = static_cast<u8>(vp8_bool_read(&reader, 128));
-    header->clamping_type = static_cast<u8>(vp8_bool_read(&reader, 128));
+    // The colour space and the clamping type (RFC 6386 section 9.2): the reconstruction always clamps.
+    vp8_bool_read(&reader, 128);
+    vp8_bool_read(&reader, 128);
 
     Vp8SegmentationHeader& segment = header->segmentation;
     segment.enabled = static_cast<u8>(vp8_bool_read(&reader, 128));
     if (segment.enabled) {
         segment.update_map = static_cast<u8>(vp8_bool_read(&reader, 128));
-        segment.update_data = static_cast<u8>(vp8_bool_read(&reader, 128));
-        if (segment.update_data) {
+        if (vp8_bool_read(&reader, 128) != 0) {
             segment.absolute_delta = static_cast<u8>(vp8_bool_read(&reader, 128));
             for (u32 index = 0; index < 4; ++index) {
                 segment.quantizer[index] = read_optional_signed_literal(&reader, 7);
@@ -779,8 +779,7 @@ Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8Co
     filter.sharpness = static_cast<u8>(vp8_bool_read_literal(&reader, 3));
     filter.use_delta = static_cast<u8>(vp8_bool_read(&reader, 128));
     if (filter.use_delta) {
-        filter.update_delta = static_cast<u8>(vp8_bool_read(&reader, 128));
-        if (filter.update_delta) {
+        if (vp8_bool_read(&reader, 128) != 0) {
             for (u32 index = 0; index < 4; ++index) {
                 if (vp8_bool_read(&reader, 128) != 0) {
                     filter.reference_delta[index] = read_signed_literal(&reader, 6);
@@ -833,7 +832,8 @@ Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8Co
     quantization.uv_dc_delta = read_optional_signed_literal(&reader, 4);
     quantization.uv_ac_delta = read_optional_signed_literal(&reader, 4);
 
-    header->refresh_entropy_probabilities = static_cast<u8>(vp8_bool_read(&reader, 128));
+    // refresh_entropy_probs: a still image has no later frame to keep them for.
+    vp8_bool_read(&reader, 128);
 
     u32 exception_cursor = 0;
     for (u32 index = 0; index < kVp8CoefficientProbabilityCount; ++index) {
@@ -846,7 +846,6 @@ Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8Co
         }
         if (bool_read(&reader, update_probability) != 0) {
             probabilities->coefficient[index] = static_cast<u8>(vp8_bool_read_literal(&reader, 8));
-            ++header->coefficient_probability_updates;
         }
     }
 
@@ -952,13 +951,8 @@ Vp8ParseResult parse_keyframe(ConstSlice<u8> payload, Vp8Keyframe* frame, u32 ma
     frame->first_partition = ConstSlice<u8>{payload.data + 10, first_partition_bytes};
     frame->remaining_data = ConstSlice<u8>{payload.data + static_cast<u32>(first_partition_end),
                                            payload.count - static_cast<u32>(first_partition_end)};
-    frame->payload_bytes = payload.count;
-    frame->first_partition_bytes = first_partition_bytes;
     frame->width = static_cast<u16>(width);
     frame->height = static_cast<u16>(height);
-    frame->version = version;
-    frame->horizontal_scale = static_cast<u8>(width_and_scale >> 14);
-    frame->vertical_scale = static_cast<u8>(height_and_scale >> 14);
     return Vp8ParseResult{Vp8Error::none};
 }
 } // namespace

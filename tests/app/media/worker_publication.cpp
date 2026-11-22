@@ -5,6 +5,19 @@
 
 namespace maicord {
 namespace {
+// The pages the cache's entries own, and the bytes they hold.
+u32 used_pages(const EncodedMediaCache& cache) noexcept {
+    u32 used = 0;
+    for (u32 page = 0; page < cache.page_capacity; ++page)
+        used += cache.page_owners[page] != kEncodedMediaCacheFreePage;
+    return used;
+}
+u64 stored_bytes(const EncodedMediaCache& cache) noexcept {
+    u64 bytes = 0;
+    for (u32 index = 0; index < cache.entry_capacity; ++index)
+        bytes += cache.entries[index].occupied ? cache.entries[index].bytes : 0;
+    return bytes;
+}
 // Value-returning forms of the pipeline's in-place audio operations.
 CdnEncodedAudioResult cdn_media_pipeline_lookup_audio(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                       u64 now_seconds, OggOpusCancelled cancelled = nullptr,
@@ -84,7 +97,7 @@ void deferred_cache_checks(void (*check)(bool, const char*) noexcept) noexcept {
               !encoded_media_cache_acquire(&cache, key, 1).acquired &&
               !encoded_media_cache_refresh(&cache, key, 300, false) &&
               !encoded_media_cache_store(&cache, key, {bytes, count}, policy).stored() &&
-              cache.entry_count == 1 && cache.used_pages == 1 && cache.stored_bytes == count,
+              cache.entry_count == 1 && used_pages(cache) == 1 && stored_bytes(cache) == count,
           "retirement immediately hides pinned source and rejects new same-key readers refresh and "
           "replacement");
     check(encoded_media_cache_store(&cache, other, {bytes, count}, policy).stored() &&
@@ -94,10 +107,10 @@ void deferred_cache_checks(void (*check)(bool, const char*) noexcept) noexcept {
               bytes_equal(second.lookup.bytes.data, bytes, count),
           "retired source is excluded from exact-content reuse and remains immutable under unrelated "
           "eviction");
-    check(encoded_media_cache_release(&cache, &first) && cache.entry_count == 2 && cache.used_pages == 2 &&
+    check(encoded_media_cache_release(&cache, &first) && cache.entry_count == 2 && used_pages(cache) == 2 &&
               bytes_equal(second.lookup.bytes.data, bytes, count) &&
               encoded_media_cache_release(&cache, &second) && cache.entry_count == 1 &&
-              cache.used_pages == 1 && cache.stored_bytes == count,
+              used_pages(cache) == 1 && stored_bytes(cache) == count,
           "retirement final lease frees exactly its own pages and accounting once");
     const auto again = encoded_media_cache_store(&cache, key, {bytes, count}, policy);
     auto current = encoded_media_cache_acquire(&cache, key, 1);
@@ -109,7 +122,7 @@ void deferred_cache_checks(void (*check)(bool, const char*) noexcept) noexcept {
           "retired lifetime cannot release or invalidate a newly stored generation");
     encoded_media_cache_erase(&cache, key);
     encoded_media_cache_erase(&cache, replacement);
-    check(!cache.entry_count && !cache.used_pages && !cache.stored_bytes,
+    check(!cache.entry_count && !used_pages(cache) && !stored_bytes(cache),
           "retired cache leaves no pages or retained sources after cleanup");
 }
 void retained_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
@@ -236,7 +249,7 @@ void retained_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
         encoded_media_cache_release(&cache, &no_store_304.lease);
     check(other_reader.acquired && cache.entry_count == 1 &&
               bytes_equal(other_reader.lookup.bytes.data, bytes, count) &&
-              encoded_media_cache_release(&cache, &other_reader) && !cache.entry_count && !cache.used_pages,
+              encoded_media_cache_release(&cache, &other_reader) && !cache.entry_count && !used_pages(cache),
           "audio no-store 304 final independent reader retires bytes without another erase call");
     response.status_code = 200;
     response.body_bytes = count;
@@ -320,11 +333,11 @@ void common_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
               admitted.metadata.wave.data.data == admitted.lease.lookup.bytes.data + 44 &&
               admitted.metadata.wave.data.count == 4 && !encoded_media_cache_erase(&cache, wave_key),
           "WAV admission validates metadata and rebases encoded and PCM subrange into one immutable lease");
-    const u64 stored = cache.stored_bytes;
+    const u64 stored = stored_bytes(cache);
     auto hit = cdn_media_pipeline_lookup_audio(&pipeline, wave_key, 1);
     check(hit.ready() && hit.lease.acquired && hit.lease.lookup.content_identity == identity &&
               encoded_audio_bytes(hit.metadata).data == encoded_audio_bytes(admitted.metadata).data &&
-              cache.stored_bytes == stored,
+              stored_bytes(cache) == stored,
           "WAV cache read transfers same immutable source without an encoded body copy");
     if (hit.lease.acquired)
         encoded_media_cache_release(&cache, &hit.lease);
@@ -495,7 +508,7 @@ void common_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
           "generic audio MIME retains missing type encoding and body bounds plus existing image and Opus "
           "policies");
     encoded_media_cache_erase(&cache, search_wave);
-    check(!cache.entry_count && !cache.used_pages, "common audio sources release every bounded cache page");
+    check(!cache.entry_count && !used_pages(cache), "common audio sources release every bounded cache page");
 }
 } // namespace
 void test_media_worker_publication(void (*check)(bool, const char*) noexcept) noexcept {

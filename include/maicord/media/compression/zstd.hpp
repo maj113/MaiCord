@@ -32,8 +32,6 @@ enum class ZstdError : u8 {
 };
 
 struct ZstdDecodeResult {
-    u32 output_bytes;
-    u32 blocks;
     ZstdError error;
 
     constexpr bool ok() const noexcept {

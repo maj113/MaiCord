@@ -10,26 +10,20 @@ u32 index_of(const StageInstanceStore& store, u64 channel_id) noexcept {
     return ~0u;
 }
 void remove_at(StageInstanceStore* store, u32 index) noexcept {
-    for (u32 i = index + 1; i < store->count; ++i)
-        copy_value(&store->records[i - 1], store->records[i]);
-    reset_value(&store->records[--store->count]);
+    --store->count;
+    copy_bytes(&store->records[index], &store->records[index + 1], (store->count - index) * sizeof(StageInstance));
     ++store->revision;
 }
 } // namespace
 
 void stage_instance_store_reset(StageInstanceStore* store) noexcept {
-    if (!store)
-        return;
-    const bool changed = store->count != 0;
-    for (u32 i = 0; i < store->count; ++i)
-        reset_value(&store->records[i]);
+    store->revision += store->count != 0 ? 1u : 0u;
     store->count = 0;
-    store->revision += changed ? 1u : 0u;
 }
 
 bool stage_instance_store_apply(StageInstanceStore* store, u64 id, u64 guild_id, u64 channel_id, u8 privacy_level,
                                 Utf8View topic) noexcept {
-    if (!store || !channel_id || (topic.bytes && !topic.data) || store->count > kStageInstanceCapacity)
+    if (!channel_id || (topic.bytes && !topic.data))
         return false;
     const u32 existing = index_of(*store, channel_id);
     if (!id) {
@@ -39,10 +33,8 @@ bool stage_instance_store_apply(StageInstanceStore* store, u64 id, u64 guild_id,
     }
     if (!guild_id)
         return false;
-    if (existing == ~0u && store->count == kStageInstanceCapacity) {
-        ++store->dropped;
+    if (existing == ~0u && store->count == kStageInstanceCapacity)
         return false;
-    }
     u32 bytes = minimum(topic.bytes, kStageInstanceTopicBytes);
     while (bytes && bytes < topic.bytes && (static_cast<u8>(topic.data[bytes]) & 0xc0) == 0x80)
         --bytes;
@@ -64,7 +56,7 @@ bool stage_instance_store_apply(StageInstanceStore* store, u64 id, u64 guild_id,
 }
 
 bool stage_instance_store_remove(StageInstanceStore* store, u64 channel_id) noexcept {
-    const u32 index = store ? index_of(*store, channel_id) : ~0u;
+    const u32 index = index_of(*store, channel_id);
     if (index == ~0u)
         return false;
     remove_at(store, index);
@@ -72,8 +64,6 @@ bool stage_instance_store_remove(StageInstanceStore* store, u64 channel_id) noex
 }
 
 bool stage_instance_store_clear_guild(StageInstanceStore* store, u64 guild_id) noexcept {
-    if (!store)
-        return false;
     bool changed = false;
     for (u32 i = store->count; i-- > 0;)
         if (store->records[i].guild_id == guild_id) {

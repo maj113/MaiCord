@@ -539,14 +539,4 @@ NotificationAudioResult notification_audio_release(NotificationAudio* owner, u32
     reset_value(owner);
     return {};
 }
-u32 notification_audio_owned_handles(const NotificationAudio* owner) noexcept {
-    auto* r = owner ? static_cast<Runtime*>(owner->runtime) : nullptr;
-    if (!r)
-        return 0;
-    AcquireSRWLockShared(&r->lock);
-    const u32 n = u32(r->thread != nullptr) + u32(r->command != nullptr) + u32(r->stop != nullptr) +
-                  u32(r->render != nullptr);
-    ReleaseSRWLockShared(&r->lock);
-    return n;
-}
 } // namespace maicord

@@ -13,6 +13,13 @@
 // again with the AAC format when the reader refuses the file.
 namespace maicord {
 namespace {
+// The blocks progressive_source_pin protected.
+u32 pinned_blocks(const ProgressiveSource& s) noexcept {
+    u32 count = 0;
+    for (const u64 word : s.pinned)
+        count += static_cast<u32>(__builtin_popcountll(word));
+    return count;
+}
 
 constexpr u32 kSampleCount = 60;
 constexpr u32 kSamplesPerChunk = 5;
@@ -362,7 +369,7 @@ int sparse_tests() noexcept {
         return 205;
     // Pinned metadata survives trimming and eviction.
     progressive_source_pin(&s, 10, 20);
-    if (s.pinned_blocks != 1 || progressive_source_payload_blocks(s) != 3 || progressive_source_trim(&s) != 3 ||
+    if (pinned_blocks(s) != 1 || progressive_source_payload_blocks(s) != 3 || progressive_source_trim(&s) != 3 ||
         !progressive_source_available(s, 0, kProgressiveBlockBytes) || progressive_source_available(s, total - 1, 1))
         return 206;
     if(VirtualQuery(s.base+3*kProgressiveBlockBytes,&tail,sizeof(tail))!=sizeof(tail) || tail.State!=MEM_RESERVE ||
@@ -408,7 +415,7 @@ int probe_tests() noexcept {
         failure = 303;
     if (!failure && (!fill(s, f, probe.need) ||
                      (probe = progressive_mp4_probe(s)).state != ProgressiveProbeState::ready ||
-                     !s->pinned_blocks || progressive_source_trim(s) == 0 ||
+                     !pinned_blocks(*s) || progressive_source_trim(s) == 0 ||
                      progressive_source_available(*s, kProgressiveHeadProbeBytes, 1) ||
                      progressive_mp4_probe(s).state != ProgressiveProbeState::ready))
         failure = 304;
@@ -577,7 +584,7 @@ int memory_profile(bool audio_buffer) noexcept {
         if (!failure && !progressive_source_available(*s, playhead, window_end - playhead))
             failure = 603;
     }
-    if (!failure && (peak > budget || !writes || s->resident_blocks > budget + s->pinned_blocks ||
+    if (!failure && (peak > budget || !writes || s->resident_blocks > budget + pinned_blocks(*s) ||
                      !progressive_source_available(*s, 0, 4096)))
         failure = 604;
     // Far-behind data was released; recent data behind the cursor was kept.

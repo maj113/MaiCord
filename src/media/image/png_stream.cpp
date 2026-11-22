@@ -187,13 +187,13 @@ PngDecodeResult png_stream_decode(ConstSlice<u8> encoded, const PngImage& image,
     if (count != layout.idat_chunks)
         return result;
     Assembler assembler{&image, rows.data, rows.data + image.row_stride, sink, context, 0, 0, PngError::none};
-    result.inflate = zlib_inflate_windowed({spans.data, count}, window, ~0u, assemble, &assembler, workspace);
-    result.reconstructed_bytes = assembler.y;
+    const ZlibInflateResult inflated =
+        zlib_inflate_windowed({spans.data, count}, window, ~0u, assemble, &assembler, workspace);
     if (assembler.error != PngError::none) {
         result.error = assembler.error;
         return result;
     }
-    if (!result.inflate.ok()) {
+    if (!inflated.ok()) {
         result.error = PngError::inflate;
         return result;
     }

@@ -809,9 +809,9 @@ ZstdError read_frame_header(ZstdStreamDecoder* d, const u8* p, u32 left, u32* co
     return ZstdError::none;
 }
 
-ZstdDecodeResult fail(ZstdStreamDecoder* d, ZstdError error, u32 blocks) noexcept {
+ZstdDecodeResult fail(ZstdStreamDecoder* d, ZstdError error) noexcept {
     d->failed = true;
-    return {0, blocks, error};
+    return {error};
 }
 
 inline void build_defaults(ZstdStreamDecoder* d) noexcept {
@@ -869,41 +869,40 @@ bool zstd_stream_set_storage(ZstdStreamDecoder* d, Slice<u8> storage) noexcept {
 ZstdDecodeResult zstd_stream_decompress(ZstdStreamDecoder* d, ConstSlice<u8> input, u32 maximum_output,
                                         ConstSlice<u8>* output) noexcept {
     if (!d || !d->initialized || !output || (!input.data && input.count))
-        return {0, 0, ZstdError::invalid_input};
+        return {ZstdError::invalid_input};
     if (d->failed)
-        return {0, 0, ZstdError::poisoned};
+        return {ZstdError::poisoned};
     if (d->position + kZstdMessageSlackBytes > d->storage.count)
         zstd_stream_compact(d);
     const u32 start = d->position;
     const u8* p = input.data;
     u32 left = input.count;
-    u32 blocks = 0;
     while (left) {
         if (!d->in_frame) {
             u32 used = 0;
             const ZstdError header = read_frame_header(d, p, left, &used);
             if (header != ZstdError::none)
-                return fail(d, header, blocks);
+                return fail(d, header);
             p += used;
             left -= used;
             continue;
         }
         if (left < 3)
-            return fail(d, ZstdError::truncated, blocks);
+            return fail(d, ZstdError::truncated);
         const u32 block_header = load24(p);
         const bool last = block_header & 1;
         const u32 type = (block_header >> 1) & 3, size = block_header >> 3;
         p += 3;
         left -= 3;
         if (type == 3 || size > d->block_maximum)
-            return fail(d, ZstdError::invalid_block, blocks);
+            return fail(d, ZstdError::invalid_block);
         const u32 stored = type == 1 ? 1 : size;
         if (stored > left)
-            return fail(d, ZstdError::truncated, blocks);
+            return fail(d, ZstdError::truncated);
         // The block's output, a guard, then its decoded literals.
         const u32 need = 2 * d->block_maximum + kZstdLiteralGuardBytes;
         if (d->position - start > maximum_output || !ensure_storage(d, d->position + need))
-            return fail(d, ZstdError::output_capacity, blocks);
+            return fail(d, ZstdError::output_capacity);
         u8* const out = d->storage.data + d->position;
         u32 produced = size;
         if (type == 0) {
@@ -916,27 +915,26 @@ ZstdDecodeResult zstd_stream_decompress(ZstdStreamDecoder* d, ConstSlice<u8> inp
             Literals literals{};
             u32 used = 0;
             if (!decode_literals(d, p, size, scratch, &literals, &used))
-                return fail(d, ZstdError::invalid_literals, blocks);
+                return fail(d, ZstdError::invalid_literals);
             if (!decode_sequences(d, p + used, size - used, literals, out, &produced))
-                return fail(d, ZstdError::invalid_sequences, blocks);
+                return fail(d, ZstdError::invalid_sequences);
         }
         p += stored;
         left -= stored;
-        ++blocks;
         if (d->has_checksum)
             hash_update(d, out, produced);
         d->position += produced;
         d->frame_output += produced;
         if (d->position - start > maximum_output)
-            return fail(d, ZstdError::output_capacity, blocks);
+            return fail(d, ZstdError::output_capacity);
         if (last) {
             if (d->has_content_size && d->frame_output != d->content_size)
-                return fail(d, ZstdError::content_size, blocks);
+                return fail(d, ZstdError::content_size);
             if (d->has_checksum) {
                 if (left < 4)
-                    return fail(d, ZstdError::truncated, blocks);
+                    return fail(d, ZstdError::truncated);
                 if (byte_load_le32(p) != hash_digest(*d))
-                    return fail(d, ZstdError::checksum, blocks);
+                    return fail(d, ZstdError::checksum);
                 p += 4;
                 left -= 4;
             }
@@ -944,7 +942,7 @@ ZstdDecodeResult zstd_stream_decompress(ZstdStreamDecoder* d, ConstSlice<u8> inp
         }
     }
     *output = {d->storage.data + start, d->position - start};
-    return {d->position - start, blocks, ZstdError::none};
+    return {ZstdError::none};
 }
 
 } // namespace maicord

@@ -13,6 +13,13 @@
 
 namespace maicord {
 namespace {
+// The blocks progressive_source_pin protected.
+u32 pinned_blocks(const ProgressiveSource& s) noexcept {
+    u32 count = 0;
+    for (const u64 word : s.pinned)
+        count += static_cast<u32>(__builtin_popcountll(word));
+    return count;
+}
 u32 failures;
 void check(bool value, const char* label) noexcept { test_check(&failures, value, label); }
 struct Writer {
@@ -1005,10 +1012,10 @@ void source_tests() noexcept {
         return true;
     };
     check(mp4_fragment_source_initialize(&source, false, &stream) == E::data_pending && !stream.source &&
-          source.readers[0].pending && !source.resident_blocks && !source.pinned_blocks,
+          source.readers[0].pending && !source.resident_blocks && !pinned_blocks(source),
           "absent initialization registers a range demand without allocating or publishing a partial owner");
     check(fill(0) && mp4_fragment_source_initialize(&source, false, &stream) == E::none &&
-          source.resident_blocks == 1 && source.pinned_blocks == 1 && stream.segment.offset == first_offset,
+          source.resident_blocks == 1 && pinned_blocks(source) == 1 && stream.segment.offset == first_offset,
           "initialization pins only the small codec/index prefix and leaves all media sparse");
     Mp4FragmentPacket packet{};
     packet.segment = 99;
@@ -1046,7 +1053,7 @@ void source_tests() noexcept {
           "distant sample payload records demand while preserving the current run cursor");
     progressive_source_evict(&source, 2 * block);
     check(progressive_source_available(source, first_offset, first.w.size) &&
-          !progressive_source_available(source, 2 * block, 1) && source.pinned_blocks == 1,
+          !progressive_source_available(source, 2 * block, 1) && pinned_blocks(source) == 1,
           "current moof survives eviction far behind playback without becoming permanently pinned");
     for (u32 i = 3; i < 5; ++i)
         check(mp4_fragment_source_peek(&stream, &packet) == E::none && packet.sample.index == i &&
@@ -1097,7 +1104,7 @@ void source_tests() noexcept {
           "EOF selection clears pending ranges and does not create background requests");
     mp4_fragment_source_release(&stream);
     progressive_source_trim(&source);
-    check(!stream.source && source.resident_blocks == 1 && source.pinned_blocks == 1 && requests == 3,
+    check(!stream.source && source.resident_blocks == 1 && pinned_blocks(source) == 1 && requests == 3,
           "joined source release drops all fragment payload and metadata, retaining only initialization");
     auto* transport = static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(transport != nullptr, "fragment range driver allocation");
@@ -1118,7 +1125,7 @@ void source_tests() noexcept {
               "fragment range driver reports missing payload demand");
         progressive_video_fetch_retire(transport);
         check(!transport->fragment.source && !transport->source.readers[0].active &&
-              transport->source.resident_blocks == transport->source.pinned_blocks &&
+              transport->source.resident_blocks == pinned_blocks(transport->source) &&
               progressive_video_fetch_restore(transport) && transport->fragment.source == &transport->source,
               "joined cached retirement drops readers and restores from retained initialization");
         progressive_video_fetch_release(transport); VirtualFree(transport, 0, MEM_RELEASE);

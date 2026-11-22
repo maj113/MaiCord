@@ -84,7 +84,7 @@ void test_media_audio(void (*check)(bool,const char*) noexcept) noexcept {
         "media clock: missing output/rate/frequency, product overflow and sum overflow refuse atomically");
     MediaAudio owner{};MediaAudioConfig config{};config.pcm={storage,4096};config.sample_rate=48000;config.channels=2;config.source_origin_100ns=-100000;
     check(media_audio_initialize(&owner,config).ok()&&!owner.runtime&&media_audio_status(&owner).presentation_time_100ns==-100000&&
-        !media_audio_status(&owner).clock_valid&&!media_audio_status(&owner).owned_handles,
+        !media_audio_status(&owner).clock_valid,
         "media lifecycle: metadata opens no audio device/thread and reports no fabricated hardware clock");
     input[0]=.25f;input[1]=-.25f;
     check(media_audio_write(&owner,1,{input,2}).ok()&&media_audio_volume(&owner,.4f).ok()&&owner.config.volume==.4f&&

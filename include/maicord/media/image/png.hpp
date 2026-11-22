@@ -72,8 +72,6 @@ struct PngParseResult {
 
 struct PngDecodeResult {
     PngParseResult parse;
-    ZlibInflateResult inflate;
-    u32 reconstructed_bytes;
     PngError error;
 
     constexpr bool ok() const noexcept {

@@ -38,11 +38,9 @@ struct EncodedMediaCache {
     u32 index_bucket_capacity;
     u32 index_tombstones;
     u32 entry_count;
-    u32 used_pages;
     // Storage pages usable now. A cache over a reservation commits page runs as stores first reach them
     // (pages are taken lowest first), so an idle cache charges no storage.
     u32 committed_pages;
-    u64 stored_bytes;
     u64 clock;
     SrwLock lock;
 };

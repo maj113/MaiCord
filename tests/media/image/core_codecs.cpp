@@ -689,8 +689,6 @@ void test_webp_alpha() noexcept {
                               Slice<u8>{output, sizeof(output)});
         filters_exact =
             filters_exact && decoded.ok() && decoded.alpha_bytes == width * height &&
-            decoded.compression == WebpAlphaCompression::raw &&
-            static_cast<u32>(decoded.filter) == filter &&
             bytes_equal(ConstSlice<u8>{output, width * height}, ConstSlice<u8>{expected, sizeof(expected)});
     }
     expect(filters_exact, "webp_alpha_all_raw_filters_exact");
@@ -699,10 +697,9 @@ void test_webp_alpha() noexcept {
     const WebpAlphaDecodeResult preprocessed =
         webp_alpha_decode(ConstSlice<u8>{payload, sizeof(payload)}, width, height, nullptr, Slice<u8>{},
                           Slice<u8>{output, sizeof(output)});
-    expect(
-        preprocessed.ok() && preprocessed.preprocessing == WebpAlphaPreprocessing::level_reduction &&
-            bytes_equal(ConstSlice<u8>{output, width * height}, ConstSlice<u8>{expected, sizeof(expected)}),
-        "webp_alpha_level_reduction_is_informative");
+    expect(preprocessed.ok() && bytes_equal(ConstSlice<u8>{output, width * height},
+                                            ConstSlice<u8>{expected, sizeof(expected)}),
+           "webp_alpha_level_reduction_is_informative");
 
     u8 oversized[sizeof(payload) + 1]{};
     for (u32 index = 0; index < sizeof(payload); ++index) {
@@ -770,11 +767,9 @@ void test_vp8_keyframe_header() noexcept {
     const u8* payload = kWebpLossy4x4 + payload_offset;
     Vp8Keyframe frame{};
     const Vp8ParseResult parsed = vp8_parse_keyframe(ConstSlice<u8>{payload, payload_bytes}, &frame);
-    expect(parsed.ok() && frame.payload_bytes == payload_bytes && frame.first_partition_bytes == 15 &&
-               frame.first_partition.data == payload + 10 && frame.first_partition.count == 15 &&
-               frame.remaining_data.data == payload + 25 &&
-               frame.remaining_data.count == payload_bytes - 25 && frame.width == 4 && frame.height == 4 &&
-               frame.version == 0 && frame.horizontal_scale == 0 && frame.vertical_scale == 0,
+    expect(parsed.ok() && frame.first_partition.data == payload + 10 && frame.first_partition.count == 15 &&
+               frame.remaining_data.data == payload + 25 && frame.remaining_data.count == payload_bytes - 25 &&
+               frame.width == 4 && frame.height == 4,
            "vp8_keyframe_header_and_partition_bounds");
 
     bool prefixes_rejected = true;
@@ -956,7 +951,7 @@ void test_vp8_keyframe_control() noexcept {
     Vp8ProbabilityWorkspace probabilities{};
     const Vp8ControlParseResult parsed = vp8_parse_keyframe_control(frame, &header, &probabilities);
     const bool exact =
-        envelope.ok() && parsed.ok() && header.color_space == 0 && header.clamping_type == 0 &&
+        envelope.ok() && parsed.ok() &&
         !header.segmentation.enabled && header.segmentation.absolute_delta == 1 &&
         header.segmentation.tree_probability[0] == 255 && header.segmentation.tree_probability[1] == 255 &&
         header.segmentation.tree_probability[2] == 255 && !header.loop_filter.simple &&
@@ -967,7 +962,6 @@ void test_vp8_keyframe_control() noexcept {
         header.quantization.base_quantizer == 19 && header.quantization.y1_dc_delta == 0 &&
         header.quantization.y2_dc_delta == 0 && header.quantization.y2_ac_delta == 0 &&
         header.quantization.uv_dc_delta == -2 && header.quantization.uv_ac_delta == 0 &&
-        !header.refresh_entropy_probabilities && header.coefficient_probability_updates == 2 &&
         probabilities.coefficient[0] == 128 && probabilities.coefficient[33] == 253 &&
         probabilities.coefficient[528] == 0 && probabilities.coefficient[651] == 0 &&
         !header.use_skip_probability && header.macroblock_reader.ok();
@@ -1104,8 +1098,7 @@ void test_vp8_keyframe_control() noexcept {
     const Vp8ControlParseResult branch_result =
         vp8_parse_keyframe_control(branches, &header, &probabilities);
     const bool branch_exact =
-        branch_result.ok() && header.color_space == 1 && header.clamping_type == 1 &&
-        header.segmentation.enabled && header.segmentation.update_map && header.segmentation.update_data &&
+        branch_result.ok() && header.segmentation.enabled && header.segmentation.update_map &&
         !header.segmentation.absolute_delta && header.segmentation.quantizer[0] == 5 &&
         header.segmentation.quantizer[1] == -7 && header.segmentation.quantizer[2] == 0 &&
         header.segmentation.quantizer[3] == -127 && header.segmentation.filter_strength[0] == 3 &&
@@ -1113,7 +1106,7 @@ void test_vp8_keyframe_control() noexcept {
         header.segmentation.filter_strength[3] == 63 && header.segmentation.tree_probability[0] == 0 &&
         header.segmentation.tree_probability[1] == 255 && header.segmentation.tree_probability[2] == 177 &&
         header.loop_filter.simple && header.loop_filter.level == 37 && header.loop_filter.sharpness == 5 &&
-        header.loop_filter.use_delta && header.loop_filter.update_delta &&
+        header.loop_filter.use_delta &&
         header.loop_filter.reference_delta[0] == 2 && header.loop_filter.reference_delta[1] == -17 &&
         header.loop_filter.reference_delta[2] == 0 && header.loop_filter.reference_delta[3] == -63 &&
         header.loop_filter.mode_delta[0] == 0 && header.loop_filter.mode_delta[1] == 6 &&
@@ -1128,8 +1121,7 @@ void test_vp8_keyframe_control() noexcept {
         header.token_partitions[3].bytes.count == 2 && header.quantization.base_quantizer == 100 &&
         header.quantization.y1_dc_delta == 3 && header.quantization.y2_dc_delta == -4 &&
         header.quantization.y2_ac_delta == 0 && header.quantization.uv_dc_delta == 0 &&
-        header.quantization.uv_ac_delta == -15 && header.refresh_entropy_probabilities &&
-        header.coefficient_probability_updates == 3 && probabilities.coefficient[0] == 0 &&
+        header.quantization.uv_ac_delta == -15 && probabilities.coefficient[0] == 0 &&
         probabilities.coefficient[33] == 17 && probabilities.coefficient[528] == 255 &&
         header.use_skip_probability && header.skip_probability == 0 && header.macroblock_reader.ok();
     expect(branch_exact, "vp8_control_all_optional_branches_and_four_partitions");
@@ -1291,7 +1283,7 @@ void test_animated_webp_lossless() noexcept {
     expect(parsed.ok() && animation.width == 4 &&
                animation.height == 4 && animation.frame_count == 4 && animation.play_count == 2 &&
                animation.background_rgba == 0x80302010u && animation.has_alpha &&
-               !animation.has_color_profile && animation.frames == animation_workspace.frames &&
+               animation.frames == animation_workspace.frames &&
                animation.frames[0].blend == AnimatedWebpBlend::source &&
                animation.frames[1].blend == AnimatedWebpBlend::over &&
                animation.frames[1].dispose == AnimatedWebpDispose::background &&
@@ -1933,9 +1925,7 @@ void test_png_decode() noexcept {
                image.color_type == 6 && image.bit_depth == 8 && image.channels == 4 &&
                image.bytes_per_pixel == 4 && image.row_bytes == 256 && image.row_stride == 257 &&
                image.inflated_bytes == fixture.filtered_bytes &&
-               image.compressed_bytes == fixture.zlib_bytes && image.idat_span_count == 2 &&
-               decoded.inflate.output_bytes == fixture.filtered_bytes &&
-               decoded.reconstructed_bytes == fixture.filtered_bytes,
+               image.compressed_bytes == fixture.zlib_bytes && image.idat_span_count == 2,
            "png_rgba8_segmented_idat_decode");
 
     bool pixels_match = decoded.ok();
