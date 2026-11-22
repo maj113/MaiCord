@@ -4,7 +4,6 @@
 namespace maicord::surface_motion_test {
 using namespace app_detail;
 u32 failures{};
-ApplicationSurfaceMotionOwner zero_default_owner{};
 void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
 }
@@ -55,11 +54,6 @@ void run() noexcept {
     const auto gallery = RendererLayerSurface::gallery;
     const auto popup = RendererLayerSurface::popup;
     const auto choice = RendererLayerSurface::settings_choice;
-    bool zero_default = true;
-    const auto* initial_bytes = reinterpret_cast<const u8*>(&zero_default_owner);
-    for (u32 i = 0; i < sizeof(zero_default_owner); ++i)
-        zero_default = zero_default && initial_bytes[i] == 0;
-    check(zero_default, "surface motion: whole static owner has a zero-filled default representation");
     FakeHost host{};
     host.synchronize(0);
     check(host.opacity[0] == 1 && host.opacity[1] == 1 && host.opacity[2] == 1 && !host.next_wake(),

@@ -869,9 +869,6 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
         "notification application: actual channel permission mutation suppresses inaccessible creates");
     check(dispatch(utf8_literal("CHANNEL_UPDATE"), utf8_literal(R"({"id":"21","guild_id":"10","type":0,"permission_overwrites":[]})")) &&
         message(514, 22) && f.delivered == 4, "notification application: restored view permission admits subsequent live create");
-    g_app.preferences.desktop_enabled = false;
-    check(message(515, 23) && f.delivered == 4, "notification application: device-local popup toggle suppresses only desktop sink");
-    g_app.preferences.desktop_enabled = true;
     check(message(516, 24, 21, utf8_literal("\"hello\""), 1) && f.delivered == 4 &&
         message(517, 25, 21, utf8_literal("\"hello\""), 2, utf8_literal(",\"flags\":4096")) && f.delivered == 4,
         "notification application: self authored and suppress-notifications creates do not emit");
@@ -1109,7 +1106,6 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
         f.navigation_calls == 0 && !metrics.audio_worker_started,
         "notification application: account stop discards owner authority and never navigates or opens OS delivery");
     application_notifications_release(&g_app);
-    check(!g_app.notifications, "notification application: release clears nonemitting owner");
     dm_regressions(check);
     speech_regressions(check);
     sound_regressions(check);

@@ -3,6 +3,7 @@
 #include "maicord/render/effects/background_effect.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/ui/theme/presets.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -22,12 +23,6 @@ bool same_color(const Color& a, u32 rgb) noexcept {
     const Color b = color_from_rgb24(rgb);
     const auto near = [](float x, float y) noexcept { return x - y < .002f && y - x < .002f; };
     return near(a.red, b.red) && near(a.green, b.green) && near(a.blue, b.blue);
-}
-bool contains(const char* text, u32 bytes, Utf8View needle) noexcept {
-    for (u32 i = 0; i + needle.bytes <= bytes; ++i)
-        if (bytes_equal(text + i, needle.data, needle.bytes))
-            return true;
-    return false;
 }
 // A theme that changes with the time of day (ClientThemeVariants): the phase schedule, the document's variants, the
 // look at a time and month, and the effects' appearance following its base.
@@ -66,7 +61,7 @@ void test_variants(const ClientThemeDocument& defaults, void (*check)(bool, cons
     u32 bytes{};
     ClientThemeDocument again{};
     check(client_theme_document_write(document, {exported, sizeof(exported)}, &bytes).ok() &&
-              contains(exported, bytes, utf8_literal(",\"variants\":{\"night\":{\"base\":\"dark\",\"colors\":{")) &&
+              test_contains({exported, bytes}, utf8_literal(",\"variants\":{\"night\":{\"base\":\"dark\",\"colors\":{")) &&
               parse({exported, bytes}, defaults, &again).ok() && client_theme_document_equal(document, again),
           "theme variants: the canonical document carries them and reads back equal");
     ClientThemeDocument plain{};
@@ -74,7 +69,7 @@ void test_variants(const ClientThemeDocument& defaults, void (*check)(bool, cons
     check(parse(utf8_literal("{\"version\":\"2.0\",\"name\":\"Plain\"}"), document, &plain).ok() &&
               !client_theme_document_scheduled(plain) &&
               client_theme_document_write(plain, {exported, sizeof(exported)}, &plain_bytes).ok() &&
-              !contains(exported, plain_bytes, utf8_literal("variants")) && exported[plain_bytes - 1] == '}' &&
+              !test_contains({exported, plain_bytes}, utf8_literal("variants")) && exported[plain_bytes - 1] == '}' &&
               exported[plain_bytes - 2] == '}' && exported[plain_bytes - 3] == '}',
           "theme variants: a document without them inherits none and writes as it always did");
     const auto variant = [](const char* phase) noexcept {
@@ -167,7 +162,7 @@ void test_variants(const ClientThemeDocument& defaults, void (*check)(bool, cons
               bytes_equal(follow.phase_knob, "sky", 4) && !follow.phases[0] && !follow.phases[1] &&
               follow.phases[2] == theme_phase_day + 1 && follow.phases[3] == theme_phase_night + 1 && !follow.phases[4] &&
               client_theme_document_write(linked, {exported, sizeof(exported)}, &linked_bytes).ok() &&
-              contains(exported, linked_bytes,
+              test_contains({exported, linked_bytes},
                        utf8_literal(",\"follow\":{\"month\":\"month\",\"phase\":\"sky\",\"phases\":[\"auto\",\"auto\","
                                     "\"day\",\"night\"]}")) &&
               parse({exported, linked_bytes}, defaults, &linked_again).ok() &&
@@ -412,7 +407,7 @@ void test_client_theme_document(void (*check)(bool, const char*) noexcept) noexc
                   .ok() &&
               control.effect.knobs[0].id[1] == '\r' &&
               client_theme_document_write(control, {exported, kClientThemeDocumentMaximumBytes}, &control_bytes).ok() &&
-              contains(exported, control_bytes, utf8_literal("\"a\\u000db\":1")) &&
+              test_contains({exported, control_bytes}, utf8_literal("\"a\\u000db\":1")) &&
               parse({exported, control_bytes}, defaults, &control_again).ok() &&
               client_theme_document_equal(control, control_again),
           "theme document: a knob name with a control character survives a rewrite");

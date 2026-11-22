@@ -47,11 +47,11 @@ UiWidget popup_widgets[32]{};UiLayoutNode popup_nodes[32]{};u8 modal_token{};
 UserRecord user_records[64]{};u32 user_order[64]{};u8 user_names[8192]{};
 struct Observations {
     u32 failures, submissions, builds, form_opens, input_layouts, input_syncs;
-    u64 request_id, user_id, profile_user, dm_user, call_channel, request_channel;
+    u64 request_id, user_id, profile_user, dm_user, call_channel;
     RelationshipOperation operation;
     RestMethod method;
     RestClientSubmitError admission;
-    bool settings, fail_build, requests_mode;
+    bool settings, fail_build;
     char body[256]; u32 body_bytes;
     char target[128];u32 target_bytes;
     char headers[128];u32 header_bytes; // the request's extra header lines (X-Context-Properties)
@@ -1267,15 +1267,9 @@ bool application_private_channel_call(u64 channel) noexcept {
     friends_runtime_test::seen.call_channel = channel;return true;
 }
 bool application_private_channel_request_busy(u64) noexcept { return false; }
-bool application_private_channel_accept_request(u64 channel) noexcept {
-    friends_runtime_test::seen.request_channel = channel;return true;
-}
-bool application_private_channel_ignore_request(u64 channel) noexcept {
-    friends_runtime_test::seen.request_channel = ~channel;return true;
-}
-void application_private_channel_set_requests_mode(bool requests) noexcept {
-    friends_runtime_test::seen.requests_mode = requests;
-}
+bool application_private_channel_accept_request(u64) noexcept { return true; }
+bool application_private_channel_ignore_request(u64) noexcept { return true; }
+void application_private_channel_set_requests_mode(bool) noexcept {}
 bool application_motion_hover_tick(UiMotionHover* hover, u64 id, u64 now, const UiMotionStyle& style) noexcept {
     return ui_motion_hover_tick(hover, id, now, style, true);
 }

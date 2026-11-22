@@ -32,52 +32,41 @@ void check(bool valid, const char* label) noexcept {
     test_check(&g_failures, valid, label);
 }
 
-u32 ceil_to_pixels(float dips, u32 dpi) noexcept {
-    return static_cast<u32>(dips * static_cast<float>(dpi) / 96.0f + 0.999f);
-}
-
 } // namespace
 } // namespace maicord
 
 MAICORD_TEST_ENTRY(maicord_linux_window_minimum_entry) {
     using namespace maicord;
     using namespace maicord::app_detail;
+    // The headless window reports 96 DPI: one pixel per DIP. Every height is 480 DIPs of content and the 32-pixel
+    // caption.
     g_app.window = window_test::open();
-    const u32 dpi = window_metrics(g_app.window).dpi ? window_metrics(g_app.window).dpi : 96;
-    const u32 height = ceil_to_pixels(kMinimumClientHeightDips, dpi) + application_caption_pixels(dpi);
 
     // Signed out: the sign-in form's minimum.
     g_app.account_ui = nullptr;
     g_app.login.visible = true;
     application_window_refresh_minimum_size();
     const NullWindowProbe login = null_window_probe();
-    check(login.min_size_calls == 1 && login.min_width == ceil_to_pixels(kMinimumLoginClientWidthDips, dpi) &&
-              login.min_height == height,
+    check(login.min_size_calls == 1 && login.min_width == 560 && login.min_height == 512,
           "the sign-in form sets its own minimum size");
 
-    // Signing in switches to the main layout: its minimum is larger and is sent again.
+    // Signing in switches to the main layout: the 64-DIP rail, 240-DIP channel list and member list and the 320-DIP
+    // message minimum.
     alignas(8) static char account_ui_stand_in[8];
     g_app.account_ui = reinterpret_cast<decltype(g_app.account_ui)>(account_ui_stand_in);
     g_app.login.visible = false;
-    g_app.channel_pane_width = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).navigation_width;
-    g_app.member_pane_width = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).member_sidebar_width;
+    g_app.channel_pane_width = g_app.member_pane_width = 240;
     g_app.member_pane_visible = true;
     application_window_refresh_minimum_size();
     const NullWindowProbe main_layout = null_window_probe();
-    const float with_members = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).guild_rail_width +
-                               ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).navigation_width +
-                               ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).member_sidebar_width + kMinimumAccountMessageWidthDips;
-    check(main_layout.min_size_calls == 2 && main_layout.min_width == ceil_to_pixels(with_members, dpi) &&
-              main_layout.min_width > login.min_width && main_layout.min_height == height,
+    check(main_layout.min_size_calls == 2 && main_layout.min_width == 864 && main_layout.min_height == 512,
           "switching from sign-in to the main layout sends the larger minimum size");
 
     // Hiding the member list lowers it.
     g_app.member_pane_visible = false;
     application_window_refresh_minimum_size();
     const NullWindowProbe without_members = null_window_probe();
-    const float no_members = with_members - ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).member_sidebar_width;
-    check(without_members.min_width == ceil_to_pixels(no_members, dpi) && without_members.min_width < main_layout.min_width,
-          "hiding the member list lowers the minimum size");
+    check(without_members.min_width == 624, "hiding the member list lowers the minimum size");
 
     // Back to sign-in (a log out) restores the form's.
     g_app.login.visible = true;

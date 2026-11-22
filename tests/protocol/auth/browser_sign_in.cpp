@@ -1,6 +1,7 @@
 #include "maicord/protocol/auth/browser_sign_in.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/crt.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -26,10 +27,6 @@ u32 uri(u8* output, Utf8View text) noexcept {
     }
     return used;
 }
-bool contains(ConstSlice<u8> text, Utf8View value) noexcept {
-    for (u32 i = 0; i + value.bytes <= text.count; ++i) if (bytes_equal(text.data + i, value.data, value.bytes)) return true;
-    return false;
-}
 } // namespace
 
 void test_browser_sign_in(void (*check)(bool, const char*) noexcept) noexcept {
@@ -46,9 +43,9 @@ void test_browser_sign_in(void (*check)(bool, const char*) noexcept) noexcept {
     check(parsed.ok() && parsed.request.kind == BrowserSignInRequestKind::post && parsed.request.has_token && decoded.ok() &&
         same({token, decoded.bytes}, utf8_literal("synthetic-token")), "browser sign-in accepts observed POST with omitted evt and keeps token as a borrowed view");
     auto written = browser_sign_in_write_response(parsed.request, {output, sizeof(output)});
-    check(written.ok() && contains({output, written.bytes}, utf8_literal("{\"cmd\":\"BROWSER_HANDOFF\",\"data\":null,\"evt\":null,\"nonce\":\"nonce-1\"}")) &&
-        contains({output, written.bytes}, utf8_literal("Access-Control-Allow-Origin: https://discord.com\r\n")) &&
-        !contains({output, written.bytes}, utf8_literal("synthetic-token")), "RPC acknowledgement exactly preserves command/nonce and null data/evt without returning a credential");
+    check(written.ok() && test_contains({output, written.bytes}, utf8_literal("{\"cmd\":\"BROWSER_HANDOFF\",\"data\":null,\"evt\":null,\"nonce\":\"nonce-1\"}")) &&
+        test_contains({output, written.bytes}, utf8_literal("Access-Control-Allow-Origin: https://discord.com\r\n")) &&
+        !test_contains({output, written.bytes}, utf8_literal("synthetic-token")), "RPC acknowledgement exactly preserves command/nonce and null data/evt without returning a credential");
     const u32 complete_bytes = bytes;
     check(parse(complete_bytes - 1).state == BrowserSignInParseState::need_input &&
         parse(15).state == BrowserSignInParseState::need_input, "fragmented header and bounded content-length body wait for remaining input");
@@ -93,9 +90,9 @@ void test_browser_sign_in(void (*check)(bool, const char*) noexcept) noexcept {
     copy_bytes(input, preflight.data, preflight.bytes); parsed = parse(preflight.bytes);
     written = browser_sign_in_write_response(parsed.request, {output, sizeof(output)});
     check(parsed.ok() && parsed.request.kind == BrowserSignInRequestKind::preflight && parsed.request.private_network && written.ok() &&
-        contains({output, written.bytes}, utf8_literal("Access-Control-Allow-Private-Network: true\r\n")) &&
-        contains({output, written.bytes}, utf8_literal("Access-Control-Allow-Headers: Content-Type\r\n")) &&
-        !contains({output, written.bytes}, utf8_literal("Authorization")), "preflight narrowly admits official POST and only requested legacy private-network opt-in");
+        test_contains({output, written.bytes}, utf8_literal("Access-Control-Allow-Private-Network: true\r\n")) &&
+        test_contains({output, written.bytes}, utf8_literal("Access-Control-Allow-Headers: Content-Type\r\n")) &&
+        !test_contains({output, written.bytes}, utf8_literal("Authorization")), "preflight narrowly admits official POST and only requested legacy private-network opt-in");
     constexpr Utf8View bad_preflight = utf8_literal("OPTIONS /rpc?v=1 HTTP/1.1\r\nHost: 127.0.0.1:6463\r\nOrigin: https://discord.com\r\nAccess-Control-Request-Method: POST\r\nAccess-Control-Request-Headers: content-type, authorization\r\n\r\n");
     copy_bytes(input, bad_preflight.data, bad_preflight.bytes);
     check(!parse(bad_preflight.bytes).ok(), "private-network/CORS preflight never admits an Authorization header");
@@ -105,7 +102,7 @@ void test_browser_sign_in(void (*check)(bool, const char*) noexcept) noexcept {
     get_bytes = append(input, get_bytes, utf8_literal(" HTTP/1.1\r\nHost: 127.0.0.1:6463\r\n\r\n"));
     parsed = parse(get_bytes); written = browser_sign_in_write_response(parsed.request, {output, sizeof(output)});
     check(parsed.ok() && parsed.request.kind == BrowserSignInRequestKind::redirect && parsed.request.has_token && written.ok() &&
-        contains({output, written.bytes}, utf8_literal("HTTP/1.1 301 Moved Permanently\r\nLocation: https://discord.com/handoff?done=true\r\n")), "legacy navigation accepts only fixed official callback and returns observed301; exchange remains separate");
+        test_contains({output, written.bytes}, utf8_literal("HTTP/1.1 301 Moved Permanently\r\nLocation: https://discord.com/handoff?done=true\r\n")), "legacy navigation accepts only fixed official callback and returns observed301; exchange remains separate");
     // An attacker-controlled callback may never become the response Location.
     u32 malicious = append(input, 0, utf8_literal("GET /rpc?v=1&payload=")); malicious += uri(input + malicious, payload);
     malicious = append(input, malicious, utf8_literal("&callback=https%3A%2F%2Fevil.invalid%2Fhandoff%3Fdone%3Dtrue HTTP/1.1\r\nHost: 127.0.0.1:6463\r\n\r\n"));

@@ -50,11 +50,9 @@ bool opened_trusted;
 UiRect field_picker_anchor;
 u64 field_picker_owner;
 u32 field_picker_closes;
-// Games the profile asked the game cache for (bit: id - 500), the game whose
-// profile opened, and the Settings page opened.
+// Games the profile asked the game cache for (bit: id - 500) and the game whose profile opened.
 u32 wanted_games;
 u64 opened_game;
-UiPageKey opened_page;
 GuildRecord guild;
 u16 guild_order;
 RoleRecord roles[21];
@@ -831,8 +829,7 @@ bool application_game_profile_open(u64 id) noexcept {
     profile_runtime_test::opened_game = id;
     return true;
 }
-bool application_settings_open_page(UiPageKey page) noexcept {
-    profile_runtime_test::opened_page = page;
+bool application_settings_open_page(UiPageKey) noexcept {
     return true;
 }
 bool queue_private_conversation(PrivateConversationOperation, u64) noexcept {

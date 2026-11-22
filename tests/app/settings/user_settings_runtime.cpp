@@ -1,6 +1,7 @@
 #include "settings/account_settings.hpp"
 #include "shell/state.hpp"
 #include "../../support/account_module_fake.hpp"
+#include "../../support/test_output.hpp"
 #include "chat/composer/text_form.hpp"
 #include "account/friends.hpp"
 #include "settings/user_settings.hpp"
@@ -502,12 +503,6 @@ RestClientSubmitResult WINAPI capture_profile(void*, u64 user, u64, u64, u8 oper
     copy_bytes(test_mode_value, value.data, test_mode_value_bytes);
     return {RestClientSubmitError::none};
 }
-bool status_contains(Utf8View status, Utf8View part) noexcept {
-    for (u32 i = 0; i + part.bytes <= status.bytes; ++i)
-        if (bytes_equal(status.data + i, part.data, part.bytes))
-            return true;
-    return false;
-}
 void test_mode_cases(void (*check)(bool, const char*) noexcept) noexcept {
     const auto saved_profile = g_account_fake.profile_get;
     const bool saved_developer = g_app.preferences.developer_mode;
@@ -542,13 +537,13 @@ void test_mode_cases(void (*check)(bool, const char*) noexcept) noexcept {
         utf8_literal("[{\"id\":\"1300000000000000001\",\"name\":\"Starfall Tactics Dev\",\"flags\":0}]");
     check(application_test_mode_open() && run(43, game) &&
               g_app.preferences.test_mode_application == 1300000000000000001ull &&
-              status_contains(application_test_mode_status(), utf8_literal("Test mode is currently active for Starfall "
+              test_contains(application_test_mode_status(), utf8_literal("Test mode is currently active for Starfall "
                                                                            "Tactics Dev.")),
           "test mode: an accessible application enters test mode and the row names it");
     application_text_form_close(false, false);
     application_test_mode_clear();
     check(!g_app.preferences.test_mode_application &&
-              status_contains(application_test_mode_status(), utf8_literal("Enter your Discord application ID")),
+              test_contains(application_test_mode_status(), utf8_literal("Enter your Discord application ID")),
           "test mode: Clear leaves it");
     g_app.preferences.developer_mode = saved_developer;
     g_account_fake.profile_get = saved_profile;

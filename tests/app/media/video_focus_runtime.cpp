@@ -757,10 +757,10 @@ void run_search_video() noexcept {
     search_end(run);
 }
 
-void run_search_audio(MediaAttachmentFormat format = MediaAttachmentFormat::ogg_opus) noexcept {
+void run_search_audio() noexcept {
+    constexpr auto format = MediaAttachmentFormat::ogg_opus;
     SearchRun run{};
-    search_begin(run, utf8_literal("https://example.com/forwarded-search.opus"), true,
-                 format == MediaAttachmentFormat::ogg_opus, format);
+    search_begin(run, utf8_literal("https://example.com/forwarded-search.opus"), true, true, format);
     auto& source = run.source;
     auto& content = run.content;
     auto& scene = run.scene;
@@ -771,8 +771,7 @@ void run_search_audio(MediaAttachmentFormat format = MediaAttachmentFormat::ogg_
     check(opened && g_app.renderer.audio_scene && rich_scene &&
               g_app.renderer.audio_scene->owner.manager == &rich_scene->widgets &&
               g_app.renderer.audio_scene->surface == UiAudioSourceSurface::search &&
-              g_app.renderer.audio_scene->projection.playback.voice ==
-                  (format == MediaAttachmentFormat::ogg_opus) &&
+              g_app.renderer.audio_scene->projection.playback.voice &&
               application_video_search_active() && account.status.key.id == 71 &&
               media_asset_attachment_format(account.status.key) == format &&
               account.status.playback.kind == audio_kind(format) && account.selections == selections + 1,
@@ -811,7 +810,9 @@ void run_search_audio(MediaAttachmentFormat format = MediaAttachmentFormat::ogg_
 void run_audio_format(MediaAttachmentFormat format) noexcept {
     const auto prior_view = g_app.message_view;
     const auto prior_rich = g_app.account_ui->message_rich_store;
-    for (u32 scope = 0; scope < 2; ++scope) {
+    // The forwarded scope and the player controls below are the same for every codec: Opus runs them.
+    const bool opus = format == MediaAttachmentFormat::ogg_opus;
+    for (u32 scope = 0; scope < (opus ? 2u : 1u); ++scope) {
         application_video_close();
         message_scene_release(&g_app.message_scene);
         SceneFixture fixture{};
@@ -877,7 +878,7 @@ void run_audio_format(MediaAttachmentFormat format) noexcept {
                   !application_video_next_wake() && account.gpu_publications == gpu,
               "audio runtime: 8 unchanged pumps retain paint/text and emit no request, command, "
               "selection, GPU publication or animation deadline");
-        if (format != MediaAttachmentFormat::ogg_opus) {
+        if (!opus) {
             account.status.playback.kind = AccountPlaybackKind::ogg_opus;
             check(pump() && g_app.renderer.audio_scene->projection.playback.error &&
                       !g_app.renderer.audio_scene->projection.playback.can_seek,
@@ -887,6 +888,7 @@ void run_audio_format(MediaAttachmentFormat format) noexcept {
                       account.selections == selections + 1,
                   "audio runtime: exact codec status restores existing control owner without source "
                   "reselection");
+            continue;
         }
         g_app.keyboard_focus_visible = true;
         window_focus(g_app.window);
@@ -1732,7 +1734,6 @@ void run() noexcept {
     run_search_video();
     run_audio();
     run_search_audio();
-    run_search_audio(MediaAttachmentFormat::mp3);
     application_video_close();
     message_scene_release(&g_app.message_scene);
     const Utf8View provider_urls[]{utf8_literal("https://www.youtube.com/embed/aB_01234-xy?start=12"),

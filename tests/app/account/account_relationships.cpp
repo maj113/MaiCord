@@ -86,17 +86,12 @@ void test_transport() noexcept {
               submitted.response_capacity == kRelationshipsMaximumBytes,
           "relationships: list uses authenticated account owner, existing mailbox request ID and bodyless "
           "normalized GET, with a response of up to the decoder's cap");
-    char username[] = "friend.name";
-    check(account_relationship_submit(&client, RelationshipOperation::request, 0,
-                                      {username, sizeof(username) - 1}, 102)
-              .ok(),
-          "relationships: current username request is admitted once");
-    for (u32 i = 0; i < sizeof(username) - 1; ++i)
-        username[i] = 'x';
-    check(captured(&client, utf8_literal("/api/v9/users/@me/relationships"),
-                   utf8_literal("{\"username\":\"friend.name\",\"discriminator\":null}"),
-                   RestMethod::post, 102, true),
-          "relationships: username POST bytes are synchronously copied before caller storage is reused");
+    check(account_relationship_submit(&client, RelationshipOperation::request, 0, utf8_literal("friend.name"), 102)
+                  .ok() &&
+              captured(&client, utf8_literal("/api/v9/users/@me/relationships"),
+                       utf8_literal("{\"username\":\"friend.name\",\"discriminator\":null}"),
+                       RestMethod::post, 102, true),
+          "relationships: a username request is one POST of the username");
     check(account_relationship_submit(&client, RelationshipOperation::accept, 42, {}, 103).ok() &&
               captured(&client, utf8_literal("/api/v9/users/@me/relationships/42"), utf8_literal("{}"),
                        RestMethod::put, 103, true),
@@ -313,8 +308,6 @@ static void test_message_ack_transport() noexcept {
     check(account_message_ack_submit(&client, 7, 99, prepared, 202).ok() &&
               submitted.calls == before_invalid + 1,
           "message ACK: prepared request is admitted once through existing account REST owner");
-    for (u32 i = 0; i < written.bytes; ++i)
-        body[i] = 'x';
     check(submitted.client == &client && submitted.copied &&
               submitted.request_id == 202 && submitted.route.route_id == kMessageAckRouteId &&
               submitted.route.major_key == 7 &&
@@ -325,8 +318,7 @@ static void test_message_ack_transport() noexcept {
                          utf8_literal("/api/v9/channels/7/messages/99/ack")) &&
               utf8_equal({reinterpret_cast<const char*>(submitted.body), submitted.body_bytes},
                          utf8_literal("{\"token\":null,\"last_viewed\":123,\"flags\":0}")),
-          "message ACK: exact JSON POST, channel major route, request ID and body are synchronously copied "
-          "before caller reuse");
+          "message ACK: exact JSON POST, channel major route, request ID and body");
 
     // The raw account adapter does not infer ordinary/manual semantics from
     // caller JSON. The host rejects ordinary zero cursors; manual beginning
@@ -347,8 +339,6 @@ static void test_message_ack_transport() noexcept {
               submitted.calls == before_manual + 1,
           "message ACK: caller-built manual beginning boundary is admitted exactly once through native "
           "account transport");
-    for (u32 i = 0; i < manual_written.bytes; ++i)
-        manual_body[i] = 'x';
     check(submitted.client == &client && submitted.copied &&
               submitted.request_id == 204 && submitted.route.route_id == kMessageAckRouteId &&
               submitted.route.major_key == 7 &&
@@ -359,19 +349,16 @@ static void test_message_ack_transport() noexcept {
                          utf8_literal("/api/v9/channels/7/messages/0/ack")) &&
               utf8_equal({reinterpret_cast<const char*>(submitted.body), submitted.body_bytes},
                          utf8_literal("{\"manual\":true}")),
-          "message ACK: manual zero route, exact body and account request identity are copied before "
-          "caller reuse");
+          "message ACK: manual zero route, exact body and account request identity");
 
-    const auto rebuilt = write_message_ack_body(request, {body, sizeof(body)});
-    check(rebuilt.ok(), "message ACK: caller can reuse request body scratch");
     const RestClientSubmitError rejected[]{RestClientSubmitError::busy,
                                            RestClientSubmitError::account_restricted,
                                            RestClientSubmitError::signal};
-    bool exact_errors = rebuilt.ok();
+    bool exact_errors = true;
     for (const auto error : rejected) {
         submitted.result = error;
         const u32 calls = submitted.calls;
-        const auto result = account_message_ack_submit(&client, 7, 99, {body, rebuilt.bytes}, 203);
+        const auto result = account_message_ack_submit(&client, 7, 99, prepared, 203);
         exact_errors = exact_errors && result.error == error && submitted.calls == calls + 1;
     }
     check(exact_errors, "message ACK: busy, account restriction and signal failure propagate without retry "

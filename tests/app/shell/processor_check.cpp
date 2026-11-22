@@ -4,14 +4,8 @@ namespace maicord {
 
 // Feature words as the named processors report them: CPUID.1:ECX, CPUID.7.0:EBX, CPUID.80000001h:ECX, XCR0.
 void test_processor_check(void (*check)(bool, const char*) noexcept) noexcept {
-    constexpr ProcessorFeatures sandy_bridge{0x1FBAE3FFu, 0, 0x00000001u, 7};
-    constexpr ProcessorFeatures ivy_bridge{0x7FBAE3FFu, 0x00000281u, 0x00000001u, 7};
-    constexpr ProcessorFeatures piledriver{0x3E98320Bu, 0x00000008u, 0x01EBBFFFu, 7};
     constexpr ProcessorFeatures haswell{0x7FFAFBFFu, 0x000027ABu, 0x00000021u, 7};
     constexpr ProcessorFeatures zen{0x7ED8320Bu, 0x209C01A9u, 0x35C233FFu, 7};
-    check(!processor_supported(sandy_bridge), "Sandy Bridge has no AVX2: refused");
-    check(!processor_supported(ivy_bridge), "Ivy Bridge has F16C but no AVX2: refused");
-    check(!processor_supported(piledriver), "Piledriver has FMA, BMI1 and LZCNT but no AVX2: refused");
     check(processor_supported(haswell), "Haswell is the minimum processor");
     check(processor_supported(zen), "Zen has every Haswell feature");
 

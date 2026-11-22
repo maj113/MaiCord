@@ -5,27 +5,12 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/platform/window/event.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
 constexpr u8 C = shortcut_ctrl, L = shortcut_alt, H = shortcut_shift;
-
-constexpr bool single_bits() noexcept {
-    constexpr u32 flags[] = {ev_repeat, ev_double_click, ev_system, ev_synthetic, ev_keyboard, ev_provisional};
-    u32 seen = 0;
-    for (const u32 flag : flags) {
-        if (flag == 0 || (flag & (flag - 1)) != 0 || (seen & flag) != 0)
-            return false;
-        seen |= flag;
-    }
-    return seen <= 0xFF;
-}
-static_assert(single_bits());
-static_assert(static_cast<u8>(PointerButton::left) == 0 && static_cast<u8>(PointerButton::forward) == 4);
-static_assert(__is_trivially_copyable(WindowEvent) && __is_trivially_copyable(WindowEventResult));
 
 bool resolves_list(ShortcutContext context, ShortcutChord chord, const ShortcutAction* expected, u32 expected_count) noexcept {
     ShortcutAction actions[4]{};

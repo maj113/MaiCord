@@ -4,6 +4,7 @@
 #include "maicord/platform/desktop/browser_sign_in_launcher.hpp"
 #include "maicord/ui/account/login_text_presentation.hpp"
 #include "maicord/ui/theme/theme.hpp"
+#include "../../support/test_output.hpp"
 
 namespace maicord::captcha_bridge_test {
 using Check = void (*)(bool, const char*) noexcept;
@@ -39,12 +40,6 @@ void post(Utf8View body, Utf8View extra = {}, Utf8View origin = utf8_literal("Or
     wire.add(utf8_literal("Sec-Fetch-Site: same-origin\r\nContent-Type: application/json\r\n"));
     wire.add(extra); wire.add(utf8_literal("Content-Length: ")); wire.number(body.bytes);
     wire.add(utf8_literal("\r\n\r\n")); wire.add(body);
-}
-bool contains(ConstSlice<u8> haystack, Utf8View needle) noexcept {
-    if (needle.bytes > haystack.count) return false;
-    for (u32 i = 0; i + needle.bytes <= haystack.count; ++i)
-        if (bytes_equal(haystack.data + i, needle.data, needle.bytes)) return true;
-    return false;
 }
 constexpr Utf8View kToken = utf8_literal("{\"token\":\"P1_eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.synthetic-solution_01\"}");
 
@@ -175,13 +170,13 @@ void page(Check check) noexcept {
         u32 head = 0;
         while (head + 3 < written.bytes && !bytes_equal(output + head, "\r\n\r\n", 4)) ++head;
         const ConstSlice<u8> header{output, head};
-        check(written.ok() && contains(header, utf8_literal("default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")) &&
-                  contains(header, utf8_literal("script-src 'nonce-fedcba9876543210fedcba9876543210' ")) &&
-                  contains(header, utf8_literal("connect-src 'self' ")) && !contains(header, provider.absent) &&
-                  contains(header, utf8_literal("Cache-Control: no-store")) && contains(header, utf8_literal("Referrer-Policy: no-referrer")) &&
-                  contains(header, utf8_literal("X-Content-Type-Options: nosniff")) && !contains(header, utf8_literal("Access-Control")) &&
-                  contains(response, provider.script) && contains(response, utf8_literal("nonce=\"fedcba9876543210fedcba9876543210\"")) &&
-                  contains(response, utf8_literal("\"s\":\"/s/0123456789abcdef0123456789abcdef\"")),
+        check(written.ok() && test_contains(header, utf8_literal("default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")) &&
+                  test_contains(header, utf8_literal("script-src 'nonce-fedcba9876543210fedcba9876543210' ")) &&
+                  test_contains(header, utf8_literal("connect-src 'self' ")) && !test_contains(header, provider.absent) &&
+                  test_contains(header, utf8_literal("Cache-Control: no-store")) && test_contains(header, utf8_literal("Referrer-Policy: no-referrer")) &&
+                  test_contains(header, utf8_literal("X-Content-Type-Options: nosniff")) && !test_contains(header, utf8_literal("Access-Control")) &&
+                  test_contains(response, provider.script) && test_contains(response, utf8_literal("nonce=\"fedcba9876543210fedcba9876543210\"")) &&
+                  test_contains(response, utf8_literal("\"s\":\"/s/0123456789abcdef0123456789abcdef\"")),
               "bridge page: provider-scoped nonce CSP, no-store headers and same-origin submit route");
         u32 declared = 0, offset = 0;
         for (; offset + 16 < head; ++offset) if (bytes_equal(output + offset, "Content-Length: ", 16)) break;
@@ -193,30 +188,30 @@ void page(Check check) noexcept {
     auto enterprise_written = captcha_bridge_write_page(enterprise, {output, sizeof(output)});
     ConstSlice<u8> enterprise_response{output, enterprise_written.bytes};
     check(
-        enterprise_written.ok() && contains(enterprise_response, utf8_literal("enterprise.js?render=")) &&
-            contains(enterprise_response, utf8_literal("encodeURIComponent(c.k)")) &&
-            contains(enterprise_response, utf8_literal("l.nonce=document.currentScript.nonce")) &&
-            contains(enterprise_response, utf8_literal("l.async=true;l.defer=true")) &&
-            contains(enterprise_response, utf8_literal("a.ready(function()")) &&
-            contains(enterprise_response, utf8_literal("execute(c.k,c.a==null?undefined:{action:c.a})")) &&
-            contains(enterprise_response, utf8_literal(".then(done,failed)")) &&
-            contains(enterprise_response, utf8_literal("l.onerror=failed")) &&
-            contains(enterprise_response, utf8_literal("Checking your browser&#8230;")) &&
-            !contains(enterprise_response, utf8_literal("\"a\":")) &&
-            !contains(enterprise_response, utf8_literal("a.render(")) &&
-            !contains(enterprise_response, utf8_literal("execute(id)")) &&
-            !contains(enterprise_response, utf8_literal("https://js.hcaptcha.com")) &&
-            !contains(enterprise_response, utf8_literal("https://challenges.cloudflare.com")),
+        enterprise_written.ok() && test_contains(enterprise_response, utf8_literal("enterprise.js?render=")) &&
+            test_contains(enterprise_response, utf8_literal("encodeURIComponent(c.k)")) &&
+            test_contains(enterprise_response, utf8_literal("l.nonce=document.currentScript.nonce")) &&
+            test_contains(enterprise_response, utf8_literal("l.async=true;l.defer=true")) &&
+            test_contains(enterprise_response, utf8_literal("a.ready(function()")) &&
+            test_contains(enterprise_response, utf8_literal("execute(c.k,c.a==null?undefined:{action:c.a})")) &&
+            test_contains(enterprise_response, utf8_literal(".then(done,failed)")) &&
+            test_contains(enterprise_response, utf8_literal("l.onerror=failed")) &&
+            test_contains(enterprise_response, utf8_literal("Checking your browser&#8230;")) &&
+            !test_contains(enterprise_response, utf8_literal("\"a\":")) &&
+            !test_contains(enterprise_response, utf8_literal("a.render(")) &&
+            !test_contains(enterprise_response, utf8_literal("execute(id)")) &&
+            !test_contains(enterprise_response, utf8_literal("https://js.hcaptcha.com")) &&
+            !test_contains(enterprise_response, utf8_literal("https://challenges.cloudflare.com")),
         "bridge enterprise: score loader executes the sitekey with no invented action or widget path");
     enterprise.user_flow = utf8_literal("flow/\"<>&'\\\n\xe2\x80\xa8\xe2\x80\xa9");
     enterprise_written = captcha_bridge_write_page(enterprise, {output, sizeof(output)});
     enterprise_response = {output, enterprise_written.bytes};
     check(enterprise_written.ok() &&
-              contains(
+              test_contains(
                   enterprise_response,
                   utf8_literal(
                       "\"a\":\"flow/\\u0022\\u003c\\u003e\\u0026\\u0027\\u005c\\u000a\\u2028\\u2029\"")) &&
-              !contains(enterprise_response, enterprise.user_flow),
+              !test_contains(enterprise_response, enterprise.user_flow),
           "bridge enterprise: server action is JSON escaped without executable markup or line separators");
     char oversized_flow[129];
     for (char& c : oversized_flow)

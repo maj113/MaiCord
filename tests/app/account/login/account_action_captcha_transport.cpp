@@ -14,12 +14,6 @@ u32 failures;
 void check(bool pass, const char* label) noexcept {
     test_check(&failures, pass, label);
 }
-bool contains(ConstSlice<u8> haystack, Utf8View needle) noexcept {
-    for (u32 i = 0; needle.bytes && i + needle.bytes <= haystack.count; ++i)
-        if (bytes_equal(haystack.data + i, needle.data, needle.bytes))
-            return true;
-    return false;
-}
 struct Probe : RestClientProbe {
     // Drops the admitted command as if it had been sent, so another submit fits.
     void drain() noexcept {
@@ -64,18 +58,18 @@ void retry() noexcept {
     p.drain();
     constexpr Utf8View context = utf8_literal("X-Context-Properties: eyJ4IjoxfQ==\r\n");
     check(p.send(777, bytes(context)).ok() && p.headers().count == context.bytes + kCaptcha.bytes &&
-              contains(p.headers(), utf8_literal("X-Captcha-Key: P1_solved.token\r\n")) &&
-              contains(p.headers(), utf8_literal("X-Captcha-Session-Id: 3f2a\r\n")) &&
-              contains(p.headers(), context),
+              test_contains(p.headers(), utf8_literal("X-Captcha-Key: P1_solved.token\r\n")) &&
+              test_contains(p.headers(), utf8_literal("X-Captcha-Session-Id: 3f2a\r\n")) &&
+              test_contains(p.headers(), context),
           "action captcha: the retried request carries its own and the armed headers once");
     u8 head[16 * 1024]{};
     const auto written = write_rest_request_head(
         {{p.runtime->request_target, p.runtime->command.target_bytes}, {}, p.runtime->command.body_bytes,
          RestMethod::post, RestAuthorization::none, true, nullptr, true, {}, p.headers()},
         {head, sizeof(head)});
-    check(written.ok() && contains({head, written.bytes}, utf8_literal("\r\nX-Captcha-Rqtoken: rq.abc\r\n")) &&
-              contains({head, written.bytes}, utf8_literal("X-Context-Properties: eyJ4IjoxfQ==\r\nX-Captcha-Key")) &&
-              contains({head, written.bytes}, utf8_literal("X-Captcha-Session-Id: 3f2a\r\nUser-Agent")),
+    check(written.ok() && test_contains({head, written.bytes}, utf8_literal("\r\nX-Captcha-Rqtoken: rq.abc\r\n")) &&
+              test_contains({head, written.bytes}, utf8_literal("X-Context-Properties: eyJ4IjoxfQ==\r\nX-Captcha-Key")) &&
+              test_contains({head, written.bytes}, utf8_literal("X-Captcha-Session-Id: 3f2a\r\nUser-Agent")),
           "action captcha: headers reach the wire head with the page's X- headers, before User-Agent");
     p.drain();
     check(p.send(777).ok() && !p.headers().count, "action captcha: a solution is never replayed twice");

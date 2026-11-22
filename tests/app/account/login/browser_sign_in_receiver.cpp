@@ -2,6 +2,7 @@
 #include "maicord/app/account/login/browser_sign_in_receiver.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "../../../support/test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -15,11 +16,6 @@ bool wait_phase(const BrowserSignInReceiver* receiver, BrowserSignInReceiverPhas
         if (now >= end || !event || WaitForSingleObject(event, static_cast<DWORD>(end - now)) == WAIT_FAILED) return false;
     }
     return true;
-}
-bool contains(const u8* data, u32 bytes, Utf8View needle) noexcept {
-    for (u32 i = 0; i + needle.bytes <= bytes; ++i)
-        if (bytes_equal(data + i, needle.data, needle.bytes)) return true;
-    return false;
 }
 struct Wire {
     u8 data[2048];
@@ -79,7 +75,7 @@ void live_worker(void (*check)(bool, const char*) noexcept) noexcept {
     if (secure_buffer_initialize(&exchange, kBrowserSignInMaximumBodyBytes).ok()) {
         const u64 candidate = browser_sign_in_receiver_status(&receiver).candidate_id;
         check(browser_sign_in_receiver_take_exchange(&receiver, 7, candidate, &exchange).ok() &&
-                contains(exchange.data, exchange.bytes, utf8_literal("\"handoff_token\":\"synthetic-token\"")) &&
+                test_contains(secure_buffer_view(exchange), utf8_literal("\"handoff_token\":\"synthetic-token\"")) &&
                 browser_sign_in_receiver_finish_exchange(&receiver, 7, candidate, true).phase == BrowserSignInReceiverPhase::complete,
             "receiver worker: the candidate leaves once, bound to the attempt key");
         secure_buffer_release(&exchange);

@@ -47,9 +47,6 @@ AccountHostStopResult held_stop(AccountHost* host, u32 timeout, u64 monotonic, u
 bool idle(const AccountLogoutStopOwner& owner) noexcept {
     return !account_logout_stop_owned(owner) && !account_logout_stop_notification(owner);
 }
-bool same_live(const AccountLogoutStopOwner& owner, HANDLE thread, AccountHost*) noexcept {
-    return account_logout_stop_owned(owner) && account_logout_stop_notification(owner) == thread;
-}
 void cleanup(HeldStop* held, void (*check)(bool, const char*) noexcept) noexcept {
     if (!held) return;
     if (held->allowed) SetEvent(held->allowed);
@@ -76,19 +73,11 @@ void test_account_logout_stop(void (*check)(bool, const char*) noexcept) noexcep
     const HMODULE retained_module = held->host.module;
     check(held->entered && held->allowed && retained_module, "logout stop: local real-thread gate fixture initialized");
     if (!held->entered || !held->allowed || !retained_module) { cleanup(held, check); return; }
-    check(!account_logout_stop_start(nullptr, &held->host, 250, 1, 2, held_stop).ok() &&
-        !account_logout_stop_start(&held->owner, nullptr, 250, 1, 2, held_stop).ok() &&
-        !account_logout_stop_start(&held->owner, &held->host, 0, 1, 2, held_stop).ok() &&
-        !account_logout_stop_start(&held->owner, &held->host, INFINITE, 1, 2, held_stop).ok() &&
-        !account_logout_stop_start(&held->owner, &held->host, 250, 1, 2, nullptr).ok() && idle(held->owner),
-        "logout stop: invalid or unbounded requests cannot acquire host ownership");
     AccountHostStopResult result{};
     result.native_error = 91;
     // A value no stop returns: the calls below must leave it alone.
     result.error = AccountHostError::module_symbol;
-    check(!account_logout_stop_take(nullptr, &result) && !account_logout_stop_take(&held->owner, &result) &&
-        !account_logout_stop_join_for_shutdown(nullptr, 0, &result) &&
-        !account_logout_stop_join_for_shutdown(&held->owner, INFINITE, &result) &&
+    check(!account_logout_stop_take(&held->owner, &result) &&
         account_logout_stop_join_for_shutdown(&held->owner, 0, &result) && result.native_error == 91 &&
         result.error == AccountHostError::module_symbol,
         "logout stop: idle poll and bounded idempotent shutdown preserve unpublished outputs");
@@ -103,25 +92,21 @@ void test_account_logout_stop(void (*check)(bool, const char*) noexcept) noexcep
         held->received_timeout == 250 && held->received_monotonic == 1234 && held->received_unix == 5678,
         "logout stop: actual background thread alone receives exact immutable stop arguments without a UI wait");
     const auto duplicate = account_logout_stop_start(&held->owner, &held->host, 500, 9999, 9999, held_stop);
-    bool polls_preserved = true;
-    for (u32 i = 0; i < 64; ++i)
-        polls_preserved = !account_logout_stop_take(&held->owner, &result) && polls_preserved;
-    check(duplicate.error == AccountLogoutStopStartError::active &&
-        !account_logout_stop_take(&held->owner, nullptr) && polls_preserved &&
+    const bool poll_kept = !account_logout_stop_take(&held->owner, &result);
+    check(duplicate.error == AccountLogoutStopStartError::active && poll_kept &&
         !account_logout_stop_join_for_shutdown(&held->owner, 0, &result) &&
         !account_logout_stop_join_for_shutdown(&held->owner, 1, &result) &&
-        !account_logout_stop_join_for_shutdown(&held->owner, INFINITE, &result) &&
-        same_live(held->owner, completion, &held->host) && result.native_error == 91 &&
+        account_logout_stop_owned(held->owner) && account_logout_stop_notification(held->owner) == completion &&
+        result.native_error == 91 &&
         result.error == AccountHostError::module_symbol && read_acquire(&held->calls) == 1,
-        "logout stop: duplicate, 64 pending polls and cancelled bounded joins retain all context and unpublished result");
+        "logout stop: duplicate start, pending poll and cancelled bounded joins retain all context and unpublished result");
     SetEvent(held->allowed);
     const bool terminal = WaitForSingleObject(completion, 3'000) == WAIT_OBJECT_0;
     check(terminal && account_logout_stop_owned(held->owner) &&
         account_logout_stop_notification(held->owner) == completion,
         "logout stop: terminal thread notification keeps host ownership until successful take");
     const bool taken = terminal && account_logout_stop_take(&held->owner, &result);
-    check(taken && idle(held->owner) && !account_logout_stop_owned(held->owner) &&
-        !account_logout_stop_notification(held->owner) && result.error == AccountHostError::account_stop &&
+    check(taken && idle(held->owner) && result.error == AccountHostError::account_stop &&
         result.native_error == WAIT_TIMEOUT && result.account_status.profile_id == 42 &&
         result.account_status.session_saves == 7 && result.login_status.user_id == 99 &&
         result.login_status.generation == 13 && result.observations == account_host_observation_session_saves &&

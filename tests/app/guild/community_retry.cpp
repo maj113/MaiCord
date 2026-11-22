@@ -5,6 +5,7 @@
 #include "../../support/account_module_fake.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../support/test_output.hpp"
 
 // Controlled responses, form projection and serialization; no account or
 // network is opened and renderer/editor hooks remain inert.
@@ -124,12 +125,6 @@ RestClientSubmitResult WINAPI community_submit(void*, const GuildCommunityReques
     copy_bytes(retry_sent_body, request->body, request->body_bytes);
     retry_sent.body = reinterpret_cast<const u8*>(retry_sent_body);
     return {};
-}
-bool community_contains(Utf8View text, Utf8View part) noexcept {
-    for (u32 i = 0; part.bytes <= text.bytes && i <= text.bytes - part.bytes; ++i)
-        if (bytes_equal(text.data + i, part.data, part.bytes))
-            return true;
-    return false;
 }
 } // namespace
 void application_guild_card_response(u64, bool join, const RestClientResponse& response,
@@ -342,8 +337,7 @@ void test_community_forms(void (*check)(bool, const char*) noexcept) noexcept {
     save();
     const u32 edit_bytes = build_body({80, 0, GuildCommunityOperation::onboarding_update});
     check(page_decoded && retry_background.queue_count == 1 && edit_bytes &&
-              community_contains({reinterpret_cast<const char*>(retry_background.body), edit_bytes},
-                                 utf8_literal(R"("onboarding_responses":["101","202"])")),
+              test_contains({retry_background.body, edit_bytes}, utf8_literal(R"("onboarding_responses":["101","202"])")),
           "community Channels & Roles saves every prompt's choices, outside the initial flow too");
     check(!build_body({80, 0, GuildCommunityOperation::verification_submit}) &&
               !build_body({80, 0, GuildCommunityOperation::onboarding_submit}) &&
@@ -372,8 +366,7 @@ void test_community_forms(void (*check)(bool, const char*) noexcept) noexcept {
     submit_modal();
     const u32 initial_bytes = build_body({80, 0, GuildCommunityOperation::onboarding_submit});
     check(p.phase == Phase::submitting && retry_background.queue_count == 1 && initial_bytes &&
-              community_contains({reinterpret_cast<const char*>(retry_background.body), initial_bytes},
-                                 utf8_literal(R"("onboarding_responses":["101"])")),
+              test_contains({retry_background.body, initial_bytes}, utf8_literal(R"("onboarding_responses":["101"])")),
           "community complete initial flow submits independently of nonflow required prompts");
 
     const GuildCommunityOperation requests[]{
@@ -613,11 +606,11 @@ void test_community_forms(void (*check)(bool, const char*) noexcept) noexcept {
             application_guild_community_submit(due);
             const Utf8View sent{retry_sent_body, retry_sent.body_bytes};
             check(retry_sent.operation == GuildCommunityOperation::onboarding_update && retry_sent.guild_id == 80 &&
-                      !page->save_at && community_contains(sent, utf8_literal(
+                      !page->save_at && test_contains(sent, utf8_literal(
                                         R"({"onboarding_responses":["501","601"],"onboarding_prompts_seen":{"1":)")) &&
-                      community_contains(sent, utf8_literal(R"(,"2":)")) &&
-                      community_contains(sent, utf8_literal(R"("onboarding_responses_seen":{"501":)")) &&
-                      community_contains(sent, utf8_literal(R"(,"602":)")),
+                      test_contains(sent, utf8_literal(R"(,"2":)")) &&
+                      test_contains(sent, utf8_literal(R"("onboarding_responses_seen":{"501":)")) &&
+                      test_contains(sent, utf8_literal(R"(,"602":)")),
                   "community the save is the official client's PUT with every prompt and option seen");
             rebuild();
             check(find(UiStoreKind::chip, utf8_literal("NEW")) == scene.count &&
@@ -653,8 +646,7 @@ void test_community_forms(void (*check)(bool, const char*) noexcept) noexcept {
             const u32 closing = retry_background.queue_count == 1 ? build_body(retry_background.queue[0]) : 0;
             check(closing && retry_background.queue[0].op == GuildCommunityOperation::onboarding_update &&
                       !page->save_at &&
-                      community_contains({reinterpret_cast<const char*>(retry_background.body), closing},
-                                         utf8_literal(R"("onboarding_responses":["501","502","601"])")),
+                      test_contains({retry_background.body, closing}, utf8_literal(R"("onboarding_responses":["501","502","601"])")),
                   "community a pending save goes at once when the page goes");
             // The official client saves whenever Customize goes with the page; never from Browse Channels.
             for (u32 tab = 0; tab < 2; ++tab) {

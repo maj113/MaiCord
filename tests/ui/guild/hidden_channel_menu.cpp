@@ -3,12 +3,6 @@
 #include "maicord/model/guild/permission_bits.hpp"
 
 namespace maicord {
-namespace {
-bool starts(Utf8View text, Utf8View prefix) noexcept {
-    return text.bytes >= prefix.bytes && utf8_equal(Utf8View{text.data, prefix.bytes}, prefix);
-}
-} // namespace
-
 // "Show hidden channels": the explanation rows come from the cached roles and overwrites alone.
 void test_hidden_channel_menu(void (*check)(bool, const char*) noexcept) noexcept {
     GuildRecord guild{};
@@ -64,8 +58,9 @@ void test_hidden_channel_menu(void (*check)(bool, const char*) noexcept) noexcep
                              : 0;
     check(count == 11 && utf8_equal(rows[0].label, utf8_literal("secret")) &&
               utf8_equal(rows[0].detail, utf8_literal("You can't view this channel")) &&
-              ui_menu_row_icon(rows[0].presentation) == UiIcon::lock && starts(rows[1].label, utf8_literal("Created ")) &&
-              starts(rows[2].label, utf8_literal("Last message ")),
+              ui_menu_row_icon(rows[0].presentation) == UiIcon::lock &&
+              utf8_starts_with(rows[1].label, utf8_literal("Created ")) &&
+              utf8_starts_with(rows[2].label, utf8_literal("Last message ")),
           "hidden channel menu: name, lock, creation and last message come first");
     check(count == 11 && utf8_equal(rows[3].label, utf8_literal("Who can view it")) &&
               (rows[3].flags & popup_item_separator_before) && utf8_equal(rows[4].label, utf8_literal("Admin")) &&

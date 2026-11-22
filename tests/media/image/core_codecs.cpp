@@ -369,6 +369,20 @@ void test_jpeg_baseline() noexcept {
                JpegError::trailing_data,
            "jpeg_trailing_data_reject");
 
+    // A frame wider than kJpegDimensionMaximum, the limit on CDN bodies that also sizes the coefficient workspace, is
+    // refused before a coefficient is written.
+    u32 frame = 0;
+    while (encoded[frame] != 0xFF || encoded[frame + 1] != 0xC0) {
+        ++frame;
+    }
+    encoded[frame + 7] = (kJpegDimensionMaximum + 1) >> 8;
+    encoded[frame + 8] = (kJpegDimensionMaximum + 1) & 0xFF;
+    g_jpeg_workspace.coefficients.bytes[0] = 0xA5;
+    expect(jpeg_decode_coefficients(ConstSlice<u8>{encoded, restarted_bytes}, &image, &g_jpeg_workspace).error ==
+                   JpegError::dimensions &&
+               image.coefficient_blocks == 0 && g_jpeg_workspace.coefficients.bytes[0] == 0xA5,
+           "jpeg_dimension_limit_reject");
+
     expect(build_baseline_jpeg_fixture(Slice<u8>{encoded, sizeof(encoded)}, false, &fixture),
            "jpeg_malformed_fixture_rebuild");
     const JpegParseResult parsed =

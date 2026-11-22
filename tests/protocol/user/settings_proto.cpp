@@ -24,14 +24,8 @@ constexpr u8 kProto[]{10, 6, 8, 1, 16, 5, 24, 42,
                       90, 10, 10, 8, 10, 6, 'o', 'n', 'l', 'i', 'n', 'e',
                       106, 4, 8, 3, 72, 2,
                       50, 3, 0xAA, 0x01, 0};
-bool contains(ConstSlice<u8> haystack, const u8* needle, u32 bytes) noexcept {
-    for (u32 i = 0; i + bytes <= haystack.count; ++i)
-        if (bytes_equal(haystack.data + i, needle, bytes))
-            return true;
-    return false;
-}
 template <u32 N> bool has(ConstSlice<u8> haystack, const u8 (&needle)[N]) noexcept {
-    return contains(haystack, needle, N);
+    return test_contains(haystack, {reinterpret_cast<const char*>(needle), N});
 }
 bool text_equal(Slice<u8> data, u32 bytes, Utf8View expected) noexcept {
     return bytes == expected.bytes && bytes_equal(data.data, expected.data, bytes);
