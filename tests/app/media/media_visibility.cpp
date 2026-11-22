@@ -1064,9 +1064,9 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
         // The same page through the synchronous emitter (the renderer's path) publishes the same commands.
         UiTextEmitter emitter{};
         UiTextOutput emit_output{nullptr, &emitter};
+        ui_text_emitter_initialize(&emitter);
         const bool ok = ui_text_command_stream_initialize(&text, {commands, 256}, {owned, sizeof(owned)}) &&
                         ui_settings_scene_text_output(scene, kDefaultTheme, &text_output) &&
-                        ui_text_emitter_initialize(&emitter) &&
                         ui_settings_scene_text_output(scene, kDefaultTheme, &emit_output) &&
                         emitter.signature == text.signature && paint_stream_initialize(&paint) &&
                         paint_stream_reset(&paint, 1280, 800) && ui_settings_scene_paint(scene, kDefaultTheme, &paint);

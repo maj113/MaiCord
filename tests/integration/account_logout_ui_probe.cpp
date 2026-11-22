@@ -619,7 +619,6 @@ bool warm(u32 sample) noexcept {
             return false;
     auto& r = g_app.renderer;
     const auto before = snapshot();
-    const auto skips = r.unchanged_present_skips;
     const auto posts = fixture->total_posts;
     for (u32 i = 0; i < 64; ++i) {
         application_account_logout_pump();
@@ -627,8 +626,7 @@ bool warm(u32 sample) noexcept {
             return false;
     }
     const auto after = snapshot();
-    bool valid = r.unchanged_present_skips - skips == 64 &&
-                 before.owner_committed == after.owner_committed &&
+    bool valid = before.owner_committed == after.owner_committed &&
                  before.form_signature == after.form_signature && fixture->total_posts == posts;
     for (u32 i = 0; i < 12; ++i)
         valid = valid && before.values[i] == after.values[i];

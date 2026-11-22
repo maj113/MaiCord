@@ -774,9 +774,8 @@ bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& th
                              !browser_active && retained_shell.storage == storage &&
                              retained_shell.build_serial == storage->rebuilds &&
                              renderer->text_shell_scroll_key && renderer->text_shell_scroll_key != shell_scroll;
-    if (!ui_text_emitter_initialize(&shell) ||
-        !ui_text_emitter_initialize(&overlay, reserve_overlay_text, &reservation))
-        return false;
+    ui_text_emitter_initialize(&shell);
+    ui_text_emitter_initialize(&overlay, reserve_overlay_text, &reservation);
     // The projection's static part (signature and count before the member
     // rows), when this build knows it.
     u64 static_signature = 0;
@@ -815,8 +814,7 @@ bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& th
         g_overlay_text_withheld = true;
         reservation = {storage->quad_capacity, 0};
         reset_value(&boundaries);
-        if (!ui_text_emitter_initialize(&overlay, reserve_overlay_text, &reservation))
-            return false;
+        ui_text_emitter_initialize(&overlay, reserve_overlay_text, &reservation);
     }
     // The shell's glyph inputs beyond its projection, read once: every shell key below mixes them in.
     const u64 shell_inputs = login_form ? 0 : retention_shell_inputs(*renderer, shown);
@@ -840,8 +838,8 @@ bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& th
         // Glyph inputs beyond the scenes moved (appearance, theme, atlas):
         // project the shell for real.
         shell_retained = false;
-        if (!ui_text_emitter_initialize(&shell) || !project_static() ||
-            !project_shell_member_text(renderer, shown, theme, &shell))
+        ui_text_emitter_initialize(&shell);
+        if (!project_static() || !project_shell_member_text(renderer, shown, theme, &shell))
             return projection_rejected(static_known ? "members" : "shell", shell);
         retention_key.shell_signature = shell_key(shell.signature);
     }
@@ -940,8 +938,7 @@ bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& th
                 previous_static.semantics <= storage->content_semantic_capacity &&
                 previous_static.hits <= storage->content_hit_region_capacity;
             UiTextEmitter shell_raster{};
-            if (!ui_text_emitter_initialize(&shell_raster, raster_text_command, &raster))
-                return false;
+            ui_text_emitter_initialize(&shell_raster, raster_text_command, &raster);
             if (static_reuse) {
                 storage->quad_count = previous_static.quads;
                 storage->batch_count = previous_static.batches;
@@ -1085,11 +1082,11 @@ bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& th
     raster.overlay = true;
     UiTextEmitter overlay_raster{};
     TextOverlayBoundaries raster_boundaries{};
-    if (!ui_text_emitter_initialize(&overlay_raster, raster_text_command, &raster) ||
-        (!g_overlay_text_withheld &&
-         (!project_overlay_text(renderer, shown, theme, &overlay_raster, &raster_boundaries) ||
-          overlay_raster.signature != overlay.signature || overlay_raster.count != overlay.count ||
-          !bytes_equal(&raster_boundaries, &boundaries, kComparedOverlayBoundaryBytes))))
+    ui_text_emitter_initialize(&overlay_raster, raster_text_command, &raster);
+    if (!g_overlay_text_withheld &&
+        (!project_overlay_text(renderer, shown, theme, &overlay_raster, &raster_boundaries) ||
+         overlay_raster.signature != overlay.signature || overlay_raster.count != overlay.count ||
+         !bytes_equal(&raster_boundaries, &boundaries, kComparedOverlayBoundaryBytes)))
         return false;
     for (u32 index = 0; index < kOverlayEndBoundaryCount; ++index) {
         const auto& entry = kOverlayBatchBoundaries[index];
@@ -1478,9 +1475,8 @@ bool renderer_project_accessible_text(D3D11Renderer* renderer, const Theme& them
                               renderer->chat_state && renderer->navigation_view);
     UiTextEmitter shell{}, overlay{};
     TextOverlayBoundaries boundaries{};
-    if (!ui_text_emitter_initialize(&shell, consume, context) ||
-        !ui_text_emitter_initialize(&overlay, consume, context))
-        return false;
+    ui_text_emitter_initialize(&shell, consume, context);
+    ui_text_emitter_initialize(&overlay, consume, context);
     const bool projected_shell = shell_ready && project_shell_text(renderer, shown, theme, &shell);
     const bool projected_overlay = project_overlay_text(renderer, shown, theme, &overlay, &boundaries);
     return projected_shell || projected_overlay;

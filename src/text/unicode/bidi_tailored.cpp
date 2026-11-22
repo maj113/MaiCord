@@ -51,9 +51,8 @@ void terminator_context(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order) noex
     }
 }
 }
-UnicodeBidiStatus bidi_resolve_tailored(Slice<UnicodeBidiCell> cells,UnicodeParagraphDirection direction,
-    Slice<u32> scratch,UnicodeBidiParagraph* paragraph) noexcept {
-    return bidi_resolve_with_brackets(cells,direction,scratch,paragraph,bidi_tailored_brackets,true);
+u8 bidi_resolve_tailored(Slice<UnicodeBidiCell> cells,UnicodeParagraphDirection direction,u32* scratch) noexcept {
+    return bidi_resolve_with_brackets(cells,direction,scratch,bidi_tailored_brackets,true);
 }
 void bidi_tailored_brackets(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,
                                     B sos,B eos,B embedding_direction) noexcept {

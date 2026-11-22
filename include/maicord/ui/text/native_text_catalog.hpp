@@ -49,14 +49,13 @@ bool native_text_catalog_register_path(NativeTextCatalogs*,const wchar_t*,u32* s
 // Borrowed request independent of a format object. Scope indices are stable for
 // this catalog. Family storage belongs to the caller; selection does not keep it.
 struct NativeTextFontQuery {u32 scope;ConstSlice<u16> family;NativeFontProperties properties;};
-// Supplying selected_scope also opts into the default-face fallback for
-// a missing requested family. Other failures never trigger that fallback.
-// Optional missing_family reports that successful fallback without repeating
-// family matching. It is false on a direct family match or failure. With `plain` the face is selected without the
-// bold or oblique simulation its match asks for.
+// A missing requested family falls back to the default face; other failures never trigger that fallback.
+// missing_family reports that successful fallback without repeating family matching. It is false on a direct family
+// match or failure. simulations receives the bold/oblique simulation the match asks for; with `plain` the face is
+// selected without it.
 bool native_text_catalog_select_query(NativeTextCatalogs*,const NativeTextFontQuery&,NativeFontSession*,Arena*,
-    NativeFontInstanceHandle*,NativeFontSelection*,u32* candidate=nullptr,u32* simulations=nullptr,u32* selected_scope=nullptr,
-    bool* missing_family=nullptr,bool plain=false) noexcept;
+    NativeFontInstanceHandle*,NativeFontSelection*,u32* candidate,u32* simulations,u32* selected_scope,
+    bool* missing_family,bool plain=false) noexcept;
 struct NativeTextFontRange {NativeFontMatch match;u32 bytes,units,scope;};
 // en-US policy: preserves the base-family and fixed system-route preference,
 // including a missing base family. Returns the actual selected scope. First use

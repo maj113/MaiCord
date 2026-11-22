@@ -242,8 +242,7 @@ inline bool forwarded_messages_ui_probe(D3D11Renderer& renderer, UiTextMeasureCa
         prepare = fixture.scene.preparation_passes, shape = text_measure_calls(&measure),
         text_builds = renderer.content_text->rebuilds, raster = renderer.glyph_text.cache_builds,
         paint_uploads = renderer.paint_instance_uploads, text_uploads = renderer.text_instance_uploads,
-        media_uploads = renderer.media_instance_uploads, draws = renderer.painted_frames,
-        skips = renderer.unchanged_present_skips;
+        media_uploads = renderer.media_instance_uploads, draws = renderer.painted_frames;
     for (u32 frame = 0; frame < 64; ++frame)
         if (!message_scene_update(&fixture.scene, fixture.scene.viewport).ok() ||
             !renderer_rebuild_content_text(&renderer, theme) || !probe_present(&renderer, theme)) return false;
@@ -251,8 +250,7 @@ inline bool forwarded_messages_ui_probe(D3D11Renderer& renderer, UiTextMeasureCa
         fixture.scene.preparation_passes == prepare && text_measure_calls(&measure) == shape &&
         renderer.content_text->rebuilds == text_builds && renderer.glyph_text.cache_builds == raster &&
         renderer.paint_instance_uploads == paint_uploads && renderer.text_instance_uploads == text_uploads &&
-        renderer.media_instance_uploads == media_uploads && renderer.painted_frames == draws &&
-        renderer.unchanged_present_skips - skips == 64, 6)) return false;
+        renderer.media_instance_uploads == media_uploads && renderer.painted_frames == draws, 6)) return false;
     log_write(LogLevel::info, "probe", "forwarded_64_zero_prepare_layout_shape_raster_upload_draw_passed");
     const float outside = renderer.width * 96.f / renderer.dpi - ui_rect_width(fixture.scene.viewport);
     if (!require(probe_resize_surface(static_cast<u32>((outside + 360.f) * renderer.dpi / 96.f),

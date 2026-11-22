@@ -39,17 +39,17 @@ SfntGsubExecutionScratch scratch() noexcept {return {{frames,32},{positions,256}
 bool commit_units(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,SfntClusterMap* clusters,SfntComponentForest* forest) noexcept {
     const SfntGlyphBuffer initial=*buffer;const u32 n=sfnt_glyph_count(sfnt_glyph_buffer_view(*buffer));u64 saved_map[8],committed_map[8];const u32 map_bytes=clusters->storage.count*sizeof(u64);
     copy_bytes(saved_glyphs,glyphs,sizeof(glyphs));copy_bytes(saved_nodes,nodes,sizeof(nodes));copy_bytes(saved_map,clusters->storage.data,map_bytes);SfntGsubExecutionResult result{};
-    if(sfnt_gsub_execute_lookup(program,lookup,buffer,0,n,0,scratch(),{1000000,100000},&result,clusters,forest)!=SfntStatus::ok || result.edits!=1)return false;
+    if(sfnt_gsub_execute_lookup(program,lookup,buffer,0,n,0,scratch(),{1000000,100000},&result,clusters,forest,0,{})!=SfntStatus::ok || result.edits!=1)return false;
     const u64 total=result.operations;const SfntGlyphBuffer committed=*buffer;copy_bytes(committed_glyphs,glyphs,sizeof(glyphs));copy_bytes(committed_nodes,nodes,sizeof(nodes));copy_bytes(committed_map,clusters->storage.data,map_bytes);
     for(u64 budget=0;budget<=total;++budget){*buffer=initial;copy_bytes(glyphs,saved_glyphs,sizeof(glyphs));copy_bytes(nodes,saved_nodes,sizeof(nodes));copy_bytes(clusters->storage.data,saved_map,map_bytes);
-        const auto status=sfnt_gsub_execute_lookup(program,lookup,buffer,0,n,0,scratch(),{budget,100000},&result,clusters,forest);++commit_budget_checks;
+        const auto status=sfnt_gsub_execute_lookup(program,lookup,buffer,0,n,0,scratch(),{budget,100000},&result,clusters,forest,0,{});++commit_budget_checks;
         if(status!=(budget<total?SfntStatus::resource_limit:SfntStatus::ok) || result.operations>budget || result.edits>1)return false;
         const bool edited=result.edits!=0;
         if(!bytes_equal(glyphs,edited?committed_glyphs:saved_glyphs,sizeof(glyphs)) || !bytes_equal(nodes,edited?committed_nodes:saved_nodes,sizeof(nodes)) || !bytes_equal(clusters->storage.data,edited?committed_map:saved_map,map_bytes) || !bytes_equal(buffer,edited?&committed:&initial,sizeof(initial)))return false;
     }
     bool reached=false;
     for(u32 capacity=0;capacity<64;++capacity){*buffer=initial;copy_bytes(glyphs,saved_glyphs,sizeof(glyphs));copy_bytes(nodes,saved_nodes,sizeof(nodes));copy_bytes(clusters->storage.data,saved_map,map_bytes);auto storage=scratch();storage.component_journal.count=capacity;
-        const auto status=sfnt_gsub_execute_lookup(program,lookup,buffer,0,n,0,storage,{1000000,100000},&result,clusters,forest);++commit_journal_checks;
+        const auto status=sfnt_gsub_execute_lookup(program,lookup,buffer,0,n,0,storage,{1000000,100000},&result,clusters,forest,0,{});++commit_journal_checks;
         if(status==SfntStatus::ok){reached=true;break;}
         if(status!=SfntStatus::output_too_small || result.edits || !bytes_equal(glyphs,saved_glyphs,sizeof(glyphs)) || !bytes_equal(nodes,saved_nodes,sizeof(nodes)) || !bytes_equal(clusters->storage.data,saved_map,map_bytes) || !bytes_equal(buffer,&initial,sizeof(initial)))return false;
     }
@@ -165,7 +165,7 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
             if(source!=units)return false;SfntClusterMap clusters{};SfntComponentForest forest{};SfntGlyphBuffer buffer{};
             if(sfnt_cluster_map_open(units,{starts,start_count},{bitmap,8},&clusters)!=SfntStatus::ok || sfnt_components_open({glyphs,input_count},{nodes,64},&forest)!=SfntStatus::ok || sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),sizeof(glyphs)},sizeof(SfntComponentGlyph),input_count,&buffer)!=SfntStatus::ok || sfnt_glyph_buffer_seek(&buffer,split)!=SfntStatus::ok)return false;
             if(!commit_tested && gs_feature.lookup_indices.count){const u16 first=byte_load_be16(gs_feature.lookup_indices.data);if(program.lookups.data[first].type==4){if(!commit_units(program,first,&buffer,&clusters,&forest))return error(f,split,utf8_literal("commit units"));commit_tested=true;}}
-            for(u32 i=0;i<gs_feature.lookup_indices.count/2;++i){SfntGsubExecutionResult result{};const auto status=sfnt_gsub_execute_lookup(program,byte_load_be16(gs_feature.lookup_indices.data+i*2),&buffer,0,sfnt_glyph_count(sfnt_glyph_buffer_view(buffer)),0,scratch(),{1000000,100000},&result,&clusters,&forest);gsub_operations+=result.operations;
+            for(u32 i=0;i<gs_feature.lookup_indices.count/2;++i){SfntGsubExecutionResult result{};const auto status=sfnt_gsub_execute_lookup(program,byte_load_be16(gs_feature.lookup_indices.data+i*2),&buffer,0,sfnt_glyph_count(sfnt_glyph_buffer_view(buffer)),0,scratch(),{1000000,100000},&result,&clusters,&forest,0,{});gsub_operations+=result.operations;
                 if(status!=SfntStatus::ok)return error(f,split,utf8_literal("GSUB status"),static_cast<u32>(status));}
             auto view=sfnt_glyph_buffer_view(buffer);if(sfnt_glyph_count(view)!=n)return error(f,split,utf8_literal("glyph count"),sfnt_glyph_count(view));
             for(u32 i=0;i<n;++i){++glyph_checks;const u16 expected=static_cast<u16>(expected_glyphs.data[i*4]|(static_cast<u16>(expected_glyphs.data[i*4+1])<<8));if(sfnt_glyph_at(view,i).glyph!=expected)return error(f,split,utf8_literal("glyph mismatch"),i);}

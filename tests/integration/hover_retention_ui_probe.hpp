@@ -95,7 +95,6 @@ inline bool hover_retention_ui_probe(D3D11Renderer& renderer, MessageViewRuntime
               text_builds = renderer.content_text->rebuilds, text_uploads = renderer.text_instance_uploads;
     const u64 prefix_hash =
         bytes_hash(1469598103934665603ull, renderer.content_text->quads, prefix * sizeof(GlyphQuad));
-    const auto native_before = native_text_candidate_counts(renderer.glyph_text.system);
     stage = 2;
     for (u32 i = 0; i < 32; ++i) {
         const auto& row = scene.rows[visible[i % 3]];
@@ -110,9 +109,6 @@ inline bool hover_retention_ui_probe(D3D11Renderer& renderer, MessageViewRuntime
                 prefix_hash)
             return false;
     }
-    const auto native_after = native_text_candidate_counts(renderer.glyph_text.system);
-    if (native_after.shaped != native_before.shaped || native_after.measured != native_before.measured)
-        return false;
     stage = 3;
     const auto row = scene.rows[visible[1]];
     const auto* message = message_store_resolve(view.store, row.message);

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/slice.hpp"
-#include "maicord/core/arena.hpp"
 #include "maicord/ui/theme/theme.hpp"
 #include "maicord/ui/text/style.hpp"
 #include "maicord/ui/core/widget_manager.hpp"
@@ -46,15 +45,12 @@ struct UiTextCommandStream {
     u32 rejected;
     Slice<char> owned_text;
     u32 owned_bytes;
-    Arena* owned_arena;
-    ArenaMark owned_mark;
 };
 
 bool ui_text_command_stream_initialize(UiTextCommandStream* stream, const Slice<UiTextCommand>& storage,
-                                       const Slice<char>& owned_text = {}, Arena* owned_arena = nullptr) noexcept;
+                                       const Slice<char>& owned_text = {}) noexcept;
 void ui_text_command_stream_reset(UiTextCommandStream* stream) noexcept;
-// Normal push borrows text. Owned push copies into the optional caller byte bank
-// or arena; reset invalidates those copies and rewinds an arena to its entry mark.
+// Normal push borrows text. Owned push copies into the optional caller byte bank; reset invalidates those copies.
 bool ui_text_command_stream_push(UiTextCommandStream* stream, const UiTextCommand& command) noexcept;
 bool ui_text_command_stream_push_owned(UiTextCommandStream* stream, const UiTextCommand& command) noexcept;
 
@@ -77,13 +73,14 @@ struct UiTextEmitter {
     UiWidgetReference reject_owner;
     u32 reject_values[2];
 };
+// Exactly one of stream (initialized) and emitter (initialized) is set.
 struct UiTextOutput {
     UiTextCommandStream* stream;
     UiTextEmitter* emitter;
 };
-bool ui_text_emitter_initialize(UiTextEmitter*, UiTextConsumeFunction consume = nullptr,
+// `limit` is 1 to kUiTextEmitterMaximumCommands.
+void ui_text_emitter_initialize(UiTextEmitter*, UiTextConsumeFunction consume = nullptr,
     void* context = nullptr, u32 limit = kUiTextEmitterMaximumCommands) noexcept;
-bool ui_text_output_valid(const UiTextOutput*) noexcept;
 void ui_text_output_reset(UiTextOutput*) noexcept;
 void ui_text_output_reject(UiTextOutput*) noexcept;
 bool ui_text_output_push(UiTextOutput*, const UiTextCommand&) noexcept;
@@ -94,7 +91,8 @@ template <typename Scene, bool (*Emit)(const Scene&, UiTextOutput*) noexcept>
 inline u64 ui_text_output_signature(const Scene& scene) noexcept {
     UiTextEmitter emitter{};
     UiTextOutput output{nullptr, &emitter};
-    return ui_text_emitter_initialize(&emitter) && Emit(scene, &output) ? emitter.signature : 0;
+    ui_text_emitter_initialize(&emitter);
+    return Emit(scene, &output) ? emitter.signature : 0;
 }
 
 } // namespace maicord

@@ -167,26 +167,26 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
         if (!context.project() || !probe_present(&renderer, context.theme) || !probe_present(&renderer, context.theme)) return false;
         auto* scene = application_thread_browser_scene();
         if (!scene) return false;
-        struct Counters { u32 values[15]; };
+        struct Counters { u32 values[14]; };
         const auto counters = [&]() noexcept {
             return Counters{{scene->rebuilds, renderer.ui_scene->layout_passes,
                 renderer.ui_scene->layout_rebuilds, renderer.guild_rail_scene->layout_passes,
                 renderer.shell_navigation_scene->layout_passes, context.navigation.revision, text_measure_calls(&measure),
                 renderer.glyph_text.cache_builds, renderer.content_text->rebuilds, renderer.paint_stream_builds,
                 renderer.paint_instance_uploads, renderer.text_instance_uploads, renderer.media_instance_uploads,
-                renderer.painted_frames, renderer.unchanged_present_skips}};
+                renderer.painted_frames}};
         };
         const Counters before = counters();
         for (u32 i = 0; i < 64; ++i) if (!context.project() || !probe_present(&renderer, context.theme)) return false;
         const Counters after = counters();
         const char* labels[]{"scene_rebuild", "shell_layout", "shell_rebuild", "rail_layout",
             "sidebar_layout", "navigation", "shape", "raster", "text_build", "paint_build", "paint_upload",
-            "text_upload", "media_upload", "painted_frames", "unchanged_skips"};
+            "text_upload", "media_upload", "painted_frames"};
         bool unchanged = true;
         log_u64(LogLevel::info, "thread_browser_warm", "case", case_id);
-        for (u32 i = 0; i < 15; ++i) {
+        for (u32 i = 0; i < 14; ++i) {
             log_u64(LogLevel::info, "thread_browser_warm", labels[i], after.values[i] - before.values[i]);
-            unchanged &= after.values[i] - before.values[i] == (i == 14 ? 64u : 0u);
+            unchanged &= after.values[i] - before.values[i] == 0;
         }
         log_u64(LogLevel::info, "thread_browser_warm", "scene_committed_bytes", scene->storage.arena.committed);
         log_u64(LogLevel::info, "thread_browser_warm", "sidebar_source_rows", context.sidebar.source_count);
@@ -301,7 +301,7 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
         if (context.sidebar.rows[i].view.id == kThreadBrowserProbeForum) forum_chrome.forum = context.sidebar.rows[i].label;
     UiTextEmitter chrome_emitter{};
     UiTextOutput chrome_output{nullptr, &chrome_emitter};
-    if (!require(ui_text_emitter_initialize(&chrome_emitter, +[](void* opaque, const UiTextCommand& command, u32) noexcept {
+    ui_text_emitter_initialize(&chrome_emitter, +[](void* opaque, const UiTextCommand& command, u32) noexcept {
         auto& chrome = *static_cast<ForumChrome*>(opaque);
         if (!utf8_equal(command.text, utf8_literal("product-forum"))) return true;
         chrome.title_seen |= command.owner.manager == chrome.shell && command.owner.handle.slot == chrome.title.slot &&
@@ -309,7 +309,8 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
         chrome.forum_seen |= command.owner.manager == chrome.sidebar && command.owner.handle.slot == chrome.forum.slot &&
             command.owner.handle.generation == chrome.forum.generation;
         return true;
-    }, &forum_chrome) && shell_text_presentation_build_output(*renderer.ui_scene, *state, context.navigation, context.theme,
+    }, &forum_chrome);
+    if (!require(shell_text_presentation_build_output(*renderer.ui_scene, *state, context.navigation, context.theme,
         context.sidebar, nullptr, nullptr, nullptr, &chrome_output, renderer.user_store, renderer.guild_rail_scene,
         kThreadBrowserProbeForum) && forum_chrome.title_seen && forum_chrome.forum_seen &&
         show(L"thread-browser-forum.bmp") && row_pixels() && state->selected_channel_id == underlying_channel, 163)) return false;
@@ -389,7 +390,7 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
         *out = {&context.sidebar.widgets, application_thread_browser_scene()->panel, context.sidebar.viewport};
         UiTextEmitter emitter{};
         UiTextOutput output{nullptr, &emitter};
-        return ui_text_emitter_initialize(&emitter, +[](void* opaque, const UiTextCommand& command, u32) noexcept {
+        ui_text_emitter_initialize(&emitter, +[](void* opaque, const UiTextCommand& command, u32) noexcept {
             auto& text = *static_cast<SidebarText*>(opaque);
             if (command.owner.manager != text.sidebar) return true;
             const auto visible = ui_rect_intersection(command.rectangle, command.clip);
@@ -401,7 +402,8 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
             if (utf8_equal(command.text, utf8_literal("Design discussion 10 · native review")))
                 text.probe = command.rectangle;
             return true;
-        }, out) && shell_text_presentation_build_output(*renderer.ui_scene, *state, context.navigation, context.theme,
+        }, out);
+        return shell_text_presentation_build_output(*renderer.ui_scene, *state, context.navigation, context.theme,
             context.sidebar, nullptr, nullptr, nullptr, &output, renderer.user_store, renderer.guild_rail_scene,
             application_thread_browser_scene()->view->parent_id);
     };

@@ -100,7 +100,8 @@ bool go_live_options_menu(D3D11Renderer& renderer, UiGoLiveScene& dialog, const 
         D3D11Renderer& renderer;
         const PopupScene* previous;
         ~Restore() noexcept {
-            renderer_bind_popup_scene(&renderer, previous);
+            if (previous)
+                renderer_bind_popup_scene(&renderer, previous);
             popup_scene_release(&menu);
             renderer.retained_presentation.valid = false;
         }

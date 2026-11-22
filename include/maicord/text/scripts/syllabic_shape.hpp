@@ -50,9 +50,4 @@ SfntStatus sfnt_hangul_lookup_plan(const SfntLayout&,const SfntFeatureSubstituti
 // the syllable starts the targets. No allocation; failure leaves result lengths unset.
 SfntStatus sfnt_syllabic_run(SfntSyllabicScript,const SfntShapePlan&,const SfntCmap&,Utf8View,float em,const SfntShapeStorage&,
     SfntShapeRunResult*,ConstSlice<SfntLookupStep> steps,ConstSlice<u64> per_syllable,const SfntShapeLimits& limits={},bool rtl=false) noexcept;
-// The cluster starts sfnt_syllabic_run forms (1 at the first scalar of each cluster, 0 elsewhere) for a run of scalars
-// in a font that maps every character: full decomposition and recomposition, syllables from the shaper's grammar,
-// and no cluster for a syllable that begins inside a grapheme. HarfBuzz's unsafe-to-break flags in a font without
-// layout tables give the same starts. At most 256 valid scalars, an output of one byte each.
-SfntStatus sfnt_syllabic_boundaries(SfntSyllabicScript,ConstSlice<u32> scalars,Slice<u8> output) noexcept;
 }

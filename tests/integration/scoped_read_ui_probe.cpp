@@ -471,7 +471,6 @@ bool warm(u32 sample) noexcept {
     const u64 scoped_wake = application_scoped_read_next_wake();
     const u64 read_wake = application_read_state_next_wake();
     auto& r = g_app.renderer;
-    const auto skips = r.unchanged_present_skips;
     for (u32 i = 0; i < 64; ++i)
         if (!project() || !probe_present(&r, fixture->theme) ||
             application_scoped_read_next_wake() != scoped_wake ||
@@ -484,12 +483,11 @@ bool warm(u32 sample) noexcept {
         "text_upload_delta",    "media_upload_delta", "painted_delta",        "frame_request_delta",
         "encoding_delta",       "measure_delta"};
     log_u64(LogLevel::info, "scoped_read_warm", "sample", sample);
-    bool valid = r.unchanged_present_skips - skips == 64;
+    bool valid = true;
     for (u32 i = 0; i < 14; ++i) {
         log_u64(LogLevel::info, "scoped_read_warm", names[i], after.values[i] - before.values[i]);
         valid = valid && before.values[i] == after.values[i];
     }
-    log_u64(LogLevel::info, "scoped_read_warm", "unchanged_skips", r.unchanged_present_skips - skips);
     return SCOPED_READ_REQUIRE(valid, 250 + sample);
 }
 bool project() noexcept {

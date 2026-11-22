@@ -17,14 +17,10 @@ namespace maicord {
 inline SfntGlyphView sfnt_glyph_view(ConstSlice<SfntGsubGlyph> glyphs) noexcept {return {glyphs.data,nullptr,glyphs.count,0,sizeof(SfntGsubGlyph)};}
 
 // UAX #9 classes of scalars as working cells.
-inline UnicodeBidiStatus unicode_bidi_classify(ConstSlice<u32> scalars,Slice<UnicodeBidiCell> cells) noexcept {
-    if((scalars.count && !scalars.data) || (cells.count && !cells.data))return UnicodeBidiStatus::invalid_input;
-    if(cells.count<scalars.count)return UnicodeBidiStatus::output_too_small;
-    for(u32 i=0;i<scalars.count;++i)if(!unicode_is_scalar(scalars[i]))return UnicodeBidiStatus::invalid_input;
+inline void unicode_bidi_classify(ConstSlice<u32> scalars,Slice<UnicodeBidiCell> cells) noexcept {
     for(u32 i=0;i<scalars.count;++i) {
         const auto type=unicode_properties(scalars[i])->bidi_class();cells[i]={scalars[i],~0u,~0u,type,type,0,0};
     }
-    return UnicodeBidiStatus::ok;
 }
 
 // Input is logical order. start<input_end<=glyphs.count bounds input matching;

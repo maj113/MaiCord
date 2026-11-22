@@ -62,15 +62,14 @@ inline bool quick_switcher_ui_probe(D3D11Renderer& renderer,
     const u32 calls = fixture.calls, layout = scene.widgets.layout.revision,
         builds = renderer.content_text->rebuilds, raster = renderer.glyph_text.cache_builds,
         paint_uploads = renderer.paint_instance_uploads, text_uploads = renderer.text_instance_uploads,
-        media_uploads = renderer.media_instance_uploads, painted = renderer.painted_frames,
-        skips = renderer.unchanged_present_skips;
+        media_uploads = renderer.media_instance_uploads, painted = renderer.painted_frames;
     for (u32 frame = 0; frame < 64; ++frame)
         if (!ui_quick_switcher_scene_update(&scene, &source, &content, scene.viewport) ||
             !renderer_rebuild_content_text(&renderer, theme) || !probe_present(&renderer, theme)) return false;
     if (fixture.calls != calls || scene.widgets.layout.revision != layout || renderer.content_text->rebuilds != builds ||
         renderer.glyph_text.cache_builds != raster || renderer.paint_instance_uploads != paint_uploads ||
         renderer.text_instance_uploads != text_uploads || renderer.media_instance_uploads != media_uploads ||
-        renderer.painted_frames != painted || renderer.unchanged_present_skips - skips != 64) return false;
+        renderer.painted_frames != painted) return false;
     log_write(LogLevel::info, "probe", "quick_switcher_64_zero_resolve_layout_shape_raster_upload_draw_passed");
     fixture.mixed = false; source.count = 100; ++source.revision; ++content.revision;
     content.edit = {utf8_literal("# release"), 9, 9, true, true, true};

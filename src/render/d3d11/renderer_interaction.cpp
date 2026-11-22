@@ -131,7 +131,7 @@ bool renderer_bind_member_list_scene(D3D11Renderer* renderer, const MemberListSc
 
 bool renderer_bind_popup_scene(D3D11Renderer* renderer, const PopupScene* scene) noexcept {
     // Only the widget manager is required; popup item/row storage is created on first open.
-    if (!scene || !scene->widgets.storage.data) {
+    if (!scene->widgets.storage.data) {
         return false;
     }
     renderer->popup_scene = scene;

@@ -255,7 +255,7 @@ class UiTextPenBase {
   protected:
     UiTextPenBase(UiTextOutput* out, const UiWidgetManager& widgets, const UiRect& panel, const UiRect& body,
                   UiTextClip policy) noexcept
-        : out_(out), widgets_(&widgets), panel_(&panel), body_(&body), ok_(ui_text_output_valid(out)),
+        : out_(out), widgets_(&widgets), panel_(&panel), body_(&body), ok_(true),
           policy_(policy) {}
     // A label clipped to `region` instead of the pen's panel/body. Every label goes through here: kept free of
     // machine-outlined fragments (calls the size build would otherwise add to each label).

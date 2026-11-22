@@ -73,7 +73,8 @@ Projection project(ProfileScene* s, const UiRect& viewport, const Theme& theme, 
     }
     UiTextEmitter emitter{};
     UiTextOutput output{nullptr, &emitter};
-    result.projected = ui_text_emitter_initialize(&emitter) && profile_scene_text_output(*s, theme, &output, nullptr);
+    ui_text_emitter_initialize(&emitter);
+    result.projected = profile_scene_text_output(*s, theme, &output, nullptr);
     result.commands = emitter.count;
     return result;
 }

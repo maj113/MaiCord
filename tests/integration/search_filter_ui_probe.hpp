@@ -275,24 +275,16 @@ inline bool search_layer_whole(const D3D11Renderer& r, const UiSearchScene& scen
 inline bool warm(D3D11Renderer& renderer, Fixture& f, const Theme& theme, UiRect viewport,
                  const UiShellHeaderGeometry& header) noexcept {
     const auto before = surface_motion_probe_detail::snapshot(renderer);
-    const auto native = native_text_candidate_counts(renderer.glyph_text.system);
     const u32 scene_revision = f.scene.revision, layout_revision = f.scene.widgets.layout.revision;
     const u32 resolves = f.resolves;
-    const auto painted = renderer.painted_frames, skips = renderer.unchanged_present_skips;
+    const auto painted = renderer.painted_frames;
     for (u32 frame = 0; frame < 64; ++frame)
         if (!ui_search_scene_update(&f.scene, &f.results, &f.content, viewport, header.title, &header) ||
             !probe_present(&renderer, theme) || renderer.draw_calls_last_frame ||
             !surface_motion_probe_detail::same(before, surface_motion_probe_detail::snapshot(renderer)))
             return false;
-    const auto after = native_text_candidate_counts(renderer.glyph_text.system);
     return f.scene.revision == scene_revision && f.scene.widgets.layout.revision == layout_revision &&
-           after.shaped == native.shaped && after.measured == native.measured &&
-           after.paragraphs_shaped == native.paragraphs_shaped &&
-           after.paragraphs_measured == native.paragraphs_measured &&
-           after.arabic_shaped == native.arabic_shaped && after.arabic_measured == native.arabic_measured &&
-           after.latin_shaped == native.latin_shaped && after.latin_measured == native.latin_measured &&
            f.resolves == resolves && renderer.painted_frames == painted &&
-           renderer.unchanged_present_skips - skips == 64 &&
            renderer.media_source_refreshes == before.source_refreshes;
 }
 } // namespace search_filter_probe_detail

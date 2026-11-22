@@ -239,8 +239,7 @@ void geometry_cases(void (*check)(bool, const char*) noexcept) noexcept {
         owner.selections = selections; owner.selection_capacity = kTextEditSelectionCapacity;
         const TextEditLayoutInput input{text, text_edit_signature(text), 0, text.bytes / 2,
             0, 0, 16, 128, 128, text_edit_layout_wrap, {&style, 1}};
-        bool valid = text_edit_layout_measure(&owner, input, system) && owner.active && owner.geometry &&
-            text_edit_layout_line_count(owner) == 1;
+        bool valid = text_edit_layout_measure(&owner, input, system) && owner.active && owner.geometry;
         TextEditMetric metric{}; u32 count = 0;
         valid = valid && text_edit_layout_range_geometry(owner, 0, text.bytes / 2, {&metric, 1}, &count) &&
             count == 1 && metric.width > 15.99f && metric.width < 16.01f &&
@@ -256,8 +255,7 @@ void geometry_cases(void (*check)(bool, const char*) noexcept) noexcept {
     owner.selections = selections; owner.selection_capacity = kTextEditSelectionCapacity;
     const TextEditLayoutInput input{adjacent, text_edit_signature(adjacent), 0, 12,
         0, 0, 16, 128, 128, text_edit_layout_wrap, {&style, 1}};
-    bool valid = text_edit_layout_measure(&owner, input, system) && owner.geometry &&
-        text_edit_layout_line_count(owner) == 3;
+    bool valid = text_edit_layout_measure(&owner, input, system) && owner.geometry;
     TextEditMetric metrics[3]{}; u32 count = 0;
     const bool range_ok = owner.active && text_edit_layout_range_geometry(owner, 0, 12, {metrics, 3}, &count);
     valid = valid && range_ok && count == 3 &&
@@ -266,7 +264,6 @@ void geometry_cases(void (*check)(bool, const char*) noexcept) noexcept {
         metrics[2].width > 15.99f && metrics[2].width < 16.01f &&
         metrics[0].top < metrics[1].top && metrics[1].top < metrics[2].top;
     if (!valid) {
-        diagnostic("flag_geometry_lines=", text_edit_layout_line_count(owner));
         diagnostic("flag_geometry_ranges=", count);
         diagnostic("flag_geometry_width0_x64=", metrics[0].width > 0 ? static_cast<u32>(metrics[0].width * 64) : 0);
         diagnostic("flag_geometry_width1_x64=", metrics[1].width > 0 ? static_cast<u32>(metrics[1].width * 64) : 0);
@@ -298,8 +295,7 @@ void escape_geometry_case(void (*check)(bool, const char*) noexcept) noexcept {
             owner.selections = selections; owner.selection_capacity = kTextEditSelectionCapacity;
             const TextEditLayoutInput input{text, text_edit_signature(text), 0, text.bytes, 0, 0, 400, 40, 400,
                 text_edit_layout_wrap, {&style, styled}};
-            valid = text_edit_layout_measure(&owner, input, system) && owner.active &&
-                text_edit_layout_line_count(owner) == 1;
+            valid = text_edit_layout_measure(&owner, input, system) && owner.active;
             if (!valid) diagnostic("escape_geometry_measure_geometry=", owner.geometry);
             for (u32 position = 0; valid && position < text.bytes; ++position) {
                 TextEditMetric metric{};

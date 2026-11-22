@@ -18,11 +18,12 @@ bool styled_paragraph_checks(bool telugu,bool kannada,bool arabic) noexcept {
         CHECK(shape_observed(owner,samples[sample],{spans[style],2},120,TextWrapping::wrap,1000));++native_cases;}
     for(u32 mode=0;mode<4;++mode){
         for(u32 batch=0;batch<batches;++batch){auto system=owner;
-            CHECK(text_shape_utf8(&system, {samples[0],{spans[0],2},120,1000}, &native_output.text).ok());const auto before=native_text_candidate_counts(owner);
+            CHECK(text_shape_utf8(&system, {samples[0],{spans[0],2},120,1000}, &native_output.text).ok());
+            // Each request lays out its own text, style and width: the shape agrees with a measurement of it.
             for(u32 i=0;i<128;++i){const float width=mode==3?120.f+static_cast<float>(i%32):120.f;
-                CHECK(text_shape_utf8(&system, {samples[mode==1?(i&1):0],{spans[mode==2?(i&1):0],2},width,1000}, &native_output.text).ok());}
-            const auto after=native_text_candidate_counts(owner);
-            CHECK(after.paragraphs_shaped-before.paragraphs_shaped==128u);
+                const TextLayoutRequest request{samples[mode==1?(i&1):0],{spans[mode==2?(i&1):0],2},width,1000};
+                CHECK(text_shape_utf8(&system, request, &native_output.text).ok());const auto measured=text_measure_utf8(&system, request);
+                CHECK(measured.ok()&&measured.width==native_output.text.width&&measured.line_count==native_output.text.line_count);}
         }
     }return true;
 }

@@ -77,7 +77,8 @@ inline bool channel_overview_ui_probe(D3D11Renderer& renderer, UiTextMeasureCach
         ~Restore() noexcept {
             renderer_bind_text_form(&renderer, previous_form);
             renderer_bind_settings_scene(&renderer, settings);
-            renderer_bind_popup_scene(&renderer, popup);
+            if (popup)
+                renderer_bind_popup_scene(&renderer, popup);
             renderer_bind_focus_owner(&renderer, focus);
             renderer.retained_presentation.valid = false;
             text_edit_layout_invalidate(&renderer.media_picker_layout);
@@ -88,7 +89,6 @@ inline bool channel_overview_ui_probe(D3D11Renderer& renderer, UiTextMeasureCach
         }
     } restore{renderer, scene, form, surface, old_settings, old_popup, old_focus, old_form};
     renderer_bind_text_form(&renderer, nullptr);
-    renderer_bind_popup_scene(&renderer, nullptr);
     const float scale = static_cast<float>(renderer.dpi) / 96.f;
     const UiRect viewport{0, 0, renderer.width / scale, renderer.height / scale};
     UiSettingsEditor name{

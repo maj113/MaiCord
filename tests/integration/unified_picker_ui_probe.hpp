@@ -309,7 +309,8 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
             r.media_picker_scene = gallery;
             r.search_scene = search;
             renderer_bind_settings_scene(&r, settings);
-            renderer_bind_popup_scene(&r, popup);
+            if (popup)
+                renderer_bind_popup_scene(&r, popup);
             renderer_bind_text_form(&r, form);
             renderer_bind_focus_owner(&r, focus);
             r.scrollbar_viewport = scrollbar;
@@ -330,7 +331,6 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
               renderer.layer_opacity};
     renderer.search_scene = nullptr;
     renderer_bind_settings_scene(&renderer, nullptr);
-    renderer_bind_popup_scene(&renderer, nullptr);
     renderer_bind_text_form(&renderer, nullptr);
     renderer_bind_focus_owner(&renderer, nullptr);
     renderer.layer_opacity = {1, 1, 1};

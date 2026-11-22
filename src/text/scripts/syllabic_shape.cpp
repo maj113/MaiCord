@@ -80,11 +80,10 @@ bool sinhala_constrained(u32 previous,u32 u) noexcept {
 // composed-diacritics-no-short-circuit): every character decomposes fully where the font maps the parts, except in
 // a base-and-marks cluster with a variation selector, where a selector joins the character before it when the font
 // maps the sequence; runs of up to 32 marks are sorted by modified combining class; marks recompose with their
-// starter where the font maps the composite (not onto a mark for Khmer and USE). Without a cmap every part and
-// composite counts as mapped and no sequence is.
+// starter where the font maps the composite (not onto a mark for Khmer and USE).
 struct Text {
-    const Shaper& shaper;bool sinhala;const SfntCmap* cmap;Slice<Piece> pieces;u32 count=0,units=0;bool simple=true;
-    SfntStatus glyph(u32 u,u16* g) const noexcept {if(!cmap){*g=1;return SfntStatus::ok;}return sfnt_cmap_glyph(*cmap,u,0,g);}
+    const Shaper& shaper;bool sinhala;const SfntCmap& cmap;Slice<Piece> pieces;u32 count=0,units=0;bool simple=true;
+    SfntStatus glyph(u32 u,u16* g) const noexcept {return sfnt_cmap_glyph(cmap,u,0,g);}
     // Until the categories are assigned, a piece's category byte holds its modified combining class and bit 1 of
     // continuation marks a Unicode mark (which always continues its grapheme).
     SfntStatus push(u32 u,u32 source,u16 g,u8 continuation,u8 ccc=255) noexcept {
@@ -133,7 +132,7 @@ struct Text {
             else previous=u;
             const bool selector=unicode_layout_variation_selector(u);
             if(selectors){
-                if(selector&&joinable&&cmap){u16 g=0;const auto status=sfnt_cmap_glyph(*cmap,pieces[count-1].scalar,u,&g);
+                if(selector&&joinable){u16 g=0;const auto status=sfnt_cmap_glyph(cmap,pieces[count-1].scalar,u,&g);
                     if(status!=SfntStatus::ok&&status!=SfntStatus::unsupported_sequence)return status;
                     if(status==SfntStatus::ok&&g){pieces[count-1].glyph=g;joinable=false;units+=u>0xffff?2u:1u;at+=decoded.width;continue;}}
                 u16 g=0;auto status=glyph(u,&g);if(status!=SfntStatus::ok)return status;
@@ -389,7 +388,7 @@ SfntStatus sfnt_syllabic_run(SfntSyllabicScript script,const SfntShapePlan& plan
     // syllable types the character map and Myanmar's reordering positions the placements.
     const Slice<Piece> pieces{reinterpret_cast<Piece*>(storage.positions.data),
         static_cast<u32>(minimum<u64>(static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(Piece),0xffffffffu))};
-    Text prepared{shaper,script==SfntSyllabicScript::sinhala,&cmap,pieces};
+    Text prepared{shaper,script==SfntSyllabicScript::sinhala,cmap,pieces};
     auto status=prepared.read(text);if(status!=SfntStatus::ok)return status;
     const u32 n=prepared.count,total=prepared.units;if(!n)return SfntStatus::ok;
     const bool classes=plan.gdef.glyph_classes.format!=0;
@@ -472,24 +471,5 @@ SfntStatus sfnt_syllabic_run(SfntSyllabicScript script,const SfntShapePlan& plan
         // HarfBuzz zeroes the advance and the horizontal offset (hb_ot_zero_width_default_ignorables).
         storage.glyphs[i].glyph.glyph=space;storage.placements[i].advance=0;storage.placements[i].advance_offset=0;}
     return SfntStatus::ok;
-}
-SfntStatus sfnt_syllabic_boundaries(SfntSyllabicScript script,ConstSlice<u32> scalars,Slice<u8> output) noexcept {
-    // Up to 256 scalars: at most four UTF-8 bytes each, and three pieces plus a circle.
-    if(scalars.count>256)return SfntStatus::resource_limit;
-    char text[1024];u32 bytes=0;
-    for(u32 i=0;i<scalars.count;++i)bytes+=utf8_encode(scalars[i],text+bytes);
-    // Map UTF-16 sources back to scalar indices.
-    u32 index[512];for(u32 i=0,units=0;i<scalars.count;++i){index[units++]=i;if(scalars[i]>0xffff)index[units++]=i;}
-    const auto& shaper=shaper_of(script);Piece pieces[1024];u8 starts[256]{};
-    // Without a cmap every decomposition and composition applies, as with a font that maps every character.
-    Text prepared{shaper,script==SfntSyllabicScript::sinhala,nullptr,{pieces,1024}};
-    const auto status=prepared.read({text,bytes});if(status!=SfntStatus::ok)return status;
-    for(u32 i=0;i<prepared.count;++i)pieces[i].category=shaper.category(pieces[i].scalar);
-    Scanner scanner{shaper,{pieces,prepared.count},prepared.count};
-    // A syllable starts a cluster unless it begins inside a grapheme or before the previous cluster's start.
-    for(u32 p=0,last=0;p<prepared.count;){u32 q=0;u8 type=0;scanner.scan(p,&q,&type);
-        u32 first=lowest_source(pieces,p,q);
-        if(!p)starts[0]=1;else if(first>last){last=first;starts[index[first]]=!pieces[p].continuation;}p=q;}
-    copy_bytes(output.data,starts,scalars.count);return SfntStatus::ok;
 }
 }

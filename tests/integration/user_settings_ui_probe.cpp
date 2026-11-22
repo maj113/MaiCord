@@ -412,7 +412,8 @@ bool show_interval_menu(Fixture& f, D3D11Renderer& renderer, UiRect viewport, Ui
         MenuFixture& m;
         const PopupScene* old_popup;
         ~Restore() noexcept {
-            renderer_bind_popup_scene(&renderer, old_popup);
+            if (old_popup)
+                renderer_bind_popup_scene(&renderer, old_popup);
             popup_scene_close(&m.popup);
             renderer.retained_presentation.valid = false;
             popup_scene_release(&m.popup);

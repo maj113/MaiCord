@@ -401,7 +401,6 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
         !d3d11_renderer_caption_pending(renderer, theme)) {
         renderer->draw_calls_last_frame = 0;
         renderer->media_draws_last_frame = 0;
-        ++renderer->unchanged_present_skips;
         return true;
     }
     // Modal resize presents must consume a slot too. Skipping these waits

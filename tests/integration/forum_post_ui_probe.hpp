@@ -341,7 +341,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
                                   external.shell_navigation_scene->layout_passes,
                                   context.navigation.revision};
         const u32 shell = external.ui_scene->layout_passes, shapes = text_measure_calls(&measure),
-                  painted = external.painted_frames, skips = external.unchanged_present_skips,
+                  painted = external.painted_frames,
                   submits = forum_post_ui_adapter_submissions(),
                   cancels = forum_post_ui_adapter_cancellations();
         for (u32 frame = 0; frame < 64; ++frame)
@@ -385,7 +385,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
             before.source_refreshes == after.source_refreshes && stable_costs &&
             bytes_equal(source_before, source_after, sizeof(source_before)) &&
             external.ui_scene->layout_passes == shell && text_measure_calls(&measure) == shapes &&
-            external.painted_frames == painted && external.unchanged_present_skips - skips == 64 &&
+            external.painted_frames == painted &&
             forum_post_ui_adapter_submissions() == submits &&
             forum_post_ui_adapter_cancellations() == cancels &&
             application_forum_post_view().ticket.publication_revision == publication &&
@@ -417,7 +417,6 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
         report("scene_commit_delta", after_costs.scene_commit_count - before_costs.scene_commit_count);
         report("transport_submit_delta", forum_post_ui_adapter_submissions() - submits);
         report("painted_frame_delta", external.painted_frames - painted);
-        report("unchanged_skips", external.unchanged_present_skips - skips);
         report("form_bytes", before_costs.form_bytes);
         report("form_committed_bytes", before_costs.form_committed_bytes);
         report("scene_committed_bytes", before_costs.scene_committed_bytes);

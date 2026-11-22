@@ -116,14 +116,14 @@ bool system_cache(NativeFontSession* session,const wchar_t* path) noexcept {
     const auto mark=arena_mark(&scratch);auto* sentinel=arena_allocate<u64>(&scratch);CHECK(sentinel);*sentinel=0x751eb32ea039c291ull;
     for(u32 i=0;i<2;++i)CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("\xce\xb1" "A"),&again)&&bytes_equal(&again,&other,sizeof(other)));
     CHECK(catalogs.coverage.acquisitions==acquisitions&&catalogs.families==families&&*sentinel==0x751eb32ea039c291ull&&arena_rewind(&scratch,mark));
-    NativeFontInstanceHandle instance{};NativeFontSelection selection{};u32 selected_scope=0xffffffffu;
+    NativeFontInstanceHandle instance{};NativeFontSelection selection{};u32 selected_scope=0xffffffffu,picked=0,simulations=0;
     CHECK(native_text_catalog_select_face(&catalogs,other.scope,other.match.index,other.match.simulations,session,&scratch,&instance,&selection)&&instance.slot);
     CHECK(native_font_instance_release(native_font_session_instances(session),instance));
     bool missing_family=true;
-    CHECK(native_text_catalog_select_query(&catalogs,query,session,&scratch,&instance,&selection,nullptr,nullptr,&selected_scope,&missing_family)&&instance.slot&&selected_scope==scope&&!missing_family);
+    CHECK(native_text_catalog_select_query(&catalogs,query,session,&scratch,&instance,&selection,&picked,&simulations,&selected_scope,&missing_family)&&instance.slot&&selected_scope==scope&&!missing_family);
     CHECK(native_font_instance_release(native_font_session_instances(session),instance));
     u16 missing[]{'M','a','i','C','o','r','d','-','N','o','-','S','u','c','h','-','F','a','m','i','l','y'};query.family={missing,22};
-    CHECK(native_text_catalog_select_query(&catalogs,query,session,&scratch,&instance,&selection,nullptr,nullptr,&selected_scope,&missing_family)&&instance.slot&&selected_scope==0&&missing_family);
+    CHECK(native_text_catalog_select_query(&catalogs,query,session,&scratch,&instance,&selection,&picked,&simulations,&selected_scope,&missing_family)&&instance.slot&&selected_scope==0&&missing_family);
     CHECK(native_font_instance_release(native_font_session_instances(session),instance));
     CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&again)&&again.scope==0&&again.bytes==1);
     // The negative family entry owns its name, including in a private scope.
@@ -133,7 +133,7 @@ bool system_cache(NativeFontSession* session,const wchar_t* path) noexcept {
     query.family={family,9};
     CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&again)&&again.scope==scope&&again.match.index==base.match.index);
     query.scope=0xffffffffu;
-    CHECK(!native_text_catalog_select_query(&catalogs,query,session,&scratch,&instance,&selection,nullptr,nullptr,&selected_scope,&missing_family)&&!instance.slot&&!missing_family);
+    CHECK(!native_text_catalog_select_query(&catalogs,query,session,&scratch,&instance,&selection,&picked,&simulations,&selected_scope,&missing_family)&&!instance.slot&&!missing_family);
     CHECK(!native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&again)&&!again.bytes&&again.scope==native_fallback_missing&&again.match.index==native_fallback_missing);
     return true;
 }
@@ -196,15 +196,15 @@ bool stale_scope_signal(NativeFontSession* session,const wchar_t* path,u32 scope
     const u16 system_name[]{'S','e','g','o','e',' ','U','I'},private_name[]{'C','o','m','p','a','g','n','o','n'};
     const NativeTextFontQuery query{scope_index,scope_index?ConstSlice<u16>{private_name,9}:ConstSlice<u16>{system_name,8},{400,5,0}};
     NativeTextFontRange range{};CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&range)&&range.match.index!=native_fallback_missing);
-    CHECK(scope_index||catalogs.files);NativeFontSelection selected{};
-    CHECK(native_text_catalog_select_query(&catalogs,query,session,&scratch,&retained,&selected)&&retained.slot&&!catalogs.stale_scopes);
+    CHECK(scope_index||catalogs.files);NativeFontSelection selected{};u32 picked=0,simulations=0,selected_scope=0;bool missing_family=false;
+    CHECK(native_text_catalog_select_query(&catalogs,query,session,&scratch,&retained,&selected,&picked,&simulations,&selected_scope,&missing_family)&&retained.slot&&!catalogs.stale_scopes);
     const auto* held=native_font_instance_get(*native_font_session_instances(session),retained);CHECK(held);
     auto& catalog=scope_index?catalogs.scopes[scope_index].catalog:catalogs.files->catalog;
     auto* changed=reinterpret_cast<u8*>(&catalog.stamp.change);const u8 original=*changed;*changed^=1;
     CHECK(native_font_coverage_reset(&catalogs.coverage));
     struct Restore {u8* changed;u8 original;~Restore() noexcept {*changed=original;}} restore{changed,original};
     const u32 candidate=range.match.index;const u32 bit=1u<<scope_index;NativeFontInstanceHandle rejected{};
-    CHECK(!native_text_catalog_select_query(&catalogs,query,session,&scratch,&rejected,&selected)&&!rejected.slot&&!selected.face.slot&&catalogs.stale_scopes==bit);
+    CHECK(!native_text_catalog_select_query(&catalogs,query,session,&scratch,&rejected,&selected,&picked,&simulations,&selected_scope,&missing_family)&&!rejected.slot&&!selected.face.slot&&catalogs.stale_scopes==bit);
     CHECK(native_font_instance_get(*native_font_session_instances(session),retained)==held);
     catalogs.stale_scopes=0;
     CHECK(!native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&range)&&!range.bytes&&catalogs.stale_scopes==bit);
@@ -236,12 +236,11 @@ bool emergency_cut(TextSystem system,float expected) noexcept {
         const float joined=draw.glyphs[0].advance,second=draw.glyphs[1].advance;release_output(draw);draw=output();CHECK(pair?joined==alone:joined<alone);
         // Wide enough for the first letter alone, not for the pair.
         const float width=alone+(joined+second-alone)/2;const TextStyleSpan style{0,text.bytes,text_style_underline};
-        for(u32 styled=0;styled<2;++styled){const auto before=native_text_candidate_counts(system);
+        for(u32 styled=0;styled<2;++styled){
             CHECK(styled?native_text_candidate_styled(system,{text,{&style,1},width,1000,TextWrapping::wrap},&draw,nullptr):native_text_candidate_line(system,{text,{},width,1000},&draw,nullptr));
             CHECK(draw.line_count==2&&draw.glyph_count==2&&draw.run_count==2&&draw.runs[0].glyph_count==1&&draw.runs[1].first_glyph==1);
             CHECK(draw.glyphs[0].advance==alone&&draw.glyphs[1].advance==second);release_output(draw);draw=output();
-            const auto after=native_text_candidate_counts(system);
-            CHECK(after.cut_checks==before.cut_checks+1&&after.cut_reshapes==before.cut_reshapes+(pair?0u:1u));}}
+        }}
     return true;
 }
 bool run() noexcept {

@@ -662,7 +662,8 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
             renderer_bind_settings_scene(&renderer, old_scene);
             ui_markdown_bank_release(&f.bank);
             popup_scene_close(&popup);
-            renderer_bind_popup_scene(&renderer, old_popup);
+            if (old_popup)
+                renderer_bind_popup_scene(&renderer, old_popup);
             ui_store_scene_release(&f.store);
             ui_settings_scene_release(&f.scene);
             ui_page_registry_clear(&f.registry);

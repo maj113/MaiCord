@@ -142,7 +142,8 @@ inline bool native_pane_glyph_stress_probe(D3D11Renderer& renderer) noexcept {
             renderer.media_picker_scene = old_gallery;
             renderer.search_scene = old_search;
             renderer_bind_settings_scene(&renderer, old_settings);
-            renderer_bind_popup_scene(&renderer, old_popup);
+            if (old_popup)
+                renderer_bind_popup_scene(&renderer, old_popup);
             renderer_bind_text_form(&renderer, old_form);
             renderer_bind_focus_owner(&renderer, old_focus);
             renderer.layer_opacity = opacity;
@@ -154,7 +155,6 @@ inline bool native_pane_glyph_stress_probe(D3D11Renderer& renderer) noexcept {
     } restore{renderer,        gallery,           search,         settings,      previous_gallery,
               previous_search, previous_settings, previous_popup, previous_form, previous_focus,
               previous_opacity};
-    renderer_bind_popup_scene(&renderer, nullptr);
     renderer_bind_text_form(&renderer, nullptr);
     renderer_bind_settings_scene(&renderer, nullptr);
     renderer.layer_opacity = {1, 1, 1};

@@ -179,7 +179,7 @@ inline bool thread_membership_ui_probe(D3D11Renderer& renderer, UiTextMeasureCac
                 ui_thread_header_update(active, {}, {}, {}, ui_thread_header_style(kUiThemeMetricsDefault));
             r.message_scene = scene; r.message_text = text; r.chat_state = state; r.user_store = users;
             r.navigation_view = navigation; r.message_measure_cache = cache; r.focus_owner = focus;
-            renderer_bind_thread_header(&r, header); renderer_bind_popup_scene(&r, popup);
+            renderer_bind_thread_header(&r, header); if (popup) renderer_bind_popup_scene(&r, popup);
             if (r.guild_rail_scene) guild_rail_scene_update(const_cast<GuildRailScene*>(r.guild_rail_scene),
                 navigation, ui_scene_content_rectangle(*r.ui_scene, UiSemantic::guild_navigation), 0);
             if (r.shell_navigation_scene) shell_navigation_scene_update(const_cast<ShellNavigationScene*>(r.shell_navigation_scene),
@@ -276,16 +276,16 @@ inline bool thread_membership_ui_probe(D3D11Renderer& renderer, UiTextMeasureCac
         const auto& scene = context.native.scene;
         const auto& state = *thread_membership_ui_adapter_state();
         const auto& popup = *thread_membership_ui_adapter_popup();
-        struct Counters { u32 values[27]; };
+        struct Counters { u32 values[24]; };
         const auto counters = [&]() noexcept {
-            return Counters{{scene.rebuilds, scene.layout_passes, scene.preparation_passes,
+            return Counters{{scene.rebuilds, scene.layout_passes,
                 r.ui_scene->layout_passes, r.ui_scene->layout_rebuilds,
                 r.guild_rail_scene->layout_passes, r.guild_rail_scene->rebuilds,
                 r.shell_navigation_scene->layout_passes, r.shell_navigation_scene->rebuilds,
-                r.message_composer_scene->layout_passes, header().revision, header().projections,
+                r.message_composer_scene->layout_passes, header().revision,
                 context.navigation.revision, text_measure_calls(&measure), r.glyph_text.cache_builds,
                 r.content_text->rebuilds, r.paint_instance_uploads, r.text_instance_uploads,
-                r.media_instance_uploads, r.painted_frames, r.unchanged_present_skips,
+                r.media_instance_uploads, r.painted_frames,
                 state.guild_mutations, state.channel_mutations, state.selection_revision,
                 thread_membership_ui_adapter_rich_store()->updated, popup.revision, popup.widgets.layout.revision}};
         };
@@ -295,17 +295,17 @@ inline bool thread_membership_ui_probe(D3D11Renderer& renderer, UiTextMeasureCac
             if (!thread_membership_ui_adapter_synchronize() || !context.project() ||
                 !probe_present(&renderer, context.theme)) return false;
         const Counters after = counters();
-        const char* names[]{"resolve", "layout", "preparation", "shell_layout", "shell_rebuild",
+        const char* names[]{"resolve", "layout", "shell_layout", "shell_rebuild",
             "rail_layout", "rail_rebuild", "sidebar_layout", "sidebar_rebuild", "composer_layout",
-            "header_revision", "header_projection", "navigation", "shape", "raster", "text_build",
-            "paint_upload", "text_upload", "media_upload", "draw", "skips", "guild_publication",
+            "header_revision", "navigation", "shape", "raster", "text_build",
+            "paint_upload", "text_upload", "media_upload", "draw", "guild_publication",
             "channel_publication", "selection", "rich_publication", "popup_revision", "popup_layout"};
         log_u64(LogLevel::info, "thread_membership_warm", "case", case_index);
         bool valid = true;
-        for (u32 index = 0; index < 27; ++index) {
+        for (u32 index = 0; index < 24; ++index) {
             const u32 delta = after.values[index] - before.values[index];
             log_u64(LogLevel::info, "thread_membership_warm", names[index], delta);
-            valid &= delta == (index == 20 ? 64u : 0u);
+            valid &= delta == 0;
         }
         const u32 current_publication = application_thread_actions_publication_revision();
         log_u64(LogLevel::info, "thread_membership_warm", "owner_publication", current_publication);

@@ -85,8 +85,17 @@ struct Reader {ConstSlice<u8> data;u32 at=0;
     bool take(u32 n,ConstSlice<u8>* v) noexcept {if(at>data.count || n>data.count-at)return false;*v={data.data+at,n};at+=n;return true;}
 };
 SfntGsubExecutableLookup lookups[128];SfntGsubExecutableSubtable subtables[256];SfntCoverage coverages[1024];SfntClassDef classes[128];
-SfntGsubExecutionFrame frames[32];u32 positions[1024],rebased[1024],consumed[256],character_glyphs[1024];u8 glyph_starts[1024];SfntClusterGlyph glyphs[1024],replacements[256];
-SfntGsubExecutionScratch scratch() noexcept {return {{frames,32},{positions,1024},{rebased,1024},{consumed,256},{reinterpret_cast<u8*>(replacements),sizeof(replacements)}};}
+SfntGsubExecutionFrame frames[32];u32 positions[1024],rebased[1024],consumed[256],character_glyphs[1024];u8 glyph_starts[1024];
+SfntComponentGlyph glyphs[1024],replacements[256];SfntComponentNode nodes[1024];SfntComponentUndo journal[1024];
+SfntGsubExecutionScratch scratch() noexcept {return {{frames,32},{positions,1024},{rebased,1024},{consumed,256},{reinterpret_cast<u8*>(replacements),sizeof(replacements)},{journal,1024}};}
+// A case's records (8 bytes each: glyph, class, flags and source unit) with the component forest shaping keeps beside them.
+bool open(ConstSlice<u8> input,u32 n,u32 capacity,u32 split,SfntGlyphBuffer* buffer,SfntComponentForest* forest) noexcept {
+    for(u32 i=0;i<n;++i){glyphs[i]={};copy_bytes(&glyphs[i],input.data+i*8,8);}
+    return sfnt_components_open({glyphs,n},{nodes,1024},forest)==SfntStatus::ok&&
+        sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),capacity*static_cast<u32>(sizeof(SfntComponentGlyph))},sizeof(SfntComponentGlyph),n,buffer)==SfntStatus::ok&&
+        sfnt_glyph_buffer_seek(buffer,split)==SfntStatus::ok;
+}
+bool unchanged(ConstSlice<u8> input,u32 n) noexcept {for(u32 i=0;i<n;++i)if(!bytes_equal(&glyphs[i],input.data+i*8,8))return false;return true;}
 bool corpus(ConstSlice<u8> bytes) noexcept {
     if(bytes.count<12 || !bytes_equal(bytes.data,"MCGCL01\0",8))return false;Reader r{bytes,8};u32 cases=0;if(!r.word(&cases) || !cases || cases>100000)return false;
     for(u32 c=0;c<cases;++c){u32 f[13]{};for(u32& x:f)if(!r.word(&x))return false;
@@ -97,21 +106,21 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
         SfntLayout layout{};SfntGdef gdef{};SfntGsubProgram program{};
         if(sfnt_layout_open(gs,SfntLayoutKind::substitution,&layout)!=SfntStatus::ok || sfnt_gdef_open(gd,f[0],&gdef)!=SfntStatus::ok || prepare_gsub_program(layout,gdef,f[0],{{lookups,128},{subtables,256},{coverages,1024},{classes,128}},&program)!=SfntStatus::ok)return false;
         if(c==2){if(program.lookups.data[0].type!=4)return false;u64 complete_work=0;
-            for(u64 budget=1000000;;){copy_bytes(glyphs,input.data,input.count);SfntGlyphBuffer buffer{};SfntClusterMap map{};
-                if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),sizeof(glyphs)},sizeof(SfntClusterGlyph),f[3],&buffer)!=SfntStatus::ok || sfnt_cluster_map_open(f[11],{boundaries,f[12]},{bitmap,9000},&map)!=SfntStatus::ok)return false;
+            for(u64 budget=1000000;;){SfntGlyphBuffer buffer{};SfntClusterMap map{};SfntComponentForest forest{};
+                if(!open(input,f[3],1024,f[3],&buffer,&forest) || sfnt_cluster_map_open(f[11],{boundaries,f[12]},{bitmap,9000},&map)!=SfntStatus::ok)return false;
                 copy_bytes(snapshot,bitmap,map.storage.count*sizeof(u64));SfntGsubExecutionResult result{};
-                const auto status=sfnt_gsub_execute_lookup(program,0,&buffer,0,f[3],0,scratch(),{budget,100000},&result,&map);
+                const auto status=sfnt_gsub_execute_lookup(program,0,&buffer,0,f[3],0,scratch(),{budget,100000},&result,&map,&forest,0,{});
                 if(result.operations>budget)return false;
-                if(!result.edits){if(!bytes_equal(bitmap,snapshot,map.storage.count*sizeof(u64)) || !bytes_equal(glyphs,input.data,input.count) || sfnt_glyph_count(sfnt_glyph_buffer_view(buffer))!=f[3])return false;}
+                if(!result.edits){if(!bytes_equal(bitmap,snapshot,map.storage.count*sizeof(u64)) || !unchanged(input,f[3]) || sfnt_glyph_count(sfnt_glyph_buffer_view(buffer))!=f[3])return false;}
                 else {if(result.edits!=1 || sfnt_cluster_map_export(map,sfnt_glyph_buffer_view(buffer),{character_glyphs,1024})!=SfntStatus::ok)return false;
                     for(u32 i=0;i<f[11];++i)if(character_glyphs[i]!=byte_load_le32(clusters.data+i*4))return false;}
                 if(budget==1000000){if(status!=SfntStatus::ok || !result.operations || result.operations>10000)return false;complete_work=result.operations;budget=0;continue;}
                 ++budget_checks;if(status!=(budget<complete_work?SfntStatus::resource_limit:SfntStatus::ok))return false;if(budget==complete_work)break;++budget;
             }
         }
-        for(u32 split=0;split<=f[3];++split){copy_bytes(glyphs,input.data,input.count);SfntGlyphBuffer buffer{};SfntClusterMap map{};
-            if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),static_cast<u32>((maximum(f[3],f[8])+8)*sizeof(SfntClusterGlyph))},sizeof(SfntClusterGlyph),f[3],&buffer)!=SfntStatus::ok || sfnt_glyph_buffer_seek(&buffer,split)!=SfntStatus::ok || sfnt_cluster_map_open(f[11],{boundaries,f[12]},{bitmap,9000},&map)!=SfntStatus::ok)return false;
-            SfntGsubExecutionResult result{};const auto status=sfnt_gsub_execute_lookup(program,static_cast<u16>(f[6]),&buffer,f[4],f[5],f[7],scratch(),{1000000,100000},&result,&map);
+        for(u32 split=0;split<=f[3];++split){SfntGlyphBuffer buffer{};SfntClusterMap map{};SfntComponentForest forest{};
+            if(!open(input,f[3],maximum(f[3],f[8])+8,split,&buffer,&forest) || sfnt_cluster_map_open(f[11],{boundaries,f[12]},{bitmap,9000},&map)!=SfntStatus::ok)return false;
+            SfntGsubExecutionResult result{};const auto status=sfnt_gsub_execute_lookup(program,static_cast<u16>(f[6]),&buffer,f[4],f[5],f[7],scratch(),{1000000,100000},&result,&map,&forest,0,{});
             const auto view=sfnt_glyph_buffer_view(buffer);bool pass=status==SfntStatus::ok && sfnt_glyph_count(view)==f[8] && result.input_end==f[8];
             const auto exported=sfnt_cluster_map_export(map,view,{character_glyphs,1024},{glyph_starts,1024});if(exported!=SfntStatus::ok)pass=false;
             for(u32 i=0;i<minimum(f[8],sfnt_glyph_count(view));++i){const u16 wanted=static_cast<u16>(expected.data[i*2]|(static_cast<u16>(expected.data[i*2+1])<<8));if(sfnt_glyph_at(view,i).glyph!=wanted)pass=false;++glyph_checks;}

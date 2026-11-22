@@ -36,7 +36,8 @@ bool account_menu_ui_probe(D3D11Renderer& renderer,
         const UiWidgetManager* focus;
         bool& restored;
         ~Restore() noexcept {
-            renderer_bind_popup_scene(&renderer, original);
+            if (original)
+                renderer_bind_popup_scene(&renderer, original);
             renderer_bind_focus_owner(&renderer, focus);
             popup_scene_close(&popup);
             renderer.retained_presentation.valid = false;

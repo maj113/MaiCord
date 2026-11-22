@@ -135,7 +135,8 @@ bool navigation_gaps_ui_probe(D3D11Renderer& renderer, NavigationView* view, con
                         renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                         probe_present(&renderer, kDefaultTheme) &&
                         (!capture || capture(L"navigation-hidden-channel-info.bmp"));
-            renderer_bind_popup_scene(&renderer, original_popup);
+            if (original_popup)
+                renderer_bind_popup_scene(&renderer, original_popup);
             popup_scene_release(&menu);
         }
         view->show_hidden = false;

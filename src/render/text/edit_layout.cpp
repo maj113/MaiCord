@@ -494,10 +494,6 @@ bool text_edit_layout_raw_range_geometry(const TextEditLayoutOwner& owner,u32 fi
     if(!count||!owner.active||first>last||last>owner.utf16_units||!output.data||!output.count||output.count>kTextEditSelectionCapacity)return false;
     return range_metrics(owner,first,last-first,owner.origin_x,owner.origin_y,output.data,output.count,count)==SfntStatus::ok;
 }
-u32 text_edit_layout_line_count(const TextEditLayoutOwner& owner) noexcept {
-    if(!owner.active)return 0;if(!owner.text_bytes)return 1;
-    const auto* native=native_geometry(owner);return native?native->measure.line_count:0;
-}
 
 bool text_edit_layout_scroll(TextEditLayoutOwner* owner, float delta) noexcept {
     if (!owner->active || !ui_coordinate_valid(delta)) return false;

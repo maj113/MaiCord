@@ -1598,12 +1598,11 @@ bool open_commands(Fixture& f, D3D11Renderer& r, Utf8View title = {},
     return check(renderer_bind_popup_scene(&r, &f.popup), "picker_bind_failed");
 }
 // The popup alone; the draft stays.
-void close_popup(Fixture& f, D3D11Renderer& r) noexcept {
-    renderer_bind_popup_scene(&r, nullptr);
+void close_popup(Fixture& f) noexcept {
     popup_scene_close(&f.popup);
 }
-void close_commands(Fixture& f, D3D11Renderer& r) noexcept {
-    close_popup(f, r);
+void close_commands(Fixture& f) noexcept {
+    close_popup(f);
     message_composer_clear(&f.composer);
     f.command = {};
     g_gif_phase = g_gif_selected = 0;
@@ -1754,7 +1753,7 @@ void hero_loop(Fixture& f, D3D11Renderer& r, bool silk, float phase) noexcept {
             insert("query:");
             gif_command(f, true, 0);
             popup = Popup::none;
-            close_popup(f, r);
+            close_popup(f);
             break;
         case 60:
         case 62:
@@ -1781,7 +1780,7 @@ void hero_loop(Fixture& f, D3D11Renderer& r, bool silk, float phase) noexcept {
         case 87:
             composing = false;
             f.composer.focused = false;
-            close_commands(f, r);
+            close_commands(f);
             send_gif(f);
             query_bytes = 0;
             break;
@@ -1811,7 +1810,7 @@ void hero_loop(Fixture& f, D3D11Renderer& r, bool silk, float phase) noexcept {
             composing = false;
             popup = Popup::none;
             f.composer.focused = false;
-            close_commands(f, r);
+            close_commands(f);
             answer_release(f, release, false);
             break;
         case kAnswer:
@@ -2411,7 +2410,7 @@ bool showcase_ui_probe(D3D11Renderer& r, MessageTextPresentation& presentation) 
             message_composer_insert_utf8(&f.composer, utf8_literal("/"));
             if (project(f, r) && open_commands(f, r))
                 shot(f, r, two ? L"showcase-commands@2x.bmp" : L"showcase-commands@1x.bmp");
-            close_commands(f, r);
+            close_commands(f);
         }
         if (two)
             continue;

@@ -102,39 +102,37 @@ struct Executor {
     }
     SfntStatus apply(const SfntGsubMatch& match,u16 type,u32* resume) noexcept {
         const u32 first=scratch.consumed.data[0],n=sfnt_glyph_count(sfnt_glyph_buffer_view(buffer));
-        const u32 stride=buffer.record_size,replacement_bytes=static_cast<u32>(match.output_count)*stride;
+        constexpr u32 stride=sizeof(SfntComponentGlyph);const u32 replacement_bytes=static_cast<u32>(match.output_count)*stride;
         if(replacement_bytes>scratch.replacements.count || static_cast<u64>(n)-match.input_count+match.output_count>buffer.capacity)return SfntStatus::output_too_small;
         if(!spend(&work,match.output_count))return SfntStatus::resource_limit;
-        const SfntGsubGlyph source=sfnt_glyph_at(sfnt_glyph_buffer_view(buffer),first);
-        u32 source_index=0;SfntClusterMerge merge{};
-        if(clusters){const auto view=sfnt_glyph_buffer_view(buffer);source_index=byte_load_le32(reinterpret_cast<const u8*>(&sfnt_glyph_at(view,first))+4);
-            u32 lo=source_index,hi=source_index;
-            if(match.input_count>1){if(!spend(&work,match.last_input-first+1))return SfntStatus::resource_limit;
-                for(u32 i=first;i<=match.last_input;++i){const u32 at=byte_load_le32(reinterpret_cast<const u8*>(&sfnt_glyph_at(view,i))+4);lo=minimum(lo,at);hi=maximum(hi,at);}}
-            u64 charged=0;const auto status=sfnt_cluster_map_plan(*clusters,lo,hi,&merge,work,&charged);work-=charged;if(status!=SfntStatus::ok)return status;
-            if(!spend(&work,merge.commit_work))return SfntStatus::resource_limit;
-        }
+        const auto view=sfnt_glyph_buffer_view(buffer);const SfntGsubGlyph source=sfnt_glyph_at(view,first);
+        const u32 source_index=byte_load_le32(reinterpret_cast<const u8*>(&sfnt_glyph_at(view,first))+4);
+        u32 lo=source_index,hi=source_index;SfntClusterMerge merge{};
+        if(match.input_count>1){if(!spend(&work,match.last_input-first+1))return SfntStatus::resource_limit;
+            for(u32 i=first;i<=match.last_input;++i){const u32 at=byte_load_le32(reinterpret_cast<const u8*>(&sfnt_glyph_at(view,i))+4);lo=minimum(lo,at);hi=maximum(hi,at);}}
+        u64 charged=0;auto s=sfnt_cluster_map_plan(*clusters,lo,hi,&merge,work,&charged);work-=charged;if(s!=SfntStatus::ok)return s;
+        if(!spend(&work,merge.commit_work))return SfntStatus::resource_limit;
         // A matched record has output_count replacements, or one single glyph.
         for(u16 i=0;i<match.output_count;++i){const u16 glyph=match.replacements.data?byte_load_be16(match.replacements.data+i*2):match.single;
             if(glyph>=program.glyph_limit)return SfntStatus::invalid_input;
             const SfntGsubGlyph replacement{glyph,source.glyph_class,source.reserved};u8* record=scratch.replacements.data+static_cast<u32>(i)*stride;
-            if(components)copy_bytes(record,&sfnt_glyph_at(sfnt_glyph_buffer_view(buffer),first),stride);
-            copy_bytes(record,&replacement,sizeof(replacement));if(clusters)copy_bytes(record+4,&source_index,sizeof(source_index));}
+            copy_bytes(record,&sfnt_glyph_at(view,first),stride);
+            copy_bytes(record,&replacement,sizeof(replacement));copy_bytes(record+4,&source_index,sizeof(source_index));}
         SfntGlyphEdit edit{{scratch.consumed.data,match.input_count},first,n,n-match.input_count+match.output_count,match.output_count,0};
         // Rebasing is prepared before the edit: an error invalidates scratch but
         // leaves the glyph edit atomic, and a successful commit needs only the packed copy.
-        auto s=rebase(edit);if(s!=SfntStatus::ok)return s;
-        const bool component_change=components && (type==4 || (type==2 && match.output_count>1));SfntComponentEdit component_edit{};
+        s=rebase(edit);if(s!=SfntStatus::ok)return s;
+        const bool component_change=type==4 || (type==2 && match.output_count>1);SfntComponentEdit component_edit{};
         // A decomposed ligature's outputs keep its merged cluster, as in HarfBuzz; the component forest still
         // records each output's source component.
         if(component_change){
-            s=sfnt_components_edit(components,sfnt_glyph_buffer_view(buffer),edit.consumed,type==4,{scratch.replacements.data,replacement_bytes},scratch.component_journal,&component_edit,work);work-=component_edit.operations;if(s!=SfntStatus::ok)return s;
+            s=sfnt_components_edit(components,view,edit.consumed,type==4,{scratch.replacements.data,replacement_bytes},scratch.component_journal,&component_edit,work);work-=component_edit.operations;if(s!=SfntStatus::ok)return s;
             for(u32 i=0;i<match.output_count;++i)if(byte_load_le32(scratch.replacements.data+i*stride+4)>=clusters->text_count){sfnt_components_rollback(components,{scratch.component_journal.data,component_edit.undo_count});return SfntStatus::invalid_input;}
         }
         s=sfnt_glyph_buffer_replace(&buffer,first,edit.consumed,{scratch.replacements.data,replacement_bytes},&edit,work);
         if(s!=SfntStatus::ok){if(component_change)sfnt_components_rollback(components,{scratch.component_journal.data,component_edit.undo_count});return s;}
         work-=edit.moved_records+edit.consumed.count;
-        if(clusters)sfnt_cluster_map_commit(clusters,merge);
+        sfnt_cluster_map_commit(clusters,merge);
         copy_bytes(scratch.positions.data,scratch.rebased.data,used*sizeof(u32));
         u32 end=0;s=sfnt_glyph_edit_boundary(edit,result.input_end,&end);if(s!=SfntStatus::ok)return s;result.input_end=end;
         ++result.edits;result.moved_records+=edit.moved_records;
@@ -279,8 +277,9 @@ SfntStatus sfnt_gsub_prepare_lookup(const SfntLayout& layout,u16 index,const Sfn
     if(s==SfntStatus::ok)*output=result;return s;
 }
 #pragma clang attribute pop
-SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,u32 start,u32 end,u32 alternate,SfntGsubExecutionScratch scratch,SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,SfntClusterMap* clusters,SfntComponentForest* components,u8 mask) noexcept {
-    reset_value(output);if((components && (!clusters || components->sealed)) || buffer->record_size!=(components?sizeof(SfntComponentGlyph):clusters?sizeof(SfntClusterGlyph):sizeof(SfntGsubGlyph)) || !filled(scratch.frames) || !filled(scratch.positions) || !filled(scratch.rebased) || !filled(scratch.consumed) || !filled(scratch.replacements) || !filled(scratch.component_journal) || scratch.positions.count>0x3fffffffu || scratch.rebased.count>0x3fffffffu || scratch.consumed.count>0x3fffffffu)return SfntStatus::invalid_input;
+namespace {
+SfntStatus execute_run(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,u32 start,u32 end,u32 alternate,SfntGsubExecutionScratch scratch,SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,SfntClusterMap* clusters,SfntComponentForest* components,u8 mask) noexcept {
+    reset_value(output);if(!filled(scratch.frames) || !filled(scratch.positions) || !filled(scratch.rebased) || !filled(scratch.consumed) || !filled(scratch.replacements) || !filled(scratch.component_journal) || scratch.positions.count>0x3fffffffu || scratch.rebased.count>0x3fffffffu || scratch.consumed.count>0x3fffffffu)return SfntStatus::invalid_input;
     // Preparation rejects an index or directory it cannot resolve.
     const SfntGsubExecutableLookup* root=nullptr;const auto prepared=sfnt_gsub_lookup_prepare(program,lookup,&root);if(prepared!=SfntStatus::ok)return prepared;
     const auto s=sfnt_glyph_buffer_seek(buffer,buffer->gap_begin,0);if(s!=SfntStatus::ok)return s;
@@ -288,24 +287,23 @@ SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,Sf
     // Validate the complete run once, including lookaround outside the range.
     if(sfnt_glyph_count(view)>limits.operations)return SfntStatus::resource_limit;
     SfntGlyphSummary run{};
-    for(u32 i=0;i<sfnt_glyph_count(view);++i){const auto& g=sfnt_glyph_at(view,i);if(g.glyph>=program.glyph_limit || static_cast<u8>(g.glyph_class)>4 || (clusters && byte_load_le32(reinterpret_cast<const u8*>(&g)+4)>=clusters->text_count))return SfntStatus::invalid_input;
-        sfnt_glyph_summary_add(run,g.glyph);
-        if(components){const auto& c=*reinterpret_cast<const SfntComponentGlyph*>(&g);if((c.component!=0xffffffffu && c.component>=components->nodes.count) || (c.attachment!=0xffffffffu && c.attachment>=components->nodes.count))return SfntStatus::invalid_input;}}
+    for(u32 i=0;i<sfnt_glyph_count(view);++i){const auto& g=*reinterpret_cast<const SfntComponentGlyph*>(&sfnt_glyph_at(view,i));
+        if(g.glyph.glyph>=program.glyph_limit || static_cast<u8>(g.glyph.glyph_class)>4 || g.source>=clusters->text_count ||
+           (g.component!=0xffffffffu && g.component>=components->nodes.count) || (g.attachment!=0xffffffffu && g.attachment>=components->nodes.count))return SfntStatus::invalid_input;
+        sfnt_glyph_summary_add(run,g.glyph.glyph);}
     output->input_end=end;
     if(sfnt_lookup_bounds_miss(root->bounds,run)){output->operations=sfnt_glyph_count(view);return SfntStatus::ok;}
     const u32 count=sfnt_glyph_count(view);const auto status=sfnt_gsub_execute_validated_lookup(program,*root,buffer,start,end,alternate,scratch,{limits.operations-count,limits.match_work},output,clusters,components,mask,{});
     output->operations+=count;return status;
 }
+}
 SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,u32 start,u32 end,u32 alternate,SfntGsubExecutionScratch scratch,SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,SfntClusterMap* clusters,SfntComponentForest* components,u8 mask,ConstSlice<u32> segments) noexcept {
-    if(!segments.count)return sfnt_gsub_execute_lookup(program,lookup,buffer,start,end,alternate,scratch,limits,output,clusters,components,mask);
-    reset_value(output);
-    if(!segments.data||!clusters||segments.data[0])return SfntStatus::invalid_input;
-    for(u32 i=0;i<segments.count;++i)if(segments.data[i]>=clusters->text_count||(i&&segments.data[i]<=segments.data[i-1]))return SfntStatus::invalid_input;
-    // The plain entry over the empty range [start,start) validates the arguments and the run without
-    // editing; the segmented continuation then runs the range.
-    auto status=sfnt_gsub_execute_lookup(program,lookup,buffer,start,start,alternate,scratch,limits,output,clusters,components,mask);
+    if(!segments.count)return execute_run(program,lookup,buffer,start,end,alternate,scratch,limits,output,clusters,components,mask);
+    // The plain entry over the empty range [start,start) validates the arguments and the run without editing; the
+    // segmented continuation then runs the range. The cluster map opened from the same segments
+    // (sfnt_cluster_map_open) has already validated them, and shaping passes the whole buffer as the range.
+    auto status=execute_run(program,lookup,buffer,start,start,alternate,scratch,limits,output,clusters,components,mask);
     if(status!=SfntStatus::ok)return status;
-    if(end<start||end>sfnt_glyph_count(sfnt_glyph_buffer_view(*buffer))){reset_value(output);return SfntStatus::invalid_input;}
     const SfntGsubExecutableLookup* root=nullptr;status=sfnt_gsub_lookup_prepare(program,lookup,&root);if(status!=SfntStatus::ok)return status;
     const u64 validation=output->operations;
     status=sfnt_gsub_execute_validated_lookup(program,*root,buffer,start,end,alternate,scratch,{limits.operations-validation,limits.match_work},output,clusters,components,mask,segments);

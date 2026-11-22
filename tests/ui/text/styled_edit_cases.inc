@@ -6,8 +6,8 @@ bool styled_edit() noexcept {
         ++cases;const bool admitted=text_edit_layout_measure(&editor,input,owner);observe_value(static_cast<u32>(admitted));
         if(required){CHECK(admitted&&editor.geometry);++native_cases;}
         if(!admitted)return true;
-        const auto before=native_text_candidate_counts(owner);const auto builds=editor.builds;
-        CHECK(text_edit_layout_measure(&editor,input,owner)&&editor.builds==builds&&native_text_candidate_counts(owner).paragraphs_measured==before.paragraphs_measured);
+        const auto builds=editor.builds;
+        CHECK(text_edit_layout_measure(&editor,input,owner)&&editor.builds==builds);
         if(input.text.bytes<=256)CHECK(shape_observed(owner,input.text,input.styles,input.width,(input.options&text_edit_layout_wrap)?TextWrapping::wrap:TextWrapping::no_wrap,input.maximum_layout_height));
         // Retained metrics must survive unrelated use of the shared shape cache.
         CHECK(text_measure_utf8(&owner, {utf8_literal("Other cached paragraph"),{},95,1000}).ok());

@@ -2610,12 +2610,12 @@ int run_probe() noexcept {
         log_u64(LogLevel::error, "probe", "offscreen_media_pinned_or_queued", 1);
         return finish_probe(4);
     }
-    // An unchanged frame uploads nothing, builds no paint stream and draws nothing.
+    // An unchanged frame uploads nothing, builds no paint stream and presents nothing.
     const u32 retained_text_uploads = g_probe.renderer.text_instance_uploads;
     const u32 retained_paint_uploads = g_probe.renderer.paint_instance_uploads;
     const u32 retained_media_uploads = g_probe.renderer.media_instance_uploads;
     const u32 retained_paint_builds = g_probe.renderer.paint_stream_builds;
-    const u32 retained_unchanged_skips = g_probe.renderer.unchanged_present_skips;
+    const u32 retained_presents = g_probe.renderer.full_present_draws + g_probe.renderer.partial_present_draws;
     const u32 media_draws_total_before = g_probe.renderer.media_draws_total;
     if (!probe_present(&g_probe.renderer, kDefaultTheme) ||
         g_probe.renderer.text_instance_uploads != retained_text_uploads ||
@@ -2624,7 +2624,7 @@ int run_probe() noexcept {
         g_probe.renderer.paint_stream_builds != retained_paint_builds ||
         g_probe.renderer.media_draws_total != media_draws_total_before ||
         g_probe.renderer.media_draws_last_frame != 0 ||
-        g_probe.renderer.unchanged_present_skips != retained_unchanged_skips + 1u) {
+        g_probe.renderer.full_present_draws + g_probe.renderer.partial_present_draws != retained_presents) {
         log_u64(LogLevel::error, "probe", "retained_presentation_stage", 1);
         return finish_probe(4);
     }
@@ -2664,7 +2664,7 @@ int run_probe() noexcept {
         return finish_probe(4);
     }
     const u32 stable_media_uploads = g_probe.renderer.media_instance_uploads;
-    const u32 stable_unchanged_skips = g_probe.renderer.unchanged_present_skips;
+    const u32 stable_presents = g_probe.renderer.full_present_draws + g_probe.renderer.partial_present_draws;
     const u32 stable_media_draws_total = g_probe.renderer.media_draws_total;
     if (!probe_present(&g_probe.renderer, kDefaultTheme) ||
         g_probe.renderer.paint_stream_builds != retained_paint_builds ||
@@ -2673,7 +2673,7 @@ int run_probe() noexcept {
         g_probe.renderer.media_instance_uploads != stable_media_uploads ||
         g_probe.renderer.media_draws_total != stable_media_draws_total ||
         g_probe.renderer.media_draws_last_frame != 0 ||
-        g_probe.renderer.unchanged_present_skips != stable_unchanged_skips + 1u) {
+        g_probe.renderer.full_present_draws + g_probe.renderer.partial_present_draws != stable_presents) {
         log_u64(LogLevel::error, "probe", "retained_presentation_stage", 3);
         return finish_probe(4);
     }
@@ -2731,10 +2731,10 @@ int run_probe() noexcept {
         log_u64(LogLevel::error, "probe", "retained_presentation_stage", 5);
         return finish_probe(4);
     }
-    const u32 post_live_unchanged_skips = g_probe.renderer.unchanged_present_skips;
+    const u32 post_live_presents = g_probe.renderer.full_present_draws + g_probe.renderer.partial_present_draws;
     const u32 post_live_media_draws_total = g_probe.renderer.media_draws_total;
     if (!probe_present(&g_probe.renderer, kDefaultTheme) ||
-        g_probe.renderer.unchanged_present_skips != post_live_unchanged_skips + 1u ||
+        g_probe.renderer.full_present_draws + g_probe.renderer.partial_present_draws != post_live_presents ||
         g_probe.renderer.media_draws_total != post_live_media_draws_total ||
         g_probe.renderer.media_draws_last_frame != 0) {
         log_u64(LogLevel::error, "probe", "retained_presentation_stage", 6);

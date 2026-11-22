@@ -232,7 +232,8 @@ bool inbox_ui_probe(D3D11Renderer& renderer, PopupScene&, bool (*capture)(const 
         u32 width, height;
         ~Restore() noexcept {
             popup_scene_close(&popup);
-            renderer_bind_popup_scene(&renderer, old_popup);
+            if (old_popup)
+                renderer_bind_popup_scene(&renderer, old_popup);
             renderer.inbox_scene = nullptr;
             renderer_bind_settings_scene(&renderer, settings);
             ui_inbox_scene_release(&probe.scene);

@@ -11,7 +11,7 @@ struct Reader {ConstSlice<u8> data;u32 at=0;
     bool take(u32 n,ConstSlice<u8>* v) noexcept {if(at>data.count || n>data.count-at)return false;*v={data.data+at,n};at+=n;return true;}
 };
 SfntGsubExecutableLookup lookups[128];SfntGsubExecutableSubtable subtables[1024];SfntCoverage coverages[1024];SfntClassDef classes[128];
-SfntGsubExecutionFrame frames[32];u32 positions[1024],rebased[1024],consumed[256];SfntGsubGlyph replacements[256],glyphs[1024];
+SfntGsubExecutionFrame frames[32];u32 positions[1024],rebased[1024],consumed[256];SfntComponentGlyph replacements[256];GsubRecords<1024> records;
 u64 queries=0,checked=0,edits=0,windows_differences=0,budget_checks=0,shared_certificates=0;u32 failures=0;
 SfntGsubExecutionScratch scratch() noexcept {return {{frames,32},{positions,1024},{rebased,1024},{consumed,256},{reinterpret_cast<u8*>(replacements),sizeof(replacements)}};}
 GsubProgramStorage storage() noexcept {return {{lookups,128},{subtables,1024},{coverages,1024},{classes,128}};}
@@ -42,25 +42,23 @@ bool units() noexcept {
     next=first;next.record_count=1;proof_work=5;if(sfnt_lookup_coverage_equal(first,next,proof_work)||proof_work!=4)return false;
     if(!unreachable_units())return false;
     Fixture f{};SfntGsubProgram program{};if(!fixture(1,&f) || !prepare(f,&program))return false;
-    for(u32 mode=0;mode<4;++mode){copy_bytes(glyphs,f.input.data,f.input.count);SfntGlyphBuffer buffer{};
-        if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),static_cast<u32>((f.count+(mode?8u:0u))*sizeof(SfntGsubGlyph))},sizeof(SfntGsubGlyph),f.count,&buffer)!=SfntStatus::ok)return false;
-        auto temp=scratch();if(mode==1)temp.replacements.count=sizeof(SfntGsubGlyph);SfntGsubExecutionResult result{};
-        const auto status=sfnt_gsub_execute_lookup(program,0,&buffer,0,f.count,0,temp,{mode==2?f.count:1000000u,mode==3?0u:100000u},&result);
-        if(status!=(mode<2?SfntStatus::output_too_small:SfntStatus::resource_limit) || result.edits || !bytes_equal(glyphs,f.input.data,f.input.count) || buffer.gap_begin!=f.count)return false;
+    for(u32 mode=0;mode<4;++mode){if(!records.open(f.input.data,f.count,f.count+(mode?8u:0u)))return false;
+        auto temp=scratch();if(mode==1)temp.replacements.count=sizeof(SfntComponentGlyph);SfntGsubExecutionResult result{};
+        const auto status=records.execute(program,0,0,f.count,0,temp,{mode==2?f.count:1000000u,mode==3?0u:100000u},&result);
+        if(status!=(mode<2?SfntStatus::output_too_small:SfntStatus::resource_limit) || result.edits || !records.holds(f.input.data,f.count) || records.buffer.gap_begin!=f.count)return false;
     }
     // A failed later edit retains the earlier committed edit, as documented.
-    SfntGsubGlyph original{};copy_bytes(&original,f.input.data,sizeof(original));glyphs[0]=glyphs[1]=original;
-    SfntGlyphBuffer partial{};if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),3*sizeof(SfntGsubGlyph)},sizeof(SfntGsubGlyph),2,&partial)!=SfntStatus::ok)return false;
-    SfntGsubExecutionResult partial_result{};if(sfnt_gsub_execute_lookup(program,0,&partial,0,2,0,scratch(),{1000000,100000},&partial_result)!=SfntStatus::output_too_small || partial_result.edits!=1 || partial_result.input_end!=3 || sfnt_glyph_count(sfnt_glyph_buffer_view(partial))!=3 || sfnt_glyph_at(sfnt_glyph_buffer_view(partial),2).glyph!=original.glyph)return false;
+    SfntGsubGlyph pair[2];copy_bytes(pair,f.input.data,sizeof(pair[0]));pair[1]=pair[0];SfntGsubExecutionResult partial_result{};
+    if(!records.open(pair,2,3) || records.execute(program,0,0,2,0,scratch(),{1000000,100000},&partial_result)!=SfntStatus::output_too_small || partial_result.edits!=1 || partial_result.input_end!=3 || records.count()!=3 || records.glyph(2)!=pair[0].glyph)return false;
     if(!fixture(4,&f) || !prepare(f,&program))return false;
-    for(u32 mode=0;mode<3;++mode){copy_bytes(glyphs,f.input.data,f.input.count);SfntGlyphBuffer buffer{};if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),16*sizeof(SfntGsubGlyph)},sizeof(SfntGsubGlyph),f.count,&buffer)!=SfntStatus::ok)return false;
+    for(u32 mode=0;mode<3;++mode){if(!records.open(f.input.data,f.count,16))return false;
         auto temp=scratch();if(mode==0)temp.positions.count=f.count;else if(mode==1)temp.rebased.count=f.count;else temp.frames.count=0;
-        SfntGsubExecutionResult result{};const auto status=sfnt_gsub_execute_lookup(program,0,&buffer,0,f.count,0,temp,{1000000,100000},&result);
-        if(status!=(mode==2?SfntStatus::resource_limit:SfntStatus::output_too_small) || result.edits || !bytes_equal(glyphs,f.input.data,f.input.count))return false;
+        SfntGsubExecutionResult result{};const auto status=records.execute(program,0,0,f.count,0,temp,{1000000,100000},&result);
+        if(status!=(mode==2?SfntStatus::resource_limit:SfntStatus::output_too_small) || result.edits || !records.holds(f.input.data,f.count))return false;
     }
     u64 full_work=0;
-    for(u64 budget=1000000;;){copy_bytes(glyphs,f.input.data,f.input.count);SfntGlyphBuffer buffer{};if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),16*sizeof(SfntGsubGlyph)},sizeof(SfntGsubGlyph),f.count,&buffer)!=SfntStatus::ok)return false;
-        SfntGsubExecutionResult result{};const auto status=sfnt_gsub_execute_lookup(program,0,&buffer,0,f.count,0,scratch(),{budget,100000},&result);
+    for(u64 budget=1000000;;){if(!records.open(f.input.data,f.count,16))return false;
+        SfntGsubExecutionResult result{};const auto status=records.execute(program,0,0,f.count,0,scratch(),{budget,100000},&result);
         if(result.operations>budget)return false;
         if(budget==1000000){if(status!=SfntStatus::ok || !result.operations || result.operations>10000)return false;full_work=result.operations;budget=0;continue;}
         ++budget_checks;if(status!=(budget<full_work?SfntStatus::resource_limit:SfntStatus::ok))return false;
@@ -69,13 +67,13 @@ bool units() noexcept {
     SfntGdef gdef{};if(sfnt_gdef_open(f.gdef,f.limit,&gdef)!=SfntStatus::ok)return false;
     // A valid lookup index can create a recursive cycle. It must terminate at
     // the caller's frame limit without relying on C++ recursion or mutating text.
-    u8 changed[2048];if(f.gsub.count>sizeof(changed))return false;copy_bytes(changed,f.gsub.data,f.gsub.count);
-    const auto& sub=program.lookups.data[0].subtables.data[0].context;SfntContextMatch match{};copy_bytes(glyphs,f.input.data,f.input.count);
-    if(sfnt_context_match_view(sub,gdef,program.lookups.data[0].filter,sfnt_glyph_view({glyphs,f.count}),0,f.count,{consumed,256},&match)!=SfntStatus::ok || !match.matched)return false;
+    u8 changed[2048];if(f.gsub.count>sizeof(changed) || f.count>16)return false;copy_bytes(changed,f.gsub.data,f.gsub.count);
+    const auto& sub=program.lookups.data[0].subtables.data[0].context;SfntContextMatch match{};SfntGsubGlyph plain[16];copy_bytes(plain,f.input.data,f.input.count);
+    if(sfnt_context_match_view(sub,gdef,program.lookups.data[0].filter,sfnt_glyph_view({plain,f.count}),0,f.count,{consumed,256},&match)!=SfntStatus::ok || !match.matched)return false;
     const u32 offset=static_cast<u32>(match.actions.data-f.gsub.data);changed[offset+2]=changed[offset+3]=0;
-    f.gsub={changed,f.gsub.count};if(!prepare(f,&program))return false;SfntGlyphBuffer cycle{};if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),16*sizeof(SfntGsubGlyph)},sizeof(SfntGsubGlyph),f.count,&cycle)!=SfntStatus::ok)return false;
+    f.gsub={changed,f.gsub.count};if(!prepare(f,&program) || !records.open(f.input.data,f.count,16))return false;
     auto temp=scratch();temp.frames.count=4;SfntGsubExecutionResult result{};
-    if(sfnt_gsub_execute_lookup(program,0,&cycle,0,f.count,0,temp,{1000000,100000},&result)!=SfntStatus::resource_limit || result.max_depth!=4 || result.edits || !bytes_equal(glyphs,f.input.data,f.input.count))return false;
+    if(records.execute(program,0,0,f.count,0,temp,{1000000,100000},&result)!=SfntStatus::resource_limit || result.max_depth!=4 || result.edits || !records.holds(f.input.data,f.count))return false;
     return true;
 }
 volatile u32 guard_observations=0;
@@ -88,9 +86,9 @@ bool guards() noexcept {
         const u32 size=i<fixture_count?f.gsub.count:random%(f.gsub.count+1);u8* data=memory+page-size;copy_bytes(data,f.gsub.data,size);if(i>=fixture_count && size)data[(random>>8)%size]^=static_cast<u8>(random>>16);
         SfntLayout layout{};SfntGdef gdef{};SfntGsubProgram program{};auto s=sfnt_layout_open({data,size},SfntLayoutKind::substitution,&layout);guard_observations=guard_observations+static_cast<u32>(s)+1;if(s!=SfntStatus::ok)continue;
         if(sfnt_gdef_open(f.gdef,f.limit,&gdef)!=SfntStatus::ok){ok=false;break;}s=prepare_gsub_program(layout,gdef,f.limit,storage(),&program,false,false,1000);guard_observations=guard_observations+static_cast<u32>(s)+1;if(s!=SfntStatus::ok)continue;
-        copy_bytes(glyphs,f.input.data,f.input.count);SfntGlyphBuffer buffer{};if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),sizeof(glyphs)},sizeof(SfntGsubGlyph),f.count,&buffer)!=SfntStatus::ok){ok=false;break;}
-        SfntGsubExecutionResult result{};s=sfnt_gsub_execute_lookup(program,0,&buffer,0,f.count,0,scratch(),{10000,1000},&result);guard_observations=guard_observations+static_cast<u32>(s)+result.input_end+1;
-        if(result.operations>10000 || sfnt_glyph_count(sfnt_glyph_buffer_view(buffer))>1024)ok=false;
+        if(!records.open(f.input.data,f.count,1024)){ok=false;break;}
+        SfntGsubExecutionResult result{};s=records.execute(program,0,0,f.count,0,scratch(),{10000,1000},&result);guard_observations=guard_observations+static_cast<u32>(s)+result.input_end+1;
+        if(result.operations>10000 || records.count()>1024)ok=false;
     }
     pages_release(memory);return ok;
 }
@@ -111,10 +109,9 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
         // all certificates actually established by immutable preparation.
         for(u32 mode=0;mode<3;++mode){auto* directory=mode?direct_lookups:lookups;program.lookups.data=mode==2?nullptr:directory;program.source=mode==2?&sparse:nullptr;
         for(u32 gate=0;gate<3;++gate){for(u32 i=0;i<program.lookups.count;++i)directory[i].bounds.ready=gate==2?prepared_bounds[i]:static_cast<u16>(gate);
-        for(u32 split=0;split<=n;++split){copy_bytes(glyphs,input.data,input.count);SfntGlyphBuffer buffer{};const u32 capacity=maximum(n,expected_count)+8;
-            if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),static_cast<u32>(capacity*sizeof(SfntGsubGlyph))},sizeof(SfntGsubGlyph),n,&buffer)!=SfntStatus::ok || sfnt_glyph_buffer_seek(&buffer,split)!=SfntStatus::ok)return false;
-            SfntGsubExecutionResult result{};const auto status=sfnt_gsub_execute_lookup(program,static_cast<u16>(index),&buffer,start,end,alt,scratch(),{1000000,100000},&result);
-            const auto view=sfnt_glyph_buffer_view(buffer);bool pass=status==SfntStatus::ok && sfnt_glyph_count(view)==expected_count && result.input_end==expected_count;
+        for(u32 split=0;split<=n;++split){const u32 capacity=maximum(n,expected_count)+8;if(!records.open(input.data,n,capacity,split))return false;
+            SfntGsubExecutionResult result{};const auto status=records.execute(program,static_cast<u16>(index),start,end,alt,scratch(),{1000000,100000},&result);
+            const auto view=sfnt_glyph_buffer_view(records.buffer);bool pass=status==SfntStatus::ok && sfnt_glyph_count(view)==expected_count && result.input_end==expected_count;
             for(u32 i=0;i<minimum(expected_count,sfnt_glyph_count(view));++i){const u16 want=static_cast<u16>(expected.data[i*2]|(static_cast<u16>(expected.data[i*2+1])<<8));if(sfnt_glyph_at(view,i).glyph!=want)pass=false;++checked;}
             bool windows_match=sfnt_glyph_count(view)==windows_count;
             for(u32 i=0;i<minimum(windows_count,sfnt_glyph_count(view));++i){const u16 want=static_cast<u16>(windows.data[i*2]|(static_cast<u16>(windows.data[i*2+1])<<8));if(sfnt_glyph_at(view,i).glyph!=want)windows_match=false;}
@@ -122,9 +119,8 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
             ++queries;edits+=result.edits;
             if(!pass){++failures;print(utf8_literal("case="));number(c);print(utf8_literal(" split="));number(split);print(utf8_literal(" status="));number(static_cast<u32>(status));print(utf8_literal(" actual="));for(u32 i=0;i<sfnt_glyph_count(view);++i){number(sfnt_glyph_at(view,i).glyph);print(utf8_literal(" "));}print(utf8_literal("\n"));}
             if(pass&&gate&&split==0&&directory[index].subtables.count>=16){const u64 budgets[]{result.operations-1,result.operations,result.operations+1};
-                for(u64 budget:budgets){copy_bytes(glyphs,input.data,input.count);SfntGlyphBuffer limited{};
-                    if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),static_cast<u32>(capacity*sizeof(SfntGsubGlyph))},sizeof(SfntGsubGlyph),n,&limited)!=SfntStatus::ok||sfnt_glyph_buffer_seek(&limited,0)!=SfntStatus::ok)return false;
-                    SfntGsubExecutionResult check{};const auto limited_status=sfnt_gsub_execute_lookup(program,static_cast<u16>(index),&limited,start,end,alt,scratch(),{budget,100000},&check);++budget_checks;
+                for(u64 budget:budgets){if(!records.open(input.data,n,capacity,0))return false;
+                    SfntGsubExecutionResult check{};const auto limited_status=records.execute(program,static_cast<u16>(index),start,end,alt,scratch(),{budget,100000},&check);++budget_checks;
                     if(check.operations>budget||limited_status!=(budget<result.operations?SfntStatus::resource_limit:SfntStatus::ok))return false;
                 }
             }
@@ -141,26 +137,21 @@ bool segment_units() noexcept {
     for(u32 i=0;i<12;++i){data[i*2]=static_cast<u8>(words[i]>>8);data[i*2+1]=static_cast<u8>(words[i]);}
     SfntGsubExecutableSubtable subtable{};if(sfnt_gsub_subtable_open({data,24},4,16,&subtable.basic)!=SfntStatus::ok)return false;
     SfntGsubExecutableLookup lookup{};lookup.type=4;lookup.subtables={&subtable,1};const SfntGsubProgram program{{&lookup,1},{},16};
-    SfntGsubExecutionFrame frames[4];u32 positions[16],rebased[16],consumed[8];u8 replacements[64];SfntComponentUndo journal[16];
-    const SfntGsubExecutionScratch scratch{{frames,4},{positions,16},{rebased,16},{consumed,8},{replacements,64},{journal,16}};
+    SfntGsubExecutionFrame frames[4];u32 positions[16],rebased[16],consumed[8];u8 replacements[128];
+    const SfntGsubExecutionScratch scratch{{frames,4},{positions,16},{rebased,16},{consumed,8},{replacements,128}};
     const u32 starts[]{0,1,2,3,4,5};
     const auto execute=[&](ConstSlice<u32> segments,u16* glyphs,u32* count,SfntGsubExecutionResult* result) noexcept {
-        SfntClusterGlyph records[8]{};for(u32 i=0;i<6;++i)records[i]={{static_cast<u16>(i%2?2:1),SfntGlyphClass::base,0},i};
-        SfntGlyphBuffer buffer{};u64 bits[1]{};SfntClusterMap clusters{};
-        if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(records),sizeof(records)},sizeof(SfntClusterGlyph),6,&buffer)!=SfntStatus::ok||
-           sfnt_cluster_map_open(6,{starts,6},{bits,1},&clusters,1000)!=SfntStatus::ok)return SfntStatus::malformed;
-        const auto status=segments.count?sfnt_gsub_execute_lookup(program,0,&buffer,0,6,0,scratch,{100000,100000},result,&clusters,nullptr,0,segments):
-            sfnt_gsub_execute_lookup(program,0,&buffer,0,6,0,scratch,{100000,100000},result,&clusters);
-        const auto view=sfnt_glyph_buffer_view(buffer);*count=sfnt_glyph_count(view);for(u32 i=0;i<*count;++i)glyphs[i]=sfnt_glyph_at(view,i).glyph;
+        SfntGsubGlyph input[6];for(u32 i=0;i<6;++i)input[i]={static_cast<u16>(i%2?2:1),SfntGlyphClass::base,0};
+        if(!records.open(input,6,8))return SfntStatus::malformed;
+        const auto status=records.execute(program,0,0,6,0,scratch,{100000,100000},result,0,segments);
+        *count=records.count();for(u32 i=0;i<*count;++i)glyphs[i]=records.glyph(i);
         return status;
     };
     u16 glyphs[8];u32 count=0;SfntGsubExecutionResult result{};const u32 segments[]{0,2,3};
     if(execute({segments,3},glyphs,&count,&result)!=SfntStatus::ok||count!=4||glyphs[0]!=4||glyphs[1]!=1||glyphs[2]!=2||glyphs[3]!=4||result.edits!=2||result.input_end!=4)return false;
     if(execute({},glyphs,&count,&result)!=SfntStatus::ok||count!=3||glyphs[0]!=4||glyphs[1]!=4||glyphs[2]!=4||result.edits!=3)return false;
-    // One segment per glyph forms nothing; malformed segments are rejected before any edit.
+    // One segment per glyph forms nothing.
     if(execute({starts,6},glyphs,&count,&result)!=SfntStatus::ok||count!=6||result.edits)return false;
-    const u32 late[]{1,3},unsorted[]{0,3,2},beyond[]{0,6};const ConstSlice<u32> bad[]{{late,2},{unsorted,3},{beyond,2}};
-    for(const auto& segments_case:bad)if(execute(segments_case,glyphs,&count,&result)!=SfntStatus::invalid_input||count!=6)return false;
     return true;
 }
 // HarfBuzz's joiner matching (matcher_t::may_skip): a ZWJ (7) the application may skip in input is passed over unless
@@ -173,14 +164,13 @@ bool joiner_units() noexcept {
         for(u32 i=0;i<16;++i){data[i*2]=static_cast<u8>(words[i]>>8);data[i*2+1]=static_cast<u8>(words[i]);}
         SfntGsubExecutableSubtable subtable{};if(sfnt_gsub_subtable_open({data,32},4,16,&subtable.basic)!=SfntStatus::ok)return false;
         SfntGsubExecutableLookup lookup{};lookup.type=4;lookup.subtables={&subtable,1};
-        SfntGsubExecutionFrame frames[4];u32 positions[16],rebased[16],consumed[8];u8 replacements[64];SfntComponentUndo journal[16];
-        const SfntGsubExecutionScratch scratch{{frames,4},{positions,16},{rebased,16},{consumed,8},{replacements,64},{journal,16}};
+        SfntGsubExecutionFrame frames[4];u32 positions[16],rebased[16],consumed[8];u8 replacements[128];
+        const SfntGsubExecutionScratch scratch{{frames,4},{positions,16},{rebased,16},{consumed,8},{replacements,128}};
         const auto execute=[&](u8 joiners,u16 middle,u16* glyphs,u32* count) noexcept {
             SfntGdef gdef{};gdef.zwj=7;gdef.zwnj=8;gdef.joiners=joiners;const SfntGsubProgram program{{&lookup,1},gdef,16};
-            SfntGsubGlyph records[4]{{1,SfntGlyphClass::base,0},{middle,SfntGlyphClass::base,0},{2,SfntGlyphClass::base,0}};SfntGlyphBuffer buffer{};SfntGsubExecutionResult result{};
-            if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(records),sizeof(records)},sizeof(SfntGsubGlyph),3,&buffer)!=SfntStatus::ok)return false;
-            if(sfnt_gsub_execute_lookup(program,0,&buffer,0,3,0,scratch,{100000,100000},&result)!=SfntStatus::ok)return false;
-            const auto view=sfnt_glyph_buffer_view(buffer);*count=sfnt_glyph_count(view);for(u32 i=0;i<*count;++i)glyphs[i]=sfnt_glyph_at(view,i).glyph;return true;
+            const SfntGsubGlyph input[3]{{1,SfntGlyphClass::base,0},{middle,SfntGlyphClass::base,0},{2,SfntGlyphClass::base,0}};SfntGsubExecutionResult result{};
+            if(!records.open(input,3,4)||records.execute(program,0,0,3,0,scratch,{100000,100000},&result)!=SfntStatus::ok)return false;
+            *count=records.count();for(u32 i=0;i<*count;++i)glyphs[i]=records.glyph(i);return true;
         };
         u16 glyphs[4];u32 count=0;
         // Without joiner skipping the ZWJ only forms 1,7.

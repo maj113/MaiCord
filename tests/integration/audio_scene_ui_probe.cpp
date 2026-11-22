@@ -610,7 +610,6 @@ bool audio_scene_ui_probe(D3D11Renderer& renderer) noexcept {
             const auto text_uploads = renderer.text_instance_uploads;
             const auto media_uploads = renderer.media_instance_uploads;
             const auto painted = renderer.painted_frames;
-            const auto skips = renderer.unchanged_present_skips;
             for (u32 frame = 0; valid && frame < 64; ++frame) {
                 valid = !message_scene_bind_theme_styles(&fixture.messages, &custom_bank) &&
                         message_scene_update(&fixture.messages, viewport).ok() &&
@@ -623,7 +622,7 @@ bool audio_scene_ui_probe(D3D11Renderer& renderer) noexcept {
                     renderer.paint_instance_uploads == paint_uploads &&
                     renderer.text_instance_uploads == text_uploads &&
                     renderer.media_instance_uploads == media_uploads &&
-                    renderer.painted_frames == painted && renderer.unchanged_present_skips - skips == 64,
+                    renderer.painted_frames == painted,
                 311);
             if (valid)
                 log_write(LogLevel::info, "probe",

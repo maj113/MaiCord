@@ -65,17 +65,13 @@ static_assert(sizeof(SfntGsubExecutionFrame)==32 && sizeof(SfntGsubExecutionResu
 // Execute one caller-selected lookup over [start,input_end), in logical order
 // (type 8 visits positions in reverse). alternate is zero-based. No heap or C++
 // recursion. Scratch arrays must be disjoint from each other, buffer storage and
-// all program mappings/prepared storage; a supplied cluster map must be opened,
-// and its mutable storage is likewise disjoint from glyph, scratch and program
-// storage.
-// Replacement scratch is measured in bytes and uses the buffer's record stride:
-// 4-byte glyph/class records without clusters; 8-byte SfntClusterGlyph records
-// with clusters (ligatures merge source boundaries); 16-byte SfntComponentGlyph
-// records with a component forest, which also requires clusters. Ligatures join
-// stable component sequences; decomposition partitions them and restores
-// distinct source boundaries. The caller supplies an initialized forest and a
-// disjoint mutation journal. A failed glyph edit rolls back its forest changes;
-// export seals the forest against edits.
+// all program mappings/prepared storage; the cluster map must be opened, and its
+// mutable storage is likewise disjoint from glyph, scratch and program storage.
+// The buffer holds SfntComponentGlyph records, and replacement scratch is
+// measured in bytes of them. Ligatures merge source boundaries and join stable
+// component sequences; decomposition partitions them and restores distinct
+// source boundaries. The caller supplies an initialized forest and a disjoint
+// mutation journal. A failed glyph edit rolls back its forest changes.
 // Cluster initialization, source indices and initial effective classes come from
 // the caller. Outputs inherit the first consumed glyph's source class, including
 // ligatures, as Windows does.
@@ -88,15 +84,10 @@ static_assert(sizeof(SfntGsubExecutionFrame)==32 && sizeof(SfntGsubExecutionResu
 // may cross eligibility boundaries. Nested actions keep this restriction.
 // Replacements inherit the first consumed glyph's bits unless a component
 // forest enables preserve_forms. Mask zero disables eligibility filtering.
-SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,
-                                   u32 start,u32 input_end,u32 alternate,SfntGsubExecutionScratch scratch,
-                                   SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,
-                                   SfntClusterMap* clusters=nullptr,SfntComponentForest* components=nullptr,u8 feature_mask=0) noexcept;
-// The same with segments (strictly increasing source units from 0, below the
-// cluster map's text count; clusters required): each match's input span, nested
-// actions included, stays in the segment of its first glyph, the run of glyphs
-// whose sources lie between one start and the next (HarfBuzz per-syllable
-// lookups). Lookaround still crosses segments. Empty segments are the call above.
+// Segments (the cluster map's starts, or empty for none): each match's input
+// span, nested actions included, stays in the segment of its first glyph, the
+// run of glyphs whose sources lie between one start and the next (HarfBuzz
+// per-syllable lookups). Lookaround still crosses segments.
 SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,
                                    u32 start,u32 input_end,u32 alternate,SfntGsubExecutionScratch scratch,
                                    SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,

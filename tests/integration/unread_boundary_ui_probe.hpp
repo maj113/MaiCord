@@ -161,7 +161,8 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
         const PopupScene* popup; const UiWidgetManager* focus;
         ~Restore() noexcept {
             renderer.message_scene = scene; renderer.message_text = text; renderer.focus_owner = focus;
-            renderer_bind_popup_scene(&renderer,popup); renderer.retained_presentation.valid = false;
+            if (popup) renderer_bind_popup_scene(&renderer,popup);
+            renderer.retained_presentation.valid = false;
             content_text_retention_invalidate(&renderer.content_text_retention);
         }
     } restore{renderer,renderer.message_scene,renderer.message_text,renderer.popup_scene,renderer.focus_owner};
@@ -197,7 +198,7 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
     f.presentation = *restore.text; f.presentation.active = false; f.presentation.projection_signature = 0;
     f.presentation.command_count = f.presentation.measurement_count = 0;
     renderer.message_scene = &f.scene; renderer.message_text = &f.presentation;
-    renderer_bind_popup_scene(&renderer,nullptr); renderer.focus_owner = nullptr;
+    renderer.focus_owner = nullptr;
     Theme theme = kDefaultTheme;
     const auto project = [&]() noexcept {
         f.scene.pixel_scale = renderer.dpi / 96.f;
@@ -271,14 +272,14 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
         unread_revision = f.scene.unread_revision,shape = text_measure_calls(&measure),builds = renderer.content_text->rebuilds,
         raster = renderer.glyph_text.cache_builds,paint_uploads = renderer.paint_instance_uploads,
         text_uploads = renderer.text_instance_uploads,media_uploads = renderer.media_instance_uploads,
-        draws = renderer.painted_frames,skips = renderer.unchanged_present_skips;
+        draws = renderer.painted_frames;
     for (u32 i = 0; i < 64; ++i)
         if (!message_scene_set_unread_cursor(&f.scene,channel,first,true) || !project() || !probe_present(&renderer,theme)) return require(false,9);
     if (!require(f.scene.preparation_passes == prepare && f.scene.layout_passes == layout && f.scene.rebuilds == resolve &&
         f.scene.unread_revision == unread_revision && text_measure_calls(&measure) == shape && renderer.content_text->rebuilds == builds &&
         renderer.glyph_text.cache_builds == raster && renderer.paint_instance_uploads == paint_uploads &&
         renderer.text_instance_uploads == text_uploads && renderer.media_instance_uploads == media_uploads &&
-        renderer.painted_frames == draws && renderer.unchanged_present_skips - skips == 64,10)) return false;
+        renderer.painted_frames == draws,10)) return false;
     log_write(LogLevel::info,"probe","unread_64_zero_resolve_layout_shape_raster_upload_draw_passed");
     const auto show_menu = [&](ConstSlice<PopupItem> items,u64 owner,u32 action,const wchar_t* name) noexcept {
         const UiRect full{0,0,renderer.width * 96.f / renderer.dpi,renderer.height * 96.f / renderer.dpi};
@@ -295,7 +296,7 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
         UiMenuRowGeometry geometry{};
         if (!popup_scene_menu_row_geometry(f.menu,f.menu.selected_index,&geometry) || !ui_rect_has_area(geometry.primary) ||
             !show(name)) return false;
-        popup_scene_close(&f.menu); renderer_bind_popup_scene(&renderer,nullptr); return true;
+        popup_scene_close(&f.menu); return true;
     };
     MessageContextMenuModel menu{};
     if (!require(probe_resize_surface(1200,480) &&

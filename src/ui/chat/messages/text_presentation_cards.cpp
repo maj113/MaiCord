@@ -836,11 +836,10 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                          .overflow = command.overflow});
                 };
                 UiTextOutput output{nullptr, &emitter};
+                ui_text_emitter_initialize(&emitter, append_audio, &audio_context, kUiAudioControlCount);
                 if (!ui_audio_attachment_project(*rich_store, attachment, rich->message_id,
                                                  rich->message_revision, message_rich_record_voice(*rich),
                                                  card, theme, {}, &projection) ||
-                    !ui_text_emitter_initialize(&emitter, append_audio, &audio_context,
-                                                kUiAudioControlCount) ||
                     !ui_audio_controls_text_output(projection, attachment_clip, owner, &output) ||
                     !ui_text_flow_advance(&flow, required_extent))
                     return fail(presentation, MessageTextPresentationError::layout);
@@ -1222,9 +1221,9 @@ __declspec(noinline) bool append_poll_text(MessageTextPresentation* presentation
     };
     UiTextEmitter emitter{};
     UiTextOutput output{nullptr, &emitter};
+    ui_text_emitter_initialize(&emitter, append_poll, &poll_context);
     const UiPollStyle poll_style = ui_theme_poll_style(scene.theme_styles);
     if (!message_scene_poll_projection(scene, row, theme, {answers, kUiPollMaximumAnswers}, &poll) ||
-        !ui_text_emitter_initialize(&emitter, append_poll, &poll_context) ||
         !ui_poll_controls_text_output(poll, poll_style, row_clip, {&scene.widgets, row.poll}, &output))
         return fail(presentation, MessageTextPresentationError::layout);
     return true;

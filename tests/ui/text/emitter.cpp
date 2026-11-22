@@ -73,19 +73,21 @@ void test_text_emitter(void (*check)(bool, const char*) noexcept) noexcept {
     check(transient_projection(&stored), "text emitter: stored adapter owns transient strings and inline effects");
     Comparison comparison{&f.stream}; UiTextEmitter emitter{};
     UiTextOutput emitted{nullptr, &emitter};
-    check(ui_text_emitter_initialize(&emitter, consume, &comparison) && transient_projection(&emitted) &&
+    ui_text_emitter_initialize(&emitter, consume, &comparison);
+    check(transient_projection(&emitted) &&
         comparison.equal && comparison.calls == f.stream.count && emitter.signature == f.stream.signature,
         "text emitter: synchronous transient text styles effects and numeric labels equal stored commands in order");
     UiTextEmitter preflight{}; UiTextOutput checked{nullptr, &preflight};
-    check(ui_text_emitter_initialize(&preflight) && transient_projection(&checked) &&
+    ui_text_emitter_initialize(&preflight);
+    check(transient_projection(&checked) &&
         preflight.signature == emitter.signature && preflight.count == emitter.count,
         "text emitter: callback-free structural preflight preserves complete ordered signature");
     // Session signatures must retain every packed field and every color bit.
     const auto signature_of = [](const UiTextCommand& command) noexcept {
         UiTextEmitter target{};
         UiTextOutput output{nullptr, &target};
-        return ui_text_emitter_initialize(&target) && ui_text_output_push(&output, command)
-                   ? target.signature : 0;
+        ui_text_emitter_initialize(&target);
+        return ui_text_output_push(&output, command) ? target.signature : 0;
     };
     const auto base = sample();
     const u64 base_signature = signature_of(base);
@@ -143,11 +145,12 @@ void test_text_emitter(void (*check)(bool, const char*) noexcept) noexcept {
         preflight.reject_owner.handle.slot == inverted.owner.handle.slot,
         "text emitter: a rejected command records its failing check, the axes compared and its owner");
     comparison = {&f.stream, 0, 1};
-    check(ui_text_emitter_initialize(&emitter, consume, &comparison) && !transient_projection(&emitted) &&
+    ui_text_emitter_initialize(&emitter, consume, &comparison);
+    check(!transient_projection(&emitted) &&
         emitter.count == 1 && emitter.rejected == 1 && comparison.calls == 2,
         "text emitter: consumer failure stops at the failed command and keeps only successful prefix");
-    check(ui_text_emitter_initialize(&preflight, nullptr, nullptr, 1) &&
-        !transient_projection(&checked) && preflight.count == 1 && preflight.rejected == 1 &&
+    ui_text_emitter_initialize(&preflight, nullptr, nullptr, 1);
+    check(!transient_projection(&checked) && preflight.count == 1 && preflight.rejected == 1 &&
         preflight.reject_check == UiTextRejectCheck::limit && preflight.reject_values[0] == 1 &&
         preflight.reject_values[1] == 1,
         "text emitter: explicit caller bound rejects before unbounded projection");
@@ -183,21 +186,20 @@ void test_text_emitter(void (*check)(bool, const char*) noexcept) noexcept {
               ui_text_command_stream_push(&hidden_stream, invisible) && hidden_stream.count == 1 &&
               preflight.signature == hidden_stream.signature,
           "text emitter: a partially clipped label remains in both projections");
-    UiTextOutput ambiguous{&f.stream, &emitter};
-    check(!ui_text_output_valid(&ambiguous) && !ui_text_output_push(&ambiguous, sample()),
-          "text emitter: mutually exclusive stored and synchronous destinations enforced");
     const auto resolutions = f.resolutions;
     ui_text_command_stream_reset(&f.stream);
     // Friend row actions (Accept, Ignore, Message, More) are icon buttons and emit no text commands.
     check(tall_projection(&stored) && f.stream.count > 800 && f.stream.count <= 1500,
         "text emitter: supported 8192-DIP pending Friends with populated navigation fits the stream bank");
     comparison = {&f.stream};
-    check(ui_text_emitter_initialize(&emitter, consume, &comparison) && tall_projection(&emitted) &&
+    ui_text_emitter_initialize(&emitter, consume, &comparison);
+    check(tall_projection(&emitted) &&
         comparison.equal && comparison.calls == f.stream.count && emitter.count == f.stream.count &&
         emitter.signature == f.stream.signature && f.resolutions == resolutions,
         "text emitter: tall real production producers match stored stream without extra source resolution or retained copy");
     ++f.source.revision;
-    check(ui_text_emitter_initialize(&preflight) && !tall_projection(&checked),
+    ui_text_emitter_initialize(&preflight);
+    check(!tall_projection(&checked),
         "text emitter: stale Friends source is rejected during structural preflight");
     char composer_storage[64]{};
     MessageComposer composer{};

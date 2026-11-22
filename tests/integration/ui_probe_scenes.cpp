@@ -563,7 +563,8 @@ bool probe_ui_surface_motion() noexcept {
         RendererLayerOpacity opacity;
         ~Restore() noexcept {
             renderer.media_picker_scene = old_gallery;
-            renderer_bind_popup_scene(&renderer, old_popup);
+            if (old_popup)
+                renderer_bind_popup_scene(&renderer, old_popup);
             renderer_bind_settings_scene(&renderer, old_settings);
             renderer_bind_focus_owner(&renderer, old_focus);
             renderer.layer_opacity = opacity;
@@ -2060,7 +2061,8 @@ bool probe_friends_scene() noexcept {
             PopupScene& menu;
             const PopupScene* previous;
             ~RestoreMenu() noexcept {
-                renderer_bind_popup_scene(&g_probe.renderer, previous);
+                if (previous)
+                    renderer_bind_popup_scene(&g_probe.renderer, previous);
                 popup_scene_release(&menu);
             }
         } restore_menu{menu, previous_menu};
@@ -2460,7 +2462,8 @@ bool probe_friends_requests_scene() noexcept {
             PopupScene& scene;
             const PopupScene* previous;
             ~RestoreMenu() noexcept {
-                renderer_bind_popup_scene(&g_probe.renderer, previous);
+                if (previous)
+                    renderer_bind_popup_scene(&g_probe.renderer, previous);
                 popup_scene_release(&scene);
             }
         } menu_restore{menu, g_probe.renderer.popup_scene};
@@ -5865,9 +5868,12 @@ bool probe_rich_composer() noexcept {
     bool wrapped = false;
     for (u32 i = 0; valid && i < 256 && !wrapped; ++i) {
         valid = message_composer_insert_scalar(&model, 'i') == MessageComposerResult::changed && refresh();
-        const u32 line_count = text_edit_layout_line_count(g_probe.renderer.composer_layout);
-        valid = valid && line_count;
-        wrapped = line_count > 1;
+        // Wrapped: the end of the text sits on a lower line than its start.
+        const auto& edit = g_probe.renderer.composer_layout;
+        TextEditMetric first{}, last{};
+        valid = valid && text_edit_layout_position_geometry(edit, 0, &first) &&
+                text_edit_layout_position_geometry(edit, edit.utf16_units, &last);
+        wrapped = last.top > first.top;
         valid = valid && (wrapped ? preferred > 48 + strip : preferred == 48 + strip);
     }
     valid = valid && wrapped;
@@ -5884,12 +5890,8 @@ bool probe_rich_composer() noexcept {
     valid = valid && layout.geometry;
     const float bottom = layout.scroll_y;
     g_probe.failure_stage = 142;
-    const auto native_measures =
-        native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_measured;
     valid = valid && bottom > 0 && text_edit_layout_scroll(&layout, -bottom) && layout.scroll_y == 0 &&
             refresh() && layout.scroll_y == 0 && layout.geometry;
-    valid = valid && native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_measured ==
-                         native_measures;
     valid = valid && renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) &&
             probe_present(&g_probe.renderer, kDefaultTheme);
     bool blue_mention = false;

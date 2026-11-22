@@ -28,25 +28,27 @@ bool native_font_selection_cases() noexcept {
     }
     CHECK(bytes_equal(&saved,&first->catalog.properties[selected],sizeof(saved)));
     CHECK(native_text_catalog_range(&catalogs,private_query,session,&scratch,utf8_literal("ABC"),&range)&&range.scope==scope);
+    u32 picked=0,simulations=0,chosen=0;bool missing_family=false;
+    const auto select=[&](const NativeTextFontQuery& request,NativeFontInstanceHandle* value) noexcept {
+        return native_text_catalog_select_query(&catalogs,request,session,&scratch,value,&source,&picked,&simulations,&chosen,&missing_family);};
     auto variable=query(L"Bahnschrift");
-    for(u32 weight=400;weight<=600;weight+=200){variable.properties.weight=static_cast<u16>(weight);NativeFontInstanceHandle value{};u32 simulations=99;
-        CHECK(native_text_catalog_select_query(&catalogs,variable,session,&scratch,&value,&source,nullptr,&simulations));
-        CHECK(value.slot&&source.count&&!simulations);CHECK(native_font_instance_release(native_font_session_instances(session),value));
+    for(u32 weight=400;weight<=600;weight+=200){variable.properties.weight=static_cast<u16>(weight);NativeFontInstanceHandle value{};simulations=99;
+        CHECK(select(variable,&value));
+        CHECK(value.slot&&source.count&&!simulations&&!missing_family);CHECK(native_font_instance_release(native_font_session_instances(session),value));
     }
     const auto missing=query(L"MaiCord QA absent family 8F41");const auto reserved=catalogs.storage.reserved;auto* before=catalogs.files;
     catalogs.storage.reserved=catalogs.storage.offset;NativeFontInstanceHandle absent{};
-    const bool failed=native_text_catalog_select_query(&catalogs,missing,session,&scratch,&absent,&source);
+    const bool failed=select(missing,&absent);
     catalogs.storage.reserved=reserved;
     CHECK(!failed&&!absent.slot&&catalogs.files==before);
     CHECK(native_text_catalog_range(&catalogs,base,session,&scratch,utf8_literal("ABC"),&range)&&range.match.index==selected);
-    CHECK(!native_text_catalog_select_query(&catalogs,missing,session,&scratch,&absent,&source));
+    // A missing family falls back to the default face; its family order is built once and reused.
+    CHECK(select(missing,&absent)&&absent.slot&&missing_family&&!chosen);CHECK(native_font_instance_release(native_font_session_instances(session),absent));
     auto* cached=catalogs.families;const auto previous_builds=catalogs.builds;
-    CHECK(!native_text_catalog_select_query(&catalogs,missing,session,&scratch,&absent,&source)&&catalogs.families==cached&&catalogs.builds==previous_builds&&catalogs.files==before);
-    u32 chosen=99;bool missing_family=false;
-    CHECK(native_text_catalog_select_query(&catalogs,missing,session,&scratch,&absent,&source,nullptr,nullptr,&chosen,&missing_family));
-    CHECK(absent.slot&&missing_family&&!chosen);CHECK(native_font_instance_release(native_font_session_instances(session),absent));
+    CHECK(select(missing,&absent)&&absent.slot&&missing_family&&catalogs.families==cached&&catalogs.builds==previous_builds&&catalogs.files==before);
+    CHECK(native_font_instance_release(native_font_session_instances(session),absent));
     auto invalid=missing;invalid.properties.weight=0;
-    CHECK(!native_text_catalog_select_query(&catalogs,invalid,session,&scratch,&absent,&source)&&!absent.slot);
+    CHECK(!select(invalid,&absent)&&!absent.slot);
     native_text_catalogs_release(&catalogs);
     CHECK(native_font_instance_get(*native_font_session_instances(session),instance)==held&&sfnt_cmap_glyph(face->cmap,'A',0,&glyph)==SfntStatus::ok&&glyph);
     // Segoe UI maps the Devanagari and Bengali digits but has no Indic program. The digits shape in Segoe UI, alone and

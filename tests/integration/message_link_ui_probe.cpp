@@ -424,7 +424,7 @@ bool history_response(u64 channel, Utf8View body) noexcept {
 }
 
 struct Counters {
-    u32 paint, text, paint_upload, text_upload, media_upload, painted, skips, measures, glyphs, position,
+    u32 paint, text, paint_upload, text_upload, media_upload, painted, measures, glyphs, position,
         metadata, membership, history, frames;
     u64 layout, projection;
     u32 notice_stage, state_revision, message_revision;
@@ -437,7 +437,6 @@ Counters counters() noexcept {
             r.text_instance_uploads,
             r.media_instance_uploads,
             r.painted_frames,
-            r.unchanged_present_skips,
             text_measure_calls(&g_app.account_ui->text_measure_cache),
             r.glyph_text.cache_builds,
             r.message_hit_test.builds,
@@ -491,7 +490,7 @@ bool warm(u32 sample) noexcept {
     bool valid = before.layout == after.layout && before.projection == after.projection &&
                  before.notice_stage == after.notice_stage &&
                  before.state_revision == after.state_revision &&
-                 before.message_revision == after.message_revision && after.skips - before.skips == 64;
+                 before.message_revision == after.message_revision;
     for (u32 i = 0; i < 13; ++i) {
         log_u64(LogLevel::info, "message_link_warm", labels[i], deltas[i]);
         valid = valid && !deltas[i];
@@ -505,7 +504,6 @@ bool warm(u32 sample) noexcept {
             after.state_revision - before.state_revision);
     log_u64(LogLevel::info, "message_link_warm", "message_revision_delta",
             after.message_revision - before.message_revision);
-    log_u64(LogLevel::info, "message_link_warm", "unchanged_skips", after.skips - before.skips);
     return valid;
 }
 

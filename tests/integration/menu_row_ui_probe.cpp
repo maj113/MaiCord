@@ -28,7 +28,8 @@ bool menu_row_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) 
         PopupScene& menu;
         const PopupScene* original;
         ~Restore() noexcept {
-            renderer_bind_popup_scene(&renderer, original);
+            if (original)
+                renderer_bind_popup_scene(&renderer, original);
             popup_scene_release(&menu);
         }
     } restore{renderer, menu, original};
@@ -126,7 +127,8 @@ bool menu_row_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) 
             d3d11_renderer_interaction_text_state_current(renderer) &&
             (!capture || capture(L"shared-menu-narrow-rtl-slot-clips.bmp"));
 
-    renderer_bind_popup_scene(&renderer, original);
+    if (original)
+        renderer_bind_popup_scene(&renderer, original);
     popup_scene_close(&menu);
     command_index_release(&commands);
     const bool restored =

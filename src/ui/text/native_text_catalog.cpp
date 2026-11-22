@@ -132,25 +132,23 @@ bool native_text_catalog_register_path(NativeTextCatalogs* owner,const wchar_t* 
 }
 bool native_text_catalog_select_query(NativeTextCatalogs* owner,const NativeTextFontQuery& query,NativeFontSession* session,Arena* scratch,
     NativeFontInstanceHandle* output,NativeFontSelection* source,u32* candidate,u32* simulations,u32* selected_scope,bool* missing_family,bool plain) noexcept {
-    if(missing_family)*missing_family=false;
+    *missing_family=false;
 #if !defined(_WIN32)
     LocatorIdle idle{owner};
 #endif
-    reset_value(output);reset_value(source);if(candidate)*candidate=0xffffffffu;if(simulations)*simulations=0;if(selected_scope)*selected_scope=0xffffffffu;
+    reset_value(output);reset_value(source);*candidate=0xffffffffu;*simulations=0;*selected_scope=0xffffffffu;
     if(query.scope>=owner->count||!query.family.count||!query.family.data||query.family.count>32767||!scratch->base)return false;
     const FamilyOrder* family=nullptr;bool loaded=false;if(!coverage_ready(*owner,session)||!family_order(*owner,query,*scratch,&family,&loaded))return false;
     if(!family->order.count){
-        if(!selected_scope)return false;
         NativeTextFontRange range{};if(!native_text_catalog_range(owner,query,session,scratch,{" ",1},&range)||range.match.index==native_fallback_missing)return false;
         const u32 applied=plain?0:range.match.simulations;
-        if((applied&&!simulations)||!native_text_catalog_select_face(owner,range.scope,range.match.index,applied,session,scratch,output,source))return false;
-        if(candidate)*candidate=range.match.index;if(simulations)*simulations=applied;*selected_scope=range.scope;if(missing_family)*missing_family=true;return true;
+        if(!native_text_catalog_select_face(owner,range.scope,range.match.index,applied,session,scratch,output,source))return false;
+        *candidate=range.match.index;*simulations=applied;*selected_scope=range.scope;*missing_family=true;return true;
     }
     const auto& catalog=*family->catalog;const u32 index=family->order[0];
     const u32 applied=plain?0:native_font_match_one(catalog.properties[index],query.properties).simulations;
-    if(applied&&!simulations)return false;
     if(!native_text_catalog_select_face(owner,query.scope,family->base+index,applied,session,scratch,output,source,!loaded))return false;
-    if(candidate)*candidate=family->base+index;if(simulations)*simulations=applied;if(selected_scope)*selected_scope=query.scope;return true;
+    *candidate=family->base+index;*simulations=applied;*selected_scope=query.scope;return true;
 }
 #include "native_system_fallback.inc"
 bool native_text_catalog_select_face(NativeTextCatalogs* owner,u32 scope,u32 candidate,u32 simulations,NativeFontSession* session,Arena* scratch,NativeFontInstanceHandle* output,NativeFontSelection* source,bool refresh) noexcept {

@@ -141,7 +141,7 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
         auto* form = thread_creation_ui_adapter_form(); if (!form) return false;
         const auto before = surface_motion_probe_detail::snapshot(external);
         const u32 layouts = form->scene.widgets.layout.revision, shell = external.ui_scene->layout_passes,
-            shapes = text_measure_calls(&measure), painted = external.painted_frames, skips = external.unchanged_present_skips,
+            shapes = text_measure_calls(&measure), painted = external.painted_frames,
             revision = form->scene.revision, submissions = thread_creation_ui_adapter_submissions();
         const u32 owner_publication = application_thread_creation_view().ticket.publication_revision;
         const u32 form_shapes = text_measure_calls(form->scene.measure);
@@ -154,11 +154,10 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
         const bool passed = surface_motion_probe_detail::same(before, after) && before.source_refreshes == after.source_refreshes &&
             form->scene.widgets.layout.revision == layouts && form->scene.revision == revision &&
             external.ui_scene->layout_passes == shell && text_measure_calls(&measure) == shapes && external.painted_frames == painted &&
-            external.unchanged_present_skips - skips == 64 && thread_creation_ui_adapter_submissions() == submissions &&
+            thread_creation_ui_adapter_submissions() == submissions &&
             application_thread_creation_view().ticket.publication_revision == owner_publication &&
             text_measure_calls(form->scene.measure) == form_shapes && form->scene.storage.arena.committed == form_committed;
         log_u64(LogLevel::info, "thread_creation_warm", "sample", sample);
-        log_u64(LogLevel::info, "thread_creation_warm", "unchanged_skips", external.unchanged_present_skips - skips);
         log_u64(LogLevel::info, "thread_creation_warm", "form_scene_committed_bytes", form_committed);
         log_u64(LogLevel::info, "thread_creation_warm", "form_owner_committed_bytes", memory.RegionSize);
         log_u64(LogLevel::info, "thread_creation_warm", "passed", passed); return passed;

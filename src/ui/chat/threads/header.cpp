@@ -296,7 +296,7 @@ bool ui_thread_header_paint(const UiThreadHeader& h, const Theme& theme, PaintSt
     return paint_stream_pop_clip(out) && ok;
 }
 bool ui_thread_header_text(const UiThreadHeader& h, const Theme& theme, UiTextOutput* out) noexcept {
-    if (!ui_text_output_valid(out) || !h.manager) return false;
+    if (!h.manager) return false;
     if (!h.active || !ui_rect_has_area(h.geometry.clip)) return true;
     const auto primary = ui_thread_header_primary_action(h.view);
     const auto primary_text = h.view.busy ? pending_label(h.view.operation) : action_label(primary);

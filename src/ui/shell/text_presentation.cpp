@@ -385,7 +385,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                           const UserStore* users,
                                           const GuildRailScene* guild_scene,
                                           u64 visual_selected_channel_id, UiTextMeasureCache* measure) noexcept {
-    if (!ui_text_output_valid(stream) || scene.count == 0 ||
+    if (scene.count == 0 ||
         (guild_scene && guild_scene->active &&
          (!guild_scene->rows.data || guild_scene->count > guild_scene->rows.count ||
           !ui_rect_has_area(guild_scene->viewport))) ||
@@ -930,8 +930,6 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
 bool shell_text_presentation_member_output(const MemberListScene& member_list, const Theme& theme,
                                            UiTextOutput* stream) noexcept {
     const MemberListScene* member_scene = &member_list;
-    if (!ui_text_output_valid(stream))
-        return false;
     if (!member_scene->active || !member_scene->source || !member_scene->members || !member_scene->users ||
         !member_scene->state)
         return true;

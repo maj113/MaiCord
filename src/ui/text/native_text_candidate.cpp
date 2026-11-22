@@ -109,8 +109,6 @@ struct NativeTextContext {
     Slice<NativeParagraphRun> paragraph_runs;bool last_paragraph;u32 storage_retries,text_epoch,route_epoch;const NativeFormat* route_format;
     u64 paragraphs_shaped,paragraphs_measured;
     u64 latin_shaped,latin_measured;
-    // Emergency breaks tested for crossed shaping, and those reshaped (reshape_emergency_cuts).
-    u64 cut_checks,cut_reshapes;
     ConstSlice<TextStyleSpan> last_styles;Slice<StyledSpan> styled_spans;Slice<SfntFontLineParts> styled_parts;
     float last_style_em;bool last_styled,last_fixed_weight;u8 last_mode;bool output_capacity_failed;
     Slice<NativeParagraphLine> styled_lines;
@@ -142,7 +140,7 @@ static_assert(sizeof(NativeTextContext)%alignof(Binding)==0);
 constexpr usize page_bytes(usize bytes) noexcept {return (bytes+4095u)&~usize{4095};}
 static_assert(sizeof(NativeTextCatalogScope)==112);
 #if defined(_WIN32)
-static_assert(sizeof(NativeTextContext)==2584);
+static_assert(sizeof(NativeTextContext)==2568);
 #endif
 static_assert(binding_region_bytes==16384&&context_reserved_bytes==40960);
 static_assert(page_bytes(sizeof(NativeTextContext))==4096&&
@@ -581,7 +579,7 @@ CutFont cut_font(const NativeRunPlanStore& store,NativeRunPlanHandle handle,bool
 // source.shape(context,key,text,paragraph_start,work,&line) reshapes text of it as the paragraph shaping did. They are
 // plain functions over the caller's context, so the line and the styled paths share this one body; none runs inside
 // the scan of a segment's cuts. output.glyphs hold the paragraph glyphs; owner.paragraph_runs take the new origins and
-// widths; owner.cut_checks and owner.cut_reshapes count the cuts and the crossed ones.
+// widths.
 struct CutSource {
     void* context;
     u32 (*segment)(void*,u32 unit,u32* first,u32* end) noexcept;
@@ -652,7 +650,7 @@ void reshape_emergency_cuts(NativeTextContext& owner,u32 run_count,ShapedText& o
     const auto crosses=[&](u32 i,u32 c) noexcept {u32 first=0,end=0;const u32 key=segment_of(runs[i].source_first,&first,&end);
         if(key==absent||first>=runs[i].source_first)return false;const auto& f=font_of(key);return !plain(c-1,f,true)||!plain(c,f,true);};
     // Most cuts cross nothing: the scan allocates nothing and keeps its state in locals.
-    u32 crossings=0,checks=0;
+    u32 crossings=0;
     {const NativeParagraphCluster* const clusters=s.clusters.data;const TextGlyph* const glyphs=output.glyphs;
         const u8* const bytes=reinterpret_cast<const u8*>(text.data);const u32 count=paragraph.cluster_count;
         constexpr u32 opens=native_paragraph_break_before|unshaped|native_paragraph_space;
@@ -674,7 +672,6 @@ void reshape_emergency_cuts(NativeTextContext& owner,u32 run_count,ShapedText& o
             const u32 at=run.source_first;u32 c=at;
             if(at>=count||clusters[at].source_first!=at){c=cluster_at(at);if(c>=count)continue;}
             if(!c||(clusters[c].flags&opens)||(clusters[c-1].flags&unshaped))continue;
-            ++checks;
             if(at-lo-1>=span)[[unlikely]]{u32 first=0,end=0;
                 if(segment_of(at,&first,&end)==absent){span=0;continue;}
                 lo=first;span=end-first-1;table=ascii?cached.nominal.ascii_advances:nullptr;
@@ -683,7 +680,6 @@ void reshape_emergency_cuts(NativeTextContext& owner,u32 run_count,ShapedText& o
             const u32 left=quick(c-1),right=quick(c);
             if(!left||!right)++crossings;
             else if((left|right)&2)[[unlikely]]{if((left==2&&!plain(c-1,cached,true))||(right==2&&!plain(c,cached,true)))++crossings;}}}
-    owner.cut_checks+=checks;owner.cut_reshapes+=crossings;
     if(!crossings)return;
     // Bit 1, a run starts a line (x 0); bit 0, it starts the line at a cut; bit 2, the shaping crossed that cut. The
     // fitted geometry decides before any run moves.
@@ -870,12 +866,6 @@ bool native_text_candidate_hits_once(const TextSystem& system,const NativeTextRe
     const auto* format=resolve_format(system,request.wrapping);if(!format)return false;
     auto& owner=*system.native_text;auto* selected=binding(owner,format);if(!selected)return false;
     return paragraph(system,*selected,format,request,nullptr,measure,{latin,nullptr,&hits,nullptr})||styled_hits(system,request,hits,measure);
-}
-NativeTextCandidateCounts native_text_candidate_counts(const TextSystem& system) noexcept {
-    const auto* owner=system.native_text;return owner?NativeTextCandidateCounts{owner->shaped,owner->measured,owner->arabic_shaped,owner->arabic_measured,owner->paragraphs_shaped,owner->paragraphs_measured,owner->latin_shaped,owner->latin_measured,owner->cut_checks,owner->cut_reshapes}:NativeTextCandidateCounts{};
-}
-NativeTextStorageCounts native_text_candidate_storage_counts(const TextSystem& system) noexcept {
-    const auto* o=system.native_text;return o?NativeTextStorageCounts{o->scratch.reserved,o->scratch.committed,o->scratch.peak,o->storage_retries}:NativeTextStorageCounts{};
 }
 namespace {
 void release_context_contents(NativeTextContext* o) noexcept {

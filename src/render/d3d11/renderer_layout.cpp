@@ -2491,7 +2491,6 @@ bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
         renderer_paint_diff_commit(renderer);
         renderer->draw_calls_last_frame = 0;
         renderer->media_draws_last_frame = 0;
-        ++renderer->unchanged_present_skips;
         return true;
     }
 

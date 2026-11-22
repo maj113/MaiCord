@@ -34,5 +34,5 @@ bool native_long_text_cases(bool editor=false) noexcept {
     }
     TextMeasureResult rejected{};CHECK(!native_text_candidate_line(native,{{storage->input,limit+1},{},240,1000},nullptr,&rejected));
     CHECK(native_text_candidate_style_capacity({storage->input,limit+1},{})==0);
-    const auto stats=native_text_candidate_storage_counts(owner);print("scratch reserved/committed/peak/retries=");number(stats.reserved);print("/");number(stats.committed);print("/");number(stats.peak);print("/");number(stats.retries);print("\n");return true;
+    return true;
 }

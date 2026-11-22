@@ -89,18 +89,18 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
             if(status!=SfntStatus::ok || plan.lookup_count!=n || plan.script_tag!=script || plan.language_tag!=language || plan.language_found!=(found!=0))return error(f,c,3);
             for(u32 i=0;i<n;++i){expected[i]=static_cast<u16>(expected_ids.data[i*2]|(expected_ids.data[i*2+1]<<8));++lookup_checks;if(indices[i]!=expected[i])return error(f,c,4);}
             if(!rtl && !plan_units(layout,independent!=0,{expected,n},plan.operations))return error(f,c,5);
-            u16 id=0;if(sfnt_cmap_glyph(cmap,'a',0,&id)!=SfntStatus::ok)return false;const bool can_nominal=id && !(participation&(1ull<<id));if(can_nominal!=(simple!=0))return error(f,c,11);SfntGsubGlyph glyph{id,sfnt_gdef_glyph_class(gdef,id),0};SfntGlyphBuffer buffer{};
-            if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(&glyph),sizeof(glyph)},sizeof(glyph),1,&buffer)!=SfntStatus::ok)return false;
-            SfntGsubExecutionFrame frames[2];u32 positions[8],rebased[8],consumed[8];u8 replacements[32];
-            if(!kind)for(u32 i=0;i<n;++i){SfntGsubExecutionResult result{};status=sfnt_gsub_execute_lookup(program,indices[i],&buffer,0,1,0,{{frames,2},{positions,8},{rebased,8},{consumed,8},{replacements,32}},{1000000,100000},&result);if(status!=SfntStatus::ok)return error(f,c,6);}
-            ++glyph_checks;if(glyph.glyph!=want)return error(f,c,7);SfntGlyphMetrics m{};if(sfnt_horizontal_metrics(metrics,glyph.glyph,&m)!=SfntStatus::ok)return false;const double nominal=m.advance;const u8 flag=2;SfntPosition state{};SfntPlacement placement{};
+            u16 id=0;if(sfnt_cmap_glyph(cmap,'a',0,&id)!=SfntStatus::ok)return false;const bool can_nominal=id && !(participation&(1ull<<id));if(can_nominal!=(simple!=0))return error(f,c,11);
+            const SfntGsubGlyph glyph{id,sfnt_gdef_glyph_class(gdef,id),0};GsubRecords<1> records;if(!records.open(&glyph,1,1))return false;
+            SfntGsubExecutionFrame frames[2];u32 positions[8],rebased[8],consumed[8];u8 replacements[128];
+            if(!kind)for(u32 i=0;i<n;++i){SfntGsubExecutionResult result{};status=records.execute(program,indices[i],0,1,0,{{frames,2},{positions,8},{rebased,8},{consumed,8},{replacements,128}},{1000000,100000},&result);if(status!=SfntStatus::ok)return error(f,c,6);}
+            ++glyph_checks;if(records.glyph(0)!=want)return error(f,c,7);SfntGlyphMetrics m{};if(sfnt_horizontal_metrics(metrics,records.glyph(0),&m)!=SfntStatus::ok)return false;const double nominal=m.advance;const u8 flag=2;SfntPosition state{};SfntPlacement placement{};
             if(sfnt_position_initialize({&nominal,1},{&flag,1},{&state,1})!=SfntStatus::ok)return false;
-            if(kind)for(u32 i=0;i<n;++i){SfntGposSubtable subs[16];SfntGposExecutableLookup lookup{};SfntPositionExecution result{};if(gpos_prepare_one(layout,indices[i],gdef,metrics.glyph_count,{subs,16},{},&lookup)!=SfntStatus::ok || lookup.type>2 || sfnt_position_execute_lookup({lookup.tables.basic,lookup.filter},gdef,sfnt_glyph_buffer_view(buffer),{&state,1},0,1,rtl!=0,{},&result)!=SfntStatus::ok)return error(f,c,8);}
+            if(kind)for(u32 i=0;i<n;++i){SfntGposSubtable subs[16];SfntGposExecutableLookup lookup{};SfntPositionExecution result{};if(gpos_prepare_one(layout,indices[i],gdef,metrics.glyph_count,{subs,16},{},&lookup)!=SfntStatus::ok || lookup.type>2 || sfnt_position_execute_lookup({lookup.tables.basic,lookup.filter},gdef,sfnt_glyph_buffer_view(records.buffer),{&state,1},0,1,rtl!=0,{},&result)!=SfntStatus::ok)return error(f,c,8);}
             if(sfnt_position_finalize({&state,1},{&flag,1},1000,metrics.units_per_em,{&placement,1})!=SfntStatus::ok || !bytes_equal(&placement,expected_placement,12))return error(f,c,9);placement_checks+=3;++queries;
             // These fixtures are one mapped ASCII scalar, one font, no spacing
             // or range boundary: font participation fully determines the gate.
             // General text, normalization and layout range eligibility are separate.
-            u16 app_glyph=glyph.glyph;SfntPlacement app_placement=placement;
+            u16 app_glyph=records.glyph(0);SfntPlacement app_placement=placement;
             if(can_nominal && !independent){app_glyph=id;if(sfnt_horizontal_metrics(metrics,id,&m)!=SfntStatus::ok)return false;SfntPosition p{static_cast<double>(m.advance),0,0};if(sfnt_position_finalize({&p,1},{&flag,1},1000,metrics.units_per_em,{&app_placement,1})!=SfntStatus::ok)return false;}
             if(app_glyph!=layout_want || !bytes_equal(&app_placement,layout_placement,12))return error(f,c,12);app_checks+=4;
         }

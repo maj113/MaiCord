@@ -78,9 +78,8 @@ inline void brackets(Slice<UnicodeBidiCell> cells, ConstSlice<u32> order, B sos,
 }
 } // namespace bidi_conformance
 
-inline UnicodeBidiStatus unicode_bidi_resolve(Slice<UnicodeBidiCell> cells, UnicodeParagraphDirection direction,
-                                              Slice<u32> scratch, UnicodeBidiParagraph* paragraph) noexcept {
-    return bidi_resolve_with_brackets(cells, direction, scratch, paragraph, bidi_conformance::brackets);
+inline u8 unicode_bidi_resolve(Slice<UnicodeBidiCell> cells, UnicodeParagraphDirection direction, u32* scratch) noexcept {
+    return bidi_resolve_with_brackets(cells, direction, scratch, bidi_conformance::brackets);
 }
 
 } // namespace maicord

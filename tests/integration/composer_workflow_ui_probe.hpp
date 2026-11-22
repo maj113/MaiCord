@@ -70,15 +70,13 @@ inline bool composer_workflow_ui_probe(D3D11Renderer& renderer, MessageComposer&
     const u32 layout = scene.layout_passes, shell_layout = renderer.ui_scene->layout_passes,
         builds = renderer.content_text->rebuilds, raster = renderer.glyph_text.cache_builds,
         paint_uploads = renderer.paint_instance_uploads, text_uploads = renderer.text_instance_uploads,
-        media_uploads = renderer.media_instance_uploads, painted = renderer.painted_frames,
-        skips = renderer.unchanged_present_skips;
+        media_uploads = renderer.media_instance_uploads, painted = renderer.painted_frames;
     for (u32 i = 0; i < 64; ++i)
         if (!publish(state) || !probe_present(&renderer, kDefaultTheme)) return false;
     if (scene.layout_passes != layout || renderer.ui_scene->layout_passes != shell_layout ||
         renderer.content_text->rebuilds != builds || renderer.glyph_text.cache_builds != raster ||
         renderer.paint_instance_uploads != paint_uploads || renderer.text_instance_uploads != text_uploads ||
-        renderer.media_instance_uploads != media_uploads || renderer.painted_frames != painted ||
-        renderer.unchanged_present_skips - skips != 64) return false;
+        renderer.media_instance_uploads != media_uploads || renderer.painted_frames != painted) return false;
     log_write(LogLevel::info, "probe", "composer_workflow_64_zero_layout_shape_raster_upload_draw_passed");
     if (!probe_resize_surface(original_width, original_height) || !publish(state) ||
         !ui_scene_node(*renderer.ui_scene, UiSemantic::member_sidebar))

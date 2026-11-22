@@ -390,6 +390,8 @@ bool run(bool scan) noexcept {
             check(f.catalogs.builds == builds && f.catalogs.storage.offset == offset, "warm_queries_build_nothing");
         }
     }
+    u32 picked = 0, simulated = 0, chosen_scope = 0;
+    bool fallen_back = false;
 
     // Weights and styles of one family.
     if (strict()) {
@@ -397,7 +399,7 @@ bool run(bool scan) noexcept {
             NativeFontInstanceHandle value{};
             u32 simulations = 99;
             check(native_text_catalog_select_query(&f.catalogs, ascii_query("Noto Sans", weight), f.session, &f.scratch, &value,
-                                                   &source, nullptr, &simulations) &&
+                                                   &source, &picked, &simulations, &chosen_scope, &fallen_back) &&
                       value.slot,
                   "select_noto_sans_weight");
             native_font_instance_release(native_font_session_instances(f.session), value);
@@ -405,7 +407,7 @@ bool run(bool scan) noexcept {
         // The emoji family resolves to the colour bitmap face.
         NativeFontInstanceHandle emoji{};
         check(native_text_catalog_select_query(&f.catalogs, query(default_font_name(DefaultFont::emoji)), f.session,
-                                               &f.scratch, &emoji, &source),
+                                               &f.scratch, &emoji, &source, &picked, &simulated, &chosen_scope, &fallen_back),
               "select_emoji");
         check(covers(f, emoji, 0x1F600), "emoji_family_maps_emoji");
         const NativeFontInstance* held = native_font_instance_get(*native_font_session_instances(f.session), emoji);
@@ -424,8 +426,8 @@ bool run(bool scan) noexcept {
             NativeFontInstanceHandle value{};
             u32 scope = 99;
             bool fallback = true;
-            check(native_text_catalog_select_query(&f.catalogs, variable, f.session, &f.scratch, &value, &source, nullptr,
-                                                   nullptr, &scope, &fallback) &&
+            check(native_text_catalog_select_query(&f.catalogs, variable, f.session, &f.scratch, &value, &source, &picked,
+                                                   &simulated, &scope, &fallback) &&
                       value.slot && !fallback && !scope,
                   "variable_family_with_a_static_stat_axis");
             native_font_instance_release(native_font_session_instances(f.session), value);
@@ -434,45 +436,53 @@ bool run(bool scan) noexcept {
         }
     }
 
-    // A family that is not installed is not another family.
+    // A family that is not installed falls back to the default face, and its family order is built once.
     const NativeTextFontQuery missing = ascii_query("MaiCord QA absent family 8F41");
     NativeFontInstanceHandle absent{};
-    check(!native_text_catalog_select_query(&f.catalogs, missing, f.session, &f.scratch, &absent, &source) && !absent.slot,
-          "missing_family_fails");
-    NativeSystemFontFile* before = f.catalogs.files;
-
-    const u64 previous_builds = f.catalogs.builds;
-    check(!native_text_catalog_select_query(&f.catalogs, missing, f.session, &f.scratch, &absent, &source) &&
-              f.catalogs.builds == previous_builds && f.catalogs.files == before,
-          "missing_family_is_cached");
-    if (scan) {
-        // A family whose face the engine cannot read is skipped and counted, and the miss is cached: the next query
-        // opens neither the locator nor the file.
-        const NativeTextFontQuery unreadable = ascii_query("MaiCord CFF2 Fixture");
-        const u64 counted = f.catalogs.failures;
-        check(!native_text_catalog_select_query(&f.catalogs, unreadable, f.session, &f.scratch, &absent, &source) &&
-                  !absent.slot && f.catalogs.failures == counted + 1,
-              "unreadable_family_fails");
-        const u64 builds = f.catalogs.builds;
-        check(!native_text_catalog_select_query(&f.catalogs, unreadable, f.session, &f.scratch, &absent, &source) &&
-                  f.catalogs.builds == builds && f.catalogs.failures == counted + 1,
-              "unreadable_family_is_cached");
-        // The time of one query, for the log only: the tests assert counts, never times.
-        const u64 start = clock_now_microseconds();
-        for (u32 i = 0; i < 1000; ++i)
-            native_text_catalog_select_query(&f.catalogs, unreadable, f.session, &f.scratch, &absent, &source);
-        test_write_metric("  unreadable family query, nanoseconds=", clock_now_microseconds() - start);
-    }
     u32 chosen = 99;
     bool missing_family = false;
-    check(native_text_catalog_select_query(&f.catalogs, missing, f.session, &f.scratch, &absent, &source, nullptr,
-                                           nullptr, &chosen, &missing_family) &&
+    check(native_text_catalog_select_query(&f.catalogs, missing, f.session, &f.scratch, &absent, &source, &picked,
+                                           &simulated, &chosen, &missing_family) &&
               absent.slot && missing_family && !chosen,
           "missing_family_falls_back_to_the_default_face");
     native_font_instance_release(native_font_session_instances(f.session), absent);
+    NativeSystemFontFile* before = f.catalogs.files;
+    const u64 previous_builds = f.catalogs.builds;
+    check(native_text_catalog_select_query(&f.catalogs, missing, f.session, &f.scratch, &absent, &source, &picked,
+                                           &simulated, &chosen, &missing_family) &&
+              absent.slot && missing_family && f.catalogs.builds == previous_builds && f.catalogs.files == before,
+          "missing_family_is_cached");
+    native_font_instance_release(native_font_session_instances(f.session), absent);
+    if (scan) {
+        // A family whose face the engine cannot read is skipped and counted, and the query falls back to the default
+        // face as for a missing family. The failure is remembered: the next query opens neither the locator nor the
+        // file and counts nothing new.
+        const NativeTextFontQuery unreadable = ascii_query("MaiCord CFF2 Fixture");
+        const u64 counted = f.catalogs.failures;
+        check(native_text_catalog_select_query(&f.catalogs, unreadable, f.session, &f.scratch, &absent, &source, &picked,
+                                               &simulated, &chosen_scope, &fallen_back) &&
+                  absent.slot && fallen_back && !chosen_scope && f.catalogs.failures == counted + 1,
+              "unreadable_family_falls_back");
+        native_font_instance_release(native_font_session_instances(f.session), absent);
+        const u64 builds = f.catalogs.builds;
+        check(native_text_catalog_select_query(&f.catalogs, unreadable, f.session, &f.scratch, &absent, &source, &picked,
+                                               &simulated, &chosen_scope, &fallen_back) &&
+                  absent.slot && fallen_back && f.catalogs.builds == builds && f.catalogs.failures == counted + 1,
+              "unreadable_family_is_cached");
+        native_font_instance_release(native_font_session_instances(f.session), absent);
+        // The time of one query, for the log only: the tests assert counts, never times.
+        const u64 start = clock_now_microseconds();
+        for (u32 i = 0; i < 1000; ++i)
+            if (native_text_catalog_select_query(&f.catalogs, unreadable, f.session, &f.scratch, &absent, &source, &picked,
+                                                 &simulated, &chosen_scope, &fallen_back))
+                native_font_instance_release(native_font_session_instances(f.session), absent);
+        test_write_metric("  unreadable family query, nanoseconds=", clock_now_microseconds() - start);
+    }
     NativeTextFontQuery invalid = missing;
     invalid.properties.weight = 0;
-    check(!native_text_catalog_select_query(&f.catalogs, invalid, f.session, &f.scratch, &absent, &source) && !absent.slot,
+    check(!native_text_catalog_select_query(&f.catalogs, invalid, f.session, &f.scratch, &absent, &source, &picked,
+                                            &simulated, &chosen_scope, &fallen_back) &&
+              !absent.slot,
           "invalid_properties_fail");
     test_write_metric("  unsupported faces=", f.catalogs.unsupported);
     test_write_metric("  catalog failures=", f.catalogs.failures);
@@ -545,8 +555,9 @@ bool broken_face(const char* font_path) noexcept {
     bool fallback = false;
     // The first query makes the locator; without fontconfig the directory scan refuses the face as the text engine
     // does, and the case has nothing to show.
+    u32 picked = 0, simulated = 0;
     const bool selected = native_text_catalog_select_query(&f.catalogs, broken, f.session, &f.scratch, &value, &source,
-                                                           nullptr, nullptr, &scope, &fallback);
+                                                           &picked, &simulated, &scope, &fallback);
     SystemFontFile located;
     if (!f.catalogs.locator || !system_font_locator_find(f.catalogs.locator, {broken.family, 400, false}, &located)) {
         test_write_text("  no fontconfig lists the broken face: skipped\n");
@@ -604,8 +615,9 @@ bool desktop_font() noexcept {
     NativeFontSelection source{};
     u32 scope = 99;
     bool fallback = true;
-    check(native_text_catalog_select_query(&f.catalogs, query(ui), f.session, &f.scratch, &value, &source, nullptr,
-                                           nullptr, &scope, &fallback) &&
+    u32 picked = 0, simulated = 0;
+    check(native_text_catalog_select_query(&f.catalogs, query(ui), f.session, &f.scratch, &value, &source, &picked,
+                                           &simulated, &scope, &fallback) &&
               value.slot && !fallback,
           "desktop_font_loads");
     native_font_instance_release(native_font_session_instances(f.session), value);

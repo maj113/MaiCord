@@ -14,21 +14,19 @@ bool unreachable_units() noexcept {
         if(status!=SfntStatus::resource_limit||program.lookups.count)return false;}
     if(!prepared||program.glyph_limit!=64||program.lookups.count!=1||
         program.lookups[0].subtables[0].basic.coverage.covered_count||!sfnt_lookup_bounds_disjoint(program.lookups[0].bounds,0,63))return false;
-    for(u32 i=0;i<64;++i)glyphs[i]={static_cast<u16>(i),SfntGlyphClass::base,0};
-    SfntGlyphBuffer buffer{};if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),sizeof(glyphs)},sizeof(SfntGsubGlyph),64,&buffer)!=SfntStatus::ok)return false;
+    SfntGsubGlyph identity[64];for(u32 i=0;i<64;++i)identity[i]={static_cast<u16>(i),SfntGlyphClass::base,0};
     SfntGsubExecutionResult result{};
-    if(sfnt_gsub_execute_lookup(program,0,&buffer,0,64,0,scratch(),{64,0},&result)!=SfntStatus::ok||result.edits||result.operations!=64)return false;
-    for(u32 i=0;i<64;++i)if(glyphs[i].glyph!=i)return false;
-    glyphs[0].glyph=64;
-    if(sfnt_gsub_execute_lookup(program,0,&buffer,0,64,0,scratch(),{64,0},&result)!=SfntStatus::invalid_input)return false;
+    if(!records.open(identity,64,64)||records.execute(program,0,0,64,0,scratch(),{64,0},&result)!=SfntStatus::ok||result.edits||result.operations!=64)return false;
+    for(u32 i=0;i<64;++i)if(records.glyph(i)!=i)return false;
+    records.glyphs[0].glyph.glyph=64;
+    if(records.execute(program,0,0,64,0,scratch(),{64,0},&result)!=SfntStatus::invalid_input)return false;
     // A real input with an invalid output is reachable, and must still fail.
     bytes[36]=0;bytes[37]=63;bytes[31]=1;
     if(build(true)!=SfntStatus::malformed||program.lookups.count)return false;
     // Valid identity substitution retains its coverage and normal execution.
     bytes[31]=0;if(build(true)!=SfntStatus::ok||program.lookups[0].subtables[0].basic.coverage.covered_count!=1)return false;
-    glyphs[0]={63,SfntGlyphClass::base,0};
-    if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),sizeof(glyphs)},sizeof(SfntGsubGlyph),1,&buffer)!=SfntStatus::ok||
-        sfnt_gsub_execute_lookup(program,0,&buffer,0,1,0,scratch(),{1000000,1000000},&result)!=SfntStatus::ok||result.edits!=1||glyphs[0].glyph!=63)return false;
+    identity[0]={63,SfntGlyphClass::base,0};
+    if(!records.open(identity,1,64)||records.execute(program,0,0,1,0,scratch(),{1000000,1000000},&result)!=SfntStatus::ok||result.edits!=1||records.glyph(0)!=63)return false;
     // Invalid coverage ordering/format and short payloads are never ignored.
     bytes[33]=3;if(build(true)==SfntStatus::ok||program.lookups.count)return false;bytes[33]=1;
     bytes[36]=bytes[37]=255;

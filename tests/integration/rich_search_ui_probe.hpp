@@ -312,7 +312,8 @@ inline bool rich_search_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache& mea
         ~Restore() noexcept {
             r.search_scene = scene; r.search_message_text = text; r.search_message_measure_cache = cache;
             r.search_message_users = users; r.focus_owner = focus; r.media_picker_scene = picker;
-            renderer_bind_popup_scene(&r,popup); r.retained_presentation.valid = false;
+            if (popup) renderer_bind_popup_scene(&r,popup);
+            r.retained_presentation.valid = false;
             content_text_retention_invalidate(&r.content_text_retention);
             message_hit_test_cache_invalidate(&r.message_hit_test);
         }
@@ -323,7 +324,7 @@ inline bool rich_search_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache& mea
         return ok;
     };
     if (!require(initialize(f),1)) return false;
-    renderer.media_picker_scene = nullptr; renderer_bind_popup_scene(&renderer,nullptr); renderer.focus_owner = nullptr;
+    renderer.media_picker_scene = nullptr; renderer.focus_owner = nullptr;
     Theme theme = kDefaultTheme;
     const auto project = [&]() noexcept {
         const auto* title = ui_scene_node(*renderer.ui_scene, UiSemantic::title_bar);
@@ -378,14 +379,13 @@ inline bool rich_search_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache& mea
             prepare = scene->preparation_passes,resolve_count = scene->rebuilds,shape = text_measure_calls(&measure),
             builds = renderer.content_text->rebuilds,raster = renderer.glyph_text.cache_builds,
             paint_upload = renderer.paint_instance_uploads,text_upload = renderer.text_instance_uploads,
-            media_upload = renderer.media_instance_uploads,draws = renderer.painted_frames,skips = renderer.unchanged_present_skips;
+            media_upload = renderer.media_instance_uploads,draws = renderer.painted_frames;
         for (u32 i = 0; i < 64; ++i) if (!project() || !probe_present(&renderer,theme)) return false;
         return f.calls == calls && f.scene.widgets.layout.revision == layout && scene->layout_passes == native_layout &&
             scene->preparation_passes == prepare && scene->rebuilds == resolve_count && text_measure_calls(&measure) == shape &&
             renderer.content_text->rebuilds == builds && renderer.glyph_text.cache_builds == raster &&
             renderer.paint_instance_uploads == paint_upload && renderer.text_instance_uploads == text_upload &&
-            renderer.media_instance_uploads == media_upload && renderer.painted_frames == draws &&
-            renderer.unchanged_present_skips - skips == 64;
+            renderer.media_instance_uploads == media_upload && renderer.painted_frames == draws;
     };
     renderer_set_dpi(&renderer,96);
     if (!require(probe_resize_surface(1000,800) && show(L"rich-search-mixed-masked.bmp"),2)) return false;

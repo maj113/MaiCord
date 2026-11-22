@@ -14,14 +14,11 @@ inline B strong(B type) noexcept {return type==B::en || type==B::an?B::r:type;}
 inline bool space(B type) noexcept {return type==B::ws || isolate(type) || type==B::pdi;}
 inline B analysis_type(B type,bool tailored) noexcept {return tailored && (isolate(type) || type==B::pdi)?B::bn:type;}
 
-// Validates each cell, then resets its working fields and links isolate
-// initiators to their terminators. A failure leaves the working fields unusable.
-inline UnicodeBidiStatus match_isolates(Slice<UnicodeBidiCell> cells,bool tailored) noexcept {
+// Resets each cell's working fields and links isolate initiators to their terminators.
+inline void match_isolates(Slice<UnicodeBidiCell> cells,bool tailored) noexcept {
     u32 top=none;
     for(u32 i=0;i<cells.count;++i) {
         auto& cell=cells[i];
-        if(!unicode_is_scalar(cell.scalar) || static_cast<u8>(cell.original)>static_cast<u8>(B::ws))return UnicodeBidiStatus::invalid_input;
-        if(cell.original==B::b && i+1!=cells.count)return UnicodeBidiStatus::malformed_paragraph;
         const B type=analysis_type(cell.original,tailored);
         cell.link=none;cell.next=none;cell.resolved=type;cell.explicit_level=0;cell.level=unicode_bidi_removed;
         if(isolate(type)){cell.link=top;top=i;}
@@ -30,7 +27,6 @@ inline UnicodeBidiStatus match_isolates(Slice<UnicodeBidiCell> cells,bool tailor
         }
     }
     while(top!=none){const u32 previous=cells[top].link;cells[top].link=none;top=previous;}
-    return UnicodeBidiStatus::ok;
 }
 inline u8 first_direction(ConstSlice<UnicodeBidiCell> cells,u32 first,u32 end,u8 fallback,bool tailored) noexcept {
     for(u32 i=first;i<end;++i) {
@@ -156,17 +152,12 @@ inline void neutral_types(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B s
 }
 }
 
-UnicodeBidiStatus unicode_bidi_paragraph_end(ConstSlice<UnicodeBidiCell> cells,u32 first,u32* end) noexcept {
-    if(!end)return UnicodeBidiStatus::invalid_input;*end=first;
-    if(first>cells.count || (cells.count && !cells.data))return UnicodeBidiStatus::invalid_input;
-    for(u32 i=first;i<cells.count;++i)if(cells[i].original==B::b){*end=i+1;return UnicodeBidiStatus::ok;}
-    *end=cells.count;return UnicodeBidiStatus::ok;
+u32 unicode_bidi_paragraph_end(ConstSlice<UnicodeBidiCell> cells,u32 first) noexcept {
+    for(u32 i=first;i<cells.count;++i)if(cells[i].original==B::b)return i+1;
+    return cells.count;
 }
-UnicodeBidiStatus bidi_resolve_with_brackets(Slice<UnicodeBidiCell> cells,UnicodeParagraphDirection policy,Slice<u32> scratch,UnicodeBidiParagraph* paragraph,BidiBracketResolver resolve_brackets,bool tailored) noexcept {
-    if(!paragraph)return UnicodeBidiStatus::invalid_input;reset_value(paragraph);
-    if(!resolve_brackets || static_cast<u8>(policy)>3 || (cells.count && !cells.data) || (scratch.count && !scratch.data))return UnicodeBidiStatus::invalid_input;
-    if(scratch.count<cells.count)return UnicodeBidiStatus::output_too_small;
-    if(const auto status=match_isolates(cells,tailored);status!=UnicodeBidiStatus::ok)return status;
+u8 bidi_resolve_with_brackets(Slice<UnicodeBidiCell> cells,UnicodeParagraphDirection policy,u32* scratch,BidiBracketResolver resolve_brackets,bool tailored) noexcept {
+    match_isolates(cells,tailored);
     const u8 base=policy==UnicodeParagraphDirection::ltr?0:policy==UnicodeParagraphDirection::rtl?1:
         first_direction({cells.data,cells.count},0,cells.count,policy==UnicodeParagraphDirection::auto_rtl?1:0,tailored);
     explicit_levels(cells,base,tailored);
@@ -186,7 +177,7 @@ UnicodeBidiStatus bidi_resolve_with_brackets(Slice<UnicodeBidiCell> cells,Unicod
         u8 following=base;
         if(!isolate(cells[last].original))for(u32 i=last+1;i<cells.count;++i)if(cells[i].level!=unicode_bidi_removed){following=cells[i].explicit_level;break;}
         const B sos=direction(maximum(preceding,cells[first].explicit_level)),eos=direction(maximum(following,cells[last].explicit_level));
-        const B embedding_direction=direction(cells[first].explicit_level);const ConstSlice<u32> order{scratch.data,count};
+        const B embedding_direction=direction(cells[first].explicit_level);const ConstSlice<u32> order{scratch,count};
         weak_types(cells,order,sos,tailored);resolve_brackets(cells,order,sos,eos,embedding_direction);neutral_types(cells,order,sos,eos,embedding_direction);
         for(u32 i=0;i<count;++i) {
             auto& cell=cells[order[i]];u8 level=cell.explicit_level;
@@ -195,34 +186,16 @@ UnicodeBidiStatus bidi_resolve_with_brackets(Slice<UnicodeBidiCell> cells,Unicod
             cell.level=level;
         }
     }
-    *paragraph={cells.count,base};return UnicodeBidiStatus::ok;
+    return base;
 }
-UnicodeBidiStatus unicode_bidi_line(ConstSlice<UnicodeBidiCell> cells,u8 base,u32 first,u32 end,Slice<u8> levels,Slice<u32> visual,u32* visual_count) noexcept {
-    if(!visual_count)return UnicodeBidiStatus::invalid_input;*visual_count=0;
-    if(base>1 || first>end || end>cells.count || (cells.count && !cells.data) || (levels.count && !levels.data) || (visual.count && !visual.data))return UnicodeBidiStatus::invalid_input;
-    const u32 count=end-first;if(levels.count<count || (visual.count<count && (visual.count || visual.data)))return UnicodeBidiStatus::output_too_small;
-    for(u32 i=first;i<end;++i) {
-        if(cells[i].level>126 && cells[i].level!=unicode_bidi_removed)return UnicodeBidiStatus::invalid_input;
-        levels[i-first]=cells[i].level;
+void unicode_bidi_line_levels(ConstSlice<UnicodeBidiCell> cells,u8 base,u8* levels) noexcept {
+    // L1: separators, and the whitespace before them and at the line end, take the paragraph level.
+    const auto reset_before=[&](u32 end) noexcept {
+        for(u32 j=end;j>0;) {--j;if(levels[j]==unicode_bidi_removed)continue;if(!space(cells[j].original))break;levels[j]=base;}};
+    for(u32 i=0;i<cells.count;++i) {
+        if(cells[i].original!=B::s && cells[i].original!=B::b){levels[i]=cells[i].level;continue;}
+        reset_before(i);levels[i]=base;
     }
-    for(u32 i=first;i<end;++i)if(cells[i].original==B::s || cells[i].original==B::b) {
-        levels[i-first]=base;
-        for(u32 j=i;j>first;) {--j;if(levels[j-first]==unicode_bidi_removed)continue;if(!space(cells[j].original))break;levels[j-first]=base;}
-    }
-    for(u32 j=end;j>first;) {--j;if(levels[j-first]==unicode_bidi_removed)continue;if(!space(cells[j].original))break;levels[j-first]=base;}
-    u32 total=0,highest=0,lowest_odd=255;
-    if(!visual.data) {
-        for(u32 i=0;i<count;++i)total+=levels[i]!=unicode_bidi_removed;
-        *visual_count=total;return UnicodeBidiStatus::ok;
-    }
-    for(u32 i=first;i<end;++i)if(levels[i-first]!=unicode_bidi_removed) {
-        visual[total++]=i;const u32 level=levels[i-first];highest=maximum(highest,level);if(level&1)lowest_odd=minimum(lowest_odd,level);
-    }
-    for(u32 level=highest;level>=lowest_odd;--level)for(u32 i=0;i<total;) {
-        if(levels[visual[i]-first]<level){++i;continue;}
-        const u32 start=i;while(i<total && levels[visual[i]-first]>=level)++i;
-        for(u32 a=start,b=i-1;a<b;++a,--b){const u32 item=visual[a];visual[a]=visual[b];visual[b]=item;}
-    }
-    *visual_count=total;return UnicodeBidiStatus::ok;
+    reset_before(cells.count);
 }
 } // namespace maicord

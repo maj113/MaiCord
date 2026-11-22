@@ -627,7 +627,8 @@ bool member_overlay_capacity_probe(D3D11Renderer& renderer, UiTextMeasureCache* 
         const UiWidgetManager* focus;
         ~Restore() noexcept {
             renderer.profile_scene = const_cast<ProfileScene*>(profile);
-            renderer_bind_popup_scene(&renderer, popup);
+            if (popup)
+                renderer_bind_popup_scene(&renderer, popup);
             renderer_bind_focus_owner(&renderer, focus);
             profile_scene_release(&popout);
             popup_scene_release(&menu);

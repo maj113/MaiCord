@@ -154,7 +154,8 @@ inline bool scoped_search_ui_probe(D3D11Renderer& renderer) noexcept {
             renderer.search_scene = search;
             renderer.media_picker_scene = gallery;
             renderer_bind_settings_scene(&renderer, settings);
-            renderer_bind_popup_scene(&renderer, popup);
+            if (popup)
+                renderer_bind_popup_scene(&renderer, popup);
             renderer_bind_text_form(&renderer, form);
             renderer_bind_focus_owner(&renderer, focus);
             renderer.retained_presentation.valid = false;
@@ -170,7 +171,6 @@ inline bool scoped_search_ui_probe(D3D11Renderer& renderer) noexcept {
               renderer.focus_owner};
     renderer.media_picker_scene = nullptr;
     renderer_bind_settings_scene(&renderer, nullptr);
-    renderer_bind_popup_scene(&renderer, nullptr);
     renderer_bind_text_form(&renderer, nullptr);
     renderer_bind_focus_owner(&renderer, nullptr);
     const auto* title =

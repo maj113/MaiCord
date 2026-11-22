@@ -71,7 +71,7 @@ bool message_action_bar_text_presentation_build_output(const MessageActionBar& b
         return true;
     }
     const UiRect visible = message_action_bar_visible_rectangle(bar);
-    if (!ui_text_output_valid(text) || bar.message_id == 0 || bar.item_count == 0 ||
+    if (bar.message_id == 0 || bar.item_count == 0 ||
         bar.item_count > kMessageActionBarCapacity || !ui_rect_has_area(visible)) {
         return false;
     }

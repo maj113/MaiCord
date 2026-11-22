@@ -247,8 +247,8 @@ bool project_shell_static_text(D3D11Renderer* renderer, u32 shown, const Theme& 
                                            : page  ? renderer->content_page->panel
                                                    : UiRect{}};
     UiTextEmitter filtered{};
-    if ((browser || page) && !ui_text_emitter_initialize(&filtered, emit_browser_shell_text, &filter))
-        return false;
+    if (browser || page)
+        ui_text_emitter_initialize(&filtered, emit_browser_shell_text, &filter);
     UiTextOutput output{nullptr, browser || page ? &filtered : emitter};
     UiRect composer_rectangle{};
     const UiRect* composer = nullptr;

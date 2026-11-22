@@ -225,8 +225,8 @@ void test_presentation() noexcept {
     Captured captured{};
     UiTextEmitter emitter{};
     UiTextOutput output{nullptr, &emitter};
-    check(ui_text_emitter_initialize(&emitter, capture, &captured) &&
-              ui_toast_text_output(f.scene, theme, &output) && captured.count == 1 &&
+    ui_text_emitter_initialize(&emitter, capture, &captured);
+    check(ui_toast_text_output(f.scene, theme, &output) && captured.count == 1 &&
               utf8_equal(captured.commands[0].text, utf8_literal("Link Copied!")) &&
               ui_rect_equal(captured.commands[0].clip, kViewport) &&
               captured.commands[0].color.red == theme.tokens.text.normal.red &&

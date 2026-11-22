@@ -843,7 +843,6 @@ bool warm(u32 sample) noexcept {
     };
     u32 before[15];
     counters(before);
-    const u32 skips = r.unchanged_present_skips;
     const u64 signature = scene.display_signature;
     const auto arena = scene.owned_storage.committed;
     const auto edit_arena = r.composer_layout.storage.arena.committed;
@@ -859,7 +858,7 @@ bool warm(u32 sample) noexcept {
                                   "paint_build_delta",  "paint_upload_delta",    "text_upload_delta",
                                   "media_upload_delta", "painted_delta",         "measure_delta",
                                   "draft_commit_delta", "queued_delta",          "frame_request_delta"};
-    bool valid = r.unchanged_present_skips - skips == 64 && scene.display_signature == signature &&
+    bool valid = scene.display_signature == signature &&
                  scene.owned_storage.committed == arena &&
                  r.composer_layout.storage.arena.committed == edit_arena && arena > 0 &&
                  arena <= scene.owned_storage.reserved;
@@ -868,7 +867,6 @@ bool warm(u32 sample) noexcept {
         log_u64(LogLevel::info, "composer_warm", names[i], after[i] - before[i]);
         valid = valid && after[i] == before[i];
     }
-    log_u64(LogLevel::info, "composer_warm", "unchanged_skips", r.unchanged_present_skips - skips);
     log_u64(LogLevel::info, "composer_warm", "scene_committed_bytes", scene.owned_storage.committed);
     log_u64(LogLevel::info, "composer_warm", "scene_reserved_bytes", scene.owned_storage.reserved);
     log_u64(LogLevel::info, "composer_warm", "scene_committed_delta",
@@ -978,9 +976,11 @@ bool typing_dots_steps() noexcept {
         if (!rebuild(stepped, 246))
             return false;
         // Presents the rebuilt frame; nothing moves, so nothing presents after it.
-        const u32 skips = r.unchanged_present_skips;
-        if (!require(present() && probe_present(&r, theme), 247, "settle_present") ||
-            !require(r.unchanged_present_skips == skips + 1, 247, "idle_skips"))
+        if (!require(present(), 247, "settle_present"))
+            return false;
+        const u32 presents = r.full_present_draws + r.partial_present_draws;
+        if (!require(probe_present(&r, theme) && r.full_present_draws + r.partial_present_draws == presents, 247,
+                     "idle_presents_nothing"))
             return false;
     }
     // Steps fill the instance buffer's tail three quads at a time, then one

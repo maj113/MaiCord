@@ -18,16 +18,15 @@ bool directional_scripts(NativeTextContext& owner,Utf8View text,u8* scripts,u8* 
     // In LTR paragraphs a tab supplies L context, including within bracket
     // pairs, so pairs stay intact. S is restored before the standard L1 reset.
     if(tabs)for(u32 i=0;i<count;++i)if(scalars[i]==9)cells[i].original=UnicodeBidiClass::l;
-    for(u32 first=0;first<count;){u32 end=0;UnicodeBidiParagraph paragraph{};
-        if(unicode_bidi_paragraph_end({cells.data,count},first,&end)!=UnicodeBidiStatus::ok||end<=first)return false;
-        if(bidi_resolve_tailored({cells.data+first,end-first},UnicodeParagraphDirection::ltr,order,&paragraph)!=UnicodeBidiStatus::ok)return false;
+    for(u32 first=0;first<count;){const u32 end=unicode_bidi_paragraph_end({cells.data,count},first);
+        bidi_resolve_tailored({cells.data+first,end-first},UnicodeParagraphDirection::ltr,order.data);
         if(tabs)for(u32 i=first;i<end;++i)if(scalars[i]==9)cells[i].original=UnicodeBidiClass::s;
         // Windows keeps explicit embedding/override source controls in its
         // whitespace-boundary scan, although those controls draw no glyphs.
         u8 preceding=0;for(u32 i=first;i<end;++i){auto& cell=cells[i];
             if(cell.level==unicode_bidi_removed){if(scalars[i]>=0x202a&&scalars[i]<=0x202e)cell.level=preceding;}
             else preceding=cell.level;}
-        u32 visual=0;if(unicode_bidi_line({cells.data+first,end-first},0,0,end-first,{levels+first,end-first},{},&visual)!=UnicodeBidiStatus::ok)return false;first=end;}
+        unicode_bidi_line_levels({cells.data+first,end-first},0,levels+first);first=end;}
     u8 previous=0;for(u32 i=0;i<count;++i){if(levels[i]==unicode_bidi_removed)levels[i]=previous;else previous=levels[i];}
     }
     // Expand scalar metadata backward into UTF-8 bytes without another array.

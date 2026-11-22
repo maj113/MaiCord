@@ -76,16 +76,12 @@ bool command_visible(const UiTextCommand& command) noexcept {
 } // namespace
 
 bool ui_text_command_stream_initialize(UiTextCommandStream* stream, const Slice<UiTextCommand>& storage,
-                                       const Slice<char>& owned_text, Arena* owned_arena) noexcept {
-    if (!stream || !storage.data || storage.count == 0 || (!owned_text.data && owned_text.count) ||
-        (owned_arena && (!owned_arena->base || owned_text.data))) {
+                                       const Slice<char>& owned_text) noexcept {
+    if (!storage.data || storage.count == 0)
         return false;
-    }
     stream->storage = storage;
     stream->owned_text = owned_text;
     stream->owned_bytes = 0;
-    stream->owned_arena = owned_arena;
-    stream->owned_mark = owned_arena ? arena_mark(owned_arena) : ArenaMark{};
     stream->signature = kHash64Seed;
     stream->count = 0;
     stream->rejected = 0;
@@ -93,13 +89,8 @@ bool ui_text_command_stream_initialize(UiTextCommandStream* stream, const Slice<
 }
 
 void ui_text_command_stream_reset(UiTextCommandStream* stream) noexcept {
-    if (!stream) {
-        return;
-    }
     stream->signature = kHash64Seed;
     stream->owned_bytes = 0;
-    if (stream->owned_arena)
-        arena_rewind(stream->owned_arena, stream->owned_mark);
     stream->count = 0;
     stream->rejected = 0;
 }
@@ -107,36 +98,23 @@ void ui_text_command_stream_reset(UiTextCommandStream* stream) noexcept {
 bool ui_text_command_stream_push_owned(UiTextCommandStream* stream, const UiTextCommand& command) noexcept {
     if (!command_visible(command))
         return ui_text_command_stream_push(stream, command);
-    if (!stream || !command.text.data ||
-        (!stream->owned_arena &&
-         (!stream->owned_text.data || stream->owned_bytes > stream->owned_text.count ||
-          command.text.bytes > stream->owned_text.count - stream->owned_bytes))) {
-        saturating_increment_if(stream, stream->rejected);
-        return false;
-    }
-    UiTextCommand retained = command;
-    const auto mark = stream->owned_arena ? arena_mark(stream->owned_arena) : ArenaMark{};
-    char* destination = stream->owned_arena ? arena_allocate<char>(stream->owned_arena, command.text.bytes)
-                                            : stream->owned_text.data + stream->owned_bytes;
-    if (!destination) {
+    if (!command.text.data || command.text.bytes > stream->owned_text.count - stream->owned_bytes) {
         saturating_increment(stream->rejected);
         return false;
     }
+    UiTextCommand retained = command;
+    char* destination = stream->owned_text.data + stream->owned_bytes;
     copy_bytes(destination, command.text.data, command.text.bytes);
     retained.text.data = destination;
-    if (!ui_text_command_stream_push(stream, retained)) {
-        if (stream->owned_arena)
-            arena_rewind(stream->owned_arena, mark);
+    if (!ui_text_command_stream_push(stream, retained))
         return false;
-    }
     stream->owned_bytes += command.text.bytes;
     return true;
 }
 
 bool ui_text_command_stream_push(UiTextCommandStream* stream, const UiTextCommand& command) noexcept {
-    if (!stream || !stream->storage.data || stream->count > stream->storage.count ||
-        command_check(command) != UiTextRejectCheck::none) {
-        saturating_increment_if(stream, stream->rejected);
+    if (command_check(command) != UiTextRejectCheck::none) {
+        saturating_increment(stream->rejected);
         return false;
     }
     // Overscan labels outside their clip are valid but consume no storage,
@@ -153,35 +131,23 @@ bool ui_text_command_stream_push(UiTextCommandStream* stream, const UiTextComman
     return true;
 }
 
-bool ui_text_emitter_initialize(UiTextEmitter* emitter, UiTextConsumeFunction consume,
+void ui_text_emitter_initialize(UiTextEmitter* emitter, UiTextConsumeFunction consume,
     void* context, u32 limit) noexcept {
-    if (!emitter || !limit || limit > kUiTextEmitterMaximumCommands) return false;
     *emitter = {consume, context, kHash64Seed, 0, 0, limit};
-    return true;
-}
-bool ui_text_output_valid(const UiTextOutput* output) noexcept {
-    if (!output || (output->stream && output->emitter)) return false;
-    if (output->stream) return output->stream->storage.data &&
-        output->stream->count <= output->stream->storage.count;
-    return output->emitter && output->emitter->limit &&
-        output->emitter->limit <= kUiTextEmitterMaximumCommands &&
-        output->emitter->count <= output->emitter->limit;
 }
 void ui_text_output_reset(UiTextOutput* output) noexcept {
-    if (!output) return;
-    if (output->stream) ui_text_command_stream_reset(output->stream);
-    if (output->emitter) {
+    if (output->stream) {
+        ui_text_command_stream_reset(output->stream);
+    } else {
         output->emitter->signature = kHash64Seed;
         output->emitter->count = output->emitter->rejected = 0;
     }
 }
 void ui_text_output_reject(UiTextOutput* output) noexcept {
-    if (!output) return;
     if (output->stream) { output->stream->count = 0; saturating_increment(output->stream->rejected); }
-    if (output->emitter) { output->emitter->count = 0; saturating_increment(output->emitter->rejected); }
+    else { output->emitter->count = 0; saturating_increment(output->emitter->rejected); }
 }
 bool ui_text_output_push(UiTextOutput* output, const UiTextCommand& command) noexcept {
-    if (!ui_text_output_valid(output)) return false;
     if (output->stream) return ui_text_command_stream_push(output->stream, command);
     auto& emitter = *output->emitter;
     if (const auto check = command_check(command); check != UiTextRejectCheck::none)
@@ -198,7 +164,6 @@ bool ui_text_output_push(UiTextOutput* output, const UiTextCommand& command) noe
     return true;
 }
 bool ui_text_output_push_owned(UiTextOutput* output, const UiTextCommand& command) noexcept {
-    if (!ui_text_output_valid(output)) return false;
     return output->stream ? ui_text_command_stream_push_owned(output->stream, command) :
         ui_text_output_push(output, command);
 }

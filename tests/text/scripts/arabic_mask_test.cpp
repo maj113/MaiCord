@@ -7,7 +7,7 @@ namespace maicord {namespace {
 struct ArabicMaskCase {ConstSlice<u8> gsub,gdef;ConstSlice<u32> scalars;ConstSlice<u16> expected;u8 mask;};
 #include "../../generated/arabic_mask_fixture.inc"
 SfntGsubExecutableLookup lookups[16];SfntGsubExecutableSubtable subtables[32];SfntCoverage coverages[128];SfntClassDef classes[32];
-SfntGsubExecutionFrame frames[16];u32 positions[128],rebased[128],consumed[32];SfntGsubGlyph replacements[32],glyphs[64];
+SfntGsubExecutionFrame frames[16];u32 positions[128],rebased[128],consumed[32];SfntComponentGlyph replacements[32];SfntGsubGlyph glyphs[64];GsubRecords<64> records;
 bool vectors() noexcept {
     u32 case_index=0,queries=0,checks=0;
     for(const auto& c:arabic_mask_cases) {
@@ -23,11 +23,11 @@ bool vectors() noexcept {
                     glyphs[i]={static_cast<u16>(cp==0x628?2:6),cp==0x64e?SfntGlyphClass::mark:SfntGlyphClass::base,0};
                 }
                 if(arabic_joining_forms(c.scalars,&glyphs[0].reserved,sizeof(glyphs[0]))!=ArabicJoiningStatus::ok)return false;
-                SfntGlyphBuffer buffer{};if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),sizeof(glyphs)},sizeof(glyphs[0]),c.scalars.count,&buffer)!=SfntStatus::ok || sfnt_glyph_buffer_seek(&buffer,split)!=SfntStatus::ok)return false;
-                SfntGsubExecutionResult result{};const auto status=sfnt_gsub_execute_lookup(program,0,&buffer,0,c.scalars.count,0,
+                SfntGsubExecutionResult result{};if(!records.open(glyphs,c.scalars.count,64,split))return false;
+                const auto status=records.execute(program,0,0,c.scalars.count,0,
                     {{frames,16},{positions,128},{rebased,128},{consumed,32},{reinterpret_cast<u8*>(replacements),sizeof(replacements)}},
-                    {1000000,100000},&result,nullptr,nullptr,c.mask);
-                const auto view=sfnt_glyph_buffer_view(buffer);bool ok=status==SfntStatus::ok && sfnt_glyph_count(view)==c.expected.count && result.input_end==c.expected.count;
+                    {1000000,100000},&result,c.mask);
+                const auto view=sfnt_glyph_buffer_view(records.buffer);bool ok=status==SfntStatus::ok && sfnt_glyph_count(view)==c.expected.count && result.input_end==c.expected.count;
                 for(u32 i=0;i<minimum(sfnt_glyph_count(view),c.expected.count);++i){ok=ok && sfnt_glyph_at(view,i).glyph==c.expected[i];++checks;}
                 ++queries;if(!ok){print(utf8_literal("FAIL case="));number(case_index);print(utf8_literal(" split="));number(split);print(utf8_literal(" status="));number(static_cast<u32>(status));print(utf8_literal(" actual="));for(u32 i=0;i<sfnt_glyph_count(view);++i){number(sfnt_glyph_at(view,i).glyph);print(utf8_literal(" "));}print(utf8_literal("\n"));return false;}
             }

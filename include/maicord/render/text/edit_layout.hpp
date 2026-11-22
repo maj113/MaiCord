@@ -95,7 +95,6 @@ bool text_edit_layout_pill_geometry(const TextEditLayoutOwner&, u32 first, u32 l
 bool text_edit_layout_position_geometry(const TextEditLayoutOwner&, u32 position, TextEditMetric*) noexcept;
 bool text_edit_layout_raw_range_geometry(const TextEditLayoutOwner&, u32 first, u32 last,
                                          Slice<TextEditMetric>, u32* count) noexcept;
-u32 text_edit_layout_line_count(const TextEditLayoutOwner&) noexcept;
 bool text_edit_layout_scroll(TextEditLayoutOwner* owner, float delta) noexcept;
 void text_edit_layout_invalidate(TextEditLayoutOwner* owner) noexcept;
 void text_edit_layout_release(TextEditLayoutOwner* owner) noexcept;

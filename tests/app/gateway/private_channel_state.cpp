@@ -301,19 +301,11 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
     ui_text_command_stream_reset(&text_stream);
     check(text_stream.owned_bytes == 0 && ui_text_command_stream_push_owned(&text_stream, text_command),
           "text stream reset reuses its owned byte bank");
-    Arena generated_text{};
-    check(arena_initialize(&generated_text, 8192, 0, 4096) &&
-          ui_text_command_stream_initialize(&text_stream, {text_commands, 2}, {}, &generated_text) &&
-          ui_text_command_stream_push_owned(&text_stream, text_command) && generated_text.offset == 4,
-          "generated labels can use caller-owned demand-committed arena storage");
     UiTextCommand invalid_text = text_command;
     invalid_text.owner.handle = ui_widget_invalid_handle();
-    check(!ui_text_command_stream_push_owned(&text_stream, invalid_text) && generated_text.offset == 4 && text_stream.count == 1,
-          "rejected owned text rolls its allocation back");
-    ui_text_command_stream_reset(&text_stream);
-    check(generated_text.offset == 0 && text_stream.owned_bytes == 0,
-          "arena-backed text reset restores the stream entry mark");
-    arena_release(&generated_text);
+    check(!ui_text_command_stream_push_owned(&text_stream, invalid_text) && text_stream.owned_bytes == 4 &&
+              text_stream.count == 1,
+          "rejected owned text takes no bytes of the bank");
     UiLayoutDiagnostic diagnostics[32]{};
     check(ui_layout_engine_validate(shell.widgets.layout, {diagnostics, 32}).clean(), "Home shell layout validates");
     UiShellLayoutMetrics metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);

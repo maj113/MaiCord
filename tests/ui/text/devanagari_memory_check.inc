@@ -19,7 +19,5 @@ bool native_devanagari_memory_check() noexcept {
                 observe(native_output.text,text,native);++native_cases;}
         }
     }
-    {const auto storage=native_text_candidate_storage_counts(system);CHECK(!storage.retries);
-        print("compact scratch committed/peak=");number(storage.committed);print("/");number(storage.peak);print("\n");}
     return true;
 }

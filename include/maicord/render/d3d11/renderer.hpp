@@ -530,7 +530,6 @@ struct D3D11Renderer {
     u32 media_source_refreshes;
     u32 full_present_draws;
     u32 partial_present_draws;
-    u32 unchanged_present_skips;
     u64 partial_present_pixels;
     u32 media_overlay_paint_first_batch;
     u32 profile_foreground_first_batch, profile_controls_first_batch;
@@ -705,7 +704,7 @@ struct D3D11Renderer {
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
 #if defined(_WIN32)
-static_assert(sizeof(D3D11Renderer) == 127912);
+static_assert(sizeof(D3D11Renderer) == 127904);
 #endif
 
 // Starts hardware device and draw-pipeline creation on a worker at process
@@ -793,6 +792,7 @@ bool renderer_bind_message_action_bar(D3D11Renderer* renderer, const MessageActi
 bool renderer_bind_message_composer_scene(D3D11Renderer* renderer,
                                           const MessageComposerScene* scene) noexcept;
 bool renderer_bind_member_list_scene(D3D11Renderer* renderer, const MemberListScene* scene) noexcept;
+// The scene is not null; once bound, a popup scene stays bound (a closed one draws nothing).
 bool renderer_bind_popup_scene(D3D11Renderer* renderer, const PopupScene* scene) noexcept;
 void renderer_bind_forum_form(D3D11Renderer* renderer, ForumPostSurface* surface) noexcept;
 void renderer_bind_text_form(D3D11Renderer* renderer, TextFormSurface* surface) noexcept;

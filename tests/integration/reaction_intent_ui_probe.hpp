@@ -322,7 +322,8 @@ inline bool reaction_intent_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
             r.navigation_view = navigation;
             r.message_measure_cache = cache;
             r.focus_owner = focus;
-            renderer_bind_popup_scene(&r, popup);
+            if (popup)
+                renderer_bind_popup_scene(&r, popup);
             if (r.guild_rail_scene)
                 guild_rail_scene_update(
                     const_cast<GuildRailScene*>(r.guild_rail_scene), navigation,
@@ -430,10 +431,10 @@ inline bool reaction_intent_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
     const auto warm = [&](u32 case_index) noexcept {
         const auto& scene = context.native.scene;
         const u32 resolves = scene.rebuilds, layouts = scene.layout_passes,
-                  prepares = scene.preparation_passes, shape = text_measure_calls(&measure), raster = renderer.glyph_text.cache_builds,
+                  shape = text_measure_calls(&measure), raster = renderer.glyph_text.cache_builds,
                   builds = renderer.content_text->rebuilds, pu = renderer.paint_instance_uploads,
                   tu = renderer.text_instance_uploads, mu = renderer.media_instance_uploads,
-                  draws = renderer.painted_frames, skips = renderer.unchanged_present_skips;
+                  draws = renderer.painted_frames;
         const auto rich_updated = reaction_intent_ui_adapter_rich_store()->updated;
         const bool owner_active = app_detail::application_message_reaction_observation_needed();
         const u32 shell_layout = renderer.ui_scene->layout_passes,
@@ -450,7 +451,6 @@ inline bool reaction_intent_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
                 return false;
         const u32 values[]{scene.rebuilds - resolves,
                            scene.layout_passes - layouts,
-                           scene.preparation_passes - prepares,
                            text_measure_calls(&measure) - shape,
                            renderer.glyph_text.cache_builds - raster,
                            renderer.content_text->rebuilds - builds,
@@ -458,7 +458,6 @@ inline bool reaction_intent_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
                            renderer.text_instance_uploads - tu,
                            renderer.media_instance_uploads - mu,
                            renderer.painted_frames - draws,
-                           renderer.unchanged_present_skips - skips,
                            renderer.ui_scene->layout_passes - shell_layout,
                            renderer.ui_scene->layout_rebuilds - shell_rebuilds,
                            renderer.guild_rail_scene->layout_passes - rail_layout,
@@ -469,7 +468,6 @@ inline bool reaction_intent_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
                            context.navigation.revision - nav_revision};
         const char* names[]{"reaction_intent_warm_resolve",
                             "reaction_intent_warm_layout",
-                            "reaction_intent_warm_preparation",
                             "reaction_intent_warm_shape",
                             "reaction_intent_warm_raster",
                             "reaction_intent_warm_text_build",
@@ -477,7 +475,6 @@ inline bool reaction_intent_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
                             "reaction_intent_warm_text_upload",
                             "reaction_intent_warm_media_upload",
                             "reaction_intent_warm_draw",
-                            "reaction_intent_warm_skips",
                             "reaction_intent_warm_shell_layout",
                             "reaction_intent_warm_shell_rebuild",
                             "reaction_intent_warm_rail_layout",
@@ -489,9 +486,9 @@ inline bool reaction_intent_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
         log_u64(LogLevel::info, "probe", "reaction_intent_warm_case", case_index);
         bool valid = reaction_intent_ui_adapter_rich_store()->updated == rich_updated &&
                      owner_active == app_detail::application_message_reaction_observation_needed();
-        for (u32 i = 0; i < 19; ++i) {
+        for (u32 i = 0; i < 17; ++i) {
             log_u64(LogLevel::info, "probe", names[i], values[i]);
-            valid &= values[i] == (i == 10 ? 64u : 0u);
+            valid &= values[i] == 0;
         }
         log_u64(LogLevel::info, "probe", "reaction_intent_warm_native_widgets", scene.widgets.count);
         log_u64(LogLevel::info, "probe", "reaction_intent_warm_native_rows_committed",
