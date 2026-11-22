@@ -2689,7 +2689,7 @@ if(MAICORD_LINUX)
         INCLUDES src/app
         TIMEOUT 20 TEST maicord_linux_webauthn_flow)
 endif()
-maicord_test(MaiCordOsSrwLockTests ENTRY maicord_os_srwlock_entry SOURCES tests/os/srwlock.cpp
+maicord_test(MaiCordOsSrwLockTests ONLY LINUX ENTRY maicord_os_srwlock_entry SOURCES tests/os/srwlock.cpp
     BUNDLE MaiCordCoreUnitTests TIMEOUT 15 TEST maicord_os_srwlock)
 if(MAICORD_LINUX)
     # The runtime: process entry state, the pinned libc imports, the library search and the XDG data path.

@@ -4,9 +4,10 @@
 #include "maicord/os/wait.hpp"
 #include "../support/test_output.hpp"
 
-// SRW locks (AcquireSRWLock*, ReleaseSRWLock*): the Windows ones and the Linux futex twin
-// (include/maicord/os/linux/srwlock.hpp) under contention. Everything asserted is a count or an invariant, never a
-// time: writers keep two counters equal, readers check that they never see them differ, and the totals are exact.
+// SRW locks (AcquireSRWLock*, ReleaseSRWLock*): the Linux futex twin of the Win32 calls
+// (include/maicord/os/linux/srwlock.hpp) under contention; Windows has the system's own. Everything asserted is a
+// count or an invariant, never a time: writers keep two counters equal, readers check that they never see them
+// differ, and the totals are exact.
 
 namespace maicord {
 namespace {
@@ -96,7 +97,10 @@ u32 acquire_once(void* argument) noexcept {
     return 0;
 }
 
-// What blocks what: the lock is held in one mode and a thread asks for the same or the other.
+// What blocks what: the lock is held in one mode and a thread asks for the same or the other. A thread that must
+// get in signals while this thread still holds the lock, however long it takes to run (the generous limit only ends
+// a hang). A thread that must wait is given 50 ms to get in wrongly: a loaded machine can only hide a failure there,
+// never make one.
 void run_gate(bool hold_exclusive, bool ask_exclusive, bool expect_blocked, const char* label) noexcept {
     Gate gate{};
     InitializeSRWLock(&gate.lock);
@@ -110,11 +114,10 @@ void run_gate(bool hold_exclusive, bool ask_exclusive, bool expect_blocked, cons
     Thread* thread = thread_start(acquire_once, &gate, 64 * 1024, nullptr);
     check(thread != nullptr, label);
     if (thread != nullptr) {
-        const u32 waited = wait_one(gate.finished, 50);
         if (expect_blocked) {
-            check(waited == WAIT_TIMEOUT && read_acquire(&gate.entered) == 0, label);
+            check(wait_one(gate.finished, 50) == WAIT_TIMEOUT && read_acquire(&gate.entered) == 0, label);
         } else {
-            check(waited == WAIT_OBJECT_0 && read_acquire(&gate.entered) == 1, label);
+            check(wait_one(gate.finished, kLimit) == WAIT_OBJECT_0 && read_acquire(&gate.entered) == 1, label);
         }
     }
     if (hold_exclusive) {
