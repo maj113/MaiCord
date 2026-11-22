@@ -276,9 +276,21 @@ MAICORD_HASWELL_FMA void comb_filter(float* y, const float* x, u32 period0, u32 
     }
     comb_filter_constant(y + overlap, x + overlap, period1, n - overlap, g10, g11, g12);
 }
+// The channels whose samples the decoder holds: one while two output channels are the same.
+__forceinline u32 kept(const CeltDecoder& st) noexcept {
+    return 1u + st.apart;
+}
+// Gives the right channel its own samples before it can differ from the left one.
+void separate(CeltDecoder& st) noexcept {
+    if (st.channels == 1 || st.apart)
+        return;
+    copy_bytes(st.history[1], st.history[0], sizeof(st.history[0]));
+    st.emphasis[1] = st.emphasis[0];
+    st.apart = true;
+}
 void post_filter(CeltDecoder& st, float* const out[2], u32 n, u32 lm, u32 period, float gain,
                  u32 tapset) noexcept {
-    for (u32 c = 0; c < st.channels; ++c) {
+    for (u32 c = 0; c < kept(st); ++c) {
         st.period = maximum(st.period, kPeriodMinimum);
         st.period_old = maximum(st.period_old, kPeriodMinimum);
         comb_filter(out[c], out[c], st.period_old, st.period, kShortBlock, st.gain_old, st.gain,
@@ -314,15 +326,14 @@ MAICORD_HASWELL_FMA void emit(CeltDecoder& st, float* const out[2], i16* pcm, u3
         *memory = fused(a4 * a4, *memory, a * s[7]);
         return y;
     };
-    // Eight interleaved samples from pcm position j.
+    // Eight interleaved samples from pcm position j. The tap starts and ends at multiples of 120 values, so a
+    // block of eight is in it or out of it whole.
     const auto finish = [&](F8 total, u32 j) MAICORD_HASWELL_FMA noexcept {
         __m128i_u* const to = reinterpret_cast<__m128i_u*>(pcm + j);
         if (accumulate)
             total += _mm256_cvtepi32_ps(_mm256_cvtepi16_epi32(_mm_loadu_si128(to)));
-        if (j + 8 > tap_first && j < tap_first + tap_values)
-            for (u32 k = 0; k < 8; ++k)
-                if (j + k - tap_first < tap_values)
-                    frame.tap[j + k - tap_first] = total[k];
+        if (j - tap_first < tap_values)
+            store8(frame.tap + (j - tap_first), total);
         if (store) {
             const F8 clipped = _mm256_min_ps(_mm256_max_ps(total * gain, splat8(-32768.f)), splat8(32767.f));
             const __m256i words = _mm256_packs_epi32(_mm256_cvtps_epi32(clipped), _mm256_setzero_si256());
@@ -331,8 +342,9 @@ MAICORD_HASWELL_FMA void emit(CeltDecoder& st, float* const out[2], i16* pcm, u3
     };
     float memory = st.emphasis[0], memory_right = st.emphasis[1];
     if (channels == 2) {
+        const bool apart = st.apart;
         for (u32 i = 0; i < n; i += 8) {
-            const F8 left = scan(out[0] + i, &memory), right = scan(out[1] + i, &memory_right);
+            const F8 left = scan(out[0] + i, &memory), right = apart ? scan(out[1] + i, &memory_right) : left;
             const F8 low = _mm256_unpacklo_ps(left, right), high = _mm256_unpackhi_ps(left, right);
             finish(_mm256_permute2f128_ps(low, high, 0x20), 2 * i);
             finish(_mm256_permute2f128_ps(low, high, 0x31), 2 * i + 8);
@@ -518,6 +530,7 @@ u32 conceal_pitch(const CeltDecoder& st, float* scratch) noexcept {
 // is short and the frames before it were consecutive, noise shaped like the fading band energies otherwise.
 // `scratch` holds 2 * kFrameMaximum floats: every large buffer of either method lives there.
 void conceal(CeltDecoder& st, float* scratch, u32 n, u32 lm, u32 start, u32 end) noexcept {
+    separate(st); // rare, and its noise differs per channel
     const u32 channels = st.channels;
     float* out[2];
     for (u32 c = 0; c < channels; ++c)
@@ -788,7 +801,9 @@ __attribute__((minsize)) bool celt_decode(CeltDecoder* decoder, RangeCoder* code
     celt_allocate(coder, false, request, &allocation);
     decode_fine_energy(coder, st.energy, start, end, allocation.fine, stream_channels);
 
-    for (u32 c = 0; c < channels; ++c)
+    if (stream_channels == 2)
+        separate(st);
+    for (u32 c = 0; c < kept(st); ++c)
         copy_bytes(st.history[c], st.history[c] + n,
                    (kHistory - n + kOverlap) * static_cast<u32>(sizeof(float)));
 
@@ -815,7 +830,7 @@ __attribute__((minsize)) bool celt_decode(CeltDecoder* decoder, RangeCoder* code
                 st.energy[c][band] = -28.f;
     if (st.fold_pending)
         fold_concealed(st, n);
-    synthesize(x, out, st.energy, start, end, stream_channels, channels, transient, lm, silence);
+    synthesize(x, out, st.energy, start, end, stream_channels, kept(st), transient, lm, silence);
     post_filter(st, out, n, lm, period, gain, tapset);
     st.period = period, st.gain = gain, st.tapset = tapset;
     if (lm != 0)
@@ -844,6 +859,10 @@ __attribute__((minsize)) bool celt_decode(CeltDecoder* decoder, RangeCoder* code
     }
     st.range = coder.range;
     emit(st, out, pcm, n, frame);
+    // A mono stream makes the two channels the same again once the right one's own samples have passed.
+    if (st.apart && stream_channels == 1 && st.emphasis[0] == st.emphasis[1] &&
+        bytes_equal(st.history[0], st.history[1], sizeof(st.history[0])))
+        st.apart = false;
     st.loss_duration = 0;
     st.conceal_duration = 0;
     st.last_frame = kFrameDecoded;

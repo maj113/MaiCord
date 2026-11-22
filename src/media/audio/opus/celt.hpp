@@ -131,6 +131,9 @@ struct CeltDecoder {
     u8 last_frame;                       // 1 decoded, 2 noise concealment, 3 pitch concealment
     bool skip_pitch_conceal;             // until two frames arrive in a row
     bool fold_pending;                   // the concealed tail still needs pre-filtering and folding
+    // Two output channels: history[1] and emphasis[1] hold the right channel. Without it the right channel is
+    // the left one (a mono stream), and they are stale.
+    bool apart;
     u32 period, period_old;
     float gain, gain_old;
     u32 tapset, tapset_old;

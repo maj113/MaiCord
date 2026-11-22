@@ -10,33 +10,49 @@ namespace {
 
 constexpr i32 kEighth = 1 << kFractionBits; // one bit in the allocation's 1/8 bit unit
 
-// U(n, k) of the pulse vector enumeration for min(n, k) < 15: row i holds U(i, j) for j from i to
-// kPvqLast[i], which covers every band size and pulse count of the mode whose index fits 32 bits. U is
-// symmetric.
+// U(n, k) of the pulse vector enumeration for every band size n >= 2 and pulse count of the mode whose index
+// fits 32 bits, min(n, k) < 15. Row n holds U(n, k) for k from 0 to kPvqLast[n] (n < 15), or below the
+// first i with kPvqLast[i] < n (U is symmetric), one row after the other: the decoder reads U(n, k), U(n,
+// k - 1), ... in order.
 constexpr u8 kPvqLast[15]{176, 176, 176, 176, 176, 176, 96, 54, 37, 28, 24, 19, 18, 16, 14};
+constexpr u32 pvq_length(u32 n) noexcept {
+    if (n < 15)
+        return kPvqLast[n] + 1u;
+    u32 i = 14;
+    while (kPvqLast[i] < n)
+        --i;
+    return i + 1;
+}
+constexpr u32 pvq_size() noexcept {
+    u32 size = 0;
+    for (u32 n = 2; n <= 176; ++n)
+        size += pvq_length(n);
+    return size;
+}
 struct PvqTable {
-    u32 value[1272];
-    u16 row[15]; // value[row[i] + j] is U(i, j)
+    u32 value[pvq_size()];
+    u16 row[177]; // value[row[n] + k] is U(n, k)
 };
 constexpr PvqTable build_pvq() noexcept {
     PvqTable table{};
-    u32 at = 0;
-    for (u32 i = 0; i < 15; ++i) {
-        table.row[i] = static_cast<u16>(at - i);
-        for (u32 j = i; j <= kPvqLast[i]; ++j, ++at) {
-            if (i == 0) {
-                table.value[at] = j == 0;
-                continue;
-            }
-            const u32* const above = table.value + table.row[i - 1];
-            table.value[at] = above[j] + above[j - 1] + (j > i ? table.value[at - 1] : above[i]);
-        }
+    u32 above[177]{}; // U(n - 1, k), from U(1, k) = 1 for k >= 1
+    for (u32 k = 1; k < 177; ++k)
+        above[k] = 1;
+    for (u32 n = 2, at = 0; n <= 176; at += pvq_length(n), ++n) {
+        table.row[n] = static_cast<u16>(at);
+        for (u32 k = 1; k < pvq_length(n); ++k)
+            table.value[at + k] = above[k] + above[k - 1] + table.value[at + k - 1];
+        for (u32 k = 0; k < pvq_length(n); ++k)
+            above[k] = table.value[at + k];
     }
     return table;
 }
 constexpr PvqTable kPvq = build_pvq();
+__forceinline const u32* pvq_row(u32 n) noexcept {
+    return kPvq.value + kPvq.row[n];
+}
 __forceinline u32 pvq_u(u32 n, u32 k) noexcept {
-    return n < k ? kPvq.value[kPvq.row[n] + k] : kPvq.value[kPvq.row[k] + n];
+    return pvq_row(n)[k];
 }
 
 // log2 of 1..24 in 1/8 bit: what the intensity band index costs.
@@ -194,23 +210,27 @@ u32 collapse_mask(const i32* pulses, u32 n, u32 blocks) noexcept {
 }
 
 // The pulse vector with index `index` among those of n dimensions and k pulses; returns its squared norm.
+// The count at a position is the number of U(n, j), j <= k, above the index: the four largest are compared
+// without a branch (U(n, 0) = 0 stands in below j = 0), which settles 95% of the positions of music at 128
+// kbit/s; a branch on the count mispredicted about every other position.
 float decode_pulse_vector(i32* y, u32 n, u32 k, u32 index) noexcept {
     u32 energy = 0;
     for (; n > 2; --n) {
+        const u32* const row = pvq_row(n);
         // The vectors starting with a positive count come first (U(n, k + 1) of them), ordered by that
         // count.
-        const u32 positive = pvq_u(n, k + 1);
-        const bool negative = index >= positive;
-        if (negative)
-            index -= positive;
-        u32 left = k, before = pvq_u(n, left);
-        while (before > index)
-            before = pvq_u(n, --left);
-        index -= before;
-        const i32 value = static_cast<i32>(k - left);
-        *y++ = negative ? -value : value;
-        energy += static_cast<u32>(value * value);
-        k = left;
+        const u32 positive = row[k + 1];
+        const u32 negative = 0u - (index >= positive);
+        index -= positive & negative;
+        u32 value = (row[k] > index) + (row[k >= 1 ? k - 1 : 0] > index) + (row[k >= 2 ? k - 2 : 0] > index) +
+                    (row[k >= 3 ? k - 3 : 0] > index);
+        if (value == 4) [[unlikely]]
+            while (row[k - value] > index)
+                ++value;
+        k -= value;
+        index -= row[k];
+        *y++ = static_cast<i32>((value ^ negative) - negative);
+        energy += value * value;
     }
     {
         const u32 positive = 2 * k + 1;
