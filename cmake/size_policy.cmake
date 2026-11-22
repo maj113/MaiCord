@@ -65,13 +65,16 @@ maicord_compact_sources(
 # atlas GPU upload and animation files record device commands once per image and
 # compile for size through minsize attribute regions in their sources. The
 # layout pass and the widget manager run for each scroll step and pointer move:
-# a layout pass is 21% faster and a hit test 43% faster at /O2.
+# a layout pass is 21% faster and a hit test 43% faster at /O2. The paint
+# stream takes every quad of every frame: at /O2 a frame of 600 to 3,000 clips
+# and quads (the client linked whole around a bench entry, 3 code offsets) took
+# 35-41% fewer cycles than at -Oz, where each quad made 7 outlined calls.
 # Elsewhere: cold controllers, sign-in/captcha/remote auth, DAVE/MLS group
 # setup (not frame crypto), voice setup, notifications and one-shot account
 # requests. Gateway dispatch, media decode and text shaping stay /O2.
 maicord_compact_sources(
     TARGETS maicord_ui maicord_renderer maicord_message_runtime maicord_message_media
-    EXCLUDE "/ui/(chat/messages/markdown(_links)?|text/ansi_text|text/code_highlight|text/measure_cache|text/spell_tokenize|layout/layout_engine|core/widget_manager)\\.cpp$"
+    EXCLUDE "/ui/(chat/messages/markdown(_links)?|text/ansi_text|text/code_highlight|text/measure_cache|text/spell_tokenize|layout/layout_engine|core/widget_manager|core/paint)\\.cpp$"
         "/render/(text/native_glyph_outlines|effects/colr_paint)\\.cpp$"
     SOURCES
         src/app/chat/channel_memory.cpp
