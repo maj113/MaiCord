@@ -717,6 +717,9 @@ bool profile_effect_media_resolve(const ProfileScene& s, u32 index, u64 now, Pro
         if (bytes_equal(url.data + i, ".gif", 4))
             format = MediaAttachmentFormat::gif;
     }
+    // The scan stops before the last four bytes: a ".gif" there is the last match.
+    if (url.bytes >= 4 && bytes_equal(url.data + url.bytes - 4, ".gif", 4))
+        format = MediaAttachmentFormat::gif;
     result.key = profile_key(url, format, animated, true);
     return true;
 }

@@ -897,6 +897,22 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
               !profile_effect_media_resolve(scene, 1, 1000, &media) &&
               !profile_scene_animating(&scene, 1000),
           "profile_reduced_motion_selects_static_fallback_and_stops_clock");
+    // A layer whose URL ends in ".gif" is keyed as a GIF, so its bytes reach the GIF decoder (the format scan once
+    // stopped five bytes before the end and keyed such a layer as PNG).
+    ProfileEffect gif_effect{};
+    ProfileMedia moving{}, still{};
+    const bool gif_decoded = profile_effect_decode(
+        utf8_literal(R"({"sku_id":"124","items":[{"type":1,"reducedMotionSrc":"https://cdn.discordapp.com/still.gif","effects":[{"src":"https://cdn.discordapp.com/layer.gif","start":0,"duration":400,"loop":true,"zIndex":0}]}]})"),
+        {scratch, 4096}, 124, &gif_effect);
+    scene.effect = &gif_effect;
+    scene.reduced_motion = false;
+    const bool gif_moving = profile_effect_media_resolve(scene, 0, 1100, &moving);
+    scene.reduced_motion = true;
+    const bool gif_still = profile_effect_media_resolve(scene, 0, 1100, &still);
+    check(gif_decoded && gif_moving && gif_still && media_asset_embed_format(moving.key) == MediaAttachmentFormat::gif &&
+              (moving.key.flags & media_asset_flag_animated) &&
+              media_asset_embed_format(still.key) == MediaAttachmentFormat::gif,
+          "profile_effect_gif_layers_are_keyed_as_gif");
     const auto banner_json = utf8_literal(
         R"({"user":{"id":"42","username":"banner"},"user_profile":{"banner":"a_global","theme_colors":[16711680,65535]},"guild_member_profile":{"banner":"a_guild"}})");
     check(user_profile_decode(banner_json, {scratch, 4096}, 42, 7, &profile),
