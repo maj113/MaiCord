@@ -13,6 +13,26 @@
 #include "maicord/platform/decode/gpu_stream_decoder.hpp"
 
 namespace maicord::vaapi {
+
+bool has_entrypoint(const Driver& d, i32 profile, i32 entrypoint) noexcept {
+    const i32 capacity = d.api.vaMaxNumEntrypoints(d.display);
+    i32 entrypoints[64];
+    i32 count = 0;
+    if (capacity <= 0 || capacity > 64 ||
+        d.api.vaQueryConfigEntrypoints(d.display, profile, entrypoints, &count) != kStatusSuccess)
+        return false;
+    for (i32 i = 0; i < count && i < 64; ++i)
+        if (entrypoints[i] == entrypoint)
+            return true;
+    return false;
+}
+
+void close_objects(const DrmPrimeDescriptor& descriptor) noexcept {
+    for (u32 i = 0; i < descriptor.num_objects && i < 4; ++i)
+        if (descriptor.objects[i].fd >= 0)
+            sys_close(descriptor.objects[i].fd);
+}
+
 namespace {
 
 constexpr usize kCodecs = 3;
@@ -116,17 +136,7 @@ constexpr i32 kCandidates[kCodecs][kProfileCandidates]{{kProfileH264High, kProfi
 // What the driver says about one profile's VLD decoder; false when it cannot take 8-bit 4:2:0 streams in normal slice
 // mode. `ten_bit` is whether its surfaces may be 10-bit 4:2:0 too.
 bool profile_usable(const Driver& d, i32 profile, u32* max_width, u32* max_height, bool* ten_bit) noexcept {
-    const i32 capacity = d.api.vaMaxNumEntrypoints(d.display);
-    if (capacity <= 0 || capacity > 64)
-        return false;
-    i32 entrypoints[64];
-    i32 count = 0;
-    if (d.api.vaQueryConfigEntrypoints(d.display, profile, entrypoints, &count) != kStatusSuccess)
-        return false;
-    bool vld = false;
-    for (i32 i = 0; i < count && i < 64; ++i)
-        vld = vld || entrypoints[i] == kEntrypointVld;
-    if (!vld)
+    if (!has_entrypoint(d, profile, kEntrypointVld))
         return false;
     ConfigAttrib attributes[4]{{kConfigAttribRtFormat, 0},
                                {kConfigAttribDecSliceMode, 0},
@@ -195,12 +205,6 @@ bool import_planes(GpuDevice* gpu, const ExportLayout& layout, ExportedPicture* 
     if (!ok)
         release_picture(picture);
     return ok;
-}
-
-void close_objects(const DrmPrimeDescriptor& descriptor) noexcept {
-    for (u32 i = 0; i < descriptor.num_objects && i < 4; ++i)
-        if (descriptor.objects[i].fd >= 0)
-            sys_close(descriptor.objects[i].fd);
 }
 
 // A real surface of the driver must export as the layout the EGL import takes and the renderer's EGL must import it,

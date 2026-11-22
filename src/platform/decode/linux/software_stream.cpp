@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/gpu/video_planes.hpp"
 #include "../software/software_decoder.hpp"
+#include "maicord/sys/simd.hpp"
 
 // The software tier of the live stream decoder: libopenh264 and libdav1d through SoftwareDecoder, the pictures copied
 // into the planes of a few CPU-backed surfaces (what the renderer then uploads). Loss freezes the last good picture
@@ -43,7 +44,15 @@ u64 stream_copy_picture(const StreamSurface& slot, const SoftwarePicture& pictur
         u8* out = slot.chroma_pixels + usize{y} * slot.chroma_pitch;
         const u8* u = picture.plane[1] + usize{y} * picture.stride[1];
         const u8* v = picture.plane[2] + usize{y} * picture.stride[2];
-        for (u32 x = 0; x < chroma_width; ++x) {
+        // 16 samples of each plane at a time: the size options do not vectorize the byte loop, which is ten times slower.
+        u32 x = 0;
+        for (; x + 16 <= chroma_width; x += 16) {
+            const __m128i a = _mm_loadu_si128(reinterpret_cast<const __m128i_u*>(u + x));
+            const __m128i b = _mm_loadu_si128(reinterpret_cast<const __m128i_u*>(v + x));
+            _mm_storeu_si128(reinterpret_cast<__m128i_u*>(out + 2 * x), _mm_unpacklo_epi8(a, b));
+            _mm_storeu_si128(reinterpret_cast<__m128i_u*>(out + 2 * x + 16), _mm_unpackhi_epi8(a, b));
+        }
+        for (; x < chroma_width; ++x) {
             out[2 * x] = u[x];
             out[2 * x + 1] = v[x];
         }

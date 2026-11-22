@@ -218,7 +218,8 @@ bool av1_gpu_stream_create(GpuStream* stream) noexcept {
 bool av1_gpu_stream_submit(GpuStream* stream, u8 surface, ConstSlice<u8> unit) noexcept {
     Session* session = session_of(stream);
     Av1GpuStreamState& state = stream->av1;
-    bool ok = state.tile_count && picture_begin(session, surface);
+    // decode_frame submits a complete frame: at least one tile, each inside `unit` (av1_stream_gather_tiles).
+    bool ok = picture_begin(session, surface);
     if (ok) {
         PictureParameterAv1 parameters;
         av1_picture_parameters(state.sequence, state.header, state.slot_surface, session->surface, surface,
@@ -232,7 +233,6 @@ bool av1_gpu_stream_submit(GpuStream* stream, u8 surface, ConstSlice<u8> unit) n
             if (tile.offset + tile.size > end)
                 end = tile.offset + tile.size;
         }
-        ok = ok && end <= unit.count;
         // One slice data buffer holds every tile; each parameter buffer names its tile's extent within it. The data
         // follows the first parameter buffer, as libva's own users submit it.
         for (u32 i = 0; ok && i < state.tile_count; ++i) {

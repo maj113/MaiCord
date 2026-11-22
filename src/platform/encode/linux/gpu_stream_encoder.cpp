@@ -61,19 +61,6 @@ constexpr u32 va_fourcc(u32 drm) noexcept {
 
 // What the display encodes with is asked once per encoder (and per probe): compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-bool has_entrypoint(const Driver& d, i32 profile, i32 entrypoint) noexcept {
-    const i32 capacity = d.api.vaMaxNumEntrypoints(d.display);
-    i32 entrypoints[64];
-    i32 count = 0;
-    if (capacity <= 0 || capacity > 64 ||
-        d.api.vaQueryConfigEntrypoints(d.display, profile, entrypoints, &count) != kStatusSuccess)
-        return false;
-    for (i32 i = 0; i < count && i < 64; ++i)
-        if (entrypoints[i] == entrypoint)
-            return true;
-    return false;
-}
-
 // The encode entry point of `profile` that takes 8-bit 4:2:0 input under CBR (and, for `packed` headers, takes those
 // packed headers): EncSlice, else EncSliceLP; 0 for none.
 i32 encode_entrypoint(const Driver& d, i32 profile, u32 packed = 0) noexcept {
@@ -151,12 +138,6 @@ inline SurfaceAttrib integer_attribute(i32 type, u32 value) noexcept {
     attribute.value.type = kGenericValueInteger;
     attribute.value.value.i = static_cast<i32>(value);
     return attribute;
-}
-
-void close_descriptor_objects(const DrmPrimeDescriptor& descriptor) noexcept {
-    for (u32 i = 0; i < descriptor.num_objects && i < 4; ++i)
-        if (descriptor.objects[i].fd >= 0)
-            sys_close(descriptor.objects[i].fd);
 }
 
 struct Slot {
@@ -906,7 +887,7 @@ bool gpu_stream_encoder_preview(GpuStreamEncoder* e, GpuVideoFrame* frame, u32* 
         ok = ok && export_layout(descriptor, &layout) &&
              gpu_ok(gpu_video_plane_import(e->device, layout.plane[0], &luma_texture, &luma)) &&
              gpu_ok(gpu_video_plane_import(e->device, layout.plane[1], &chroma_texture, &chroma));
-        close_descriptor_objects(descriptor);
+        close_objects(descriptor);
         if (ok) {
             *frame = {};
             frame->texture = luma_texture;

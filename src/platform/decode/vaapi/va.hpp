@@ -34,6 +34,10 @@ struct Driver {
 
 // Null when libva, a render node, a display or any decoder is missing, or when `gpu` cannot import dma-bufs.
 const Driver* driver(GpuDevice* gpu) noexcept;
+// Whether the driver lists `entrypoint` for `profile` (the decoders' VLD, the encoder's EncSlice and video processing).
+bool has_entrypoint(const Driver& driver, i32 profile, i32 entrypoint) noexcept;
+// Closes the file descriptors of an export.
+void close_objects(const DrmPrimeDescriptor& descriptor) noexcept;
 
 // ---- Pure helpers (tests) --------------------------------------------------------------------------------------
 
