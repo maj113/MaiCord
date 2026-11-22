@@ -28,9 +28,11 @@ void animate_toggle(const SettingsLayerActivation& activation) noexcept;
 // (an empty one included) has been read.
 bool next_part(const Utf8View& text, u32* at, char separator, Utf8View* part) noexcept;
 
-// The server's channels whose type bit is in `types` (a bit per channel type) in channel-list order, as
-// Settings::popup_rows[i].channel; at most `room` of them, their count.
-u32 sorted_channels(u32 types, u32 room) noexcept;
+// The server's channels whose type bit is in `types` (a bit per channel type) in `order`, as
+// Settings::popup_rows[i].channel; at most `room` of them, their count. A channel without the `required` permissions
+// is left out unless it is `current`.
+u32 sorted_channels(u32 types, u32 room, GuildChannelPickerOrder order = GuildChannelPickerOrder::channel_list,
+                    PermissionSet required = 0, u64 current = 0) noexcept;
 
 // A dangerous confirmation: `save` runs when it is accepted. `cancel` labels the way out when it is not "Cancel".
 void open_confirmation(u64 kind, u64 item, Text title, Text context, Text accept,

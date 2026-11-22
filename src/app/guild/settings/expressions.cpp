@@ -3,7 +3,6 @@
 #include "../../plugins/pipeline_host.hpp"
 #include "../../shell/state.hpp"
 #include "maicord/media/core/asset.hpp"
-#include "maicord/model/chat/chat_state.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {
@@ -66,8 +65,7 @@ void project_emoji(Bank& bank) noexcept {
                          static_cast<u8>(ui_settings_presentation_compact | ui_settings_presentation_avatar),
                          kUiSettingsNoDefault});
         // The emoji image in place of the row's avatar.
-        if (index < kControlCapacity)
-            p.avatar_media[index].key = media_asset_custom_emoji(emoji->id, (emoji->flags & custom_emoji_animated) != 0);
+        p.avatar_media[index].key = media_asset_custom_emoji(emoji->id, (emoji->flags & custom_emoji_animated) != 0);
     }
 }
 
@@ -118,7 +116,7 @@ void project_stickers(Bank& bank) noexcept {
             {UiSettingsVariant::standard,
              static_cast<u8>(ui_settings_presentation_compact | (preview ? ui_settings_presentation_avatar : 0)),
              kUiSettingsNoDefault});
-        if (preview && index < kControlCapacity)
+        if (preview)
             p.avatar_media[index].key = media_asset_sticker(sticker.id, sticker.format_type);
     }
     p.row_count = p.sticker_count;
@@ -566,43 +564,27 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     }
 }
 
-void choose(Menu menu, u32 action) noexcept {
+void choose(Menu menu, u32 index) noexcept {
     auto& p = *owner;
-    if (menu == Menu::emoji || menu == Menu::sticker) {
-        if (action < kMenuChoiceBase || busy() || !p.access.manage_expressions)
-            return;
-        const bool emoji_menu = menu == Menu::emoji;
-        const u64 kind = action - kMenuChoiceBase == expression_rename
-                             ? (emoji_menu ? form_emoji_rename : form_sticker_rename)
-                         : action - kMenuChoiceBase == expression_tags        ? form_sticker_retag
-                         : action - kMenuChoiceBase == expression_description ? form_sticker_describe
-                         : action - kMenuChoiceBase == expression_delete
-                             ? (emoji_menu ? form_emoji_delete : form_sticker_delete)
-                             : 0;
-        // The menu closes first; the form opens on the next tick.
-        next_form = kind;
-        next_form_item = p.menu_item;
-        application_request_frame();
+    const bool sound = menu == Menu::sound, emoji_menu = menu == Menu::emoji;
+    if (!p.access.manage_expressions || (!sound && busy()))
+        return;
+    if (index == expression_preview) {
+        if (const auto* played = sound_of(p.menu_item))
+            application_soundboard_preview(played->sound_id, played->volume);
         return;
     }
-    if (menu == Menu::sound) {
-        if (action < kMenuChoiceBase || !p.access.manage_expressions)
-            return;
-        const u32 choice = action - kMenuChoiceBase;
-        if (choice == expression_preview) {
-            if (const auto* sound = sound_of(p.menu_item))
-                application_soundboard_preview(sound->sound_id, sound->volume);
-            return;
-        }
-        next_form = choice == expression_rename   ? form_sound_rename
-                    : choice == expression_emoji  ? form_sound_emoji_edit
-                    : choice == expression_volume ? form_sound_volume
-                    : choice == expression_delete ? form_sound_delete
-                                                  : 0;
-        next_form_item = p.menu_item;
-        application_request_frame();
-        return;
-    }
+    // The menu closes first; the form opens on the next tick.
+    next_form = index == expression_rename
+                    ? (sound ? form_sound_rename : emoji_menu ? form_emoji_rename : form_sticker_rename)
+                : index == expression_delete
+                    ? (sound ? form_sound_delete : emoji_menu ? form_emoji_delete : form_sticker_delete)
+                : index == expression_tags        ? form_sticker_retag
+                : index == expression_description ? form_sticker_describe
+                : index == expression_emoji       ? form_sound_emoji_edit
+                                                  : form_sound_volume;
+    next_form_item = p.menu_item;
+    application_request_frame();
 }
 
 bool ensure_data() noexcept {

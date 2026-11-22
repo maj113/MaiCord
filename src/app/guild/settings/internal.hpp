@@ -69,6 +69,7 @@ constexpr u32 kScratchUnits = 48 * 1024;
 constexpr u32 kPopupCapacity = 512;
 constexpr u32 kSearchBytes = 400;
 constexpr u32 kRowBase = 1'000;
+// How long a saved draft waits for the Gateway to echo it: each page's *_echo_until, zero while it waits for none.
 constexpr u64 kEchoMs = 8'000;
 // Discord allows 1,000 invites a server (error 30016).
 constexpr u32 kInviteCapacity = 1'000;
@@ -359,10 +360,11 @@ struct Settings : SettingsModal {
     UiSettingsPageContent content[kPageCount];
     UiSettingsNavEntry nav[40];
     u32 nav_count, nav_revision;
-    UiSettingsControl controls[kControlCapacity];
-    UiSettingsControlPresentation presentation[kControlCapacity];
-    UiSettingsAvatarMedia avatar_media[kControlCapacity];
-    UiSettingsListItem list_items[kControlCapacity];
+    // The rows of a full page go to the spare last slot, which control_count never takes in.
+    UiSettingsControl controls[kControlCapacity + 1];
+    UiSettingsControlPresentation presentation[kControlCapacity + 1];
+    UiSettingsAvatarMedia avatar_media[kControlCapacity + 1];
+    UiSettingsListItem list_items[kControlCapacity + 1];
     u32 control_count;
     UiSettingsEditor editors[editor_count];
     UiSettingsFooter footer;
@@ -407,7 +409,6 @@ struct Settings : SettingsModal {
     // Boost Perks: the guild PATCH draft, the picked splash, the data URIs of
     // new images (made when the save starts) and the custom invite link.
     GuildBoostDraft boost_base, boost_draft;
-    bool boost_echo;
     u64 boost_echo_until;
     Picked splash;
     u8 *banner_uri, *splash_uri;
@@ -420,7 +421,7 @@ struct Settings : SettingsModal {
     // Engagement. The widget loads once per open; the guild PATCH of a save
     // is followed by the widget PATCH even when it failed.
     GuildEngagementDraft engagement_base, engagement_draft;
-    bool engagement_conflict, engagement_echo, engagement_guild_sent;
+    bool engagement_conflict, engagement_guild_sent;
     bool widget_requested, widget_loaded, widget_failed;
     // The server profile read of the current page visit.
     bool profile_requested;
@@ -459,7 +460,7 @@ struct Settings : SettingsModal {
     // The role editor's tab (Display, Permissions).
     u8 role_tab;
     GuildRoleDraft role_base, role_draft;
-    bool role_conflict, role_echo, role_missing;
+    bool role_conflict, role_missing;
     u64 role_echo_until;
     // Members: the chunked search (its bank is reserved on the first visit
     // and committed as replies add members), the filters, the debounced
@@ -523,7 +524,6 @@ struct Settings : SettingsModal {
     u32 upload_filename_bytes;
     // Safety.
     GuildSafetyDraft safety_base, safety_draft;
-    bool safety_echo;
     u64 safety_echo_until;
     // Stickers.
     GuildStickerRecord stickers[kStickerCapacity];
@@ -559,7 +559,6 @@ struct Settings : SettingsModal {
     PopupItem popup_items[kPopupCapacity];
     // The glyph each Server Profile emoji picker row sets (empty: none); views into the catalog's pools.
     Utf8View emoji_choices[kPopupCapacity];
-    u32 emoji_choice_count;
     // Projection scratch: the role colour names, member chips and popup sorting.
     Utf8View color_names[kGuildRoleColorCount + 1];
     u32 member_order[kGuildMemberSearchCapacity];
@@ -602,8 +601,9 @@ struct PageOps {
     void (*project)(Bank&) noexcept;
     // Control activations other than editors and notices.
     void (*activate)(const SettingsLayerActivation&) noexcept;
-    // Choices of the popup menus the page opened.
-    void (*choose)(Menu, u32 action) noexcept;
+    // Choices of the popup menus the page opened: the row's popup_row action (a member menu's own action less
+    // kMenuChoiceBase).
+    void (*choose)(Menu, u32 index) noexcept;
     bool (*dirty)() noexcept;
     bool (*can_save)() noexcept;
     Op (*next_save)() noexcept;
@@ -736,6 +736,12 @@ void engagement_saved(Op op, bool ok, u64 now) noexcept;
 // a read finished either way.
 const GuildAdminProfile* server_profile(bool* settled = nullptr) noexcept;
 bool profile_fetch_due() noexcept;
+// The profile read is in flight.
+bool profile_read_pending() noexcept;
+// Queues this visit's profile read when the kept one is missing or old; false when nothing was queued.
+bool request_profile() noexcept;
+// A page that waits for the profile: a retry error once the read failed (`failed` its text), else `loading`.
+void push_profile_wait(Text failed, Text loading) noexcept;
 void server_profile_loaded(const GuildAdminProfile* profile) noexcept;
 // Server Profile: the save's body (cropping a new icon first) and its outcome.
 bool profile_patch(GuildSettingsPatch* patch, GuildServerProfileWrite* write,
@@ -775,6 +781,9 @@ void release_uri(u8** uri, u32* bytes) noexcept;
 // The picked file itself as a data URI in *uri, as the official image input reads it (no crop). The client makes it
 // one time. False: there is no file, or the system refused the memory.
 bool file_uri(const Picked& picked, u8** uri, u32* bytes) noexcept;
+// The picked image as the account module prepares it for `profile`, as a data URI in *uri, made one time. False: the
+// system refused the memory, or the image did not prepare.
+bool image_uri(GuildImageProfile profile, const Picked& picked, u8** uri, u32* bytes) noexcept;
 
 // Members: the search request of the current filters and page, its outcome, the debounced text and a bulk ban's
 // outcome (the Gateway's, or a request that failed; nothing without an owner of that server).
@@ -808,7 +817,7 @@ void apps_gateway(const GatewayClientEvent& event, const Utf8View& body) noexcep
 void automod_gateway(const GatewayClientEvent& event, const Utf8View& body) noexcept;
 // Safety Setup in community servers holds AutoMod (as the official client
 // routes it): its entry row, and that row's activation (true when handled).
-void automod_safety_entry(Bank& bank) noexcept;
+void automod_safety_entry() noexcept;
 bool automod_safety_activate(const SettingsLayerActivation& activation) noexcept;
 // The App Directory sidebar link: Discord's app directory in the browser.
 void open_app_directory() noexcept;

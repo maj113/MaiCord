@@ -43,12 +43,6 @@ char fold(u32 c) noexcept {
     return c && c < 0x80 ? ascii_lower(static_cast<char>(c)) : c ? '?' : ' ';
 }
 
-Utf8View file_of(Utf8View path) noexcept {
-    u32 start = path.bytes;
-    while (start && path.data[start - 1] != '/')
-        --start;
-    return {path.data + start, path.bytes - start};
-}
 // Appends a candidate: its normalized path (or its file name when the path is unknown) and the argument texts its
 // command line holds.
 void add_process(GameScan* scan, u32* used, u32 pid, Utf8View path, Utf8View command_line,
@@ -59,8 +53,8 @@ void add_process(GameScan* scan, u32* used, u32 pid, Utf8View path, Utf8View com
     if (room < kRegisteredGameExecutableBytes || !game_detection_normalize(path, text, &bytes))
         return;
     const Utf8View normalized{text, bytes};
-    const u32 arguments = command_line.bytes ? game_detection_arguments(list, file_of(normalized), command_line,
-                                                                       {text + bytes, room - bytes})
+    const u32 arguments = command_line.bytes ? game_detection_arguments(list, game_detection_file(normalized),
+                                                                       command_line, {text + bytes, room - bytes})
                                              : 0;
     scan->processes[scan->count++] = {normalized, {text + bytes, arguments}, pid, true};
     *used += bytes + arguments;
@@ -306,7 +300,7 @@ bool open_process(int proc, const char* pid, ProcessName* name) noexcept {
 // /proc/<pid>/exe for a process started without a directory, when it names the same file.
 u32 resolve_path(const char* pid, const ProcessName& name, char* output, u32 capacity) noexcept {
     const Utf8View argv0{name.path, name.bytes};
-    if (file_of(argv0).bytes != argv0.bytes)
+    if (game_detection_file(argv0).bytes != argv0.bytes)
         return 0;
     char link[40] = "/proc/";
     u32 length = 6;
@@ -319,7 +313,7 @@ u32 resolve_path(const char* pid, const ProcessName& name, char* output, u32 cap
     char folded[kRegisteredGameExecutableBytes];
     u8 folded_bytes = 0;
     return game_detection_normalize({output, static_cast<u32>(bytes)}, folded, &folded_bytes) &&
-                   utf8_equal(file_of({folded, folded_bytes}), argv0)
+                   utf8_equal(game_detection_file({folded, folded_bytes}), argv0)
                ? static_cast<u32>(bytes)
                : 0;
 }
@@ -375,7 +369,7 @@ void game_detection_scan(const RegisteredGames& custom, const DetectableList& li
     u32 used = 0;
     each_process([&](const char* pid_text, u32 pid, const ProcessName& process) noexcept {
         const Utf8View argv0{process.path, process.bytes};
-        const auto candidate = game_detection_candidate(custom, list, file_of(argv0));
+        const auto candidate = game_detection_candidate(custom, list, game_detection_file(argv0));
         if (candidate.named) {
             char resolved[1024];
             const u32 resolved_bytes = resolve_path(pid_text, process, resolved, sizeof(resolved));
@@ -389,7 +383,7 @@ u32 game_detection_choices(Slice<char> storage, Slice<Utf8View> paths) noexcept 
     u32 count = 0, used = 0;
     each_process([&](const char*, u32, const ProcessName& process) noexcept {
         const Utf8View path{process.path, process.bytes};
-        const Utf8View file = file_of(path);
+        const Utf8View file = game_detection_file(path);
         const bool program = (file.bytes > 4 && bytes_equal(file.data + file.bytes - 4, ".exe", 4)) ||
                              (path.bytes > 6 && bytes_equal(path.data, "/home/", 6));
         bool listed = !program || storage.count - used < path.bytes;

@@ -5,7 +5,6 @@
 namespace maicord::app_detail::server_settings {
 namespace {
 
-
 GuildSettings guild_values() noexcept {
     const auto* guild = chat_state_store_find_guild(state(), owner->guild_id);
     return guild ? guild->settings : GuildSettings{};
@@ -304,19 +303,17 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     repaint();
 }
 
-void choose(Menu menu, u32 action) noexcept {
+// The page's popups open only once its state is made.
+void choose(Menu menu, u32 index) noexcept {
     auto* s = owner->server_access;
-    if (!s || menu != Menu::server_access || action < kMenuChoiceBase)
+    if (menu != Menu::server_access)
         return;
-    const u32 index = action - kMenuChoiceBase;
     const AccessMenu kind = s->menu;
     s->menu = AccessMenu::none;
     if (kind == AccessMenu::locale) {
         access_choose_locale(&s->overview_draft, index);
         return;
     }
-    if (index >= kPopupCapacity)
-        return;
     const u64 channel = owner->menu_channel[index];
     if (!community()) {
         if (kind == AccessMenu::rules_channel)

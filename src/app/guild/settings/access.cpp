@@ -823,21 +823,21 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     repaint();
 }
 
-void choose(Menu menu, u32 action) noexcept {
+// The page's popups open only once its state is made; a category row's action is its index, and the categories are
+// read once a visit.
+void choose(Menu menu, u32 index) noexcept {
     auto* s = owner->server_access;
-    if (!s || menu != Menu::server_access || action < kMenuChoiceBase)
+    if (menu != Menu::server_access)
         return;
-    const u32 index = action - kMenuChoiceBase;
     const AccessMenu kind = s->menu;
     s->menu = AccessMenu::none;
-    if (kind == AccessMenu::category && index < s->category_count)
+    if (kind == AccessMenu::category)
         s->metadata_draft.primary_category_id = s->categories[index].id;
-    else if (kind == AccessMenu::subcategory && index < s->category_count && !busy()) {
+    else if (kind == AccessMenu::subcategory && !busy()) {
         // Subcategories change at once, as the official picker does.
         s->subcategory_target = s->categories[index].id;
         server_access_queue(AccessStep::subcategory_add);
-    }
-    else if (kind == AccessMenu::locale)
+    } else if (kind == AccessMenu::locale)
         access_choose_locale(&s->discovery_draft, index);
 }
 

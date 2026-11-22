@@ -2,9 +2,6 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
-#include "maicord/model/chat/chat_state.hpp"
-#include "maicord/model/guild/detail_store.hpp"
-
 
 namespace maicord::app_detail::server_settings {
 namespace {
@@ -53,7 +50,7 @@ void load() noexcept {
     auto& p = *owner;
     release_boost_images();
     p.boost_base = p.boost_draft = stored();
-    p.boost_echo = false;
+    p.boost_echo_until = 0;
     p.vanity_error = false;
     set_editor(editor_vanity, {p.vanity_base, p.vanity_base_bytes});
 }
@@ -175,9 +172,9 @@ Op next_save() noexcept {
 bool reconcile(u64 now) noexcept {
     auto& p = *owner;
     const auto current = stored();
-    if (p.boost_echo) {
+    if (p.boost_echo_until) {
         if (current.progress_bar == p.boost_base.progress_bar || deadline_due(now, p.boost_echo_until))
-            p.boost_echo = false;
+            p.boost_echo_until = 0;
         return false;
     }
     if (current.progress_bar == p.boost_base.progress_bar || mutation_pending() || guild_dirty())
@@ -201,29 +198,6 @@ void notice_action() noexcept {
         ensure_data();
 }
 
-// A new banner's data URI as the banner upload prepares it.
-inline bool prepare_banner() noexcept {
-    auto& p = *owner;
-    if (p.banner_uri)
-        return true;
-    if (!p.banner.data)
-        return false;
-    const u32 bytes = guild_image_data_uri_bytes(p.banner.info.kind, p.banner.info.bytes);
-    auto* uri = bytes ? static_cast<u8*>(commit_pages(bytes))
-                      : nullptr;
-    if (!uri)
-        return false;
-    GuildImageInfo info{};
-    if (!application_guild_image_probe(GuildImageProfile::banner, {p.banner.data, p.banner.bytes}, &info,
-                                       {uri, bytes})) {
-        pages_release(uri);
-        return false;
-    }
-    p.banner_uri = uri;
-    p.banner_uri_bytes = bytes;
-    return true;
-}
-
 } // namespace
 
 void release_uri(u8** uri, u32* bytes) noexcept {
@@ -242,6 +216,22 @@ bool file_uri(const Picked& picked, u8** uri, u32* bytes) noexcept {
     const u32 size = guild_image_data_uri_bytes(kind, picked.bytes);
     auto* made = size ? static_cast<u8*>(commit_pages(size)) : nullptr;
     if (!made || guild_image_write_data_uri(kind, {picked.data, picked.bytes}, {made, size}) != size) {
+        if (made)
+            pages_release(made);
+        return false;
+    }
+    *uri = made;
+    *bytes = size;
+    return true;
+}
+
+bool image_uri(GuildImageProfile profile, const Picked& picked, u8** uri, u32* bytes) noexcept {
+    if (*uri)
+        return true;
+    const u32 size = guild_image_data_uri_bytes(picked.info.kind, picked.info.bytes);
+    auto* made = size ? static_cast<u8*>(commit_pages(size)) : nullptr;
+    GuildImageInfo info{};
+    if (!made || !application_guild_image_probe(profile, {picked.data, picked.bytes}, &info, {made, size})) {
         if (made)
             pages_release(made);
         return false;
@@ -277,7 +267,9 @@ bool boost_vanity_patch(GuildSettingsPatch* patch) noexcept {
 bool boost_guild_patch(GuildSettingsPatch* patch) noexcept {
     auto& p = *owner;
     const auto& d = p.boost_draft;
-    if ((d.banner == GuildProfileImageEdit::replace && !prepare_banner()) ||
+    // A new banner travels as the data URI the banner upload prepares.
+    if ((d.banner == GuildProfileImageEdit::replace &&
+         !image_uri(GuildImageProfile::banner, p.banner, &p.banner_uri, &p.banner_uri_bytes)) ||
         (d.splash == GuildProfileImageEdit::replace && !file_uri(p.splash, &p.splash_uri, &p.splash_uri_bytes)))
         return false;
     if (!guild_boost_patch(d, stored_banner(), stored_splash(),
@@ -318,7 +310,6 @@ void boost_saved(Op op, bool ok, const Utf8View& body, u64 now) noexcept {
     release_boost_images();
     p.boost_draft.banner = p.boost_draft.splash = GuildProfileImageEdit::keep;
     p.boost_base = p.boost_draft;
-    p.boost_echo = true;
     p.boost_echo_until = deadline_after(now, kEchoMs);
 }
 

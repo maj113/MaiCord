@@ -48,7 +48,8 @@ __declspec(noinline) void load_role_editor(const RoleRecord& r) noexcept {
     copy_value(&owner->editing_role, r.id);
     owner->role_draft = guild_role_draft_from(state(), r);
     copy_value(&owner->role_base, owner->role_draft);
-    owner->role_conflict = owner->role_echo = owner->role_missing = false;
+    owner->role_conflict = owner->role_missing = false;
+    owner->role_echo_until = 0;
     set_editor(editor_name, {owner->role_draft.name, owner->role_draft.name_bytes});
 }
 bool role_patch_pending() noexcept {
@@ -84,9 +85,8 @@ void project_role_list(Bank& bank) noexcept {
         bank.add(chat_state_store_role_name(state(), *everyone));
         bank.add(" · applies to all server members");
         const u32 index = push_action(control_everyone, "Default permissions", bank.since(start), {});
-        if (index != ~0u)
-            owner->list_items[index] = {UiSettingsListStyle::card, UiIcon::members, UiIcon::count,
-                                        {UiIcon::count, UiIcon::count}, false};
+        owner->list_items[index] = {UiSettingsListStyle::card, UiIcon::members, UiIcon::count,
+                                    {UiIcon::count, UiIcon::count}, false};
     }
     push_editor(control_search, {}, {}, UiSettingsControlKind::edit, editable(), editor_search, "Search roles",
                 manage && !owner->order_dirty ? "Create Role" : nullptr);
@@ -105,9 +105,8 @@ void project_role_list(Bank& bank) noexcept {
                                            "roles to reorder them."
                                          : nullptr,
                                   UiSettingsControlKind::category, true, "MEMBERS", 1);
-    if (header != ~0u)
-        owner->list_items[header] = {UiSettingsListStyle::header, UiIcon::count, UiIcon::count,
-                                     {UiIcon::count, UiIcon::count}, false};
+    owner->list_items[header] = {UiSettingsListStyle::header, UiIcon::count, UiIcon::count,
+                                 {UiIcon::count, UiIcon::count}, false};
     if (owner->status.bytes && owner->failed)
         push_error({}, owner->status);
     else if (busy() && owner->request.op == Op::role_create)
@@ -133,11 +132,9 @@ void project_role_list(Bank& bank) noexcept {
         const u32 index = push_choices(kRowBase + i, bank.add(name), {}, UiSettingsControlKind::action, true,
                                        {owner->chips[i], 1}, 0, {},
                                        {UiSettingsVariant::standard, flags, kUiSettingsNoDefault});
-        if (index != ~0u)
-            owner->list_items[index] = {UiSettingsListStyle::row, UiIcon::shield, UiIcon::user,
-                                        {editable_role ? UiIcon::edit : UiIcon::eye, UiIcon::ellipsis},
-                                        guild_settings_role_lock(owner->access, r) != GuildRoleLock::none ||
-                                            r.managed};
+        owner->list_items[index] = {UiSettingsListStyle::row, UiIcon::shield, UiIcon::user,
+                                    {editable_role ? UiIcon::edit : UiIcon::eye, UiIcon::ellipsis},
+                                    guild_settings_role_lock(owner->access, r) != GuildRoleLock::none || r.managed};
         owner->row_accent[i] = guild_role_color_rgba(r.color);
         ++shown;
     }
@@ -394,17 +391,13 @@ void role_color_closed(TextFormOwnerKey key) noexcept {
 }
 void edit_role_color() noexcept {
     g_role_pick = {true, false, owner->role_draft.color};
-    u32 suggested[kColorPickerSuggestedColors];
-    const u32 count = minimum(kColorPickerSuggestedColors, kGuildRoleColorCount);
-    for (u32 i = 0; i < count; ++i)
-        suggested[i] = kGuildRoleColors[i];
     ApplicationColorPickerRequest request{};
     request.title = utf8_literal("Role Colour");
     request.label = request.title;
     request.owner = form_key(form_role_color, owner->editing_role);
     request.valid = form_valid;
     request.rgb = owner->role_draft.color;
-    request.suggested = {suggested, count};
+    request.suggested = {kGuildRoleColors, minimum(kColorPickerSuggestedColors, kGuildRoleColorCount)};
     request.preview = role_color_preview;
     request.save = role_color_save;
     request.closed = role_color_closed;
@@ -523,10 +516,10 @@ bool reconcile(u64 now) noexcept {
         if (!r) {
             changed = !p.role_missing;
             p.role_missing = true;
-        } else if (p.role_echo) {
+        } else if (p.role_echo_until) {
             const auto& current = guild_role_draft_from(state(), *r);
             if (guild_role_draft_equal(current, p.role_base) || deadline_due(now, p.role_echo_until))
-                p.role_echo = false;
+                p.role_echo_until = 0;
         } else if (!mutation_pending()) {
             const auto& current = guild_role_draft_from(state(), *r);
             if (!guild_role_draft_equal(current, p.role_base)) {
@@ -627,11 +620,11 @@ void context(const SettingsLayerActivation& activation) noexcept {
     open_role_menu(p.order[id - kRowBase], activation.anchor);
 }
 
-void choose(Menu menu, u32 action) noexcept {
+void choose(Menu menu, u32 index) noexcept {
     auto& p = *owner;
-    if (menu != Menu::role || action < kMenuChoiceBase)
+    if (menu != Menu::role)
         return;
-    switch (action - kMenuChoiceBase) {
+    switch (index) {
     case role_action_copy_id: {
         char digits[24];
         Bank bank{digits, sizeof(digits), 0};
@@ -648,8 +641,6 @@ void choose(Menu menu, u32 action) noexcept {
         break;
     case role_action_view_as:
         view_as(p.menu_item);
-        break;
-    default:
         break;
     }
 }

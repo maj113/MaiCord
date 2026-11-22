@@ -58,10 +58,9 @@ void push_ban_row(Bank& bank, u64 user_id, const Utf8View& name, const Utf8View&
                      static_cast<u8>(ui_settings_presentation_avatar | ui_settings_presentation_compact |
                                      ui_settings_presentation_accent),
                      kUiSettingsNoDefault});
-    if (index < kControlCapacity)
-        p.avatar_media[index] = avatar.bytes || discriminator
-                                    ? application_listed_user_avatar_media(user_id, avatar, discriminator)
-                                    : application_user_avatar_media(user_id);
+    p.avatar_media[index] = avatar.bytes || discriminator
+                                ? application_listed_user_avatar_media(user_id, avatar, discriminator)
+                                : application_user_avatar_media(user_id);
     p.row_accent[p.row_count] = guild_person_color(user_id);
     ++p.row_count;
 }

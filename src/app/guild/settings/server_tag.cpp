@@ -1,6 +1,5 @@
 #include "page_common.hpp"
 #include "../../account/account_ui_runtime.hpp"
-#include "maicord/model/guild/detail_store.hpp"
 #include "maicord/model/user/profile.hpp"
 #include "maicord/protocol/messages/application_commands.hpp"
 #include "maicord/ui/widgets/icon.hpp"
@@ -25,39 +24,15 @@ static_assert(name_list_count(kSampleLines) == 2 * kSampleCount);
 // What the preview shows for a tag not typed yet.
 constexpr Utf8View kPlaceholderTag = utf8_literal("WUMP");
 
+// Badge types 0-9 and 21-39 have their own glyph; any other type draws the bee.
 inline UiIcon badge_icon(u8 type) noexcept {
-    switch (type) {
-    case 0: return UiIcon::sword;
-    case 1: return UiIcon::droplet;
-    case 2: return UiIcon::skull;
-    case 3: return UiIcon::toadstool;
-    case 4: return UiIcon::moon;
-    case 5: return UiIcon::lightning;
-    case 6: return UiIcon::leaf;
-    case 7: return UiIcon::heart;
-    case 8: return UiIcon::flame;
-    case 9: return UiIcon::compass;
-    case 21: return UiIcon::rabbit;
-    case 22: return UiIcon::dog;
-    case 23: return UiIcon::frog;
-    case 24: return UiIcon::goat;
-    case 25: return UiIcon::cat;
-    case 26: return UiIcon::gem;
-    case 27: return UiIcon::crown;
-    case 28: return UiIcon::trophy;
-    case 29: return UiIcon::money_bag;
-    case 30: return UiIcon::dollar;
-    case 31: return UiIcon::clover;
-    case 32: return UiIcon::blossom;
-    case 33: return UiIcon::sprout;
-    case 34: return UiIcon::maple_leaf;
-    case 35: return UiIcon::wilted_flower;
-    case 36: return UiIcon::butterfly;
-    case 37: return UiIcon::snail;
-    case 38: return UiIcon::caterpillar;
-    case 39: return UiIcon::spider;
-    default: return UiIcon::bee;
-    }
+    using enum UiIcon;
+    static constexpr UiIcon kIcons[]{
+        sword, droplet, skull, toadstool, moon, lightning, leaf, heart, flame, compass, bee, bee, bee, bee, bee, bee,
+        bee, bee, bee, bee, bee, rabbit, dog, frog, goat, cat, gem, crown, trophy, money_bag, dollar, clover, blossom,
+        sprout, maple_leaf, wilted_flower, butterfly, snail, caterpillar, spider};
+    static_assert(sizeof(kIcons) / sizeof(kIcons[0]) == 40);
+    return type < 40 ? kIcons[type] : bee;
 }
 
 // The badge in a pair of colours: a two-colour badge fills with the primary
@@ -83,12 +58,13 @@ UiSettingsGlyphTile badge_tile(u8 type, u32 primary, u32 secondary, UiIcon mark 
     return tile;
 }
 
+// A projection adds at most kGuildTagBadgeCount + kGuildTagPaletteCount + 4 tiles: every badge, the colours with
+// their reset and custom tiles, and the two chips.
+static_assert(kGuildTagBadgeCount + kGuildTagPaletteCount + 4 <=
+              sizeof(Settings::glyph_tiles) / sizeof(Settings::glyph_tiles[0]));
 u32 add_tile(const UiSettingsGlyphTile& tile) noexcept {
-    auto& p = *owner;
-    if (p.glyph_tile_count >= sizeof(p.glyph_tiles) / sizeof(p.glyph_tiles[0]))
-        return ~0u;
-    p.glyph_tiles[p.glyph_tile_count] = tile;
-    return p.glyph_tile_count++;
+    owner->glyph_tiles[owner->glyph_tile_count] = tile;
+    return owner->glyph_tile_count++;
 }
 
 // A draft's badge as the chip shows it.
@@ -112,9 +88,6 @@ void load_saved_images(const GuildAdminProfile* profile) noexcept {
 
 bool eligible() noexcept {
     return (guild_features() & guild_feature_guild_tags) != 0;
-}
-bool read_pending() noexcept {
-    return busy() && owner->request.op == Op::profile_get;
 }
 // The profile shows outside the server: public, or public with recruitment.
 bool profile_visible(const GuildAdminProfile& profile) noexcept {
@@ -213,7 +186,7 @@ u32 push_name(u64 id, Text name, Text message, Text tag, u32 tile, Text action =
                              {UiSettingsVariant::standard,
                               static_cast<u8>(ui_settings_presentation_avatar | ui_settings_presentation_accent),
                               static_cast<u16>(tile == ~0u ? 0 : tile), 0, 0, ui_settings_more_name_tag});
-    if (row != ~0u && tile != ~0u)
+    if (tile != ~0u)
         owner->controls[row].detail = text_view(tag);
     return row;
 }
@@ -288,14 +261,8 @@ void project_colors(bool edit) noexcept {
 
 void project(Bank& bank) noexcept {
     auto& p = *owner;
-    p.glyph_tile_count = 0;
     if (!p.tag_loaded) {
-        bool settled = false;
-        server_profile(&settled);
-        if (settled && !read_pending())
-            push_error("Something went wrong", "We couldn't load the Server Tag of this server.", "Retry");
-        else
-            push_loading("Loading the Server Tag…");
+        push_profile_wait("We couldn't load the Server Tag of this server.", "Loading the Server Tag…");
         return;
     }
     const auto* profile = server_profile();
@@ -426,17 +393,9 @@ bool reconcile(u64) noexcept {
     return true;
 }
 
-bool ensure_data() noexcept {
-    if (owner->profile_requested || !profile_fetch_due())
-        return false;
-    owner->profile_requested = true;
-    queue(Op::profile_get);
-    return true;
-}
-
 void notice_action() noexcept {
     auto& p = *owner;
-    if (p.tag_loaded || read_pending() || busy() || !connected())
+    if (p.tag_loaded || busy() || !connected())
         return;
     // Retry reads again whatever the profile's age.
     p.profile_requested = true;
@@ -516,7 +475,7 @@ bool tag_color(u64 id, u32 choice, u32* rgb) noexcept {
     return false;
 }
 
-const PageOps kServerTagPage{load,      project,   activate,    nullptr,       dirty,   can_save,
-                             next_save, reconcile, ensure_data, notice_action, invalid};
+const PageOps kServerTagPage{load,      project,   activate,        nullptr,       dirty,   can_save,
+                             next_save, reconcile, request_profile, notice_action, invalid};
 
 } // namespace maicord::app_detail::server_settings

@@ -141,6 +141,8 @@ struct RegisteredGames {
 // Lowercases ASCII and turns '\\' into '/'; a path over the limit keeps its last whole segments. False for an
 // empty or invalid path.
 bool game_detection_normalize(Utf8View path, char* output, u8* bytes) noexcept;
+// The last segment of a path ('/' or '\\' separated).
+Utf8View game_detection_file(Utf8View path) noexcept;
 // "C:\Games\stardew valley.exe" -> "Stardew valley": the display name of an added program.
 u32 game_detection_display_name(Utf8View path, Slice<char> output) noexcept;
 bool registered_games_add(RegisteredGames*, Utf8View name, Utf8View path) noexcept;

@@ -1,6 +1,5 @@
 #include "page_common.hpp"
 #include "maicord/core/deadline.hpp"
-#include "maicord/model/chat/chat_state.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {
@@ -17,7 +16,7 @@ constexpr char kFilterChoices[] =
     "Don't scan any media\0Scan media from members without roles\0Scan media from all members\0";
 static_assert(name_list_count(kFilterChoices) == kGuildContentFilterLevels);
 
-void project_safety(Bank& bank) noexcept {
+void project_safety(Bank&) noexcept {
     auto& p = *owner;
     const bool edit = editable() && page_allowed(Page::safety);
     auto& d = p.safety_draft;
@@ -31,7 +30,7 @@ void project_safety(Bank& bank) noexcept {
     push_names(control_content_filter, "Explicit image filter", {}, UiSettingsControlKind::radio, edit,
                kFilterChoices, kGuildContentFilterLevels, d.explicit_content_filter);
     // Community servers set up AutoMod here (the official client routes it into Safety Setup).
-    automod_safety_entry(bank);
+    automod_safety_entry();
     push_category(control_delete_category, "Moderation");
     const bool can_mfa = guild_settings_can_set_mfa(p.access);
     const bool self_mfa = state().self_mfa != SelfMfaState::disabled;
@@ -88,9 +87,9 @@ bool reconcile(u64 now) noexcept {
     auto& p = *owner;
     bool changed = false;
     const auto current = guild_safety_from_state(state(), p.guild_id);
-    if (p.safety_echo) {
+    if (p.safety_echo_until) {
         if (guild_safety_equal(current, p.safety_base) || deadline_due(now, p.safety_echo_until))
-            p.safety_echo = false;
+            p.safety_echo_until = 0;
     } else if (!guild_safety_equal(current, p.safety_base) && !mutation_pending()) {
         // A clean draft follows the store; a dirty one keeps its edits.
         if (!dirty())

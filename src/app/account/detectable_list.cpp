@@ -18,12 +18,6 @@ constexpr u8 kImageMagic[4] = {'M', 'C', 'D', '1'};
 constexpr u32 kDepth = 8;
 constexpr u32 kExclusionTextBytes = 8 * 1024;
 
-Utf8View file_of(Utf8View path) noexcept {
-    u32 start = path.bytes;
-    while (start && path.data[start - 1] != '/')
-        --start;
-    return {path.data + start, path.bytes - start};
-}
 template <usize Count> bool string_is(const JsonValue& value, const char (&text)[Count]) noexcept {
     JsonString string{};
     return json_value_as_string(value, &string) &&
@@ -101,7 +95,8 @@ bool executable_item(void* opaque, u32, JsonValue value) noexcept {
                                    : 0;
     if (!name_bytes || (p.exe_arguments.kind == JsonValueKind::string && !argument_bytes))
         return true;
-    const Utf8View file = file_of(name[0] == '>' ? Utf8View{name + 1, name_bytes - 1} : Utf8View{name, name_bytes});
+    const Utf8View file =
+        game_detection_file(name[0] == '>' ? Utf8View{name + 1, name_bytes - 1} : Utf8View{name, name_bytes});
     if (!file.bytes)
         return true;
     if (p.keys == p.scratch->keys.count) {

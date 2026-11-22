@@ -78,11 +78,8 @@ GuildEngagementDraft stored() noexcept {
 void load() noexcept {
     auto& p = *owner;
     p.engagement_base = p.engagement_draft = stored();
-    p.engagement_conflict = p.engagement_echo = p.engagement_guild_sent = false;
-}
-
-void toggle(const SettingsLayerActivation& activation) noexcept {
-    animate_toggle(activation);
+    p.engagement_conflict = p.engagement_guild_sent = false;
+    p.engagement_echo_until = 0;
 }
 
 // The server ID, or with `json` the widget's JSON API address.
@@ -216,16 +213,16 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         if (!d.system_channel_id)
             return;
         guild_engagement_set_message(&d, 1u << (id - control_message), checked);
-        toggle(activation);
+        animate_toggle(activation);
     } else if (id == control_summaries && names_available()) {
         if (checked)
             guild_engagement_add_feature(&d, guild_feature_summaries_enabled);
         else
             guild_engagement_remove_feature(&d, guild_feature_summaries_enabled);
-        toggle(activation);
+        animate_toggle(activation);
     } else if (id == control_activity_feed && names_available()) {
         guild_engagement_set_activity_feed(&d, checked);
-        toggle(activation);
+        animate_toggle(activation);
     } else if (id == control_notifications && activation.value.selected_choice < 2)
         d.default_notifications = static_cast<u8>(activation.value.selected_choice);
     else if (id == control_system_channel) {
@@ -241,7 +238,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         return;
     } else if (id == control_widget && p.widget_loaded) {
         d.widget_enabled = checked;
-        toggle(activation);
+        animate_toggle(activation);
     } else if (id == control_widget_channel) {
         open_channel_menu(Menu::widget_channel, kInviteChannels, d.widget_channel_id, "No Invite",
                           kPermissionViewChannel | kPermissionCreateInvite, activation.anchor);
@@ -251,20 +248,14 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     repaint();
 }
 
-void choose(Menu menu, u32 action) noexcept {
+void choose(Menu menu, u32 index) noexcept {
     auto& p = *owner;
     auto& d = p.engagement_draft;
-    const u32 index = action - kMenuChoiceBase;
-    if (action < kMenuChoiceBase || !can_manage_guild())
+    if (!can_manage_guild())
         return;
-    if (menu == Menu::afk_timeout) {
-        if (index < sizeof(kGuildAfkTimeouts) / sizeof(u32))
-            d.afk_timeout_seconds = kGuildAfkTimeouts[index];
-        return;
-    }
-    if (index >= kPopupCapacity)
-        return;
-    if (menu == Menu::system_channel)
+    if (menu == Menu::afk_timeout)
+        d.afk_timeout_seconds = kGuildAfkTimeouts[index];
+    else if (menu == Menu::system_channel)
         d.system_channel_id = p.menu_channel[index];
     else if (menu == Menu::afk_channel)
         d.afk_channel_id = p.menu_channel[index];
@@ -294,10 +285,10 @@ Op next_save() noexcept {
 bool reconcile(u64 now) noexcept {
     auto& p = *owner;
     const auto current = stored();
-    if (p.engagement_echo) {
+    if (p.engagement_echo_until) {
         if (!guild_engagement_equal(current, p.engagement_base) && !deadline_due(now, p.engagement_echo_until))
             return false;
-        p.engagement_echo = false;
+        p.engagement_echo_until = 0;
         // A clean page restarts its feature edits from the server's new order.
         if (!dirty() && !mutation_pending())
             load();
@@ -316,20 +307,8 @@ bool reconcile(u64 now) noexcept {
 
 bool ensure_data() noexcept {
     auto& p = *owner;
-    if (!can_manage_guild())
-        return false;
-    if (!p.widget_requested) {
-        p.widget_requested = true;
-        p.widget_failed = false;
-        queue(Op::widget_get);
-        return true;
-    }
-    if (p.widget_loaded && !p.profile_requested && profile_fetch_due()) {
-        p.profile_requested = true;
-        queue(Op::profile_get);
-        return true;
-    }
-    return false;
+    return can_manage_guild() && (request_read(p.widget_requested, p.widget_failed, Op::widget_get) ||
+                                  (p.widget_loaded && request_profile()));
 }
 
 void notice_action() noexcept {
@@ -377,7 +356,6 @@ void engagement_saved(Op op, bool ok, u64 now) noexcept {
             const u64 channel = p.engagement_base.widget_channel_id;
             p.engagement_base = p.engagement_draft;
             guild_engagement_set_widget(&p.engagement_base, widget, channel);
-            p.engagement_echo = true;
             p.engagement_echo_until = deadline_after(now, kEchoMs);
         }
         // The widget PATCH follows only when the widget changed.

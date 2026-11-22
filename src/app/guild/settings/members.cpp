@@ -386,9 +386,8 @@ void project_members(Bank& bank) noexcept {
         const u32 index = push_choices(kRowBase + row, name, description, UiSettingsControlKind::action, true,
                                        {chips[row], chip_count}, 0, "More Options",
                                        {UiSettingsVariant::standard, flags, kUiSettingsNoDefault});
-        if (index < kControlCapacity)
-            p.avatar_media[index] =
-                application_listed_user_avatar_media(m.user_id, {m.avatar, m.avatar_bytes}, m.discriminator);
+        p.avatar_media[index] =
+            application_listed_user_avatar_media(m.user_id, {m.avatar, m.avatar_bytes}, m.discriminator);
         p.row_accent[row] = top && top->color ? guild_role_color_rgba(top->color) : guild_person_color(m.user_id);
         ++p.row_count;
     }
@@ -592,8 +591,10 @@ void context(const SettingsLayerActivation& activation) noexcept {
         open_member_menu(owner->row_ids[id - kRowBase], activation.anchor);
 }
 
-void choose(Menu menu, u32 action) noexcept {
+void choose(Menu menu, u32 index) noexcept {
     auto& p = *owner;
+    // The member menus carry their own actions.
+    const u32 action = index + kMenuChoiceBase;
     if (menu == Menu::member) {
         const u64 user = p.menu_user;
         if (action == kModerationActions.ban) {
@@ -614,30 +615,24 @@ void choose(Menu menu, u32 action) noexcept {
         return;
     }
     if (menu == Menu::timeout) {
-        const u32 index = action - kModerationActions.choice_first;
-        if (action >= kModerationActions.choice_first && index < sizeof(kModerationTimeoutChoices) / sizeof(u32))
-            application_member_moderation_start(p.guild_id, p.menu_user, moderation_action_timeout,
-                                                kModerationTimeoutChoices[index]);
+        application_member_moderation_start(p.guild_id, p.menu_user, moderation_action_timeout,
+                                            kModerationTimeoutChoices[action - kModerationActions.choice_first]);
         return;
     }
-    if (action < kMenuChoiceBase)
-        return;
-    const u32 index = action - kMenuChoiceBase;
     const u64 now = clock_unix_milliseconds();
     switch (menu) {
     case Menu::member_since:
-    case Menu::joined_discord:
-        if (index < kDatePresetCount) {
-            const u64 after = index ? preset_after(now, kDatePresets[index]) : 0;
-            if (menu == Menu::member_since) {
-                p.filter_joined = static_cast<u8>(index);
-                p.filter_joined_after = after;
-            } else {
-                p.filter_created = static_cast<u8>(index);
-                p.filter_created_after = after;
-            }
+    case Menu::joined_discord: {
+        const u64 after = index ? preset_after(now, kDatePresets[index]) : 0;
+        if (menu == Menu::member_since) {
+            p.filter_joined = static_cast<u8>(index);
+            p.filter_joined_after = after;
+        } else {
+            p.filter_created = static_cast<u8>(index);
+            p.filter_created_after = after;
         }
         break;
+    }
     case Menu::join_method: {
         // "All", the invite codes, then the other methods. Picking a code
         // clears the type and the reverse; the chosen type again clears it.
@@ -660,8 +655,6 @@ void choose(Menu menu, u32 action) noexcept {
         break;
     }
     case Menu::member_roles: {
-        if (index >= kPopupCapacity)
-            return;
         const u64 role_id = p.menu_channel[index];
         bool removed = false;
         for (u32 i = 0; i < p.filter_role_count; ++i)
@@ -675,14 +668,8 @@ void choose(Menu menu, u32 action) noexcept {
             p.filter_roles[p.filter_role_count++] = role_id;
         break;
     }
-    case Menu::signals:
-        if (index < 4)
-            p.filter_signals = static_cast<u8>(p.filter_signals ^ (1u << index));
-        break;
-    case Menu::sort:
-        if (index < 4)
-            p.filter_sort = static_cast<u8>(index + 1);
-        break;
+    case Menu::signals: p.filter_signals = static_cast<u8>(p.filter_signals ^ (1u << index)); break;
+    case Menu::sort: p.filter_sort = static_cast<u8>(index + 1); break;
     default: return;
     }
     refilter();

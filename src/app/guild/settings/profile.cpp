@@ -10,7 +10,6 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 #include "../../shell/state.hpp"
-#include "maicord/model/chat/chat_state.hpp"
 #include "maicord/ui/text/emoji_catalog.hpp"
 
 namespace maicord::app_detail::server_settings {
@@ -45,9 +44,6 @@ bool has_icon() noexcept {
 bool name_valid() noexcept {
     const auto& p = owner->profile_draft.profile;
     return !p.name_known || guild_server_name_valid({p.name, p.name_bytes});
-}
-bool read_pending() noexcept {
-    return busy() && owner->request.op == Op::profile_get;
 }
 bool can_edit() noexcept {
     return editable() && can_manage_guild();
@@ -103,7 +99,7 @@ void push_game(u64 id, bool chosen, bool enabled, u32* covers) noexcept {
                              : record && record->state == GameState::unknown ? Text("Unknown Game")
                                                                               : Text("Loading\xE2\x80\xA6"),
                              {}, UiSettingsControlKind::action, enabled, chosen, {}, cell(kGameColumns, true));
-    if (row == ~0u || !known || *covers >= sizeof(p.covers) / sizeof(p.covers[0]))
+    if (!known || *covers >= sizeof(p.covers) / sizeof(p.covers[0]))
         return;
     auto& cover = p.covers[*covers];
     if (!game_cover_media(record->game, kCoverDips, g_app.renderer.dpi, &cover))
@@ -126,8 +122,6 @@ void project_traits(Bank& bank, bool edit) noexcept {
         bank.number(slot + 1);
         const u32 row = push_editor(control_trait + slot, bank.since(start), {}, UiSettingsControlKind::edit, edit,
                                     static_cast<Editor>(editor_trait + slot), {}, filled ? "Clear" : nullptr);
-        if (row == ~0u)
-            continue;
         // The emoji button shows a standard emoji's glyph, or a server emoji's picture from the CDN.
         p.presentation[row] = cell(kTraitColumns, t.emoji_id != 0);
         p.controls[row].detail = trait_glyph(t);
@@ -189,12 +183,7 @@ void project_games(bool edit) noexcept {
 void project(Bank& bank) noexcept {
     auto& p = *owner;
     if (!p.profile_loaded) {
-        bool settled = false;
-        server_profile(&settled);
-        if (settled && !read_pending())
-            push_error("Something went wrong", "We couldn't load the profile for this server.", "Retry");
-        else
-            push_loading("Loading the server profile…");
+        push_profile_wait("We couldn't load the profile for this server.", "Loading the server profile…");
         return;
     }
     const bool edit = can_edit();
@@ -241,7 +230,7 @@ void project(Bank& bank) noexcept {
                                                   (upload ? ui_settings_more_upload_tile : 0))});
     // The stored custom banner covers the tile; a new one shows once saved (the page has no local image preview).
     reset_value(&p.banner_tile);
-    if (row != ~0u && upload && d.custom_banner == GuildProfileImageEdit::keep && d.profile.custom_banner_bytes &&
+    if (upload && d.custom_banner == GuildProfileImageEdit::keep && d.profile.custom_banner_bytes &&
         ui_guild_card_banner_media(p.guild_id, {d.profile.custom_banner, d.profile.custom_banner_bytes}, true,
                                    g_app.renderer.dpi, &p.banner_tile)) {
         p.avatar_media[row].key = p.banner_tile.key;
@@ -324,7 +313,6 @@ void open_emoji_picker(u32 slot, const UiRect& anchor) noexcept {
             ++shown;
         }
     }
-    p.emoji_choice_count = count;
     if (!count)
         return;
     p.emoji_slot = slot;
@@ -385,12 +373,9 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     repaint();
 }
 
-void choose(Menu menu, u32 action) noexcept {
+void choose(Menu menu, u32 index) noexcept {
     auto& p = *owner;
-    if (menu != Menu::trait_emoji || !can_manage_guild() || action < kMenuChoiceBase)
-        return;
-    const u32 index = action - kMenuChoiceBase;
-    if (index >= p.emoji_choice_count)
+    if (menu != Menu::trait_emoji || !can_manage_guild())
         return;
     // The trait keeps the emoji's name, as the official client sends it (emoji_name "video_game", not the glyph).
     const auto glyph = p.emoji_choices[index];
@@ -431,16 +416,12 @@ Op next_save() noexcept {
 // The profile first, then (for Manage Server) the server's most played games.
 bool ensure_data() noexcept {
     auto& p = *owner;
-    if (!p.profile_requested && profile_fetch_due()) {
-        p.profile_requested = true;
-        queue(Op::profile_get);
-        return true;
-    }
-    return p.profile_loaded && can_manage_guild() && request_read(p.top_games_requested, p.top_games_failed, Op::top_games);
+    return request_profile() || (p.profile_loaded && can_manage_guild() &&
+                                 request_read(p.top_games_requested, p.top_games_failed, Op::top_games));
 }
 
 void notice_action() noexcept {
-    if (owner->profile_loaded || read_pending())
+    if (owner->profile_loaded || profile_read_pending())
         return;
     // Retry forces a read.
     cache.fetched_at = 0;
@@ -545,6 +526,27 @@ const GuildAdminProfile* server_profile(bool* settled) noexcept {
 bool profile_fetch_due() noexcept {
     return cache.guild_id != owner->guild_id || !cache.fetched_at ||
            deadline_due(clock_monotonic_milliseconds(), deadline_after(cache.fetched_at, kProfileFreshMs));
+}
+
+bool profile_read_pending() noexcept {
+    return busy() && owner->request.op == Op::profile_get;
+}
+
+bool request_profile() noexcept {
+    if (owner->profile_requested || !profile_fetch_due())
+        return false;
+    owner->profile_requested = true;
+    queue(Op::profile_get);
+    return true;
+}
+
+void push_profile_wait(Text failed, Text loading) noexcept {
+    bool settled = false;
+    server_profile(&settled);
+    if (settled && !profile_read_pending())
+        push_error("Something went wrong", failed, "Retry");
+    else
+        push_loading(loading);
 }
 
 void server_profile_loaded(const GuildAdminProfile* profile) noexcept {

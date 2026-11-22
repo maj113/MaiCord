@@ -435,13 +435,11 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
     case Op::safety_update:
         p.safety_base.verification_level = p.safety_draft.verification_level;
         p.safety_base.explicit_content_filter = p.safety_draft.explicit_content_filter;
-        p.safety_echo = true;
         p.safety_echo_until = deadline_after(now, kEchoMs);
         continue_save();
         break;
     case Op::mfa:
         p.safety_base.mfa_level = p.safety_draft.mfa_level;
-        p.safety_echo = true;
         p.safety_echo_until = deadline_after(now, kEchoMs);
         break;
     case Op::emoji_create:
@@ -488,7 +486,6 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
     }
     case Op::role_update:
         copy_value(&p.role_base, p.role_draft);
-        p.role_echo = true;
         p.role_echo_until = deadline_after(now, kEchoMs);
         continue_save();
         break;

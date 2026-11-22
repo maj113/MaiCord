@@ -1,6 +1,5 @@
 #include "page_common.hpp"
 #include "maicord/core/virtual_memory.hpp"
-#include "maicord/core/name_list.hpp"
 
 // AutoMod: the server's rules by trigger, in the official page's sections
 // (Members, Content), each set up, edited, switched on or off and deleted in
@@ -786,21 +785,20 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     repaint();
 }
 
-void choose(Menu menu, u32 action) noexcept {
-    if (menu != Menu::automation || !am() || action < kMenuChoiceBase)
+// The page's popups open only once its state is made.
+void choose(Menu menu, u32 index) noexcept {
+    if (menu != Menu::automation)
         return;
     auto& s = *am();
     auto& d = s.draft;
-    const u32 index = action - kMenuChoiceBase;
     const Pending kind = s.menu;
     s.menu = Pending::none;
-    if (!s.editing || index >= kPopupCapacity)
+    if (!s.editing)
         return;
     const u64 id = owner->menu_channel[index];
     switch (kind) {
     case Pending::duration:
-        if (index < 6)
-            d.timeout_seconds = kDurations[index];
+        d.timeout_seconds = kDurations[index];
         break;
     case Pending::alert_channel:
         d.alert_channel = id;
@@ -960,7 +958,7 @@ void automod_gateway(const GatewayClientEvent&, const Utf8View& body) noexcept {
         ensure_page_data();
 }
 
-void automod_safety_entry(Bank&) noexcept {
+void automod_safety_entry() noexcept {
     if (!community() || !page_allowed(Page::automod))
         return;
     push_category(control_safety_entry - 1, utf8_literal("AutoMod"),

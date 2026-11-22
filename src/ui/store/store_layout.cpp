@@ -678,6 +678,31 @@ UiStoreNode& UiStoreBuilder::tile(UiIcon icon, float size, UiStoreTone tone) noe
     return n;
 }
 
+UiStoreNode& UiStoreBuilder::row(u32 gap) noexcept {
+    auto& n = open(UiStoreKind::row);
+    n.gap = static_cast<float>(gap);
+    n.flags = ui_store_center;
+    return n;
+}
+
+UiStoreNode& UiStoreBuilder::icon(UiIcon glyph, u32 size, UiStoreInk ink) noexcept {
+    auto& n = add(UiStoreKind::icon);
+    n.rw = n.rh = static_cast<float>(size);
+    n.icon = icon_byte(glyph);
+    n.ink = static_cast<u8>(ink);
+    return n;
+}
+
+UiStoreNode& UiStoreBuilder::picture(u32 slot, u32 size, u16 radius) noexcept {
+    auto& n = open(UiStoreKind::preview);
+    n.variant = static_cast<u8>(UiStoreAspect::fixed);
+    n.rw = n.rh = static_cast<float>(size);
+    n.aux = radius;
+    n.value = slot;
+    close();
+    return n;
+}
+
 UiStoreNode& UiStoreBuilder::spacer(float width, float height, bool flex) noexcept {
     auto& n = add(UiStoreKind::spacer);
     n.rw = width;

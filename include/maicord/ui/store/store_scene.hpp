@@ -152,6 +152,12 @@ class UiStoreBuilder {
     UiStoreNode& button(const Utf8View& value, UiStoreButton variant, u32 action, UiIcon icon, bool large = false) noexcept;
     UiStoreNode& icon_button(UiIcon icon, const Utf8View& name, u32 action, float size) noexcept;
     UiStoreNode& tile(UiIcon icon, float size, UiStoreTone tone = UiStoreTone::neutral) noexcept;
+    // Opens a row that centres its children vertically, `gap` DIPs apart.
+    UiStoreNode& row(u32 gap) noexcept;
+    // A glyph `size` DIPs square (0: the default size).
+    UiStoreNode& icon(UiIcon glyph, u32 size, UiStoreInk ink = UiStoreInk::subtle) noexcept;
+    // A closed picture of media slot `slot`, `size` DIPs square with corners of `radius` (999: round).
+    UiStoreNode& picture(u32 slot, u32 size, u16 radius = 999) noexcept;
     // Literal overloads: the caller passes the C string alone and the builder counts it, so a call site is
     // smaller than one that builds a Utf8View.
     UiStoreNode& text(const char* value, UiStoreType type = UiStoreType::body, UiStoreInk ink = UiStoreInk::normal) noexcept;

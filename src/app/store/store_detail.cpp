@@ -147,9 +147,7 @@ void rail(Ctx& c, const StoreItem& item, u32 index) noexcept {
         c.b.node().pad_x = c.b.node().pad_y = 12;
         auto& row = c.b.open(UiStoreKind::row);
         row.gap = 8;
-        auto& glyph = c.b.leaf(UiStoreKind::icon);
-        glyph.icon = static_cast<u8>(UiIcon::shield);
-        glyph.ink = static_cast<u8>(UiStoreInk::subtle);
+        c.b.icon(UiIcon::shield, 0);
         c.b.text(compose(c.b, "Built by MaiCord's CI from the reviewed source at commit {} and signed.", item.commit),
                  UiStoreType::small, UiStoreInk::normal, ui_store_flex | ui_store_wrap);
         c.b.close();
@@ -168,7 +166,7 @@ void credit(Ctx& c, const StoreItem& item) noexcept {
 } // namespace
 
 void access_eyebrow(Ctx& c, u8 risk, float pad_y) noexcept {
-    center_row(c, 8).pad_y = pad_y;
+    c.b.row(8).pad_y = pad_y;
     auto& dot = c.b.leaf(UiStoreKind::swatch);
     dot.variant = static_cast<u8>(risk >= 2 ? 3 : risk == 1 ? 4 : 5);
     dot.rw = dot.rh = 8;
@@ -268,7 +266,7 @@ void build_detail(Ctx& c, const StoreItem& item, u32 index) noexcept {
         flow.gap = 16;
         static constexpr char kRoles[] = "Background\0Surface\0Text\0Accent\0";
         for (u32 i = 0; i < 4; ++i) {
-            center_row(c, 8);
+            c.b.row(8);
             auto& sw = c.b.leaf(UiStoreKind::swatch);
             sw.variant = 1;
             sw.value = item.swatches[i];
@@ -369,7 +367,7 @@ Utf8View number_text(UiStoreBuilder& b, float value, u32 decimals) noexcept {
 }
 
 void value_row(Ctx& c, const Utf8View& label, const Utf8View& value, bool overridden, u32 reset_action) noexcept {
-    center_row(c, 8);
+    c.b.row(8);
     c.b.text(label, UiStoreType::body, UiStoreInk::strong);
     if (overridden) {
         auto& dot = c.b.leaf(UiStoreKind::swatch);
@@ -395,7 +393,7 @@ void knob_row(Ctx& c, u32 i, bool last) noexcept {
     switch (k.type) {
     case 2:
     case 3: {
-        center_row(c, 8);
+        c.b.row(8);
         c.b.text(k.label, UiStoreType::body, UiStoreInk::strong, ui_store_flex);
         if (k.type == 2) {
             auto& t = c.b.leaf(UiStoreKind::toggle);
@@ -563,7 +561,7 @@ void universal_row(Ctx& c, StoreUniversalRow row, bool last, bool overridable, b
         break;
     }
     default: {
-        center_row(c, 8);
+        c.b.row(8);
         c.b.text(label, UiStoreType::body, UiStoreInk::strong, ui_store_flex);
         auto& t = c.b.leaf(UiStoreKind::toggle);
         t.action = action;

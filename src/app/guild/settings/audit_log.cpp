@@ -1,7 +1,6 @@
 #include "page_common.hpp"
 #include "../../settings/settings.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/model/chat/chat_state.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {
@@ -78,8 +77,7 @@ void project_audit(Bank& bank) noexcept {
                                                      ui_settings_presentation_compact |
                                                      ui_settings_presentation_accent),
                                      kUiSettingsNoDefault});
-        if (row < kControlCapacity)
-            p.avatar_media[row] = audit_avatar(entry.user_id, listed);
+        p.avatar_media[row] = audit_avatar(entry.user_id, listed);
         p.row_accent[i] = guild_person_color(entry.user_id);
     }
     // Older actions load when this row scrolls into view.
@@ -130,17 +128,17 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         open_audit_menu(Menu::audit_action, activation.anchor);
 }
 
-void choose(Menu menu, u32 action) noexcept {
+void choose(Menu menu, u32 index) noexcept {
     auto& p = *owner;
     if (menu == Menu::audit_user || menu == Menu::audit_action) {
-        const u32 index = action - kMenuChoiceBase;
-        if (action < kMenuChoiceBase || index >= kPopupCapacity || busy())
+        if (busy())
             return;
         if (menu == Menu::audit_user)
             p.audit_filter_user = p.menu_channel[index];
         else {
-            p.audit_filter_action_set = index > 0 && index <= sizeof(kAuditFilters) / sizeof(kAuditFilters[0]);
-            p.audit_filter_action = p.audit_filter_action_set ? kAuditFilters[index - 1] : 0;
+            // Row 0 is "All actions"; the filters follow.
+            p.audit_filter_action_set = index > 0;
+            p.audit_filter_action = index ? kAuditFilters[index - 1] : 0;
         }
         reset_audit();
     }

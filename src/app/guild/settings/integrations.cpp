@@ -339,7 +339,7 @@ void push_app(Bank& bank, u64 id, const GuildIntegration& in, Text action) noexc
     }
     const u32 row = push_action(id, named(in.name, in.name_bytes), added, action, true,
                                 {UiSettingsVariant::standard, ui_settings_presentation_avatar, kUiSettingsNoDefault});
-    if (row < kControlCapacity && in.bot_id)
+    if (in.bot_id)
         owner->avatar_media[row] = application_user_avatar_media(in.bot_id);
 }
 
@@ -396,9 +396,8 @@ inline void project_webhook_editor(Bank& bank, const GuildWebhook& hook) noexcep
                                     avatar_picked() ? picked_text(bank, owner->upload, current) : text_view(current),
                                     "Change Avatar", edit,
                                     {UiSettingsVariant::standard, ui_settings_presentation_avatar, kUiSettingsNoDefault});
-        if (row < kControlCapacity)
-            owner->avatar_media[row] = application_listed_user_avatar_media(
-                hook.id, custom ? Utf8View{hook.avatar, hook.avatar_bytes} : Utf8View{}, 0);
+        owner->avatar_media[row] = application_listed_user_avatar_media(
+            hook.id, custom ? Utf8View{hook.avatar, hook.avatar_bytes} : Utf8View{}, 0);
         if (hook.avatar_bytes || avatar_picked())
             push_action(control_avatar_remove, "Remove avatar", "The webhook posts with a default avatar.", "Remove",
                         edit);
@@ -474,9 +473,7 @@ void project_webhooks(Bank& bank, bool follower) noexcept {
         const u32 row = push_action(kRowBase + order[k], named(hook.name, hook.name_bytes), meta,
                                     expanded ? "Close" : "Edit", true,
                                     {UiSettingsVariant::standard, ui_settings_presentation_avatar, kUiSettingsNoDefault});
-        if (row < kControlCapacity)
-            owner->avatar_media[row] =
-                application_listed_user_avatar_media(hook.id, {hook.avatar, hook.avatar_bytes}, 0);
+        owner->avatar_media[row] = application_listed_user_avatar_media(hook.id, {hook.avatar, hook.avatar_bytes}, 0);
         if (expanded)
             project_webhook_editor(bank, hook);
     }
@@ -878,15 +875,13 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     repaint();
 }
 
-void choose(Menu menu, u32 action) noexcept {
-    if (menu != Menu::automation || !apps() || action < kMenuChoiceBase)
+// The page's popups open only once its state is made.
+void choose(Menu menu, u32 index) noexcept {
+    if (menu != Menu::automation)
         return;
     auto& a = *apps();
-    const u32 index = action - kMenuChoiceBase;
     const auto pending = a.menu;
     a.menu = AppsState::Pending::none;
-    if (index >= kPopupCapacity)
-        return;
     const u64 id = owner->menu_channel[index];
     if (!id)
         return;
@@ -976,16 +971,6 @@ void notice() noexcept {
     ensure_page_data();
 }
 
-void release_avatar_uri() noexcept {
-    auto& a = *apps();
-    if (a.avatar_uri) {
-        secure_clear_bytes(a.avatar_uri, a.avatar_uri_bytes);
-        pages_release(a.avatar_uri);
-    }
-    a.avatar_uri = nullptr;
-    a.avatar_uri_bytes = 0;
-}
-
 } // namespace
 
 const PageOps kIntegrationsPage{load,   project, activate,    choose, dirty,  can_save, next_save,
@@ -1014,20 +999,12 @@ bool apps_request(GuildAutomationRequest* request) noexcept {
         if (!hook || a.target != a.editing)
             return false;
         a.write = {editor_text(editor_name), {}, a.channel, a.avatar_clear};
-        release_avatar_uri();
+        release_uri(&a.avatar_uri, &a.avatar_uri_bytes);
         if (avatar_picked()) {
             // The picked file is prepared like a server icon, into its data URI.
-            const u32 bytes = guild_image_data_uri_bytes(p.upload.info.kind, p.upload.info.bytes);
-            a.avatar_uri = bytes ? static_cast<u8*>(pages_allocate(bytes)) : nullptr;
-            GuildImageInfo info{};
-            if (!a.avatar_uri ||
-                !application_guild_image_probe(GuildImageProfile::icon, {p.upload.data, p.upload.bytes}, &info,
-                                               {a.avatar_uri, bytes})) {
-                release_avatar_uri();
+            if (!image_uri(GuildImageProfile::icon, p.upload, &a.avatar_uri, &a.avatar_uri_bytes))
                 return false;
-            }
-            a.avatar_uri_bytes = bytes;
-            a.write.avatar = {reinterpret_cast<const char*>(a.avatar_uri), bytes};
+            a.write.avatar = {reinterpret_cast<const char*>(a.avatar_uri), a.avatar_uri_bytes};
             a.write.avatar_set = true;
         }
         request->webhook = &a.write;
@@ -1186,7 +1163,7 @@ void apps_response(const RestClientResponse& response, const Utf8View& body) noe
         break;
     default: break;
     }
-    release_avatar_uri();
+    release_uri(&a.avatar_uri, &a.avatar_uri_bytes);
     a.sent = Op_::count;
     ensure_page_data();
 }
@@ -1195,7 +1172,7 @@ void apps_response(const RestClientResponse& response, const Utf8View& body) noe
 void apps_release() noexcept {
     if (!apps())
         return;
-    release_avatar_uri();
+    release_uri(&apps()->avatar_uri, &apps()->avatar_uri_bytes);
     secure_clear_bytes(apps()->webhooks, sizeof(apps()->webhooks));
     pages_release(apps());
     owner->apps = nullptr;

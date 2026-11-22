@@ -60,27 +60,6 @@ u32 add_media(const UiSettingsAvatarMedia& media) noexcept {
     p.media[p.media_count] = media;
     return ++p.media_count;
 }
-void picture(UiStoreBuilder& b, u32 slot, float size, u16 radius) noexcept {
-    auto& n = b.open(UiStoreKind::preview);
-    n.variant = static_cast<u8>(UiStoreAspect::fixed);
-    n.rw = n.rh = size;
-    n.aux = radius;
-    n.value = slot;
-    b.close();
-}
-UiStoreNode& row(UiStoreBuilder& b, float gap) noexcept {
-    auto& n = b.open(UiStoreKind::row);
-    n.gap = gap;
-    n.flags = ui_store_center;
-    return n;
-}
-UiStoreNode& icon(UiStoreBuilder& b, UiIcon glyph, float size, UiStoreInk ink) noexcept {
-    auto& n = b.leaf(UiStoreKind::icon);
-    n.rw = n.rh = size;
-    n.icon = static_cast<u8>(glyph);
-    n.ink = static_cast<u8>(ink);
-    return n;
-}
 // A badge over a card's top end corner (the official client's: 10 DIPs past it).
 inline UiStoreNode& corner(UiStoreNode& n, float overhang) noexcept {
     n.anchor = static_cast<u8>(UiStoreAnchor::top_right);
@@ -225,9 +204,9 @@ void tile(UiStoreBuilder& b, u32 index, float height, bool can_be_new) noexcept 
     card.pad_x = 16;
     card.pad_y = (height - (description.bytes ? 42 : 20)) * .5f;
     card.rh = height;
-    row(b, 12);
+    b.row(12);
     if (option.emoji_id)
-        picture(b, add_media({media_asset_custom_emoji(option.emoji_id, option.emoji_animated)}), 22, 4);
+        b.picture(add_media({media_asset_custom_emoji(option.emoji_id, option.emoji_animated)}), 22, 4);
     else if (option.emoji.bytes)
         b.text(guild_onboarding_text(model, option.emoji));
     auto& text = b.open(UiStoreKind::column);
@@ -244,7 +223,7 @@ void tile(UiStoreBuilder& b, u32 index, float height, bool can_be_new) noexcept 
         disc.variant = 2;
         // The badge names its tile: it grows in as the tile turns chosen.
         disc.value = action_option + index;
-        corner(icon(b, UiIcon::check, 10, UiStoreInk::on_brand), 5).value = action_option + index;
+        corner(b.icon(UiIcon::check, 10, UiStoreInk::on_brand), 5).value = action_option + index;
     } else if (can_be_new && !option.seen) {
         new_badge(b);
     }
@@ -260,7 +239,7 @@ void question(UiStoreBuilder& b, u32 index, u32 columns) noexcept {
     card.pad_x = card.pad_y = card.gap = 16;
     if (!prompt.seen)
         new_badge(b);
-    row(b, 4).flags = 0;
+    b.row(4).flags = 0;
     b.text(guild_onboarding_text(model, prompt.title), UiStoreType::body_bold, UiStoreInk::strong, ui_store_wrap);
     if (prompt.required)
         b.text("*", UiStoreType::body_bold, UiStoreInk::critical);
@@ -271,7 +250,7 @@ void question(UiStoreBuilder& b, u32 index, u32 columns) noexcept {
     const float height = described ? 66 : 44;
     b.open(UiStoreKind::column).gap = 8;
     for (u32 o = 0; o < prompt.option_count; o += columns) {
-        row(b, 8).flags = 0;
+        b.row(8).flags = 0;
         for (u32 k = o; k < o + columns; ++k)
             if (k < prompt.option_count)
                 tile(b, prompt.first_option + k, height, prompt.seen);
@@ -309,10 +288,9 @@ void profile(UiStoreBuilder& b) noexcept {
     b.open(UiStoreKind::card).pad_x = 16;
     b.node().pad_y = 16;
     const auto* self = user_store_find(ui.user_store, s.self_user_id);
-    picture(b,
-            add_media(application_listed_user_avatar_media(s.self_user_id,
-                                                           self ? user_store_avatar_hash(*self) : Utf8View{}, 0)),
-            80, 999);
+    b.picture(add_media(application_listed_user_avatar_media(s.self_user_id,
+                                                             self ? user_store_avatar_hash(*self) : Utf8View{}, 0)),
+              80);
     b.spacer(0, 16);
     const auto* member = guild_member_store_find(ui.guild_member_store, p.guild_id, s.self_user_id);
     Utf8View nick = member ? guild_member_store_nickname(*member) : Utf8View{};
@@ -368,7 +346,7 @@ void profile(UiStoreBuilder& b) noexcept {
             pill.variant = static_cast<u8>(UiStoreCard::pill);
             pill.pad_x = 8;
             pill.pad_y = 4;
-            row(b, 4);
+            b.row(4);
             // A role without a colour shows the muted grey dot.
             auto& dot = b.leaf(UiStoreKind::swatch);
             dot.rw = dot.rh = 8;
@@ -395,7 +373,7 @@ void empty(UiStoreBuilder& b) noexcept {
     b.spacer(0, 12);
     b.text("There are no customization options yet.", UiStoreType::body_bold, UiStoreInk::strong,
            ui_store_center | ui_store_wrap);
-    auto& line = row(b, 4);
+    auto& line = b.row(4);
     line.flags = ui_store_center | ui_store_justify;
     b.text("You can add and remove channels from", UiStoreType::label, UiStoreInk::normal, ui_store_wrap);
     b.button("Browse Channels", UiStoreButton::link, action_browse);
@@ -524,7 +502,7 @@ void browse(UiStoreBuilder& b) noexcept {
     if (!nux_closed) {
         auto& nux = b.open(UiStoreKind::card);
         nux.pad_x = nux.pad_y = 16;
-        row(b, 16).flags = 0;
+        b.row(16).flags = 0;
         auto& text = b.open(UiStoreKind::column);
         text.flags = ui_store_flex;
         text.gap = 8;
@@ -557,7 +535,7 @@ void browse(UiStoreBuilder& b) noexcept {
             if (group)
                 b.close();
             group = false;
-            auto& header = row(b, 12);
+            auto& header = b.row(12);
             header.pad_y = 8;
             b.text(b.copy(chat_state_store_channel_name(s, *c)), UiStoreType::body_bold, UiStoreInk::strong).flags =
                 ui_store_flex;
@@ -588,8 +566,8 @@ void browse(UiStoreBuilder& b) noexcept {
             line.flags |= ui_store_disabled;
             line.text2 = utf8_literal("You must unfollow this category to add or remove specific channels.");
         }
-        row(b, 8);
-        icon(b, channel_icon(c->type), 20, UiStoreInk::subtle);
+        b.row(8);
+        b.icon(channel_icon(c->type), 20);
         auto& info = b.open(UiStoreKind::column);
         info.flags = ui_store_flex;
         info.gap = 2;
@@ -629,7 +607,7 @@ void build(UiStoreBuilder& b, float) noexcept {
     if (!p.browse_only) {
         // The tabs over a line; Browse Channels counts the channels it lists.
         b.open(UiStoreKind::column);
-        row(b, 24).flags = 0;
+        b.row(24).flags = 0;
         static constexpr Utf8View kTabs[]{utf8_literal("Customize"), utf8_literal("Browse Channels")};
         for (u32 i = 0; i < 2; ++i) {
             auto& tab = b.leaf(UiStoreKind::tab);

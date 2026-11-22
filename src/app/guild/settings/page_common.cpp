@@ -44,19 +44,24 @@ bool next_part(const Utf8View& text, u32* at, char separator, Utf8View* part) no
     return true;
 }
 
-u32 sorted_channels(u32 types, u32 room) noexcept {
+u32 sorted_channels(u32 types, u32 room, GuildChannelPickerOrder order, PermissionSet required, u64 current) noexcept {
     auto& p = *owner;
     const auto& s = state();
     u32 count = 0;
     const u32 slots = chat_state_store_channel_slot_bound(s);
     for (u32 i = 0; i < slots && count < room; ++i) {
         const auto& channel = s.channels[i];
-        if (channel.occupied && channel.guild_id == p.guild_id && channel.type < 32 && (types >> channel.type & 1))
-            p.popup_rows[count++] = {{}, &channel};
+        if (!channel.occupied || channel.guild_id != p.guild_id || channel.type >= 32 || !(types >> channel.type & 1))
+            continue;
+        // Channels the account cannot reach stay out unless already chosen.
+        if (channel.id != current && channel.permissions_resolved &&
+            (channel.effective_permissions & required) != required)
+            continue;
+        p.popup_rows[count++] = {{}, &channel};
     }
     using Row = Settings::PopupRow;
-    heap_sort_shared(p.popup_rows, count, [&s](const Row& a, const Row& b) noexcept {
-        return guild_settings_channel_before(s, GuildChannelPickerOrder::channel_list, *a.channel, *b.channel);
+    heap_sort_shared(p.popup_rows, count, [&s, order](const Row& a, const Row& b) noexcept {
+        return guild_settings_channel_before(s, order, *a.channel, *b.channel);
     });
     return count;
 }

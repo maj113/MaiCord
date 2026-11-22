@@ -45,12 +45,6 @@ bool next_entry(Utf8View* rest, Entry* entry) noexcept {
     entry->name = {text.data + entry->exact, name - entry->exact};
     return true;
 }
-Utf8View file_of(Utf8View path) noexcept {
-    u32 start = path.bytes;
-    while (start && path.data[start - 1] != '/' && path.data[start - 1] != '\\')
-        --start;
-    return {path.data + start, path.bytes - start};
-}
 // `name` ends `path` and starts at a segment boundary.
 bool ends_at_segment(Utf8View path, Utf8View name) noexcept {
     if (!name.bytes || name.bytes > path.bytes)
@@ -67,7 +61,8 @@ bool contains(Utf8View text, Utf8View needle) noexcept {
     return false;
 }
 bool names(const Entry& entry, const GameProcess& process) noexcept {
-    return (entry.exact ? utf8_equal(file_of(process.path), entry.name) : ends_at_segment(process.path, entry.name)) &&
+    return (entry.exact ? utf8_equal(game_detection_file(process.path), entry.name)
+                        : ends_at_segment(process.path, entry.name)) &&
            (!entry.arguments.bytes || contains(process.arguments, entry.arguments));
 }
 // The keys of the games with an executable file named like `file`, in list order (a hash collision may name
@@ -105,7 +100,7 @@ GameDetectionMatch match_process(const RegisteredGames& custom, const Detectable
             return {};
         return {{game.name, game.name_bytes}, 0, process.pid, i, true, true};
     }
-    for (Named named = named_games(list, file_of(process.path)); named.more(); ++named.at) {
+    for (Named named = named_games(list, game_detection_file(process.path)); named.more(); ++named.at) {
         const auto game = detectable_list_game(list, named.at->game);
         bool hidden = false; // a launcher, or a game turned off
         if (!game_executables_match(game.executables, process, &hidden))
@@ -160,6 +155,12 @@ u32 take_slot(RegisteredGames* games) noexcept {
 }
 } // namespace
 
+Utf8View game_detection_file(Utf8View path) noexcept {
+    u32 start = path.bytes;
+    while (start && path.data[start - 1] != '/' && path.data[start - 1] != '\\')
+        --start;
+    return {path.data + start, path.bytes - start};
+}
 u32 detectable_hash(Utf8View file) noexcept {
     u32 hash = 2166136261u;
     for (u32 i = 0; i < file.bytes; ++i)
@@ -221,7 +222,7 @@ bool game_executables_match(Utf8View executables, const GameProcess& process, bo
     return game || launch;
 }
 bool detectable_list_names(const DetectableList& list, const GameProcess& process) noexcept {
-    for (Named named = named_games(list, file_of(process.path)); named.more(); ++named.at)
+    for (Named named = named_games(list, game_detection_file(process.path)); named.more(); ++named.at)
         if (game_executables_match(detectable_list_game(list, named.at->game).executables, process, nullptr))
             return true;
     return false;
@@ -267,7 +268,7 @@ bool game_detection_normalize(Utf8View path, char* output, u8* bytes) noexcept {
     return true;
 }
 u32 game_detection_display_name(Utf8View path, Slice<char> output) noexcept {
-    const Utf8View file = file_of(path);
+    const Utf8View file = game_detection_file(path);
     if (!file.bytes)
         return 0;
     u32 bytes = file.bytes;
@@ -348,7 +349,7 @@ namespace {
 void note_candidate(Utf8View executables, Utf8View file, GameCandidate* candidate) noexcept {
     Entry entry;
     for (Utf8View rest = executables; next_entry(&rest, &entry);)
-        if (utf8_equal(file_of(entry.name), file)) {
+        if (utf8_equal(game_detection_file(entry.name), file)) {
             candidate->named = true;
             candidate->arguments |= entry.arguments.bytes != 0;
         }
@@ -362,8 +363,9 @@ GameCandidate game_detection_candidate(const RegisteredGames& custom, const Dete
         note_candidate(detectable_list_game(list, named.at->game).executables, file, &candidate);
     note_candidate(kStreamerTools, file, &candidate);
     for (u32 i = 0; i < custom.count && !candidate.named; ++i)
-        candidate.named = (custom.items[i].flags & registered_game_added) &&
-                          utf8_equal(file_of({custom.items[i].executable, custom.items[i].executable_bytes}), file);
+        candidate.named =
+            (custom.items[i].flags & registered_game_added) &&
+            utf8_equal(game_detection_file({custom.items[i].executable, custom.items[i].executable_bytes}), file);
     return candidate;
 }
 u32 game_detection_arguments(const DetectableList& list, Utf8View file, Utf8View command_line,
@@ -373,7 +375,8 @@ u32 game_detection_arguments(const DetectableList& list, Utf8View file, Utf8View
     for (Named named = named_games(list, file); named.more(); ++named.at)
         for (Utf8View rest = detectable_list_game(list, named.at->game).executables; next_entry(&rest, &entry);) {
             const Utf8View argument = entry.arguments;
-            if (argument.bytes && argument.bytes < output.count - used && utf8_equal(file_of(entry.name), file) &&
+            if (argument.bytes && argument.bytes < output.count - used &&
+                utf8_equal(game_detection_file(entry.name), file) &&
                 !contains({output.data, used}, argument) && contains(command_line, argument)) {
                 copy_bytes(output.data + used, argument.data, argument.bytes);
                 used += argument.bytes;

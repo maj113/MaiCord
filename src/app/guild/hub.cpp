@@ -221,35 +221,14 @@ UiStoreNode& leaf(UiStoreBuilder& b, UiStoreKind kind, float size) noexcept {
     n.rw = n.rh = size;
     return n;
 }
-void icon(UiStoreBuilder& b, UiIcon glyph, float size, UiStoreInk ink = UiStoreInk::subtle) noexcept {
-    auto& n = leaf(b, UiStoreKind::icon, size);
-    n.icon = static_cast<u8>(glyph);
-    n.ink = static_cast<u8>(ink);
-}
-// A round picture (an avatar) or a rounded one of `radius`, with its tooltip.
-void picture(UiStoreBuilder& b, u32 slot, float size, u16 radius = 999, Utf8View tip = {}) noexcept {
-    auto& n = b.open(UiStoreKind::preview);
-    n.variant = static_cast<u8>(UiStoreAspect::fixed);
-    n.rw = n.rh = size;
-    n.aux = radius;
-    n.value = slot;
-    n.text2 = tip;
-    b.close();
-}
-UiStoreNode& row(UiStoreBuilder& b, float gap) noexcept {
-    auto& n = b.open(UiStoreKind::row);
-    n.gap = gap;
-    n.flags = ui_store_center;
-    return n;
-}
 // A widget's card and its title row: the glyph, the title (wrapped to the card) and, at the end, a badge (the days
 // left) and its tooltip.
 void card(UiStoreBuilder& b, UiIcon glyph, Utf8View title, Utf8View badge = {}, Utf8View badge_tip = {}) noexcept {
     auto& c = b.open(UiStoreKind::card);
     c.pad_x = c.pad_y = 16;
     c.gap = 12;
-    row(b, 8);
-    icon(b, glyph, 20, UiStoreInk::strong);
+    b.row(8);
+    b.icon(glyph, 20, UiStoreInk::strong);
     b.text(title, UiStoreType::body_bold, UiStoreInk::strong, ui_store_wrap);
     if (badge.bytes) {
         b.spacer(0, 0, true);
@@ -322,7 +301,7 @@ void not_enough(UiStoreBuilder& b, Need need_now, bool games) noexcept {
 // The skeleton of a list still loading: rows of a rank, an avatar and two lines.
 void skeleton(UiStoreBuilder& b) noexcept {
     for (u32 i = 0; i < 5; ++i) {
-        auto& r = row(b, 12);
+        auto& r = b.row(12);
         r.pad_x = 8;
         r.pad_y = 4;
         leaf(b, UiStoreKind::bar, 16);
@@ -417,8 +396,8 @@ inline Utf8View played(const GameRecord* const* games, u32 count, u32 total) noe
 // The value: hours and minutes played, or days or games played over the time played.
 inline void leader_value(UiStoreBuilder& b, const GuildSpaceLeader& leader, u8 stat) noexcept {
     static constexpr UiIcon kStatIcons[]{UiIcon::timer, UiIcon::timer, UiIcon::calendar, UiIcon::controller};
-    row(b, 4);
-    icon(b, kStatIcons[stat <= 3 ? stat : 0], 12);
+    b.row(4);
+    b.icon(kStatIcons[stat <= 3 ? stat : 0], 12);
     b.text(stat == 2   ? plural(leader.value, utf8_literal(" days"))
            : stat == 3 ? plural(leader.value, utf8_literal(" games"))
            : stat == 1 ? duration(leader.value / 60'000, false)
@@ -439,7 +418,7 @@ void leader_row(UiStoreBuilder& b, const GuildSpaceLeader& leader, u32 index, u3
     application_friends_notification_gates(leader.user_id, &gates);
     const bool blocked = (gates & notification_gate_blocked) != 0,
                hidden = blocked || (gates & notification_gate_ignored) != 0;
-    auto& r = row(b, 8);
+    auto& r = b.row(8);
     if (you)
         r.fill = static_cast<u8>(UiStoreFill::selected);
     if (floating) {
@@ -448,7 +427,7 @@ void leader_row(UiStoreBuilder& b, const GuildSpaceLeader& leader, u32 index, u3
     }
     // The identity and the value are each 36 DIPs of content (a 32 DIP avatar beside a name over a line, or two lines)
     // in kRowHeight: 2 DIPs above and below.
-    auto& identity = row(b, 12);
+    auto& identity = b.row(12);
     identity.flags |= ui_store_flex;
     identity.pad_x = 8;
     identity.pad_y = 2;
@@ -463,10 +442,10 @@ void leader_row(UiStoreBuilder& b, const GuildSpaceLeader& leader, u32 index, u3
         auto& plate = b.open(UiStoreKind::row);
         plate.rw = 32;
         plate.flags = ui_store_center | ui_store_justify;
-        icon(b, blocked ? UiIcon::ban : UiIcon::eye_off, 16);
+        b.icon(blocked ? UiIcon::ban : UiIcon::eye_off, 16);
         b.close();
     } else
-        picture(b, add_avatar(leader.user_id), 32);
+        b.picture(add_avatar(leader.user_id), 32);
     b.open(UiStoreKind::column).flags = ui_store_flex;
     Utf8View name{};
     if (hidden)
@@ -514,7 +493,7 @@ void leader_row(UiStoreBuilder& b, const GuildSpaceLeader& leader, u32 index, u3
     b.close();
     const u32 total = maximum<u32>(leader.game_total, leader.game_count);
     const u32 icons = minimum<u32>(known, total > 3 ? 2 : 3);
-    auto& cluster = row(b, 4);
+    auto& cluster = b.row(4);
     cluster.rw = 3 * 24 + 2 * 4 + 8;
     cluster.pad_x = 4;
     cluster.pad_y = 8;
@@ -524,7 +503,7 @@ void leader_row(UiStoreBuilder& b, const GuildSpaceLeader& leader, u32 index, u3
         cluster.text = utf8_literal("View recent activity");
     }
     for (u32 i = 0; i < icons; ++i)
-        picture(b, add_game(games[i], false, 24), 24, 6);
+        b.picture(add_game(games[i], false, 24), 24, 6);
     if (total > icons)
         b.text(more(total - icons), UiStoreType::small_bold, UiStoreInk::subtle);
     b.close();
@@ -538,13 +517,13 @@ void unranked(UiStoreBuilder& b, Need need_now) noexcept {
     const u64 self = g_app.account_ui->chat_state.self_user_id;
     const bool hidden = invisible();
     note_person(self);
-    auto& r = row(b, 12);
+    auto& r = b.row(12);
     r.fill = static_cast<u8>(UiStoreFill::selected);
     r.pad_x = 8;
     r.pad_y = 8;
     r.text = utf8_literal("Unranked");
     b.text("?", UiStoreType::label_bold, UiStoreInk::subtle, ui_store_center).rw = 24;
-    picture(b, add_avatar(self), 32);
+    b.picture(add_avatar(self), 32);
     b.open(UiStoreKind::column).flags = ui_store_flex;
     member_name(b, self, false);
     Utf8View body = utf8_literal("Play some games to join the leaderboard! Progress will be shown starting tomorrow.");
@@ -560,9 +539,9 @@ void unranked(UiStoreBuilder& b, Need need_now) noexcept {
                                  : utf8_literal("Activity Sharing is on. We\xE2\x80\x99re counting your activity now "
                                                 "and you\xE2\x80\x99ll show up on the leaderboard tomorrow.");
     }
-    row(b, 4);
+    b.row(4);
     if (counted)
-        icon(b, UiIcon::circle_check, 12, UiStoreInk::positive);
+        b.icon(UiIcon::circle_check, 12, UiStoreInk::positive);
     b.text(body, UiStoreType::small, UiStoreInk::subtle, ui_store_wrap | ui_store_flex);
     b.close();
     b.close();
@@ -659,14 +638,14 @@ void leaderboard(UiStoreBuilder& b, const GuildSpaceData& data, Need need_now) n
     if (own == ~0u)
         unranked(b, need_now);
     b.leaf(UiStoreKind::rule);
-    auto& foot = row(b, 6);
+    auto& foot = b.row(6);
     if (data.computed_ms) {
         const u32 start = bank.used;
         bank.add("Last updated ");
         when(data.computed_ms / 1000, true);
         foot.text2 = bank.since(start);
     }
-    icon(b, UiIcon::refresh, 16);
+    b.icon(UiIcon::refresh, 16);
     b.text("Standings update daily", UiStoreType::small, UiStoreInk::subtle);
     b.close();
     b.close();
@@ -686,7 +665,7 @@ void popular_games(UiStoreBuilder& b, const GuildSpaceWidget& widget, const Guil
     // The covers in one row of the card, each over its name and its players; a cover opens the game's profile.
     const auto covers = guild_hub_covers(width);
     const float cell = covers.cell;
-    row(b, 12).flags = 0;
+    b.row(12).flags = 0;
     for (u32 i = 0; i < data.game_count && i < covers.count; ++i) {
         const auto& game = data.games[i];
         const auto* record = known_game(game.id);
@@ -709,13 +688,13 @@ void popular_games(UiStoreBuilder& b, const GuildSpaceWidget& widget, const Guil
         cover.value = add_game(record, true, static_cast<u32>(cell));
         b.close();
         b.text(name, UiStoreType::small_bold, UiStoreInk::strong);
-        auto& players = row(b, 4);
+        auto& players = b.row(4);
         const u32 start = bank.used;
         plural(game.players, utf8_literal(" members"));
         bank.add(" played ");
         bank.add(name);
         players.text2 = bank.since(start);
-        icon(b, UiIcon::user, 14);
+        b.icon(UiIcon::user, 14);
         b.text(bank.number(game.players), UiStoreType::small, UiStoreInk::subtle);
         b.close();
         b.close();
@@ -733,7 +712,7 @@ void popular_games(UiStoreBuilder& b, const GuildSpaceWidget& widget, const Guil
     // naming its member, then how many more.
     const u32 faces = width < 480 ? 2 : kGuildSpacePlayers;
     b.leaf(UiStoreKind::rule);
-    row(b, 8);
+    b.row(8);
     const u32 start = bank.used;
     plural(data.total_users, utf8_literal(" members"));
     bank.add(" played ");
@@ -744,7 +723,7 @@ void popular_games(UiStoreBuilder& b, const GuildSpaceWidget& widget, const Guil
     for (u32 i = 0; i < data.player_count && avatars < faces; ++i)
         if (const u32 slot = add_avatar(data.players[i])) {
             note_person(data.players[i]);
-            picture(b, slot, 24, 999, display_name(data.players[i]));
+            b.picture(slot, 24).text2 = display_name(data.players[i]);
             ++avatars;
         }
     if (data.total_users > avatars)
@@ -783,7 +762,7 @@ void header(UiStoreBuilder& b) noexcept {
         banner.group = brand ? p.brand_rgb : tinted ? ui_guild_card_desaturate(p.icon_rgb, p.saturation) : 1u << 24;
     }
     constexpr auto ink = UiStoreInk::on_scrim;
-    row(b, 10).anchor = static_cast<u8>(UiStoreAnchor::bottom_left);
+    b.row(10).anchor = static_cast<u8>(UiStoreAnchor::bottom_left);
     const Utf8View name = guild ? p.bank.add(chat_state_store_guild_name(ui.chat_state, *guild)) : Utf8View{};
     // The server's icon (the official client's large guild icon, 50 DIPs), or its initials on the plate as in the
     // server list. The icon, the dots and the boost glyph are foreground: they draw over the banner's scrim.
@@ -802,7 +781,7 @@ void header(UiStoreBuilder& b) noexcept {
     b.close();
     b.open(UiStoreKind::column).gap = 4;
     b.text(name, UiStoreType::heading, ink);
-    row(b, 4);
+    b.row(4);
     // The counts in the official client's small bold type, 12 DIPs apart.
     const auto dot = [&](u8 variant, Utf8View text) noexcept {
         auto& mark = leaf(b, UiStoreKind::swatch, 8);
@@ -814,7 +793,7 @@ void header(UiStoreBuilder& b) noexcept {
     if (online_known)
         dot(5, plural(online, utf8_literal(" Online")));
     dot(6, plural(members, utf8_literal(" Members")));
-    icon(b, UiIcon::boost, 12, ink);
+    b.icon(UiIcon::boost, 12, ink);
     b.node().flags = ui_store_foreground;
     b.text(plural(details ? details->premium_subscription_count : 0, utf8_literal(" Boosts")), UiStoreType::eyebrow,
            ink);
@@ -1008,20 +987,19 @@ bool sharing_project() noexcept {
     u32 n = 0;
     d.state = state_key(d.guild_id);
     d.content.footer = nullptr;
+    // The dialog's rows: switches, and the confirmation's notice.
+    const auto row = [&](u64 id, Utf8View label, Utf8View description, bool enabled, bool checked,
+                         UiSettingsControlKind kind = UiSettingsControlKind::toggle) noexcept -> UiSettingsControl& {
+        auto& control = d.controls[n++];
+        control = {id, label, description, kind, enabled, checked, {}, 0, {}, nullptr};
+        return control;
+    };
     if (d.confirm) {
         d.content.description = {};
-        d.controls[n++] = {control_confirm,
-                           utf8_literal("Turn off personalization?"),
-                           utf8_literal("By turning this off you lose access to things like personalized "
-                                        "recommendations and suggestions. You won't be able to recover them in the "
-                                        "future!"),
-                           UiSettingsControlKind::notice,
-                           true,
-                           false,
-                           {},
-                           0,
-                           {},
-                           nullptr};
+        row(control_confirm, utf8_literal("Turn off personalization?"),
+            utf8_literal("By turning this off you lose access to things like personalized recommendations and "
+                         "suggestions. You won't be able to recover them in the future!"),
+            true, false, UiSettingsControlKind::notice);
         d.footer = {{}, utf8_literal("Yes, I'm sure"), utf8_literal("No, take me back!"), true, !consent_busy,
                     consent_busy, false};
         d.content.footer = &d.footer;
@@ -1032,44 +1010,21 @@ bool sharing_project() noexcept {
                     : utf8_literal("Enable settings to contribute to the leaderboard. These can be changed at any "
                                    "time in Settings.");
         if (d.need != Need::personalization) {
-            auto& share = d.controls[n++];
-            share = {control_share,
-                     utf8_literal("Share my activity"),
-                     utf8_literal("Share activity information from games and connected apps I use, including when "
-                                  "and how I engage."),
-                     UiSettingsControlKind::toggle,
-                     true,
-                     false,
-                     {},
-                     0,
-                     {},
-                     nullptr};
+            auto& share = row(control_share, utf8_literal("Share my activity"),
+                              utf8_literal("Share activity information from games and connected apps I use, including "
+                                           "when and how I engage."),
+                              true, false);
             application_activity_settings_project(SettingBinding::share_activity, &share);
             const bool restricted =
                 application_user_settings_guild_restricted(GuildPrivacyList::activity_status, d.guild_id);
-            d.controls[n++] = {control_guild,
-                               utf8_literal("Share my activity with this server"),
-                               {d.guild_name, d.guild_name_bytes},
-                               UiSettingsControlKind::toggle,
-                               share.checked && share.enabled,
-                               share.checked && !restricted,
-                               {},
-                               0,
-                               {},
-                               nullptr};
+            row(control_guild, utf8_literal("Share my activity with this server"), {d.guild_name, d.guild_name_bytes},
+                share.checked && share.enabled, share.checked && !restricted);
         }
         if (d.need != Need::sharing)
-            d.controls[n++] = {control_consent,
-                               utf8_literal("Use data to personalize my Discord experience"),
-                               utf8_literal("Allows Discord to use information, such as who you talk to and what "
-                                            "games you play, to personalize Discord for you."),
-                               UiSettingsControlKind::toggle,
-                               consent != 0 && !consent_busy,
-                               consent == 1,
-                               {},
-                               0,
-                               {},
-                               nullptr};
+            row(control_consent, utf8_literal("Use data to personalize my Discord experience"),
+                utf8_literal("Allows Discord to use information, such as who you talk to and what games you play, to "
+                             "personalize Discord for you."),
+                consent != 0 && !consent_busy, consent == 1);
     }
     d.content.controls = {d.controls, n};
     ++d.content.revision;

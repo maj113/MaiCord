@@ -1,4 +1,4 @@
-#include "internal.hpp"
+#include "page_common.hpp"
 #include "maicord/os/text.hpp"
 #include "../../media/file_over_limit.hpp"
 #include "../../account/application_account_module.hpp"
@@ -10,7 +10,6 @@
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/core/scratch_pages.hpp"
-#include "maicord/core/name_list.hpp"
 #include "maicord/model/guild/community_settings.hpp"
 #include "maicord/app/account/account_profile_edit.hpp"
 #include "../../account/account_access.hpp"
@@ -272,14 +271,15 @@ Utf8View editor_text(Editor index) noexcept {
 
 namespace {
 
-// Reserves the next control slot with its presentation, or ~0u when the page is full.
+// Reserves the next control slot with its presentation; a full page gets the spare slot (Settings::controls).
 inline u32 claim_control(UiSettingsControlPresentation presentation) noexcept {
-    if (owner->control_count >= kControlCapacity)
-        return ~0u;
-    owner->presentation[owner->control_count] = presentation;
-    reset_value(&owner->avatar_media[owner->control_count]);
-    reset_value(&owner->list_items[owner->control_count]);
-    return owner->control_count++;
+    const u32 index = owner->control_count;
+    if (index < kControlCapacity)
+        ++owner->control_count;
+    owner->presentation[index] = presentation;
+    reset_value(&owner->avatar_media[index]);
+    reset_value(&owner->list_items[index]);
+    return index;
 }
 // The next `count` views of this projection's choice pool, or null when it is full.
 Utf8View* claim_choices(u32 count) noexcept {
@@ -315,8 +315,6 @@ void popup_row(u32 index, Text label, u32 action, u32 flags) noexcept {
 u32 push_row(u64 id, Text label, Text description, UiSettingsControlKind kind, bool enabled, bool checked, Text action,
              UiSettingsControlPresentation presentation) noexcept {
     const u32 index = claim_control(presentation);
-    if (index == ~0u)
-        return index;
     auto& control = owner->controls[index];
     control.id = id;
     store_text(&control.label, label);
@@ -341,25 +339,16 @@ u32 push_choices(u64 id, Text label, Text description, UiSettingsControlKind kin
                  const ConstSlice<Utf8View>& choices, u32 selected, Text action,
                  UiSettingsControlPresentation presentation) noexcept {
     const u32 index = push_row(id, label, description, kind, enabled, false, action, presentation);
-    if (index != ~0u) {
-        owner->controls[index].choices = choices;
-        owner->controls[index].selected_choice = selected;
-    }
+    owner->controls[index].choices = choices;
+    owner->controls[index].selected_choice = selected;
     return index;
 }
 u32 push_names(u64 id, Text label, Text description, UiSettingsControlKind kind, bool enabled, const char* names,
                u32 shown, u32 selected, UiSettingsControlPresentation presentation) noexcept {
     const u32 row = push_row(id, label, description, kind, enabled, false, {}, presentation);
-    Utf8View* views = row != ~0u ? claim_choices(shown) : nullptr;
-    if (views) {
-        NameList list{names};
-        for (u32 i = 0; i < shown; ++i) {
-            if (i)
-                list.next();
-            views[i] = list.name();
-        }
-        const u32 count = shown;
-        owner->controls[row].choices = {views, count};
+    if (Utf8View* views = claim_choices(shown)) {
+        name_list_views(views, names, shown);
+        owner->controls[row].choices = {views, shown};
         owner->controls[row].selected_choice = selected;
     }
     return row;
@@ -370,8 +359,7 @@ u32 push_buttons(u64 id, Text label, Text description, bool enabled, const char*
 }
 u32 push_choice(u64 id, Text label, Text description, bool enabled, Text current) noexcept {
     const u32 row = push_row(id, label, description, UiSettingsControlKind::choice, enabled);
-    Utf8View* view = row != ~0u ? claim_choices(1) : nullptr;
-    if (view) {
+    if (Utf8View* view = claim_choices(1)) {
         *view = text_view(current);
         owner->controls[row].choices = {view, 1};
     }
@@ -381,8 +369,7 @@ u32 push_editor(u64 id, Text label, Text description, UiSettingsControlKind kind
                 Text placeholder, Text action) noexcept {
     const UiSettingsEditor* view = Editors::view(index, id, text_view(placeholder), enabled);
     const u32 row = push_row(id, label, description, kind, enabled, false, action);
-    if (row != ~0u)
-        owner->controls[row].editor = view;
+    owner->controls[row].editor = view;
     return row;
 }
 u32 push_category(u64 id, Text label, Text description) noexcept {
@@ -1053,42 +1040,20 @@ void open_channel_menu(Menu menu, u32 types, u64 current, Text none, PermissionS
     }
     const auto& s = state();
     const u32 first = count;
-    // The channels go to the sort rows with their records; the sorted rows fill the menu after them.
-    using Row = Settings::PopupRow;
-    auto& rows = p.popup_rows;
-    const u32 slots = chat_state_store_channel_slot_bound(s);
-    for (u32 i = 0; i < slots && count < kPopupCapacity; ++i) {
-        const auto& channel = s.channels[i];
-        if (!channel.occupied || channel.guild_id != p.guild_id || channel.type >= 32 ||
-            !(types & (1u << channel.type)))
-            continue;
-        // Channels the account cannot reach stay out unless already chosen.
-        if (channel.id != current && channel.permissions_resolved &&
-            (channel.effective_permissions & required) != required)
-            continue;
+    // The invite picker lists text-like channels before voice; the others follow the channel list.
+    const u32 listed = sorted_channels(
+        types, kPopupCapacity - first,
+        menu == Menu::widget_channel ? GuildChannelPickerOrder::invite : GuildChannelPickerOrder::channel_list,
+        required, current);
+    for (u32 i = 0; i < listed; ++i, ++count) {
+        const auto& channel = *p.popup_rows[i].channel;
         const u32 start = bank.used;
         if (channel.type != 2 && channel.type != 13)
             bank.add("#");
         bank.add(chat_state_store_channel_name(s, channel));
-        auto& row = rows[count++ - first];
-        popup_item_set(&row.item, bank.since(start), kMenuChoiceBase,
-                       static_cast<u16>(popup_item_enabled | (channel.id == current ? popup_item_checked : 0)));
-        row.channel = &channel;
-    }
-    // The invite picker lists text-like channels before voice; the others
-    // follow the channel list.
-    const auto order =
-        menu == Menu::widget_channel ? GuildChannelPickerOrder::invite : GuildChannelPickerOrder::channel_list;
-    heap_sort_shared(rows, count - first, [&s, order](const Row& a, const Row& b) noexcept {
-        return guild_settings_channel_before(s, order, *a.channel, *b.channel);
-    });
-    for (u32 i = first; i < count; ++i) {
-        const auto& row = rows[i - first];
-        p.popup_items[i] = row.item;
-        p.popup_items[i].action = kMenuChoiceBase + i;
-        p.popup_items[i].flags =
-            static_cast<u16>(row.item.flags | (first && i == first ? popup_item_separator_before : 0));
-        p.menu_channel[i] = row.channel->id;
+        popup_row(count, bank.since(start), count,
+                  (channel.id == current ? popup_item_checked : 0) | (first && !i ? popup_item_separator_before : 0));
+        p.menu_channel[count] = channel.id;
     }
     open_popup(menu, p.guild_id, count, anchor, 280);
 }
@@ -1162,7 +1127,7 @@ void choose(SettingsLayer*, u32 action) noexcept {
     p.menu = Menu::none;
     if (!action || !editable() || !ops().choose)
         return;
-    ops().choose(menu, action);
+    ops().choose(menu, action - kMenuChoiceBase);
 }
 
 bool edited(SettingsLayer*, u64 control) noexcept {
@@ -1424,7 +1389,8 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     clear_status();
     p.menu = Menu::none;
     p.engagement_base = p.engagement_draft = {};
-    p.engagement_conflict = p.engagement_echo = p.engagement_guild_sent = false;
+    p.engagement_conflict = p.engagement_guild_sent = false;
+    p.engagement_echo_until = 0;
     p.widget_requested = p.widget_loaded = p.widget_failed = p.profile_requested = false;
     p.profile_loaded = false;
     p.top_games_requested = p.top_games_failed = p.has_icon_color = false;
@@ -1441,7 +1407,7 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     p.pick = Pick::none;
     p.sticker_count = 0;
     p.stickers_requested = p.stickers_loaded = false;
-    p.safety_echo = false;
+    p.safety_echo_until = 0;
     reset_value(&p.form_status);
     next_form = next_form_item = 0;
     guild_ban_store_reset(&p.bans, guild_id);

@@ -160,8 +160,6 @@ void access_sync_description(GuildCommunityOverview* overview) noexcept {
 }
 
 void access_choose_locale(GuildCommunityOverview* overview, u32 index) noexcept {
-    if (index >= kGuildLocaleCount)
-        return;
     const auto code = guild_locale(index).code;
     copy_bytes(overview->locale, code.data, code.bytes);
     overview->locale_bytes = static_cast<u8>(code.bytes);
