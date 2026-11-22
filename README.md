@@ -43,7 +43,7 @@ No Electron, no browser engine: one ~6.5 MB program on Windows and on Linux.
 | | Windows | Linux |
 | --- | --- | --- |
 | Download | 5.4 MB zip, portable | 5.4 MB tarball or 6.0 MB AppImage |
-| Executable | one 6.43 MB EXE | one 6.47 MB program |
+| Executable | one 6.33 MB EXE | one 6.36 MB program |
 | On disk | the EXE plus its profile fonts and license notices, ~9 MB together | the same, ~9 MB together |
 | Dependencies | only DLLs that ship with Windows | the C library, and what a desktop has: OpenSSL, Wayland, EGL and GLES |
 | First frame | ~0.1 s | ~0.6 s (Mesa d3d12) to ~0.9 s (llvmpipe, software) |
@@ -52,7 +52,7 @@ No Electron, no browser engine: one ~6.5 MB program on Windows and on Linux.
 
 Measured on one machine (Ryzen 7 5800X, Radeon RX 9070 XT): a Release build on Windows, and the Linux build in WSL2
 under headless sway, each on a fresh profile at the signed-out screen, with the idle figures over 20 seconds. The
-executable sizes are 0.8.2's, the downloads 0.8.0's, the Linux figures 0.7.0's, and the Windows startup, idle and memory
+executable sizes are 0.8.3's, the downloads 0.8.0's, the Linux figures 0.7.0's, and the Windows startup, idle and memory
 figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
 
 </details>
