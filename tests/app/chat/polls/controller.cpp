@@ -111,9 +111,14 @@ void test_poll_controller(void (*check)(bool,const char*) noexcept) noexcept {
           "poll Unix expiry fences queued vote independently of monotonic scheduling");
     poll_controller_close(&c); p=source(); p.expiry_ms=8; poll_controller_observe(&c,p);
     poll_controller_queue_vote(&c,1,603,7);
-    check(poll_controller_expire(&c,8).error==PollControllerError::expired && !c.pending_ready &&
-              c.refresh_required && !poll_controller_next_wake(c),
-          "poll queued expiry retires pending mutation without a past-due scheduler loop");
+    const auto closing=poll_controller_expire(&c,8);
+    check(closing.ok() && closing.changed && !c.pending_ready && !c.desired_active && !c.refresh_required &&
+              c.vote_phase==PollControllerVotePhase::idle && c.last_error==PollControllerError::none &&
+              c.vote_barrier==PollControllerError::none && !poll_controller_next_wake(c) &&
+              poll_controller_closed(c.snapshot,8) && !poll_controller_closed(c.snapshot,7),
+          "poll expiry closes quietly: the queued vote goes, with no error, barrier, refresh or wake");
+    check(poll_controller_queue_vote(&c,1,604,8).error==PollControllerError::expired && !c.pending_ready,
+          "poll closed by expiry refuses a vote as the single submit gate");
     poll_controller_close(&c); p=source(); poll_controller_observe(&c,p);
     poll_controller_queue_vote(&c,1,604,8); poll_controller_prepare(c,604,8,&command);
     poll_controller_admit(&c,command,89,604,8,&ticket);

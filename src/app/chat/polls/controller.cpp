@@ -44,8 +44,8 @@ PollControllerError vote_allowed(const PollController& c,u16 mask,u64 unix_now) 
     if (!c.source_active || !snapshot_valid(p) || !unix_now) return PollControllerError::invalid_input;
     if (c.vote_barrier!=PollControllerError::none) return c.vote_barrier;
     if (!p.can_vote || !p.can_inspect) return PollControllerError::forbidden;
-    if (p.finalized) return PollControllerError::finalized;
-    if (p.expiry_ms && unix_now>=p.expiry_ms) return PollControllerError::expired;
+    if (poll_controller_closed(p,unix_now))
+        return p.finalized ? PollControllerError::finalized : PollControllerError::expired;
     if ((mask>>p.answer_count) || (!p.multiple && mask && (mask&(mask-1))) ||
         (!mask && (!p.mine_known || !p.mine_mask)) ||
         (mask && p.mine_known && p.mine_mask && mask!=p.mine_mask &&
@@ -71,6 +71,9 @@ void retire_source(PollController& c) noexcept {
     c.vote_barrier=PollControllerError::none;
     c.after_user_id=0; c.voter_answer_id=0; c.voters_more=false; c.voters_failed=false;
 }
+}
+bool poll_controller_closed(const PollControllerSnapshot& p,u64 unix_now) noexcept {
+    return p.finalized || (p.expiry_ms && unix_now>=p.expiry_ms);
 }
 bool poll_controller_source_equal(const PollControllerSource& a,const PollControllerSource& b) noexcept {
     return actor_equal(a.actor,b.actor) && a.channel_id==b.channel_id && a.message_id==b.message_id &&
@@ -125,18 +128,18 @@ PollControllerResult poll_controller_observe(PollController* c,const PollControl
     }
     return result(*c,PollControllerError::none,true);
 }
+// Closing ends any local vote work quietly: the card shows the results, and the Gateway's MESSAGE_UPDATE brings
+// the final tally. No error, barrier or refresh is set.
 PollControllerResult poll_controller_expire(PollController* c,u64 unix_now) noexcept {
-    if (!unix_now) return {PollControllerError::invalid_input};
-    if (!c->source_active || !c->snapshot.expiry_ms || unix_now<c->snapshot.expiry_ms)
-        return result(*c);
-    const bool changed=c->vote_barrier!=PollControllerError::expired;
-    if (c->pending_ready && c->pending.kind==PollControllerWorkKind::vote) drop_pending(*c);
-    if (c->flight.active && c->flight.command.kind==PollControllerWorkKind::vote)
-        c->flight.retired=true;
-    c->desired_active=false; c->vote_phase=PollControllerVotePhase::failed;
-    c->vote_barrier=PollControllerError::expired;
-    if (changed && c->snapshot.can_inspect && !c->snapshot.finalized) c->refresh_required=true;
-    return result(*c,PollControllerError::expired,changed);
+    if (!c->source_active || !poll_controller_closed(c->snapshot,unix_now)) return result(*c);
+    const bool vote_pending=c->pending_ready && c->pending.kind==PollControllerWorkKind::vote;
+    const bool vote_flight=c->flight.active && !c->flight.retired &&
+                           c->flight.command.kind==PollControllerWorkKind::vote;
+    const bool changed=vote_pending || vote_flight || c->desired_active;
+    if (vote_pending) drop_pending(*c);
+    if (vote_flight) c->flight.retired=true;
+    if (changed) { c->desired_active=false; c->vote_phase=PollControllerVotePhase::idle; }
+    return result(*c,PollControllerError::none,changed);
 }
 PollControllerResult poll_controller_queue_vote(PollController* c,u16 mask,u64 now,u64 unix_now) noexcept {
     if (!now) return {PollControllerError::invalid_input};

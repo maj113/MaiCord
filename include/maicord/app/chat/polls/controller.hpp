@@ -33,6 +33,9 @@ struct PollControllerSnapshot {
     u8 answer_count;
     bool mine_known, multiple, finalized, can_vote, can_inspect;
 };
+// Closed: finalized, or past a known expiry. The controller refuses votes for a closed poll and the card shows
+// results only (no vote, Retry or error); both read this one rule.
+bool poll_controller_closed(const PollControllerSnapshot&, u64 unix_now_ms) noexcept;
 enum class PollControllerWorkKind : u8 { none, vote, voters, refresh };
 enum class PollControllerVotePhase : u8 { idle, queued, sending, awaiting_authority, uncertain, failed };
 enum class PollControllerError : u8 {

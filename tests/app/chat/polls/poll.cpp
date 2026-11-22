@@ -310,7 +310,7 @@ bool converge() noexcept {
 struct PollShape {
     u64 channel = 70;
     u32 answers = 2;
-    bool long_text = false, multiple = false, layout = true, results = true;
+    bool long_text = false, multiple = false, layout = true, results = true, finalized = false;
     u8 expiry = 1; // 0 omitted, 1 at 10 s, 2 null
 };
 bool seed_shape(const PollShape& shape, bool history = false) noexcept {
@@ -348,6 +348,7 @@ bool seed_shape(const PollShape& shape, bool history = false) noexcept {
     p.layout_type = 1;
     p.allow_multiselect = shape.multiple;
     p.results_known = shape.results;
+    p.is_finalized = shape.finalized;
     p.present = true;
     if (history) {
         const MessagePollPageInput input{900, shape.channel, &p, 0, nullptr};
@@ -496,17 +497,46 @@ void scene_cases() noexcept {
               (click({UiPollControl::retry}), owner && owner->card.active) && application_poll_submit(330, now) &&
               submitted.operation == PollOperation::refresh,
           "poll unknown results: Retry opens the card and reads the message before voting");
-    // Ended: the first click reads the final tally, then answers open the voters.
+    // Ended by its expiry: answers open the voters at once; no vote, refresh, Retry or error.
     reset();
     message_store_upsert(&g_app.message_view.store, {900, 70, 3, 100, 0, utf8_literal("")});
     unix_now = 20000;
+    u32 sent = submissions;
     check(open_scene() && converge() && ui_rect_has_area(target({UiPollControl::answer, 42})) &&
               !ui_rect_has_area(target({UiPollControl::vote})) &&
+              !ui_rect_has_area(target({UiPollControl::retry})) &&
               (click({UiPollControl::answer, 42}), application_poll_submit(340, now)) &&
-              submitted.operation == PollOperation::refresh && receipt(340, 200, snapshot_body()) && converge() &&
-              click({UiPollControl::answer, 42}) && application_poll_submit(341, now) &&
-              submitted.operation == PollOperation::voters && submitted.answer_id == 42,
-          "poll ended: a closed poll offers no vote and its answers open the voters");
+              submitted.operation == PollOperation::voters && submitted.answer_id == 42 &&
+              submissions == sent + 1 &&
+              !action(UiPollActionKind::vote) && state(&value) && ui_poll_closed(value) && !value.can_vote &&
+              !value.can_retry && !value.error && !value.status.bytes,
+          "poll ended: an expired poll sends no vote or refresh, shows no error or Retry, and opens the voters");
+    // Finalized before its expiry: the same results-only card.
+    reset();
+    shape = {};
+    shape.finalized = true;
+    sent = submissions;
+    check(seed_shape(shape) && converge() && !ui_rect_has_area(target({UiPollControl::vote})) &&
+              !ui_rect_has_area(target({UiPollControl::retry})) &&
+              (click(answer(0)), application_poll_submit(342, now)) &&
+              submitted.operation == PollOperation::voters && submissions == sent + 1 &&
+              !action(UiPollActionKind::vote) && converge() && state(&value) && ui_poll_closed(value) &&
+              !value.can_vote && !value.can_retry && !value.error && !value.status.bytes,
+          "poll finalized: answers are not votable and activating one sends no vote");
+    // Open on screen, then its expiry passes: one wake at the expiry closes the card without input.
+    reset();
+    shape = {};
+    check(seed_shape(shape) && click(answer(0)) && owner && owner->card.active &&
+              application_poll_next_wake() == now + 9000,
+          "poll expiry: an open poll on screen schedules one wake at its expiry");
+    sent = submissions;
+    now += 9000;
+    unix_now = 10000;
+    check(converge() && state(&value) && ui_poll_closed(value) && !value.can_vote && !value.can_retry &&
+              !value.error && !value.status.bytes && !ui_rect_has_area(target({UiPollControl::vote})) &&
+              !ui_rect_has_area(target({UiPollControl::retry})) && !application_poll_pending(now) &&
+              submissions == sent && !application_poll_next_wake(),
+          "poll expiry: at its expiry the shown poll closes, sends nothing and needs no further wake");
     unix_now = 1000;
     application_poll_release();
     message_scene_release(&g_app.message_scene);
@@ -685,9 +715,11 @@ void run() noexcept {
     action(UiPollActionKind::toggle_answer, 7);
     action(UiPollActionKind::vote);
     unix_now = 10000;
+    const u32 queued_submissions = submissions;
     application_poll_synchronize();
-    check(application_poll_submit(130, now) && submitted.operation == PollOperation::refresh,
-          "poll app: closed poll may read final authority without sending the expired mutation");
+    check(!application_poll_submit(130, now) && submissions == queued_submissions && state(&value) &&
+              !value.loading && !value.error && !value.can_retry,
+          "poll app: a vote still queued when the poll closes is dropped quietly and never sent");
     reset();
     state(&value, &source);
     blocked = true;

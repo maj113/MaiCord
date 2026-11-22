@@ -432,21 +432,23 @@ bool project_state(const ApplicationPollSource& source, const MessagePollRecord&
     state.multiselect = p.allow_multiselect;
     state.results_known = p.results_known;
     state.results = selected ? owner->results : p.is_finalized || (s.mine_known && s.mine_mask);
-    state.status = selected ? owner->status : Utf8View{};
+    // A closed poll shows its results only: no vote, Retry, status or error.
+    const bool closed = poll_controller_closed(s, now);
+    state.status = selected && !closed ? owner->status : Utf8View{};
     state.supported = p.layout_type == 1;
     state.can_view_results = state.supported;
     const bool working = selected && (owner->controller.pending_ready || owner->controller.flight.active ||
                                       owner->controller.desired_active);
     state.loading = working;
-    state.error = selected && owner->controller.last_error != PollControllerError::none;
+    state.error = selected && !closed && owner->controller.last_error != PollControllerError::none;
     const bool barrier = selected && (owner->controller.vote_barrier != PollControllerError::none ||
                                       needs_reconcile(source.source.message_id));
-    state.can_vote = s.can_vote && !s.finalized && s.mine_known && !s.mine_mask && !working && !barrier;
-    state.can_remove_vote =
-        s.can_vote && !s.finalized && s.mine_known && s.mine_mask && !working && !barrier;
+    const bool votable = s.can_vote && !closed && s.mine_known && !working && !barrier;
+    state.can_vote = votable && !s.mine_mask;
+    state.can_remove_vote = votable && s.mine_mask;
     // The official client has no retry control: a failed vote reports and the poll stays
-    // votable. Only unknown results or an uncertain write offer a reload.
-    state.can_retry = state.supported && connected() && !working && (!p.results_known || barrier);
+    // votable. Only unknown results or an uncertain write offer a reload, and never once closed.
+    state.can_retry = state.supported && connected() && !working && !closed && (!p.results_known || barrier);
     state.total_votes_known = p.results_known;
     // The official client applies the vote optimistically before its PUT: the
     // pending vote already shows its counts, own marks and the results view.

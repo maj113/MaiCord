@@ -61,13 +61,13 @@ bool own_vote(const UiPollState& state) noexcept {
             return true;
     return false;
 }
-// The primary action, first match: none when closed; "Remove Vote" once
-// voted; "Go back to vote" while results are shown without a vote; "Vote".
+// The primary action, first match: none when closed (results only, no Retry); Retry;
+// "Remove Vote" once voted; "Go back to vote" while results are shown without a vote; "Vote".
 UiPollControl primary(const UiPollState& state) noexcept {
-    if (state.can_retry)
-        return UiPollControl::retry;
     if (!state.supported || ui_poll_closed(state))
         return UiPollControl::none;
+    if (state.can_retry)
+        return UiPollControl::retry;
     if (own_vote(state))
         return state.can_remove_vote ? UiPollControl::remove_vote : UiPollControl::none;
     if (state.results)
@@ -444,7 +444,7 @@ bool project_measured(const UiPollState& state, UiPoint origin, const UiPollLayo
     projection.vote_enabled = mutable_poll && state.can_vote && selected_count(state);
     projection.remove_enabled = mutable_poll && state.can_remove_vote && own_vote(state);
     projection.results_enabled = state.can_view_results && !state.loading;
-    projection.retry_enabled = state.can_retry && !state.loading;
+    projection.retry_enabled = state.can_retry && !state.loading && !ui_poll_closed(state);
     labels(projection);
     *out = projection;
     return true;
@@ -578,7 +578,7 @@ bool ui_poll_action_current(const UiPollState& state, const UiPollAction& action
         return ui_poll_counts_visible(state) && state.can_view_voters && !state.loading &&
                find_answer(state, action.answer_id);
     case UiPollActionKind::retry:
-        return state.can_retry && !state.loading;
+        return state.can_retry && !state.loading && !ui_poll_closed(state);
     default:
         return false;
     }
