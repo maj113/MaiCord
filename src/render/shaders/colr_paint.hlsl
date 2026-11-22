@@ -124,7 +124,7 @@ float mask(uint offset,uint indices,uint count,uint fill,float2 p) {
         edge_step(first,p,gutter2,winding,distance2);
         edge_step(second,p,gutter2,winding,distance2);
     }
-    bool inside=fill!=0?winding!=0:((abs(winding)&1)!=0);
+    bool inside=fill!=0?winding!=0:(winding&1)!=0;
     return saturate(.5+(inside?1:-1)*sqrt(distance2)*pixels_per_em);
 }
 float shape_coverage(uint data,uint2 pixel,float2 p) {

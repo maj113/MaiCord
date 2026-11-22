@@ -29,21 +29,9 @@ void accumulate_crossing(float2 sample_position, float2 line_start, float2 line_
     winding += side * delta.y > 0.0f ? int(line_end.y > sample_position.y) - int(line_start.y > sample_position.y) : 0;
 }
 
+// Filled contours and stroked (icon) centrelines take the same squared distance to the segment.
 void accumulate_distance(float2 sample_position, float2 line_start, float2 line_end,
                          inout float minimum_distance_squared) {
-    const float2 delta = line_end - line_start;
-    const float length_squared = dot(delta, delta);
-    const float projection = length_squared > 1.0e-12f
-                                 ? saturate(dot(sample_position - line_start, delta) /
-                                            length_squared)
-                                 : 0.0f;
-    const float2 distance_vector = sample_position - (line_start + delta * projection);
-    minimum_distance_squared = min(minimum_distance_squared, dot(distance_vector, distance_vector));
-}
-
-// Stroked (icon) contours contribute only their centreline distance.
-void accumulate_stroke(float2 sample_position, float2 line_start, float2 line_end,
-                       inout float minimum_distance_squared) {
     const float2 delta = line_end - line_start;
     // A degenerate segment is a dot; the clamp keeps it at line_start.
     const float projection =
@@ -181,7 +169,7 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID, uint3 group_id : SV
                         [loop]
                         for (uint segment = 0; segment < 12; ++segment) {
                             const float2 segment_end = curve_points[segment];
-                            accumulate_stroke(sample_position, segment_start, segment_end, stroke_distance_squared);
+                            accumulate_distance(sample_position, segment_start, segment_end, stroke_distance_squared);
                             segment_start = segment_end;
                         }
                     }
@@ -190,7 +178,7 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID, uint3 group_id : SV
                     accumulate_distance(sample_position, current, end, minimum_distance_squared);
                     accumulate_crossing(sample_position, current, end, winding);
                 } else if (stroking) {
-                    accumulate_stroke(sample_position, current, end, stroke_distance_squared);
+                    accumulate_distance(sample_position, current, end, stroke_distance_squared);
                 }
             } else if (relevant && contour_filled) {
                 accumulate_right(current, end);
@@ -202,7 +190,7 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID, uint3 group_id : SV
         }
     }
 
-    const bool inside = fill_rule == 0 ? ((abs(winding) & 1) != 0) : winding != 0;
+    const bool inside = fill_rule == 0 ? (winding & 1) != 0 : winding != 0;
     // Square root and the positive pixel scale are monotonic, so they apply
     // once to the minimum rather than per segment.
     const float distance = sqrt(minimum_distance_squared) * pixels_per_em;

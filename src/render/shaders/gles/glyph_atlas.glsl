@@ -1,4 +1,4 @@
-// twin: src/render/shaders/glyph_atlas.hlsl ce789813c65895f9
+// twin: src/render/shaders/glyph_atlas.hlsl dd5a3141fe6e50e6
 // glyph_coverage (STAGE_CS): rasterizes glyph and icon outlines into the coverage atlas. Every raster is culled by
 // tile: a work group skips each command that cannot reach any sample of its 8 x 8 tile, and takes only the winding of
 // one that lies right of it. Measured on the UI's own rasters, that pays at every size.
@@ -30,17 +30,8 @@ void accumulate_crossing(vec2 sample_position, vec2 line_start, vec2 line_end, i
     winding += side * delta.y > 0.0 ? int(line_end.y > sample_position.y) - int(line_start.y > sample_position.y) : 0;
 }
 
+// Filled contours and stroked (icon) centrelines take the same squared distance to the segment.
 void accumulate_distance(vec2 sample_position, vec2 line_start, vec2 line_end, inout float minimum_distance_squared) {
-    vec2 delta = line_end - line_start;
-    float length_squared = dot(delta, delta);
-    float projection =
-        length_squared > 1.0e-12 ? clamp(dot(sample_position - line_start, delta) / length_squared, 0.0, 1.0) : 0.0;
-    vec2 distance_vector = sample_position - (line_start + delta * projection);
-    minimum_distance_squared = min(minimum_distance_squared, dot(distance_vector, distance_vector));
-}
-
-// Stroked (icon) contours contribute only their centreline distance.
-void accumulate_stroke(vec2 sample_position, vec2 line_start, vec2 line_end, inout float minimum_distance_squared) {
     vec2 delta = line_end - line_start;
     // A degenerate segment is a dot; the clamp keeps it at line_start.
     float projection = clamp(dot(sample_position - line_start, delta) / max(dot(delta, delta), 1.0e-12), 0.0, 1.0);
@@ -175,7 +166,7 @@ void main() {
                     } else if (stroking) {
                         for (uint segment = 0u; segment < 12u; ++segment) {
                             vec2 segment_end = curve_points[segment];
-                            accumulate_stroke(sample_position, segment_start, segment_end, stroke_distance_squared);
+                            accumulate_distance(sample_position, segment_start, segment_end, stroke_distance_squared);
                             segment_start = segment_end;
                         }
                     }
@@ -184,7 +175,7 @@ void main() {
                     accumulate_distance(sample_position, current, end, minimum_distance_squared);
                     accumulate_crossing(sample_position, current, end, winding);
                 } else if (stroking) {
-                    accumulate_stroke(sample_position, current, end, stroke_distance_squared);
+                    accumulate_distance(sample_position, current, end, stroke_distance_squared);
                 }
             } else if (relevant != 0u && contour_filled) {
                 accumulate_right(current, end);
@@ -196,7 +187,7 @@ void main() {
         }
     }
 
-    bool inside = fill_rule == 0u ? ((abs(winding) & 1) != 0) : winding != 0;
+    bool inside = fill_rule == 0u ? (winding & 1) != 0 : winding != 0;
     // Square root and the positive pixel scale are monotonic, so they apply once to the minimum rather than per
     // segment.
     float dist = sqrt(minimum_distance_squared) * pixels_per_em;

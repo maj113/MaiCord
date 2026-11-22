@@ -3400,15 +3400,13 @@ void test_glyph_raster_bounds() noexcept {
     outline.maximum_x = 0.625f;
     outline.maximum_y = 0.25f;
     GlyphRasterBounds bounds{};
-    expect(glyph_raster_bounds(outline, 16.0f, 1, &bounds) && bounds.left == -3 && bounds.top == -13 &&
+    expect(glyph_raster_bounds(outline, 16.0f, &bounds) && bounds.left == -3 && bounds.top == -13 &&
                bounds.right == 11 && bounds.bottom == 5 && bounds.width == 14 && bounds.height == 18,
            "glyph_raster_bounds_fractional_padding");
-    expect(!glyph_raster_bounds(outline, 0.0f, 1, &bounds) &&
-               !glyph_raster_bounds(outline, 16.0f, 65, &bounds),
-           "glyph_raster_bounds_reject_scale_padding");
+    expect(!glyph_raster_bounds(outline, 0.0f, &bounds), "glyph_raster_bounds_reject_scale");
     outline.minimum_x = 2.0f;
     outline.maximum_x = 1.0f;
-    expect(!glyph_raster_bounds(outline, 16.0f, 1, &bounds), "glyph_raster_bounds_reject_inverted");
+    expect(!glyph_raster_bounds(outline, 16.0f, &bounds), "glyph_raster_bounds_reject_inverted");
 }
 
 // The file of a native run's face and the face's table-directory offset in it.

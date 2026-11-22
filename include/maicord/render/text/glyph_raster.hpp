@@ -13,9 +13,9 @@ struct GlyphRasterBounds {
     u16 height;
 };
 
-bool glyph_raster_bounds(const GlyphOutline& outline, float pixels_per_em, u16 padding,
+// Pixel bounds of the outline at pixels_per_em with one pixel of padding on each side.
+bool glyph_raster_bounds(const GlyphOutline& outline, float pixels_per_em, GlyphRasterBounds* bounds) noexcept;
+bool glyph_raster_bounds(float left, float top, float right, float bottom, float pixels_per_em,
                          GlyphRasterBounds* bounds) noexcept;
-bool glyph_raster_bounds(float left, float top, float right, float bottom,
-                         float pixels_per_em, u16 padding, GlyphRasterBounds* bounds) noexcept;
 
 } // namespace maicord

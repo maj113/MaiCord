@@ -1,4 +1,4 @@
-// twin: src/render/shaders/colr_paint.hlsl 88e4d5ed75a07d31
+// twin: src/render/shaders/colr_paint.hlsl df5d1ca78cd28da1
 // colr_paint (STAGE_CS): the COLRv1 postfix paint evaluator. Results are premultiplied sRGB and retained in an RGBA
 // atlas; no paint-tree work runs when drawing a cached glyph. Variants: COLR_STACK_SIZE (paint stack depth, 8),
 // COLR_LAYERS (the sliced plan evaluator below) with COLR_SLICES threads per pixel (8).
@@ -159,7 +159,7 @@ float mask(uint offset, uint indices, uint count, uint fill, vec2 p) {
         edge_step(first, p, gutter2, winding, distance2);
         edge_step(second, p, gutter2, winding, distance2);
     }
-    bool inside = fill != 0u ? winding != 0 : ((abs(winding) & 1) != 0);
+    bool inside = fill != 0u ? winding != 0 : (winding & 1) != 0;
     return clamp(0.5 + (inside ? 1.0 : -1.0) * sqrt(distance2) * pixels_per_em, 0.0, 1.0);
 }
 float shape_coverage(uint data, uvec2 pixel, vec2 p) {

@@ -1,4 +1,4 @@
-// twin: src/render/shaders/ui.hlsl c2fe826b30362263
+// twin: src/render/shaders/ui.hlsl 16d2875d49a5cd75
 // Rectangles, borders, gradients, lines and icons of the UI pass: ui_vertex (STAGE_VS) and ui_pixel (STAGE_PS).
 
 // xy: offset from the rectangle centre, zw: position in DIPs; parameters: x radius, y kind, zw per kind.
@@ -45,6 +45,12 @@ void main() {
     v_local_dip = vec4(local, position);
     v_params = params;
     v_half = half_size;
+    // An ordinary rectangle's pixel reads no params.zw: they take the radius and the radius less the border width,
+    // and v_half the corner circles' centres (half_size less the radius).
+    if (kind >= 0.0) {
+        v_params.zw = params.x - vec2(0.0, kind);
+        v_half = half_size - params.x;
+    }
 }
 
 #else
@@ -106,11 +112,15 @@ vec4 shade() {
     float kind = v_params.y;
     // A non-negative kind is an ordinary rounded rectangle's border width.
     if (kind >= 0.0) {
-        float dist = rounded_distance(local, half_size, v_params.x);
+        // ui_vertex took the radius off v_half (rounded_distance without its two radius terms).
+        vec2 q = abs(local) - half_size;
+        float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
         // One pixel in DIPs; the distance field's own derivative doubles at a sharp corner. Quads are axis-aligned,
         // so local.x changes along screen x only.
         float inverse_aa = 1.0 / max(abs(dFdx(local.x)), 0.0001);
-        return surface_pixel(v_fill, v_border, dist, kind, inverse_aa, clamp(0.5 - dist * inverse_aa, 0.0, 1.0));
+        // x: the outer edge's coverage, y: the fill's (inside the border).
+        vec2 coverage = clamp(0.5 - (dist - v_params.zw) * inverse_aa, 0.0, 1.0);
+        return v_fill * coverage.y + v_border * (coverage.x - coverage.y);
     }
     if (kind == -3.0)
         return vec4(background_dither(backdrop_gradient(dip), gl_FragCoord.xy) * v_fill.a, v_fill.a);

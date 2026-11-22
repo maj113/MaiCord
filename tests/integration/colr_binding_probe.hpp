@@ -145,7 +145,7 @@ inline bool colr_binding_probe(ID3D11Device* device,ID3D11DeviceContext* context
         ColrPaintElement root{};root.kind=ColrPaintKind::layers;root.paint.layers.childCount=3;
         GlyphRasterBounds bounds{};
         if(!colr_program_build(&built,callbacks,root,{},32)||built.nodes!=5||built.peak_stack!=2||
-           !glyph_raster_bounds(built.bounds.minimum_x,built.bounds.minimum_y,built.bounds.maximum_x,built.bounds.maximum_y,32,1,&bounds)||
+           !glyph_raster_bounds(built.bounds.minimum_x,built.bounds.minimum_y,built.bounds.maximum_x,built.bounds.maximum_y,32,&bounds)||
            bounds.width!=34||bounds.height!=18)return fail(30);
         GlyphAtlasAllocation allocation{};allocation.x=allocation.y=1;allocation.width=bounds.width;allocation.height=bounds.height;
         if(!colr_paint_rasterize(&planned,context,built,bounds,allocation,32,64,64,1)||planned.spatial_jobs!=1||
@@ -179,7 +179,7 @@ inline bool colr_binding_probe(ID3D11Device* device,ID3D11DeviceContext* context
         for(const Stack& s:stacks){
             squares={0,false,true};root.paint.layers.childCount=s.count;
             if(!colr_program_build(&built,callbacks,root,{},s.scale)||built.nodes!=s.count*2-1||
-               !glyph_raster_bounds(built.bounds.minimum_x,built.bounds.minimum_y,built.bounds.maximum_x,built.bounds.maximum_y,s.scale,1,&bounds)||
+               !glyph_raster_bounds(built.bounds.minimum_x,built.bounds.minimum_y,built.bounds.maximum_x,built.bounds.maximum_y,s.scale,&bounds)||
                bounds.width!=s.extent||bounds.height!=s.extent)return fail(36);
             allocation.width=bounds.width;allocation.height=bounds.height;
             if(!colr_paint_rasterize(&stack,context,built,bounds,allocation,s.scale,512,512,1)||stack.spatial_jobs!=1)return fail(37);

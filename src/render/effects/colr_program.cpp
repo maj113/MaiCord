@@ -257,7 +257,7 @@ __declspec(noinline) bool build_mask(Builder& b, u32 glyph, const ColrMatrix& m)
     bounds_point(b.p->bounds, {bounds.maximum_x, bounds.maximum_y});
     GlyphRasterBounds rect{};
     if (!glyph_raster_bounds(bounds.minimum_x, bounds.minimum_y, bounds.maximum_x, bounds.maximum_y,
-                             b.scale, 1, &rect))
+                             b.scale, &rect))
         return false;
     job->left = rect.left;
     job->top = rect.top;

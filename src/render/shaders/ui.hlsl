@@ -74,6 +74,12 @@ VertexOutput ui_vertex(VertexInput input, uint vertex_id : SV_VertexID) {
     output.local_and_dip = float4(local, position);
     output.parameters = input.parameters;
     output.half_size = half_size;
+    // An ordinary rectangle's pixel reads no parameters.zw: they take the distances it subtracts, the radius and the
+    // radius less the border width, and half_size the corner circles' centres (half_size less the radius).
+    if (kind >= 0.0f) {
+        output.parameters.zw = input.parameters.x - float2(0.0f, kind);
+        output.half_size = half_size - input.parameters.x;
+    }
     return output;
 }
 
@@ -123,16 +129,19 @@ float4 ui_pixel(VertexOutput input) : SV_Target0 {
     // A non-negative y is an ordinary rounded rectangle's border width: most
     // of every frame's pixels skip the special kinds (negative y) below.
     if (input.parameters.y >= 0.0f) {
-        // PaintStream already clamps both values to the rectangle's half extent.
-        const float signed_distance = rounded_distance(local, half_size, input.parameters.x);
+        // PaintStream already clamps both values to the rectangle's half extent; ui_vertex took the radius off
+        // half_size (rounded_distance without its two radius terms).
+        const float2 corner_distance = abs(local) - half_size;
+        const float distance =
+            length(max(corner_distance, 0.0f)) + min(max(corner_distance.x, corner_distance.y), 0.0f);
         // The antialiasing width is one pixel in DIPs. The distance field has unit
         // gradient except at a sharp corner's kink, where its own derivative
         // would double and leave the corner pixel partly transparent. Quads are
         // axis-aligned, so local.x changes along screen x only.
         const float inverse_antialias_width = 1.0f / max(abs(ddx(local.x)), 0.0001f);
-        const float outer_coverage = saturate(0.5f - signed_distance * inverse_antialias_width);
-        return surface_pixel(input.fill, input.border, signed_distance, input.parameters.y,
-                             inverse_antialias_width, outer_coverage);
+        // x: the outer edge's coverage, y: the fill's (inside the border).
+        const float2 coverage = saturate(0.5f - (distance - input.parameters.zw) * inverse_antialias_width);
+        return input.fill * coverage.y + input.border * (coverage.x - coverage.y);
     }
     // Every paint producer emits only the kinds tested below (PaintStream and
     // the surface, icon and gradient helpers); the last one, -2, needs no test.

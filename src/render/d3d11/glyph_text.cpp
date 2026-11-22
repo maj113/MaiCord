@@ -566,7 +566,7 @@ bool append_color_glyph_run(D3D11GlyphTextOwner* owner, GpuContext* context,
             }
             const auto& extent = color.program.bounds;
             if (!glyph_raster_bounds(extent.minimum_x, extent.minimum_y, extent.maximum_x, extent.maximum_y,
-                                     pixels_per_em, 1, &bounds))
+                                     pixels_per_em, &bounds))
                 return false;
             if (!colr_paint_attach_surface(&color.gpu, gpu_context_device(context), owner->allocator))
                 return false;
@@ -843,7 +843,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                     }
                     const float shift = pen_offset / pixels_per_em;
                     if (!glyph_raster_bounds(outline.minimum_x + shift, outline.minimum_y, outline.maximum_x + shift,
-                                             outline.maximum_y, pixels_per_em, 1, &bounds)) {
+                                             outline.maximum_y, pixels_per_em, &bounds)) {
                         return append_fail(9);
                     }
                     allocation = allocate_glyph(owner, context, key, bounds.width, bounds.height);

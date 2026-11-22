@@ -89,7 +89,7 @@ bool effect_glyph_grid_build(D3D11Renderer* renderer, GpuSrv** view) noexcept {
                     native_glyph_outline(&outlines, face_id(&faces, run.native_face, &outlines),
                                          shaped.glyphs[run.first_glyph].index, &outline, system.native_fonts,
                                          run.native_face) &&
-                    outline.has_bounds && outline.count && glyph_raster_bounds(outline, kPixelsPerEm, 1, &bounds) &&
+                    glyph_raster_bounds(outline, kPixelsPerEm, &bounds) &&
                     bounds.width + 2u <= kCellExtent && bounds.height + 2u <= kCellExtent) {
                     // Centred across the cell; the baseline holds unless a tall or deep glyph needs to slide.
                     const i32 cell_x = static_cast<i32>(code & 15) * kCellExtent;

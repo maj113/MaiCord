@@ -5,7 +5,7 @@ struct MediaVertexOutput {
     float2 texture_coordinate : TEXCOORD0; // atlas coordinate, already decoded
     float2 local:TEXCOORD1;
     // Values constant over the quad are not interpolated: the half extent and
-    // corner radius of the quad, its opacity, then those of the rounded clip.
+    // corner radius (at most the half extent) of the quad, its opacity, then those of the rounded clip.
     nointerpolation float3 shape:TEXCOORD2;nointerpolation float opacity:COLOR0;
     float2 clip_local:TEXCOORD3;nointerpolation float3 clip_shape:TEXCOORD4;
     // Spoiler blur: standard deviation in layout units; and the atlas the quad
@@ -32,7 +32,7 @@ MediaVertexOutput media_vertex(MediaVertexInput input,uint id:SV_VertexID){
     const float2 first=decode_coordinate(input.texture_rectangle.xy),last=decode_coordinate(input.texture_rectangle.zw);
     output.texture_coordinate=lerp(first,last,uv);output.opacity=input.parameters.x*group_opacity;
     float2 extent=(input.rectangle.zw-input.rectangle.xy)*.5f;output.local=(corner*2-1)*extent;
-    output.shape=float3(extent,input.parameters.y);
+    output.shape=float3(extent,min(input.parameters.y,min(extent.x,extent.y)));
     output.clip_local=position-(input.rounded_clip.xy+input.rounded_clip.zw)*.5f;
     output.clip_shape=float3((input.rounded_clip.zw-input.rounded_clip.xy)*.5f,input.parameters.z);
     output.blur_source=float2(max(input.parameters.w,0.0f),input.texture_rectangle.x<0.0f?1.0f:input.texture_rectangle.y<0.0f?2.0f:0.0f);
@@ -110,9 +110,8 @@ float4 media_pixel(MediaVertexOutput input) : SV_Target0 {
     // skip both rounded-rectangle distances instead of selecting them away.
     float coverage=1.0f;
     [branch] if(input.shape.z>0.0f){
-        float radius=min(input.shape.z,min(input.shape.x,input.shape.y));
-        float2 corner=abs(input.local)-input.shape.xy+radius;
-        float distance=length(max(corner,0))+min(max(corner.x,corner.y),0)-radius;
+        float2 corner=abs(input.local)-input.shape.xy+input.shape.z;
+        float distance=length(max(corner,0))+min(max(corner.x,corner.y),0)-input.shape.z;
         float aa=max(fwidth(distance),.25f);coverage=1-smoothstep(-aa,aa,distance);
     }
     [branch] if(input.clip_shape.z>0){

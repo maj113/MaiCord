@@ -150,6 +150,9 @@ GlyphVertexOutput glyph_vertex(GlyphVertexInput input, uint vertex_id : SV_Verte
     output.texture_coordinate=lerp(uv.xy,uv.zw,corner);
     output.color = input.color;
     output.color.a *= group_opacity;
+    // A plain colour leaves premultiplied; an effect's negative red is its index.
+    if (output.color.r >= 0)
+        output.color.rgb *= output.color.a;
     return output;
 }
 
@@ -188,8 +191,8 @@ float4 glyph_pixel(GlyphVertexOutput input) : SV_Target0 {
         if(input.color.r<0)coverage=glyph_mask(input.texture_coordinate,input.texture_bounds);
         else coverage=glyph_atlas.SampleLevel(glyph_sampler,input.texture_coordinate,0);
     }
-    float3 color=input.color.rgb;
     if(input.color.r<0) {
+        float3 color;
         // Published materials have palette counts in [1,8] and widths >= 1.
         const TextEffectMaterial effect=TEXT_EFFECT(min(127u,(uint)(-input.color.r-1)));
         if(effect.kind==3 && input.texture_bounds.x>=0) {
@@ -260,6 +263,8 @@ float4 glyph_pixel(GlyphVertexOutput input) : SV_Target0 {
                 }
             }
         }
+        return float4(color*input.color.a,input.color.a)*coverage;
     }
-    return float4(color*input.color.a,input.color.a)*coverage;
+    // A plain colour arrives premultiplied.
+    return input.color*coverage;
 }

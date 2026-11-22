@@ -3861,7 +3861,7 @@ bool probe_glyph_atlas_gutters() noexcept {
     for (u32 pass = 0; valid && pass < 3; ++pass) {
         const u32 extent = pass == 2 ? 4 : 8;
         const u16 padding = pass == 0 ? 0 : 1;
-        valid = glyph_raster_bounds(outline, static_cast<float>(extent), 1, &bounds);
+        valid = glyph_raster_bounds(outline, static_cast<float>(extent), &bounds);
         allocation.width = bounds.width;
         allocation.height = bounds.height;
         GlyphRasterBatch batch(&gpu, context);

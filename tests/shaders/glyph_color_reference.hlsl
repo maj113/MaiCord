@@ -205,5 +205,6 @@ float4 glyph_pixel(GlyphVertexOutput input) : SV_Target0 {
             return float4(rgb,alpha)*input.color.a;
         }
     }
-    return float4(color*input.color.a,input.color.a)*coverage;
+    // The shipping vertex shader this one runs after premultiplies a plain colour.
+    return input.color.r<0?float4(color*input.color.a,input.color.a)*coverage:input.color*coverage;
 }

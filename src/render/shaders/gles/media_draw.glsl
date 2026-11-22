@@ -1,11 +1,11 @@
-// twin: src/render/shaders/media_draw.hlsl 075d8f185d1074b8
+// twin: src/render/shaders/media_draw.hlsl ab388088b9798283
 // Media quads: media_vertex (STAGE_VS) and media_pixel (STAGE_PS). The atlases are paged surfaces: here each draw
 // binds the one page its quads sample, and their v is in that page's rows (the renderer splits draws per page).
 
 layout(location = 0) V2F vec2 v_uv; // atlas coordinate, already decoded
 layout(location = 1) V2F vec2 v_local;
-// Values constant over the quad are not interpolated: the half extent and corner radius of the quad, its opacity, then
-// those of the rounded clip.
+// Values constant over the quad are not interpolated: the half extent and corner radius (at most the half extent) of
+// the quad, its opacity, then those of the rounded clip.
 layout(location = 2) flat V2F vec3 v_shape;
 layout(location = 3) flat V2F float v_opacity;
 layout(location = 4) V2F vec2 v_clip_local;
@@ -50,7 +50,7 @@ void main() {
     v_opacity = params.x * group_opacity;
     vec2 extent = (rect.zw - rect.xy) * 0.5;
     v_local = (corner * 2.0 - 1.0) * extent;
-    v_shape = vec3(extent, params.y);
+    v_shape = vec3(extent, min(params.y, min(extent.x, extent.y)));
     v_clip_local = position - (rounded_clip.xy + rounded_clip.zw) * 0.5;
     v_clip_shape = vec3((rounded_clip.zw - rounded_clip.xy) * 0.5, params.z);
     v_blur_source = vec2(max(params.w, 0.0), uv_rect.x < 0.0 ? 1.0 : uv_rect.y < 0.0 ? 2.0 : 0.0);
@@ -117,9 +117,8 @@ void main() {
     // instead of selecting them away.
     float coverage = 1.0;
     if (v_shape.z > 0.0) {
-        float radius = min(v_shape.z, min(v_shape.x, v_shape.y));
-        vec2 corner = abs(v_local) - v_shape.xy + radius;
-        float dist = length(max(corner, 0.0)) + min(max(corner.x, corner.y), 0.0) - radius;
+        vec2 corner = abs(v_local) - v_shape.xy + v_shape.z;
+        float dist = length(max(corner, 0.0)) + min(max(corner.x, corner.y), 0.0) - v_shape.z;
         float aa = max(fwidth(dist), 0.25);
         coverage = 1.0 - smoothstep(-aa, aa, dist);
     }

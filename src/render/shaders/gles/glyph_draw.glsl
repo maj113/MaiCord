@@ -1,4 +1,4 @@
-// twin: src/render/shaders/glyph_draw.hlsl a7a7cc4463699af4
+// twin: src/render/shaders/glyph_draw.hlsl 7324d92f9002c955
 // Text quads and text effects: glyph_vertex (STAGE_VS) and glyph_pixel (STAGE_PS). The atlases are paged surfaces
 // (see media_draw.glsl): each draw binds the page its quads sample, and their v is in that page's rows.
 
@@ -132,7 +132,9 @@ void main() {
     vec2 clip = position * coordinate_scale + coordinate_translation;
     gl_Position = vec4(clip.x, -clip.y, -1.0, 1.0);
     v_uv = mix(uv.xy, uv.zw, corner);
-    v_color = vec4(color.rgb, color.a * group_opacity);
+    // A plain colour leaves premultiplied; an effect's negative red is its index.
+    float alpha = color.a * group_opacity;
+    v_color = vec4(color.r >= 0.0 ? color.rgb * alpha : color.rgb, alpha);
     v_glyph = glyph;
 }
 
@@ -193,8 +195,8 @@ vec4 shade() {
         if (v_color.r < 0.0) coverage = glyph_mask(v_uv, v_bounds);
         else coverage = coverage_sample(v_uv);
     }
-    vec3 color = v_color.rgb;
     if (v_color.r < 0.0) {
+        vec3 color;
         // Published materials have palette counts in [1,8] and widths >= 1.
         uint index = min(127u, uint(-v_color.r - 1.0));
         float kind = text_fx.effects[index].kind, count = text_fx.effects[index].count, left = text_fx.effects[index].left;
@@ -263,8 +265,10 @@ vec4 shade() {
                 }
             }
         }
+        return vec4(color * v_color.a, v_color.a) * coverage;
     }
-    return vec4(color * v_color.a, v_color.a) * coverage;
+    // A plain colour arrives premultiplied.
+    return v_color * coverage;
 }
 
 void main() {
