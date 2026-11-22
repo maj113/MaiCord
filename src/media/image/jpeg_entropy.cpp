@@ -82,19 +82,14 @@ JpegEntropyReader entropy_reader(ConstSlice<u8> bytes) noexcept {
     return JpegEntropyReader{bytes, 0, 0, 0, JpegError::none, JpegError::none};
 }
 
-// Once per Huffman table and scan: compiled for size.
+// Once per Huffman table and scan: compiled for size. The table is present: parse_scan_header rejects a scan
+// that selects a table no segment defined before it, and a later segment only replaces a table.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 void build_decode_table(const JpegHuffmanTable& table, JpegDecodeTable* decode,
                          u32* coefficients = nullptr) noexcept {
     decode->table = &table;
     memset(decode->lookahead, 0, sizeof(decode->lookahead));
-    if (!table.present) {
-        if (coefficients) {
-            memset(coefficients, 0, (1u << kJpegLookaheadBits) * sizeof(*coefficients));
-        }
-        return;
-    }
     for (u32 length = 0; length < kJpegLookaheadBits; ++length) {
         const u32 shift = kJpegLookaheadBits - 1u - length;
         for (i32 code = table.minimum_code[length]; code <= table.maximum_code[length]; ++code) {
@@ -135,16 +130,16 @@ void build_decode_table(const JpegHuffmanTable& table, JpegDecodeTable* decode,
     }
 }
 
-// Lookahead tables for the Huffman tables a baseline scan's components use.
+// Lookahead tables for the Huffman tables a baseline scan's components use. parse_scan_header bounds the selectors.
 void build_component_tables(const JpegImage& image, JpegDecodeTable* dc, JpegAcDecodeTable* ac) noexcept {
     u32 built = 0;
-    for (u32 index = 0; index < image.component_count && index < kJpegComponentMaximum; ++index) {
+    for (u32 index = 0; index < image.component_count; ++index) {
         const JpegComponent& component = image.components[index];
-        if (component.dc_table < kJpegTableMaximum && (built & (1u << component.dc_table)) == 0) {
+        if ((built & (1u << component.dc_table)) == 0) {
             build_decode_table(image.tables->dc[component.dc_table], &dc[component.dc_table]);
             built |= 1u << component.dc_table;
         }
-        if (component.ac_table < kJpegTableMaximum && (built & (16u << component.ac_table)) == 0) {
+        if ((built & (16u << component.ac_table)) == 0) {
             build_decode_table(image.tables->ac[component.ac_table], &ac[component.ac_table],
                                ac[component.ac_table].coefficient);
             built |= 16u << component.ac_table;
@@ -170,10 +165,6 @@ __declspec(noinline) u32 canonical_entry(const JpegHuffmanTable& table, u32 wind
 
 __forceinline bool decode_huffman_symbol(JpegEntropyReader* reader, const JpegDecodeTable& decode,
                                          u8* symbol) noexcept {
-    if (!decode.table->present) {
-        reader->error = JpegError::huffman;
-        return false;
-    }
     if (reader->error != JpegError::none) {
         return false;
     }
@@ -561,9 +552,6 @@ __forceinline bool decode_progressive_block(JpegEntropyReader* reader, const Jpe
 bool decode_progressive_scan(ConstSlice<u8> encoded, const JpegImage& image, const JpegTables& tables,
                              const JpegScan& scan, JpegCoefficientBlock* blocks,
                              JpegDecodeResult* result) noexcept {
-    if (static_cast<u64>(scan.entropy_offset) + scan.entropy_bytes > encoded.count) {
-        return false;
-    }
     JpegEntropyReader reader = entropy_reader(ConstSlice<u8>{encoded.data + scan.entropy_offset, scan.entropy_bytes});
     // Lookahead tables for the Huffman tables this scan references only.
     JpegDecodeTable dc[kJpegTableMaximum];
@@ -572,13 +560,13 @@ bool decode_progressive_scan(ConstSlice<u8> encoded, const JpegImage& image, con
     for (u32 index = 0; index < scan.component_count; ++index) {
         if (scan.spectral_start == 0 && scan.approximation_high == 0) {
             const u8 table = scan.dc_tables[index];
-            if (table < kJpegTableMaximum && (built & (1u << table)) == 0) {
+            if ((built & (1u << table)) == 0) {
                 build_decode_table(tables.dc[table], &dc[table]);
                 built |= static_cast<u8>(1u << table);
             }
         } else if (scan.spectral_start != 0) {
             const u8 table = scan.ac_tables[index];
-            if (table < kJpegTableMaximum && (built & (16u << table)) == 0) {
+            if ((built & (16u << table)) == 0) {
                 // First AC scans take codeword and magnitude in one lookup.
                 build_decode_table(tables.ac[table], &ac[table],
                                    scan.approximation_high == 0 ? ac[table].coefficient : nullptr);
@@ -618,14 +606,14 @@ bool decode_progressive_scan(ConstSlice<u8> encoded, const JpegImage& image, con
                 for (u32 horizontal = 0; horizontal < horizontal_blocks; ++horizontal) {
                     const u32 block_x = unit_x * horizontal_blocks + horizontal;
                     const u32 block_y = unit_y * vertical_blocks + vertical;
+                    // In the component's grid: an MCU column stays below block_columns, and a lone component's
+                    // scan_component_columns and rows below block_columns and block_rows.
                     const u32 block_index = component.block_offset + block_y * component.block_columns + block_x;
-                    if (block_index >= image.coefficient_blocks ||
-                        !decode_progressive_block(&reader, dc, ac, scan, scan_component, &predictor[component_index],
+                    if (!decode_progressive_block(&reader, dc, ac, scan, scan_component, &predictor[component_index],
                                                   &blocks[block_index], &eob_run)) {
                         result->error = reader.error == JpegError::none ? JpegError::coefficient : reader.error;
                         return false;
                     }
-                    ++result->decoded_blocks;
                 }
             }
         }
@@ -638,7 +626,6 @@ bool decode_progressive_scan(ConstSlice<u8> encoded, const JpegImage& image, con
         result->error = reader.error == JpegError::none ? JpegError::entropy : reader.error;
         return false;
     }
-    ++result->decoded_scans;
     return true;
 }
 

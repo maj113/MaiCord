@@ -40,8 +40,6 @@ bool run() noexcept {
     constexpr u8 trailing[]{1,0,0,0,2,2,2,0xFF,0};CHECK(!parse({trailing,sizeof(trailing)}));
     constexpr u8 long_y[]{0,0,0,0,'M',2,0,2,0x80};CHECK(!parse({long_y,sizeof(long_y)}));
     constexpr u8 flat[]{1,0,0,0,2,2,0,0xFF};CHECK(!parse({flat,sizeof(flat)}));
-    CHECK(!parse({nullptr,1}));CHECK(!regional_flag_record_parse({squares,sizeof(squares)},nullptr));
-    art.count=7;CHECK(!parse({reinterpret_cast<const u8*>(&art),sizeof(art)})&&art.count==7);
     static u8 crowded[(kRegionalFlagMaximumLayers+1)*7+1];
     for(u32 i=0;i<=kRegionalFlagMaximumLayers;++i){u8* at=crowded+i*7;at[0]=1;at[4]=at[5]=at[6]=2;}
     crowded[sizeof(crowded)-1]=0xFF;CHECK(!parse({crowded,sizeof(crowded)}));
@@ -58,14 +56,6 @@ bool run() noexcept {
     for(u32 i=0;i<6;++i)CHECK(!regional_flag_layer_outline(path_layer(malformed[i],malformed_bytes[i]),&outline));
     constexpr u8 move[]{'M',2,0,0,0};constexpr u32 move_bytes[]{2,1,1};
     CHECK(regional_flag_layer_outline(path_layer(move,move_bytes),&outline)&&outline.count==2);
-    // The x stream past the path.
-    RegionalFlagLayer outside=path_layer(move,move_bytes);outside.x_bytes=3;CHECK(!regional_flag_layer_outline(outside,&outline));
-    RegionalFlagLayer invalid{};invalid.fill_rule=GlyphFillRule::winding;invalid.path={nullptr,1};
-    CHECK(!regional_flag_layer_outline(invalid,&outline));
-    invalid.path={};invalid.rx=invalid.ry=1;invalid.rotation=3.402823466e38f;CHECK(!regional_flag_layer_outline(invalid,&outline));
-    union {u32 bits;float value;} nonfinite{0x7fc00000u};invalid.rotation=0;invalid.cx=nonfinite.value;
-    CHECK(!regional_flag_layer_outline(invalid,&outline));nonfinite.bits=0x7f800000u;invalid.cx=nonfinite.value;
-    CHECK(!regional_flag_layer_outline(invalid,&outline));
     arena_release(&program.storage);print("regional_flag_art_test_passed\n");return true;
 }
 }}

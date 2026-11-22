@@ -107,9 +107,9 @@ void animation_tests(u8 slot) noexcept {
     gif.key = media_asset_attachment(970, MediaAttachmentFormat::gif, MediaResolutionTier::px2048);
     gif.fallback = media_asset_attachment(970, MediaAttachmentFormat::gif, MediaResolutionTier::px512);
     application_media_page_close(slot);
+    animation_timeline_initialize(&g_app.animations.timeline, {timeline_entries, 4}, {timeline_buckets, 8});
     check(media_atlas_initialize(&atlas, 256, 256, 1, {atlas_entries, 8}, {atlas_buckets, 16},
                                  {atlas_allocations, 8}, {atlas_rows, 8}) &&
-              animation_timeline_initialize(&g_app.animations.timeline, {timeline_entries, 4}, {timeline_buckets, 8}) &&
               application_media_page_open(gif) == slot && application_media_page_show(slot) &&
               (gif.key.flags & media_asset_flag_animated),
           "animation: a GIF page shows, its key marked animated");

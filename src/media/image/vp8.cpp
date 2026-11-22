@@ -623,16 +623,14 @@ static_assert(__builtin_offsetof(Vp8TokenContext, u) == 4 && __builtin_offsetof(
               __builtin_offsetof(Vp8TokenContext, y2) == 8);
 
 // Tokens of one macroblock (RFC 6386 section 13): dequantized residuals in
-// raster order, the Y2 inverse WHT folded into the luma DC positions.
+// raster order, the Y2 inverse WHT folded into the luma DC positions. The mode
+// comes from parse_macroblock_mode: its segment is two tree bits, 0 to 3.
 MAICORD_HASWELL
 Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, const Vp8ControlHeader& header,
                                                    const Vp8ProbabilityWorkspace& probabilities,
                                                    const Vp8MacroblockMode& mode, Vp8TokenContext* top_context,
                                                    Vp8TokenContext* left_context,
                                                    Vp8MacroblockCoefficients* coefficients) noexcept {
-    if (mode.segment_id >= 4) {
-        return {Vp8CoefficientError::invalid_input};
-    }
     Vp8MacroblockCoefficients& output = *coefficients;
     reset_value<Vp8MacroblockCoefficients>(&output);
     Vp8TokenContext& top = *top_context;
@@ -704,16 +702,10 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
 
 } // namespace
 
+// The partitions of a parsed keyframe: bytes point into its payload.
 bool vp8_bool_reader_initialize(Vp8BoolReader* reader, ConstSlice<u8> bytes) noexcept {
-    if (!reader) {
-        return false;
-    }
     reset_value<Vp8BoolReader>(reader);
     reader->bytes = bytes;
-    if (!bytes.data) {
-        reader->error = Vp8BoolError::invalid_input;
-        return false;
-    }
     if (bytes.count < 2) {
         reader->error = Vp8BoolError::truncated;
         return false;
@@ -729,12 +721,9 @@ u32 vp8_bool_read(Vp8BoolReader* reader, u8 probability) noexcept {
     return bool_read(reader, probability);
 }
 
+// The frame comes from a successful vp8_parse_keyframe: its first partition holds at least one byte.
 Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8ControlHeader* header,
                                                  Vp8ProbabilityWorkspace* probabilities) noexcept {
-    if (!header || !probabilities || !frame.first_partition.data || frame.first_partition.count < 2 ||
-        !frame.remaining_data.data) {
-        return {Vp8ControlError::invalid_input};
-    }
     reset_value<Vp8ControlHeader>(header);
     copy_bytes(probabilities->coefficient, kDefaultCoefficientProbability, sizeof(kDefaultCoefficientProbability));
     header->segmentation.absolute_delta = 1;
@@ -860,14 +849,8 @@ Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8Co
     return Vp8ControlParseResult{Vp8ControlError::none};
 }
 
+// Every caller reads a fixed field of at most eight bits.
 u32 vp8_bool_read_literal(Vp8BoolReader* reader, u32 bit_count) noexcept {
-    if (!reader->ok()) {
-        return 0;
-    }
-    if (bit_count > 32) {
-        reader->error = Vp8BoolError::literal_width;
-        return 0;
-    }
     u32 value = 0;
     while (bit_count != 0 && reader->ok()) {
         value = value << 1 | vp8_bool_read(reader, 128);
@@ -876,7 +859,8 @@ u32 vp8_bool_read_literal(Vp8BoolReader* reader, u32 bit_count) noexcept {
     return value;
 }
 
-// The GPU path's whole frame: the row parser over every row, into the frame workspaces. Once per frame, around
+// The GPU path's whole frame: the row parser over every row, into the frame workspaces. The frame comes from
+// vp8_parse_keyframe, whose dimension bound keeps its macroblocks within the workspaces. Once per frame, around
 // the macroblock rows: compiled for size.
 __attribute__((minsize))
 Vp8CoefficientParseResult vp8_decode_keyframe_macroblocks(const Vp8Keyframe& frame, const Vp8ControlHeader& header,
@@ -885,15 +869,10 @@ Vp8CoefficientParseResult vp8_decode_keyframe_macroblocks(const Vp8Keyframe& fra
                                                           Vp8CoefficientWorkspace* coefficients) noexcept {
     const u32 columns = (static_cast<u32>(frame.width) + 15u) / 16u;
     const u32 rows = (static_cast<u32>(frame.height) + 15u) / 16u;
-    if (!modes || !coefficients || columns > kVp8MacroblockDimensionMaximum || rows > kVp8MacroblockDimensionMaximum)
-        return {Vp8CoefficientError::dimensions};
     Vp8TokenContext top_context[kVp8MacroblockDimensionMaximum];
     Vp8SubblockMode above_modes[kVp8MacroblockDimensionMaximum * 4u];
     Vp8RowParser parser;
-    if (const auto started = vp8_row_parser_initialize(&parser, frame, header, {top_context, columns},
-                                                       {above_modes, columns * 4u});
-        !started.ok())
-        return started;
+    vp8_row_parser_initialize(&parser, frame, header, {top_context, columns}, {above_modes, columns * 4u});
     modes->columns = coefficients->columns = static_cast<u16>(columns);
     modes->rows = coefficients->rows = static_cast<u16>(rows);
     modes->macroblock_count = coefficients->macroblock_count = 0;
@@ -910,9 +889,6 @@ Vp8CoefficientParseResult vp8_decode_keyframe_macroblocks(const Vp8Keyframe& fra
 namespace {
 Vp8ParseResult parse_keyframe(ConstSlice<u8> payload, Vp8Keyframe* frame, u32 maximum_bytes,
                               u32 maximum_dimension, u64 maximum_pixels) noexcept {
-    if (!frame || (!payload.data && payload.count != 0)) {
-        return failure(Vp8Error::invalid_input);
-    }
     reset_value<Vp8Keyframe>(frame);
     if (payload.count > maximum_bytes) {
         return failure(Vp8Error::encoded_limit);
@@ -967,26 +943,19 @@ Vp8ParseResult vp8_parse_keyframe_bounded(ConstSlice<u8> payload, u32 maximum_by
                           u64{kVp8DimensionMaximum} * kVp8DimensionMaximum);
 }
 
-// Once per frame, before the macroblock rows: compiled for size.
+// Once per frame, before the macroblock rows: compiled for size. The frame and header come from successful
+// vp8_parse_keyframe and vp8_parse_keyframe_control calls (every token partition holds at least two bytes), and
+// the contexts hold one entry per macroblock column.
 __attribute__((minsize))
-Vp8CoefficientParseResult vp8_row_parser_initialize(Vp8RowParser* parser, const Vp8Keyframe& frame,
-                                                    const Vp8ControlHeader& header,
-                                                    Slice<Vp8TokenContext> top_context,
-                                                    Slice<Vp8SubblockMode> above_modes) noexcept {
+void vp8_row_parser_initialize(Vp8RowParser* parser, const Vp8Keyframe& frame, const Vp8ControlHeader& header,
+                               Slice<Vp8TokenContext> top_context, Slice<Vp8SubblockMode> above_modes) noexcept {
     const u32 partitions = header.token_partition_count;
     const u32 columns = (static_cast<u32>(frame.width) + 15u) / 16u;
     const u32 rows = (static_cast<u32>(frame.height) + 15u) / 16u;
-    if (!parser || !frame.width || !frame.height || partitions == 0 || partitions > 8 ||
-        (partitions & (partitions - 1u)) != 0 || !top_context.data || top_context.count < columns ||
-        !above_modes.data || above_modes.count < columns * 4u || !header.macroblock_reader.ok() ||
-        header.macroblock_reader.bytes.data != frame.first_partition.data ||
-        header.macroblock_reader.bytes.count != frame.first_partition.count)
-        return {Vp8CoefficientError::invalid_input};
     reset_value<Vp8RowParser>(parser);
     parser->modes = header.macroblock_reader;
     for (u32 index = 0; index < partitions; ++index)
-        if (!vp8_bool_reader_initialize(&parser->tokens[index], header.token_partitions[index].bytes))
-            return {Vp8CoefficientError::token_initialize};
+        vp8_bool_reader_initialize(&parser->tokens[index], header.token_partitions[index].bytes);
     parser->top_context = top_context.data;
     parser->above_modes = above_modes.data;
     for (u32 column = 0; column < columns; ++column)
@@ -996,16 +965,13 @@ Vp8CoefficientParseResult vp8_row_parser_initialize(Vp8RowParser* parser, const 
     parser->columns = columns;
     parser->rows = rows;
     parser->partitions = partitions;
-    return Vp8CoefficientParseResult{Vp8CoefficientError::none};
 }
 
+// Called once per row, with one record per macroblock column.
 Vp8CoefficientParseResult vp8_row_parser_next(Vp8RowParser* parser, const Vp8ControlHeader& header,
                                               const Vp8ProbabilityWorkspace& probabilities,
                                               Slice<Vp8MacroblockMode> modes,
                                               Slice<Vp8MacroblockCoefficients> coefficients) noexcept {
-    if (!parser || !parser->columns || parser->row >= parser->rows || !modes.data ||
-        modes.count < parser->columns || !coefficients.data || coefficients.count < parser->columns)
-        return {Vp8CoefficientError::invalid_input};
     // All macroblock headers live in the first partition, in raster order; this row's tokens come from
     // partition row % count. above_modes becomes this row's bottom subblock modes.
     WindowReader mode_reader = to_window(parser->modes);

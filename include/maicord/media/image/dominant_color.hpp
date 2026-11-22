@@ -10,8 +10,8 @@ namespace maicord {
 // and then by population times volume (to 5). The palette is the boxes' mean colours, largest population times
 // volume first; black alone when no pixel is left.
 // `rgba` holds width * height straight RGBA8 pixels, row after row; `histogram` is scratch of at least
-// kImageDominantColorHistogramEntries entries; `colors` takes kImagePaletteColors. Returns how many colours it wrote
-// (0 for bad input), each 0xRRGGBB.
+// kImageDominantColorHistogramEntries entries; `colors` takes kImagePaletteColors. Returns how many colours it wrote,
+// each 0xRRGGBB.
 inline constexpr u32 kImageDominantColorHistogramEntries = 1u << 15;
 inline constexpr u32 kImagePaletteColors = 5;
 u32 image_palette(ConstSlice<u8> rgba, u32 width, u32 height, Slice<u32> histogram, u32* colors) noexcept;

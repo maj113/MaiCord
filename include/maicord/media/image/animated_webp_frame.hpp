@@ -21,7 +21,6 @@ enum class AnimatedWebpCodec : u8 {
 
 struct AnimatedWebpFrame {
     u32 payload_offset;
-    u32 payload_bytes;
     u32 duration_ms;
     u16 x_offset;
     u16 y_offset;
@@ -33,6 +32,6 @@ struct AnimatedWebpFrame {
     AnimatedWebpCodec codec;
 };
 
-static_assert(sizeof(AnimatedWebpFrame) == 24);
+static_assert(sizeof(AnimatedWebpFrame) == 20);
 
 } // namespace maicord

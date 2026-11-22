@@ -1,6 +1,5 @@
 #include "maicord/media/image/regional_flag_art.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/sys/simd.hpp"
 
 namespace maicord { namespace {
@@ -167,10 +166,8 @@ bool path_outline(const RegionalFlagLayer& layer, Path& path) noexcept {
 }
 } // namespace
 
+// The record is a bundled flag (regional_flag_bundled_record) and the output the caller's own.
 bool regional_flag_record_parse(ConstSlice<u8> record, RegionalFlagArt* output) noexcept {
-    const ConstSlice<u8> destination{reinterpret_cast<const u8*>(output), sizeof(RegionalFlagArt)};
-    if (!output || !byte_range_valid(destination) || !byte_range_valid(record) || !record.count ||
-        byte_ranges_overlap(record, destination)) return false;
     output->count = 0;
     Reader r{record.data, record.data + record.count};
     for (u8 header = r.byte(); r.ok && header != kRecordEnd; header = r.byte()) {
@@ -216,28 +213,12 @@ bool regional_flag_record_parse(ConstSlice<u8> record, RegionalFlagArt* output) 
     return r.ok && r.at == r.end && output->count;
 }
 
+// The layer comes from regional_flag_record_parse: its streams lie inside its path, the rotation and fill rule are
+// its header's, and its geometry is bounded and its radii positive.
 bool regional_flag_layer_outline(const RegionalFlagLayer& layer, GlyphOutline* output) noexcept {
-    const ConstSlice<u8> layer_range{reinterpret_cast<const u8*>(&layer),sizeof(layer)};
-    const ConstSlice<u8> result_range{reinterpret_cast<const u8*>(output),sizeof(GlyphOutline)};
-    const ConstSlice<u8> path_range=layer.path;
-    if(!output||!byte_range_valid(layer_range)||!byte_range_valid(result_range)||
-        !byte_range_valid(path_range)||layer.path.count>kRegionalFlagMaximumRecordBytes||
-        byte_ranges_overlap(layer_range,result_range)||byte_ranges_overlap(path_range,result_range)||
-        !output->commands||!output->capacity||output->capacity>kRegionalFlagMaximumCommands)return false;
-    const ConstSlice<u8> commands_range{reinterpret_cast<const u8*>(output->commands),output->capacity*static_cast<u32>(sizeof(GlyphPathCommand))};
-    if(!byte_range_valid(commands_range)||byte_ranges_overlap(commands_range,path_range)||
-        byte_ranges_overlap(commands_range,layer_range)||byte_ranges_overlap(commands_range,result_range))return false;
-    // The commands, their zero end and the x stream lie inside the path.
-    if(layer.path.count&&(layer.command_bytes>=layer.path.count||layer.x_bytes>layer.path.count-layer.command_bytes-1))
-        return false;
-    const float geometry[]{layer.cx,layer.cy,layer.rx,layer.ry};
-    for(float value:geometry)if(!(value>=-4096&&value<=4096))return false;
-    if((layer.rotation!=0&&layer.rotation!=-76.714f)||
-        (layer.fill_rule!=GlyphFillRule::winding&&layer.fill_rule!=GlyphFillRule::alternate))return false;
     auto* commands=output->commands;const auto capacity=output->capacity;*output={commands,capacity};output->fill_rule=layer.fill_rule;
     Path path{output};
     if(layer.path.count)return path_outline(layer,path)&&output->has_bounds;
-    if(!(layer.rx>0)||!(layer.ry>0))return false;
     double sine=0,cosine=0;sincos(layer.rotation*pi/180,sine,cosine);
     Point center{layer.cx,layer.cy};
     if(layer.rotation) {const double x=center.x-13.001,y=center.y-18.001;

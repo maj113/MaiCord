@@ -126,7 +126,7 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image,
                          GifWorkspace* workspace) noexcept;
 // Fills a caller-owned result in place.
 void gif_decode_parsed_frame(GifDecodeResult* out, ConstSlice<u8> encoded, const GifImage& image,
-                             u32 frame_index, GifWorkspace* workspace, Slice<u8> indices) noexcept;
+                             u32 frame_index, Slice<u8> indices) noexcept;
 
 static_assert(sizeof(GifFrame) == 32);
 static_assert(sizeof(GifWorkspace) == 65'536);

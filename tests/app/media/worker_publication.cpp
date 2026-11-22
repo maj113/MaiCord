@@ -81,12 +81,10 @@ void deferred_cache_checks(void (*check)(bool, const char*) noexcept) noexcept {
     const auto other = media_asset_attachment(101, MediaAttachmentFormat::ogg_opus);
     const auto replacement = media_asset_attachment(102, MediaAttachmentFormat::ogg_opus);
     const EncodedMediaCachePolicy policy{{}, 200, true, false};
-    check(encoded_media_cache_initialize(&cache, {entries, 2}, {owners, 2}, {storage, sizeof(storage)}, {buckets, 4}),
-          "retired cache initialize");
+    encoded_media_cache_initialize(&cache, {entries, 2}, {owners, 2}, {storage, sizeof(storage)}, {buckets, 4});
     const auto stored = encoded_media_cache_store(&cache, key, {bytes, count}, policy);
     auto first = encoded_media_cache_acquire(&cache, key, 1);
     auto second = encoded_media_cache_acquire(&cache, key, 1);
-    auto old_token = first;
     const u64 identity = first.lookup.content_identity;
     check(stored.stored() && first.acquired && second.acquired &&
               !encoded_media_cache_retire(&cache, key, static_cast<u16>(stored.generation + 1)) &&
@@ -107,19 +105,19 @@ void deferred_cache_checks(void (*check)(bool, const char*) noexcept) noexcept {
               bytes_equal(second.lookup.bytes.data, bytes, count),
           "retired source is excluded from exact-content reuse and remains immutable under unrelated "
           "eviction");
-    check(encoded_media_cache_release(&cache, &first) && cache.entry_count == 2 && used_pages(cache) == 2 &&
-              bytes_equal(second.lookup.bytes.data, bytes, count) &&
-              encoded_media_cache_release(&cache, &second) && cache.entry_count == 1 &&
-              used_pages(cache) == 1 && stored_bytes(cache) == count,
+    encoded_media_cache_release(&cache, &first);
+    const bool second_kept =
+        cache.entry_count == 2 && used_pages(cache) == 2 && bytes_equal(second.lookup.bytes.data, bytes, count);
+    encoded_media_cache_release(&cache, &second);
+    check(second_kept && cache.entry_count == 1 && used_pages(cache) == 1 && stored_bytes(cache) == count,
           "retirement final lease frees exactly its own pages and accounting once");
     const auto again = encoded_media_cache_store(&cache, key, {bytes, count}, policy);
     auto current = encoded_media_cache_acquire(&cache, key, 1);
-    check(again.stored() && current.acquired && again.generation != old_token.generation &&
-              !encoded_media_cache_release(&cache, &old_token) &&
+    check(again.stored() && current.acquired && again.generation != stored.generation &&
               !encoded_media_cache_retire(&cache, key, stored.generation) &&
-              !encoded_media_cache_erase(&cache, key) && current.lookup.bytes.count == count &&
-              encoded_media_cache_release(&cache, &current),
-          "retired lifetime cannot release or invalidate a newly stored generation");
+              !encoded_media_cache_erase(&cache, key) && current.lookup.bytes.count == count,
+          "retired lifetime cannot invalidate a newly stored generation");
+    encoded_media_cache_release(&cache, &current);
     encoded_media_cache_erase(&cache, key);
     encoded_media_cache_erase(&cache, replacement);
     check(!cache.entry_count && !used_pages(cache) && !stored_bytes(cache),
@@ -135,10 +133,8 @@ void retained_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
     const auto key = media_asset_attachment(9876, MediaAttachmentFormat::ogg_opus);
     const u8 etag[]{'"', 'a', '"'};
     u32 buckets[4]{};
-    check(count == 120 &&
-              encoded_media_cache_initialize(&cache, {entries, 2}, {owners, 2}, {storage, sizeof(storage)},
-                                             {buckets, 4}),
-          "audio fixture and bounded shared cache initialize");
+    encoded_media_cache_initialize(&cache, {entries, 2}, {owners, 2}, {storage, sizeof(storage)}, {buckets, 4});
+    check(count == 120, "audio fixture");
     CdnMediaPipeline pipeline{};
     pipeline.cache = &cache;
     CdnResponseResult response{};
@@ -247,9 +243,10 @@ void retained_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
           "audio no-store 304 pins bytes for existing readers but immediately forbids new cache reuse");
     if (no_store_304.lease.acquired)
         encoded_media_cache_release(&cache, &no_store_304.lease);
-    check(other_reader.acquired && cache.entry_count == 1 &&
-              bytes_equal(other_reader.lookup.bytes.data, bytes, count) &&
-              encoded_media_cache_release(&cache, &other_reader) && !cache.entry_count && !used_pages(cache),
+    const bool other_kept = other_reader.acquired && cache.entry_count == 1 &&
+                            bytes_equal(other_reader.lookup.bytes.data, bytes, count);
+    encoded_media_cache_release(&cache, &other_reader);
+    check(other_kept && !cache.entry_count && !used_pages(cache),
           "audio no-store 304 final independent reader retires bytes without another erase call");
     response.status_code = 200;
     response.body_bytes = count;
@@ -312,8 +309,7 @@ void common_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
     u8 storage[4 * kEncodedMediaCachePageBytes]{};
     u32 buckets[8]{};
     EncodedMediaCache cache{};
-    check(encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 4}, {storage, sizeof(storage)}, {buckets, 8}),
-          "common audio bounded encoded cache initializes");
+    encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 4}, {storage, sizeof(storage)}, {buckets, 8});
     CdnMediaPipeline pipeline{};
     pipeline.cache = &cache;
     const u8 etag[]{'"', 'w', '"'};
@@ -362,10 +358,10 @@ void common_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
     check(bad_reader.acquired && bad_hit.state == CdnEncodedAudioState::decode_rejected &&
               !bad_hit.lease.acquired && !encoded_media_cache_find(&cache, mp3_key, 1).found() &&
               !encoded_media_cache_acquire(&cache, mp3_key, 1).acquired &&
-              bytes_equal(bad_reader.lookup.bytes.data, wave, sizeof(wave)) &&
-              encoded_media_cache_release(&cache, &bad_reader),
+              bytes_equal(bad_reader.lookup.bytes.data, wave, sizeof(wave)),
           "invalid cached audio retires exact source before release while an existing reader remains "
           "immutable");
+    encoded_media_cache_release(&cache, &bad_reader);
 
     response.store_allowed = false;
     auto transient = cdn_media_pipeline_admit_audio(&pipeline, wave_key, response, {wave, sizeof(wave)});

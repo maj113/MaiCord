@@ -16,7 +16,6 @@ inline constexpr u64 kAnimatedWebpFrameFloorUs = 10'000;
 
 enum class AnimatedWebpError : u8 {
     none,
-    invalid_input,
     encoded_limit,
     truncated,
     riff,
@@ -97,12 +96,12 @@ AnimatedWebpDecodeResult animated_webp_decode_parsed_frame(
     LossyWebpWorkspace* lossy_workspace, Vp8Keyframe* vp8_frame,
     Vp8ControlHeader* vp8_header, Slice<u8> rgba_output,
     Slice<u8> alpha_rgba_scratch, Slice<u8> alpha_output) noexcept;
-// The image (VP8 or VP8L) and ALPH chunk payloads of one parsed frame, checked as the frame decode checks them.
-AnimatedWebpError animated_webp_frame_payloads(ConstSlice<u8> encoded, const AnimatedWebpFrame& frame,
-                                               ConstSlice<u8>* image_payload, ConstSlice<u8>* alpha_payload) noexcept;
+// The image (VP8 or VP8L) and ALPH chunk payloads of one frame that animated_webp_parse admitted from these bytes.
+void animated_webp_frame_payloads(ConstSlice<u8> encoded, const AnimatedWebpFrame& frame,
+                                  ConstSlice<u8>* image_payload, ConstSlice<u8>* alpha_payload) noexcept;
 
 static_assert(sizeof(AnimatedWebpRetainedMetadata) == 40);
-static_assert(sizeof(AnimatedWebpWorkspace) == 6'208);
+static_assert(sizeof(AnimatedWebpWorkspace) == 5'184);
 static_assert(sizeof(AnimatedWebpImage) == 32);
 
 } // namespace maicord

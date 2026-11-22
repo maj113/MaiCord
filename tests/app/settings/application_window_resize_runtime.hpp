@@ -69,8 +69,7 @@ inline void test_window_resize_lifecycle() noexcept {
     g_app.animations = {};
     AnimationTimelineEntry entries[1]{};
     u32 buckets[2]{};
-    check(animation_timeline_initialize(&g_app.animations.timeline, {entries, 1}, {buckets, 2}),
-          "resize lifecycle: independent real animation timeline initializes");
+    animation_timeline_initialize(&g_app.animations.timeline, {entries, 1}, {buckets, 2});
     g_app.clock = clock_initialize();
     g_app.process_start = clock_now();
     g_app.renderer_ready = g_app.frame_loop_active = true;

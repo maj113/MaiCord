@@ -581,14 +581,13 @@ void run_visibility_test() noexcept {
     g_app.renderer.media_atlas = g_app.renderer.preview_media_atlas = &fixture.atlas;
     g_app.clock = clock_initialize();
     g_app.process_start = clock_now();
+    animation_timeline_initialize(&g_app.animations.timeline, {fixture.animations, 4}, {fixture.animation_buckets, 8});
     bool valid = seed_scene(fixture, *ui) &&
                  media_atlas_initialize(&fixture.atlas, 256, 256, 0, {fixture.atlas_entries, 8},
                                         {fixture.atlas_buckets, 16}, {fixture.allocations, 8},
                                         {fixture.atlas_rows, 4}) &&
                  message_media_controller_initialize(&g_app.message_media, {fixture.visible_rows, 3},
-                                                     {fixture.marks, 16}) &&
-                 animation_timeline_initialize(&g_app.animations.timeline, {fixture.animations, 4},
-                                               {fixture.animation_buckets, 8});
+                                                     {fixture.marks, 16});
     const auto visible_key = attachment_key(fixture, *ui, 1);
     const auto hidden_key = attachment_key(fixture, *ui, 2);
     const u64 published_at = clock_microseconds(g_app.clock, g_app.process_start, clock_now());

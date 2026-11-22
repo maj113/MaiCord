@@ -142,7 +142,6 @@ constexpr bool jpeg_orientation_swaps_dimensions(JpegOrientation orientation) no
 
 enum class JpegError : u8 {
     none,
-    invalid_input,
     encoded_limit,
     truncated,
     signature,
@@ -178,9 +177,8 @@ struct JpegHuffmanTable {
     u16 maximum_code[16];
     i32 value_offset[16];
     u8 symbols[256];
-    u16 symbol_count;
     bool present;
-    u8 reserved;
+    u8 reserved[3];
 };
 
 struct JpegTables {
@@ -214,7 +212,6 @@ struct JpegImage {
     u16 height;
     u16 mcu_columns;
     u16 mcu_rows;
-    u32 restart_markers;
     u16 restart_interval;
     u16 scan_count;
     u8 component_count;
@@ -290,7 +287,6 @@ struct JpegWorkspace {
 
 struct JpegParseResult {
     u32 segments;
-    u32 restart_markers;
     u32 scans;
     JpegError error;
 
@@ -301,8 +297,6 @@ struct JpegParseResult {
 
 struct JpegDecodeResult {
     JpegParseResult parse;
-    u32 decoded_blocks;
-    u32 decoded_scans;
     JpegError error;
 
     constexpr bool ok() const noexcept {

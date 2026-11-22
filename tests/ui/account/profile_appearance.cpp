@@ -583,8 +583,8 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
         u32 buckets[2]{};
         AnimationTimeline timeline{};
         const auto key = media_asset_custom_emoji(123, true);
-        bool replay = animation_timeline_initialize(&timeline, {entries, 1}, {buckets, 2}) &&
-                      animation_timeline_publish(&timeline, {key, 10, 1, 2, 1, true}, 100).ok();
+        animation_timeline_initialize(&timeline, {entries, 1}, {buckets, 2});
+        bool replay = animation_timeline_publish(&timeline, {key, 10, 1, 2, 1, true}, 100).ok();
         AnimationFrameAdvance frame[1]{};
         for (u64 epoch = 1; replay && epoch <= 8; ++epoch) {
             const u64 now = epoch * 1000;

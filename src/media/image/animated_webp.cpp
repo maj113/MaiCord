@@ -79,7 +79,6 @@ AnimatedWebpError parse_frame(ConstSlice<u8> encoded, u32 payload, u32 size, Ani
     const u32 limit = payload + size;
     u32 cursor = payload + 16;
     frame->payload_offset = cursor;
-    frame->payload_bytes = size - 16;
     bool image_seen = false;
     bool alpha_seen = false;
     bool unknown_seen = false;
@@ -147,11 +146,7 @@ AnimatedWebpParseResult animated_webp_parse(ConstSlice<u8> encoded, AnimatedWebp
     AnimatedWebpParseResult result{};
     // Serialized direct callers can replace this table between pipeline calls.
     // Invalidate before any frame write or growth callback, including failure.
-    if (workspace)
-        workspace->retained.content_identity = 0;
-    if (!image || !workspace || (!encoded.data && encoded.count != 0)) {
-        return parse_failure(result, AnimatedWebpError::invalid_input);
-    }
+    workspace->retained.content_identity = 0;
     reset_value<AnimatedWebpImage>(image);
     AnimatedWebpFrame* frames = workspace->extended_frames.data
                                     ? workspace->extended_frames.data : workspace->frames;
@@ -293,99 +288,49 @@ AnimatedWebpParseResult animated_webp_parse(ConstSlice<u8> encoded, AnimatedWebp
     return result;
 }
 
-AnimatedWebpError animated_webp_frame_payloads(ConstSlice<u8> encoded, const AnimatedWebpFrame& frame,
-                                               ConstSlice<u8>* image_payload, ConstSlice<u8>* alpha_payload) noexcept {
-    *image_payload = {};
-    *alpha_payload = {};
-    const u64 payload_end = static_cast<u64>(frame.payload_offset) + frame.payload_bytes;
-    if ((!encoded.data && encoded.count != 0) || payload_end > encoded.count)
-        return AnimatedWebpError::chunk;
+// The frame comes from animated_webp_parse over these bytes, or from the table retained for their content
+// identity, which the encoded cache gives only to equal bytes. parse_frame admitted the frame's chunks only as an
+// optional ALPH chunk (lossy frames, alpha_seen = has_alpha), then the image chunk at once, then other chunks.
+void animated_webp_frame_payloads(ConstSlice<u8> encoded, const AnimatedWebpFrame& frame,
+                                  ConstSlice<u8>* image_payload, ConstSlice<u8>* alpha_payload) noexcept {
     u32 cursor = frame.payload_offset;
-    bool image_seen = false;
-    bool alpha_seen = false;
-    bool unknown_seen = false;
-    while (cursor < payload_end) {
-        u32 type = 0;
-        u32 size = 0;
-        u32 payload = 0;
-        u32 end = 0;
-        if (!chunk_bounds(encoded, cursor, static_cast<u32>(payload_end), &type, &size, &payload, &end))
-            return AnimatedWebpError::chunk;
-        if (type == kAlph) {
-            if (image_seen || alpha_seen || unknown_seen || size < 1)
-                return AnimatedWebpError::chunk;
-            *alpha_payload = ConstSlice<u8>{encoded.data + payload, size};
-            alpha_seen = true;
-        } else if (type == kVp8 || type == kVp8l) {
-            const bool codec_matches = (type == kVp8 && frame.codec == AnimatedWebpCodec::vp8_lossy) ||
-                                       (type == kVp8l && frame.codec == AnimatedWebpCodec::vp8l_lossless);
-            if (image_seen || unknown_seen || !codec_matches || (type == kVp8l && alpha_seen))
-                return AnimatedWebpError::chunk;
-            *image_payload = ConstSlice<u8>{encoded.data + payload, size};
-            image_seen = true;
-        } else {
-            if (!image_seen || top_level_type(type))
-                return AnimatedWebpError::chunk;
-            unknown_seen = true;
-        }
-        cursor = end;
+    *alpha_payload = {};
+    if (frame.codec == AnimatedWebpCodec::vp8_lossy && frame.has_alpha) {
+        const u32 size = byte_load_le32(encoded.data + cursor + 4);
+        *alpha_payload = ConstSlice<u8>{encoded.data + cursor + 8, size};
+        cursor += 8 + size + (size & 1u);
     }
-    if (!image_seen || cursor != payload_end ||
-        (frame.codec == AnimatedWebpCodec::vp8_lossy && frame.has_alpha != alpha_seen))
-        return AnimatedWebpError::chunk;
-    return AnimatedWebpError::none;
+    *image_payload = ConstSlice<u8>{encoded.data + cursor + 8, byte_load_le32(encoded.data + cursor + 4)};
 }
 
+// The media pipeline asks for a frame below the frame count, with the workspaces that frame's codec needs.
 AnimatedWebpDecodeResult animated_webp_decode_parsed_frame(
     ConstSlice<u8> encoded, const AnimatedWebpImage& image, u32 frame_index, Vp8lWorkspace* vp8l_workspace,
     LossyWebpWorkspace* lossy_workspace, Vp8Keyframe* vp8_frame, Vp8ControlHeader* vp8_header,
     Slice<u8> rgba_output, Slice<u8> alpha_rgba_scratch, Slice<u8> alpha_output) noexcept {
     AnimatedWebpDecodeResult result{};
-    if ((!encoded.data && encoded.count != 0) || !image.frames) {
-        result.error = AnimatedWebpError::invalid_input;
-        return result;
-    }
-    if (frame_index >= image.frame_count) {
-        result.error = AnimatedWebpError::frame_count;
-        return result;
-    }
     result.frame = image.frames[frame_index];
     result.frame_index = frame_index;
     ConstSlice<u8> image_payload{};
     ConstSlice<u8> alpha_payload{};
-    result.error = animated_webp_frame_payloads(encoded, result.frame, &image_payload, &alpha_payload);
-    if (result.error != AnimatedWebpError::none)
-        return result;
+    animated_webp_frame_payloads(encoded, result.frame, &image_payload, &alpha_payload);
 
     if (result.frame.codec == AnimatedWebpCodec::vp8l_lossless) {
-        if (!vp8l_workspace || !rgba_output.data) {
-            result.error = AnimatedWebpError::invalid_input;
-            return result;
-        }
         result.frame_decode =
             webp_lossless_decode_vp8l_frame_rgba8(image_payload, result.frame.width, result.frame.height,
                                                   &result.frame_image, vp8l_workspace, rgba_output);
-        if (!result.frame_decode.ok() || result.frame_image.has_alpha != result.frame.has_alpha) {
+        if (!result.frame_decode.ok()) {
             result.error = result.frame_decode.error == WebpError::output_capacity
                                ? AnimatedWebpError::output_capacity
                                : AnimatedWebpError::frame_decode;
             return result;
         }
     } else {
-        if (!lossy_workspace || !vp8_frame || !vp8_header || (result.frame.has_alpha && !vp8l_workspace)) {
-            result.error = AnimatedWebpError::invalid_input;
-            return result;
-        }
         result.lossy_decode = lossy_webp_decode_frame_keyframe(
             image_payload, alpha_payload, result.frame.width, result.frame.height, vp8_frame, vp8_header,
             &lossy_workspace->probabilities, &lossy_workspace->modes, &lossy_workspace->coefficients,
-            result.frame.has_alpha ? vp8l_workspace : nullptr,
-            result.frame.has_alpha ? alpha_rgba_scratch : Slice<u8>{},
-            result.frame.has_alpha ? alpha_output : Slice<u8>{});
-        if (!result.lossy_decode.ok() ||
-            (result.frame.has_alpha && result.lossy_decode.alpha_bytes !=
-                                           static_cast<u32>(result.frame.width) * result.frame.height) ||
-            (!result.frame.has_alpha && alpha_payload.count != 0)) {
+            vp8l_workspace, alpha_rgba_scratch, alpha_output);
+        if (!result.lossy_decode.ok()) {
             result.error = AnimatedWebpError::frame_decode;
             return result;
         }

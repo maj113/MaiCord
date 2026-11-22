@@ -408,7 +408,6 @@ void serve_media(Module& m, const Work& work) noexcept {
         frame.canvas_height = static_cast<u16>(height);
         frame.background_rgba = 0;
         frame.animated_webp_frame = {};
-        frame.animated_webp_frame.payload_bytes = width * height * 4;
         frame.animated_webp_frame.duration_ms = 80;
         frame.animated_webp_frame.width = static_cast<u16>(width);
         frame.animated_webp_frame.height = static_cast<u16>(height);

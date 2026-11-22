@@ -255,11 +255,9 @@ void deinterlace_rows(u8* indices, u32 width, u32 height) noexcept {
     }
 }
 
-// Fills a palette that is still zero: the only caller reads it into the result it has just reset.
-bool read_palette(ConstSlice<u8> encoded, u32 offset, u32 count, GifPalette* palette) noexcept {
-    if (!palette_bounds(encoded, offset, count)) {
-        return false;
-    }
+// Fills a palette that is still zero: the only caller reads it into the result it has just reset. gif_parse
+// checked that the palette lies in `encoded`.
+void read_palette(ConstSlice<u8> encoded, u32 offset, u32 count, GifPalette* palette) noexcept {
     palette->count = static_cast<u16>(count);
 #pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 index = 0; index < count; ++index) {
@@ -267,7 +265,6 @@ bool read_palette(ConstSlice<u8> encoded, u32 offset, u32 count, GifPalette* pal
         palette->rgba[index] = static_cast<u32>(color[0]) | static_cast<u32>(color[1]) << 8 |
                                static_cast<u32>(color[2]) << 16 | 0xFF000000u;
     }
-    return true;
 }
 
 } // namespace
@@ -276,9 +273,6 @@ bool read_palette(ConstSlice<u8> encoded, u32 offset, u32 count, GifPalette* pal
 __attribute__((minsize))
 GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* workspace) noexcept {
     GifParseResult result{};
-    if (!image || !workspace || (!encoded.data && encoded.count != 0)) {
-        return fail(result, GifError::invalid_input);
-    }
     initialize_image(image, workspace);
     if (encoded.count > kGifEncodedMaximumBytes) {
         return fail(result, GifError::encoded_limit);
@@ -506,43 +500,28 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* 
     return result;
 }
 
+// gif_parse validated the frame's rectangle, palette, transparent index, code size and data range in `encoded`.
 void gif_decode_parsed_frame(GifDecodeResult* out, ConstSlice<u8> encoded, const GifImage& image,
-                             u32 frame_index, GifWorkspace* workspace, Slice<u8> indices) noexcept {
+                             u32 frame_index, Slice<u8> indices) noexcept {
     reset_value(out);
     GifDecodeResult& result = *out;
     result.frame_index = frame_index;
-    if (!workspace || image.frames != workspace->frames || (!encoded.data && encoded.count != 0) ||
-        (!indices.data && indices.count != 0) || encoded.count > kGifEncodedMaximumBytes ||
-        frame_index >= image.frame_count || image.frame_count > image.frame_capacity ||
-        image.frame_capacity > kGifFrameCapacity) {
-        return decode_fail(result, GifError::invalid_input);
-    }
+    // Every caller asks for a frame below the frame count of an image that gif_parse filled into this workspace.
     copy_value(&result.frame, image.frames[frame_index]);
     const GifFrame& frame = result.frame;
     const u64 delay_us = static_cast<u64>(frame.delay_cs) * 10'000ull;
     result.duration_us = delay_us <= kGifShortFrameThresholdUs ? kGifShortFrameReplacementUs : delay_us;
     const u32 pixels = static_cast<u32>(frame.width) * frame.height;
     result.pixels = pixels;
-    if (frame.width == 0 || frame.height == 0 || frame.width > kGifDimensionMaximum ||
-        frame.height > kGifDimensionMaximum || pixels > kGifPixelMaximum || indices.count < pixels) {
-        return decode_fail(result,
-                           indices.count < pixels ? GifError::output_capacity : GifError::frame_rectangle);
+    if (indices.count < pixels) {
+        return decode_fail(result, GifError::output_capacity);
     }
-    if (!read_palette(encoded, frame.palette_offset, frame.palette_count, &result.palette)) {
-        return decode_fail(result, GifError::palette);
-    }
+    read_palette(encoded, frame.palette_offset, frame.palette_count, &result.palette);
     result.palette.background_rgba = image.background_rgba;
     if ((frame.flags & gif_frame_transparent) != 0) {
-        if (frame.transparent_index >= result.palette.count) {
-            return decode_fail(result, GifError::palette);
-        }
         result.palette.has_transparency = true;
         result.palette.transparent_index = frame.transparent_index;
         result.palette.rgba[frame.transparent_index] &= 0x00FFFFFFu;
-    }
-    if (frame.minimum_code_size < 2 || frame.minimum_code_size > 8 || frame.data_offset >= frame.data_end ||
-        frame.data_end > encoded.count) {
-        return decode_fail(result, GifError::image_data);
     }
 
     const GifError error = decode_lzw_linear(encoded.data, frame, result.palette.count, indices, pixels);

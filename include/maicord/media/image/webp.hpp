@@ -33,13 +33,11 @@ enum class WebpCodec : u8 {
 
 enum class WebpError : u8 {
     none,
-    invalid_input,
     encoded_limit,
     truncated,
     riff,
     chunk,
     duplicate_chunk,
-    unsupported_lossy,
     unsupported_animation,
     unsupported_feature,
     dimensions,
@@ -56,7 +54,6 @@ struct WebpImage {
     ConstSlice<u8> alpha_bitstream;
     u32 width;
     u32 height;
-    u32 encoded_bytes;
     WebpCodec codec;
     bool has_alpha;
     u8 reserved[2];

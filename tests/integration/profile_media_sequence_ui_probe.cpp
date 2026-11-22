@@ -160,7 +160,7 @@ void stage_frame(Utf8View url, const MediaAssetKey& key) noexcept {
         frame.cache_generation = static_cast<u16>(1 + (key.id & 0x7FFF));
         frame.canvas_width = static_cast<u16>(width);
         frame.canvas_height = static_cast<u16>(height);
-        frame.animated_webp_frame = {0, width * height * 4, 100, 0, 0, static_cast<u16>(width),
+        frame.animated_webp_frame = {0, 100, 0, 0, static_cast<u16>(width),
                                      static_cast<u16>(height), AnimatedWebpBlend::source,
                                      AnimatedWebpDispose::none, false, AnimatedWebpCodec::vp8l_lossless};
     } else {
@@ -620,9 +620,9 @@ bool profile_media_sequence_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
     application->account_ui = ui;
     application->profile = profile;
     application->animations.visuals = f.visuals;
-    bool ok = animation_timeline_initialize(&application->animations.timeline, {f.timeline, kTimelineEntries},
-                                            {f.timeline_buckets, kTimelineEntries * 2}) &&
-              bind_client_atlases(renderer);
+    animation_timeline_initialize(&application->animations.timeline, {f.timeline, kTimelineEntries},
+                                  {f.timeline_buckets, kTimelineEntries * 2});
+    bool ok = bind_client_atlases(renderer);
     if (!ok)
         fail(__LINE__);
     // Banners: still, animated and per-server in turn, more cards than the banner pool has slots.

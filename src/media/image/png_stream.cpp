@@ -86,7 +86,7 @@ bool assemble(void* opaque, ConstSlice<u8> bytes) noexcept {
 __attribute__((minsize))
 PngParseResult png_stream_parse(ConstSlice<u8> encoded, PngImage* image, PngStreamLayout* layout) noexcept {
     PngParseResult result{};
-    if (!image || !layout || !encoded.data || encoded.count > 0x7FFFFFFFu)
+    if (encoded.count > 0x7FFFFFFFu)
         return parse_failure(result, PngError::invalid_input);
     reset_value<PngImage>(image);
     reset_value<PngStreamLayout>(layout);
@@ -164,28 +164,19 @@ PngParseResult png_stream_parse(ConstSlice<u8> encoded, PngImage* image, PngStre
     return result;
 }
 
+// Every caller decodes the bytes png_stream_parse accepted with that layout, into storage of the layout's sizes.
 PngDecodeResult png_stream_decode(ConstSlice<u8> encoded, const PngImage& image, const PngStreamLayout& layout,
                                   Slice<DeflateInputSpan> spans, Slice<u8> window, Slice<u8> rows,
                                   PngStreamRowSink sink, void* context, DeflateWorkspace* workspace) noexcept {
     PngDecodeResult result{};
-    result.error = PngError::invalid_input;
-    if (!encoded.data || !sink || !workspace || !spans.data || spans.count < layout.idat_chunks ||
-        !layout.idat_chunks || !window.data || window.count < kPngStreamWindowBytes || !rows.data ||
-        rows.count < layout.row_buffer_bytes || !image.row_stride ||
-        layout.row_buffer_bytes != image.row_stride * 2u)
-        return result;
     // Gather the IDAT payloads in order; png_stream_parse validated the chunks.
     u32 count = 0;
-    for (u32 cursor = sizeof(kPngSignature); cursor + 12 <= encoded.count && count < layout.idat_chunks;) {
+    for (u32 cursor = sizeof(kPngSignature); count < layout.idat_chunks;) {
         const u32 length = byte_load_be32(encoded.data + cursor);
-        if (static_cast<u64>(cursor) + 12u + length > encoded.count)
-            return result;
         if (byte_load_be32(encoded.data + cursor + 4) == kChunkIdat && length)
             spans[count++] = {encoded.data + cursor + 8, length};
         cursor += 12u + length;
     }
-    if (count != layout.idat_chunks)
-        return result;
     Assembler assembler{&image, rows.data, rows.data + image.row_stride, sink, context, 0, 0, PngError::none};
     const ZlibInflateResult inflated =
         zlib_inflate_windowed({spans.data, count}, window, ~0u, assemble, &assembler, workspace);

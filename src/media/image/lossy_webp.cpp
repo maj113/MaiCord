@@ -11,6 +11,9 @@ inline LossyWebpDecodeResult failure(LossyWebpDecodeResult result,
     return result;
 }
 
+// The payloads come from webp_parse or animated_webp_parse over the same bytes, so the VP8 payload is in bounds
+// and an ALPH payload exists only where the image declares alpha; the media pipeline then passes the lossless
+// workspace and the alpha storage.
 LossyWebpDecodeResult decode_payloads(
     LossyWebpDecodeResult result, ConstSlice<u8> vp8_payload,
     ConstSlice<u8> alpha_payload, u32 expected_width,
@@ -19,14 +22,6 @@ LossyWebpDecodeResult decode_payloads(
     Vp8CoefficientWorkspace* coefficients,
     Vp8lWorkspace* alpha_lossless_workspace,
     Slice<u8> alpha_rgba_scratch, Slice<u8> alpha_output) noexcept {
-    if (!frame || !header || !probabilities || !modes || !coefficients ||
-        !vp8_payload.data || vp8_payload.count == 0 ||
-        (!alpha_payload.data && alpha_payload.count != 0) ||
-        expected_width == 0 || expected_height == 0 ||
-        expected_width > kWebpDimensionMaximum ||
-        expected_height > kWebpDimensionMaximum) {
-        return failure(result, LossyWebpError::invalid_input);
-    }
     result.envelope = vp8_parse_keyframe(vp8_payload, frame);
     if (!result.envelope.ok() || frame->width != expected_width ||
         frame->height != expected_height) {
@@ -43,10 +38,6 @@ LossyWebpDecodeResult decode_payloads(
         return failure(result, LossyWebpError::vp8_coefficients);
     }
     if (alpha_payload.count != 0) {
-        if (!alpha_lossless_workspace || !alpha_rgba_scratch.data ||
-            !alpha_output.data) {
-            return failure(result, LossyWebpError::invalid_input);
-        }
         result.alpha = webp_alpha_decode(
             alpha_payload, expected_width, expected_height,
             alpha_lossless_workspace, alpha_rgba_scratch, alpha_output);
@@ -61,6 +52,7 @@ LossyWebpDecodeResult decode_payloads(
 
 } // namespace
 
+// The media pipeline calls this only for a document that webp_parse found lossy (decode_webp_bytes).
 LossyWebpDecodeResult lossy_webp_decode_keyframe(
     ConstSlice<u8> encoded, WebpImage* image, Vp8Keyframe* frame,
     Vp8ControlHeader* header, Vp8ProbabilityWorkspace* probabilities,
@@ -68,16 +60,9 @@ LossyWebpDecodeResult lossy_webp_decode_keyframe(
     Vp8lWorkspace* alpha_lossless_workspace, Slice<u8> alpha_rgba_scratch,
     Slice<u8> alpha_output) noexcept {
     LossyWebpDecodeResult result{};
-    if (!image || !frame || !header || !probabilities || !modes ||
-        !coefficients || (!encoded.data && encoded.count != 0)) {
-        return failure(result, LossyWebpError::invalid_input);
-    }
     result.parse = webp_parse(encoded, image);
     if (!result.parse.ok()) {
         return failure(result, LossyWebpError::container);
-    }
-    if (image->codec != WebpCodec::vp8_lossy) {
-        return failure(result, LossyWebpError::unsupported_codec);
     }
     return decode_payloads(
         result, image->bitstream, image->alpha_bitstream,

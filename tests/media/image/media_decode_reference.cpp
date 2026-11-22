@@ -385,7 +385,7 @@ void test_gif_lzw(Check check) noexcept {
                                                         frame.minimum_code_size, frame.palette_count, kPixels,
                                                         expected);
         clear_bytes(decoded, kPixels);
-        const GifDecodeResult result = gif_decode_parsed_frame({gif, gif_bytes}, image, 0, workspace,
+        const GifDecodeResult result = gif_decode_parsed_frame({gif, gif_bytes}, image, 0,
                                                                {decoded, kPixels * 2u + 64u});
         bool rows_equal = true;
         if (reference == GifError::none) {
@@ -517,12 +517,8 @@ bool decode_huffman_symbol(ReferenceReader* reader, const JpegHuffmanTable& tabl
         }
         if (table.minimum_code[length] <= table.maximum_code[length] && code >= table.minimum_code[length] &&
             code <= table.maximum_code[length]) {
-            const i32 index = table.value_offset[length] + code;
-            if (index < 0 || static_cast<u32>(index) >= table.symbol_count) {
-                reader->error = JpegError::huffman;
-                return false;
-            }
-            *symbol = table.symbols[index];
+            // build_huffman_table gives each length's codes their own symbols.
+            *symbol = table.symbols[table.value_offset[length] + code];
             return true;
         }
     }
@@ -625,32 +621,26 @@ JpegDecodeResult reference_baseline(ConstSlice<u8> encoded, const JpegImage& ima
                     const u32 block_x = mcu_x * component.horizontal_sampling + horizontal;
                     const u32 block_y = mcu_y * component.vertical_sampling + vertical;
                     const u32 block_index = component.block_offset + block_y * component.block_columns + block_x;
-                    if (block_index >= image.coefficient_blocks ||
-                        !decode_block(&reader, dc, ac, &predictor[component_index],
-                                      &blocks[block_index])) {
+                    if (!decode_block(&reader, dc, ac, &predictor[component_index], &blocks[block_index])) {
                         result.error = reader.error == JpegError::none ? JpegError::coefficient : reader.error;
                         return result;
                     }
-                    ++result.decoded_blocks;
                 }
             }
         }
     }
-    if (!entropy_align(&reader) || reader.offset != reader.bytes.count ||
-        result.decoded_blocks != image.coefficient_blocks) {
+    if (!entropy_align(&reader) || reader.offset != reader.bytes.count) {
         result.error = reader.error == JpegError::none ? JpegError::entropy : reader.error;
         return result;
     }
     result.error = JpegError::none;
-    result.decoded_scans = 1;
     return result;
 }
 
 // Every block is compared, including those written before a failure.
 bool same_decode(const JpegDecodeResult& fast, const JpegDecodeResult& reference, const JpegCoefficientWorkspace& a,
                  const JpegCoefficientBlock* b, u32 blocks) noexcept {
-    bool same = fast.error == reference.error && fast.decoded_blocks == reference.decoded_blocks &&
-                fast.decoded_scans == reference.decoded_scans;
+    bool same = fast.error == reference.error;
     for (u32 block = 0; block < blocks && same; ++block) {
         const JpegCoefficientBlock unpacked = jpeg_coefficient_block(a, blocks, block);
         same = bytes_equal(&unpacked, &b[block], sizeof(JpegCoefficientBlock));

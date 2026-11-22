@@ -516,7 +516,7 @@ ProfileImageError decode_gif_still(ConstSlice<u8> s, const Plan& plan, Reduce* d
     if (!base)
         return ProfileImageError::memory;
     GifDecodeResult decoded;
-    gif_decode_parsed_frame(&decoded, s, image, 0, workspace, {base, static_cast<u32>(pixels)});
+    gif_decode_parsed_frame(&decoded, s, image, 0, {base, static_cast<u32>(pixels)});
     if (!decoded.ok())
         return ProfileImageError::decode;
     const GifFrame& f = decoded.frame;
@@ -969,7 +969,7 @@ ProfileImageError crop_gif(ConstSlice<u8> s, const ImageCropOutput& crop, GuildI
     }
     for (u32 i = 0; i < image.frame_count && !w.overflow; ++i) {
         GifDecodeResult decoded;
-        gif_decode_parsed_frame(&decoded, s, image, i, workspace, {indices, static_cast<u32>(canvas)});
+        gif_decode_parsed_frame(&decoded, s, image, i, {indices, static_cast<u32>(canvas)});
         if (!decoded.ok())
             return ProfileImageError::decode;
         const GifFrame& f = decoded.frame;

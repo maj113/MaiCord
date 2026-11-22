@@ -702,8 +702,6 @@ void filter_row(Decoder* d, u32 mb_y, const FilterStrength (*strengths)[2], bool
 // The chunk walk runs once per image, before the decode: compiled for size.
 __attribute__((minsize))
 WebpThumbnailError webp_thumbnail_parse(ConstSlice<u8> encoded, WebpThumbnailLayout* layout) noexcept {
-    if (!layout || !encoded.data)
-        return WebpThumbnailError::invalid_input;
     reset_value<WebpThumbnailLayout>(layout);
     if (encoded.count < 20 || encoded.count > kWebpThumbnailEncodedMaximumBytes ||
         byte_load_le32(encoded.data) != byte_fourcc_le('R', 'I', 'F', 'F') ||
@@ -771,28 +769,19 @@ WebpThumbnailError webp_thumbnail_parse(ConstSlice<u8> encoded, WebpThumbnailLay
     return WebpThumbnailError::none;
 }
 
-WebpThumbnailError webp_thumbnail_keyframe_layout(ConstSlice<u8> vp8, u32 width, u32 height, ConstSlice<u8> alpha,
-                                                  WebpThumbnailLayout* layout) noexcept {
-    if (!layout || !vp8.data || (alpha.data && alpha.count != u64{width} * height))
-        return WebpThumbnailError::invalid_input;
+// The VP8 payload of a lossy animation frame that animated_webp_parse admitted at this size: vp8_parse_keyframe
+// accepted it there, under bounds this parse's are wider than.
+void webp_thumbnail_keyframe_layout(ConstSlice<u8> vp8, u32 width, u32 height, WebpThumbnailLayout* layout) noexcept {
     reset_value<WebpThumbnailLayout>(layout);
-    Vp8Keyframe frame{};
-    if (!vp8_parse_keyframe_bounded(vp8, kWebpThumbnailEncodedMaximumBytes, &frame).ok() || frame.width != width ||
-        frame.height != height)
-        return WebpThumbnailError::vp8_header;
     layout->vp8 = vp8;
-    layout->alpha = alpha;
     layout->width = width;
     layout->height = height;
     layout->workspace_bytes = static_cast<u32>(carve(nullptr, width, false).bytes);
-    return WebpThumbnailError::none;
 }
 
+// The layout comes from a successful parse; every caller passes layout.workspace_bytes of 16-byte aligned storage.
 WebpThumbnailError webp_thumbnail_decode(const WebpThumbnailLayout& layout, Slice<u8> workspace,
                                          WebpThumbnailRowSink sink, void* context) noexcept {
-    if (!sink || !layout.vp8.data || !layout.width || !layout.height || !workspace.data ||
-        workspace.count < layout.workspace_bytes || (reinterpret_cast<usize>(workspace.data) & 15u))
-        return WebpThumbnailError::invalid_input;
     Decoder d{};
     d.layout = &layout;
     d.w = carve(workspace.data, layout.width, layout.alpha.data && layout.alpha_filter);
@@ -804,17 +793,12 @@ WebpThumbnailError webp_thumbnail_decode(const WebpThumbnailLayout& layout, Slic
     d.w16 = d.columns * 16u;
     d.w8 = d.columns * 8u;
     Vp8Keyframe frame{};
-    if (!vp8_parse_keyframe_bounded(layout.vp8, kWebpThumbnailEncodedMaximumBytes, &frame).ok() ||
-        frame.width != layout.width || frame.height != layout.height)
-        return WebpThumbnailError::vp8_header;
+    vp8_parse_keyframe_bounded(layout.vp8, kWebpThumbnailEncodedMaximumBytes, &frame);
     if (!vp8_parse_keyframe_control(frame, d.w.header, d.w.probabilities).ok())
         return WebpThumbnailError::vp8_control;
     const Vp8ControlHeader& header = *d.w.header;
     Vp8RowParser parser{};
-    if (vp8_row_parser_initialize(&parser, frame, header, {d.w.top_context, d.columns},
-                                  {d.w.above_modes, d.columns * 4u})
-            .error != Vp8CoefficientError::none)
-        return WebpThumbnailError::vp8_syntax;
+    vp8_row_parser_initialize(&parser, frame, header, {d.w.top_context, d.columns}, {d.w.above_modes, d.columns * 4u});
 
     // Filter strength per segment and prediction class (section 15.1).
     FilterStrength strengths[4][2]{};

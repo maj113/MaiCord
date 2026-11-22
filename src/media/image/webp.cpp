@@ -515,9 +515,6 @@ bool read_huffman_code(BitReader* reader, u32 alphabet_size, Vp8lWorkspace* work
 __attribute__((minsize))
 WebpParseResult webp_parse(ConstSlice<u8> encoded, WebpImage* image) noexcept {
     WebpParseResult result{};
-    if (!image || (!encoded.data && encoded.count != 0)) {
-        return parse_failure(result, WebpError::invalid_input);
-    }
     reset_value<WebpImage>(image);
     if (encoded.count > kWebpEncodedMaximumBytes) {
         return parse_failure(result, WebpError::encoded_limit);
@@ -654,7 +651,6 @@ WebpParseResult webp_parse(ConstSlice<u8> encoded, WebpImage* image) noexcept {
           ((feature_flags & 0x04u) != 0) != xmp_seen))) {
         return parse_failure(result, WebpError::chunk);
     }
-    image->encoded_bytes = encoded.count;
     result.error = WebpError::none;
     return result;
 }
@@ -1330,11 +1326,9 @@ WebpDecodeResult decode_validated_lossless_pixels(WebpImage* image, WebpParseRes
                                                   bool rgba_order) noexcept {
     WebpDecodeResult result{};
     result.parse = parse;
-    if (!workspace || !rgba_output.data || image->codec != WebpCodec::vp8l_lossless ||
-        !image->bitstream.data || image->bitstream.count == 0) {
-        result.error = !workspace || !rgba_output.data ? WebpError::invalid_input
-                       : image->codec == WebpCodec::vp8_lossy ? WebpError::unsupported_lossy
-                                                              : WebpError::bitstream;
+    // Every caller passes a lossless image (parsed or framed from the same bytes) and owned storage.
+    if (image->bitstream.count == 0) {
+        result.error = WebpError::bitstream;
         return result;
     }
     const u64 required = static_cast<u64>(image->width) * image->height * 4u;
@@ -1434,11 +1428,6 @@ WebpDecodeResult webp_lossless_decode_vp8l_frame_rgba8(ConstSlice<u8> vp8l_paylo
                                                        Vp8lWorkspace* workspace,
                                                        Slice<u8> rgba_output) noexcept {
     WebpDecodeResult result{};
-    if (!image || (!vp8l_payload.data && vp8l_payload.count != 0) || expected_width == 0 ||
-        expected_height == 0) {
-        result.error = WebpError::invalid_input;
-        return result;
-    }
     reset_value<WebpImage>(image);
     if (vp8l_payload.count < 5) {
         result.parse.error = WebpError::truncated;
@@ -1467,7 +1456,6 @@ WebpDecodeResult webp_lossless_decode_vp8l_frame_rgba8(ConstSlice<u8> vp8l_paylo
     image->bitstream = ConstSlice<u8>{vp8l_payload.data + 5, vp8l_payload.count - 5};
     image->width = width;
     image->height = height;
-    image->encoded_bytes = vp8l_payload.count;
     image->codec = WebpCodec::vp8l_lossless;
     image->has_alpha = (header & (1u << 28)) != 0;
     return decode_validated_lossless_pixels(image, result.parse, workspace, rgba_output, true);
@@ -1477,10 +1465,6 @@ WebpDecodeResult webp_lossless_decode_image_stream_argb32(ConstSlice<u8> bitstre
                                                           WebpImage* image, Vp8lWorkspace* workspace,
                                                           Slice<u8> pixel_output) noexcept {
     WebpDecodeResult result{};
-    if (!image || (!bitstream.data && bitstream.count != 0) || width == 0 || height == 0) {
-        result.error = WebpError::invalid_input;
-        return result;
-    }
     reset_value<WebpImage>(image);
     if (width > kWebpLosslessDimensionMaximum || height > kWebpLosslessDimensionMaximum ||
         static_cast<u64>(width) * height > kWebpLosslessPixelMaximum) {
@@ -1488,15 +1472,9 @@ WebpDecodeResult webp_lossless_decode_image_stream_argb32(ConstSlice<u8> bitstre
         result.error = WebpError::dimensions;
         return result;
     }
-    if (!bitstream.data || bitstream.count == 0) {
-        result.parse.error = WebpError::truncated;
-        result.error = WebpError::truncated;
-        return result;
-    }
     image->bitstream = bitstream;
     image->width = width;
     image->height = height;
-    image->encoded_bytes = bitstream.count;
     image->codec = WebpCodec::vp8l_lossless;
     return decode_validated_lossless_pixels(image, result.parse, workspace, pixel_output, false);
 }

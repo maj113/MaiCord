@@ -238,14 +238,14 @@ void test_message_preparation(void (*check)(bool, const char*) noexcept) noexcep
     u32 buckets[4]{};
     AnimationFrameAdvance advance[1]{};
     const MediaAssetKey key = media_asset_attachment(42, MediaAttachmentFormat::gif);
-    const bool initialized = animation_timeline_initialize(&animations, {entries, 2}, {buckets, 4});
+    animation_timeline_initialize(&animations, {entries, 2}, {buckets, 4});
     const auto published = animation_timeline_publish(&animations, {key, 30'000, 1, 10, 0, false}, 1000);
     const auto offscreen = animation_timeline_collect_due(&animations, 1'000'000, {advance, 1});
     animation_timeline_begin_visibility(&animations);
     const bool visible = animation_timeline_observe_visible(&animations, key, 1'000'000);
     animation_timeline_end_visibility(&animations, 1'000'000);
     const auto onscreen = animation_timeline_collect_due(&animations, 1'030'000, {advance, 1});
-    check(initialized && published.ok() && offscreen.ok() && offscreen.advances == 0 &&
+    check(published.ok() && offscreen.ok() && offscreen.advances == 0 &&
           visible && onscreen.ok() && onscreen.advances == 1 && advance[0].frame_index == 1,
           "message_media_prefetched_animation_waits_for_visibility_without_skipping_frames");
 }

@@ -1158,7 +1158,7 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     for (u32 frame_index = 0; frame_index < gif_image.frame_count; ++frame_index) {
         const GifDecodeResult decoded = gif_decode_parsed_frame(
             ConstSlice<u8>{g_probe.png_encoded, gif_fixture.encoded_bytes}, gif_image, frame_index,
-            &gif_workspace, Slice<u8>{g_probe.png_scanlines, sizeof(g_probe.png_scanlines)});
+            Slice<u8>{g_probe.png_scanlines, sizeof(g_probe.png_scanlines)});
         if (!decoded.ok()) {
             return false;
         }

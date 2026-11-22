@@ -36,14 +36,15 @@ inline bool descriptor_valid(const AnimationTimelineDescriptor& descriptor) noex
            descriptor.first_frame_duration_us <= kAnimationFrameDurationMaximumUs;
 }
 
+// The one timeline is initialized before the loop that calls into it and released after it, so its tables
+// are always present here.
 u32 find_bucket(const AnimationTimeline* timeline, const MediaAssetKey& key) noexcept {
-    if (!timeline || !timeline->entries || !timeline->buckets || timeline->capacity == 0 ||
-        timeline->bucket_capacity == 0 || !media_asset_key_valid(key)) {
+    if (!media_asset_key_valid(key)) {
         return kSlotIndexNone;
     }
     return slot_index_find(timeline->buckets, timeline->bucket_capacity, media_asset_hash(key),
                            [&](u32 slot) noexcept {
-                               return slot < timeline->capacity && occupied(timeline->entries[slot]) &&
+                               return occupied(timeline->entries[slot]) &&
                                       media_asset_key_equal(timeline->entries[slot].key, key);
                            });
 }
@@ -65,9 +66,6 @@ bool insert_bucket(AnimationTimeline* timeline, const MediaAssetKey& key, u32 sl
 AnimationTimelineResult find_pending(AnimationTimeline* timeline, const AnimationFrameAdvance& advance,
                                      AnimationTimelineEntry** output) noexcept {
     *output = nullptr;
-    if (!timeline || !timeline->entries) {
-        return {AnimationTimelineError::invalid_argument, 0};
-    }
     const u32 slot = find_slot(timeline, advance.key);
     if (slot == 0xFFFFFFFFu) {
         return {AnimationTimelineError::not_found, 0};
@@ -109,8 +107,6 @@ inline bool next_position(const AnimationTimelineEntry& entry, u32* frame_index,
 bool animation_timeline_restart(AnimationTimeline* timeline, const MediaAssetKey& key_view, u64 epoch,
                                 u64 now) noexcept {
     const MediaAssetKey key = key_view; // the timeline is rewritten below
-    if (!timeline || !epoch)
-        return false;
     now = presentation_time(*timeline, now);
     const u32 slot = find_slot(timeline, key);
     if (slot == ~0u)
@@ -132,32 +128,18 @@ bool animation_timeline_restart(AnimationTimeline* timeline, const MediaAssetKey
 #if defined(_WIN32)
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 #endif
-bool animation_timeline_initialize(AnimationTimeline* timeline, Slice<AnimationTimelineEntry> entries,
+void animation_timeline_initialize(AnimationTimeline* timeline, Slice<AnimationTimelineEntry> entries,
                                    Slice<u32> buckets) noexcept {
-    if (!timeline || !entries.data || entries.count == 0 || entries.count > (~0u / 2u) || !buckets.data ||
-        buckets.count < entries.count * 2u) {
-        return false;
-    }
     timeline->entries = entries.data;
     timeline->buckets = buckets.data;
     timeline->capacity = entries.count;
     timeline->bucket_capacity = buckets.count;
     animation_timeline_reset(timeline);
-    return true;
 }
 
-bool animation_timeline_grow_storage(AnimationTimeline* timeline, Slice<AnimationTimelineEntry> entries,
+// The only caller passes the same stable storage, grown, with twice as many buckets as entries.
+void animation_timeline_grow_storage(AnimationTimeline* timeline, Slice<AnimationTimelineEntry> entries,
                                      Slice<u32> buckets) noexcept {
-    if (!timeline || !timeline->entries || !timeline->buckets || entries.data != timeline->entries ||
-        buckets.data != timeline->buckets || entries.count < timeline->capacity ||
-        entries.count > (~0u / 2u) || buckets.count < entries.count * 2u ||
-        buckets.count < timeline->bucket_capacity) {
-        return false;
-    }
-    if (entries.count == timeline->capacity && buckets.count == timeline->bucket_capacity) {
-        return true;
-    }
-
     const u32 previous_capacity = timeline->capacity;
     for (u32 index = previous_capacity; index < entries.count; ++index) {
         reset_value<AnimationTimelineEntry>(&entries[index]);
@@ -168,17 +150,12 @@ bool animation_timeline_grow_storage(AnimationTimeline* timeline, Slice<Animatio
     timeline->capacity = entries.count;
     timeline->bucket_capacity = buckets.count;
     for (u32 slot = 0; slot < previous_capacity; ++slot) {
-        if (occupied(entries[slot]) && !insert_bucket(timeline, entries[slot].key, slot)) {
-            return false;
-        }
+        if (occupied(entries[slot]))
+            insert_bucket(timeline, entries[slot].key, slot);
     }
-    return true;
 }
 
 void animation_timeline_reset(AnimationTimeline* timeline) noexcept {
-    if (!timeline || !timeline->entries || !timeline->buckets) {
-        return;
-    }
     for (u32 index = 0; index < timeline->capacity; ++index) {
         reset_value<AnimationTimelineEntry>(&timeline->entries[index]);
     }
@@ -195,13 +172,13 @@ void animation_timeline_reset(AnimationTimeline* timeline) noexcept {
 }
 
 void animation_timeline_suspend(AnimationTimeline* timeline, u64 now_us) noexcept {
-    if (!timeline || !timeline->entries || timeline->suspended) return;
+    if (timeline->suspended) return;
     timeline->suspended_at_us = now_us;
     timeline->suspended = true;
 }
 
 u64 animation_timeline_resume(AnimationTimeline* timeline, u64 now_us) noexcept {
-    if (!timeline || !timeline->entries || !timeline->suspended) return 0;
+    if (!timeline->suspended) return 0;
     const u64 elapsed = now_us > timeline->suspended_at_us ? now_us - timeline->suspended_at_us : 0;
     timeline->suspended = false;
     timeline->suspended_at_us = 0;
@@ -219,9 +196,6 @@ u64 animation_timeline_resume(AnimationTimeline* timeline, u64 now_us) noexcept 
 AnimationTimelineResult animation_timeline_publish(AnimationTimeline* timeline,
                                                    const AnimationTimelineDescriptor& descriptor,
                                                    u64 monotonic_now_us) noexcept {
-    if (!timeline || !timeline->entries || !timeline->buckets) {
-        return {AnimationTimelineError::invalid_argument, 0};
-    }
     monotonic_now_us = presentation_time(*timeline, monotonic_now_us);
     if (!media_asset_key_valid(descriptor.key)) {
         return {AnimationTimelineError::invalid_key, 0};
@@ -256,12 +230,6 @@ AnimationTimelineResult animation_timeline_publish(AnimationTimeline* timeline,
 
 AnimationTimelineResult animation_timeline_find(const AnimationTimeline* timeline,
                                                 const MediaAssetKey& key) noexcept {
-    if (!timeline || !timeline->entries || !timeline->buckets) {
-        return {AnimationTimelineError::invalid_argument, 0};
-    }
-    if (!media_asset_key_valid(key)) {
-        return {AnimationTimelineError::invalid_key, 0};
-    }
     const u32 slot = find_slot(timeline, key);
     return slot == 0xFFFFFFFFu ? AnimationTimelineResult{AnimationTimelineError::not_found, 0}
                                : AnimationTimelineResult{AnimationTimelineError::none, slot};
@@ -270,9 +238,6 @@ AnimationTimelineResult animation_timeline_find(const AnimationTimeline* timelin
 AnimationTimelineResult animation_timeline_release(AnimationTimeline* timeline, const MediaAssetKey& key_view,
                                                    u32 generation) noexcept {
     const MediaAssetKey key = key_view; // the timeline is rewritten below
-    if (!timeline || !timeline->entries || !timeline->buckets) {
-        return {AnimationTimelineError::invalid_argument, 0};
-    }
     const u32 bucket = find_bucket(timeline, key);
     if (bucket == 0xFFFFFFFFu) {
         return {AnimationTimelineError::not_found, 0};
@@ -289,9 +254,6 @@ AnimationTimelineResult animation_timeline_release(AnimationTimeline* timeline, 
 }
 
 void animation_timeline_begin_visibility(AnimationTimeline* timeline) noexcept {
-    if (!timeline || !timeline->entries) {
-        return;
-    }
     ++timeline->visibility_epoch;
     if (timeline->visibility_epoch != 0) {
         return;
@@ -324,9 +286,6 @@ bool animation_timeline_observe_visible(AnimationTimeline* timeline, const Media
 }
 
 void animation_timeline_end_visibility(AnimationTimeline* timeline, u64 monotonic_now_us) noexcept {
-    if (!timeline || !timeline->entries) {
-        return;
-    }
     monotonic_now_us = presentation_time(*timeline, monotonic_now_us);
     constexpr u32 kRequiredFlags = animation_timeline_entry_occupied | animation_timeline_entry_visible;
     // entry_count is exact: stop once every occupied entry was visited.
@@ -351,18 +310,15 @@ void animation_timeline_end_visibility(AnimationTimeline* timeline, u64 monotoni
 
 AnimationTimelineCollectResult animation_timeline_collect_due(
     AnimationTimeline* timeline, u64 monotonic_now_us, Slice<AnimationFrameAdvance> output) noexcept {
-    if (!timeline || !timeline->entries || (output.count != 0 && !output.data)) {
-        return {AnimationTimelineError::invalid_argument, 0, 0};
-    }
     AnimationTimelineCollectResult result{AnimationTimelineError::none, 0, 0};
-    if (timeline->capacity == 0 || timeline->suspended) {
+    if (timeline->suspended) {
         return result;
     }
     constexpr u32 kRequiredFlags = animation_timeline_entry_occupied | animation_timeline_entry_visible;
     constexpr u32 kRejectedFlags = animation_timeline_entry_pending | animation_timeline_entry_finished;
     u32 live = timeline->entry_count;
-    // The walk starts at the scan cursor and wraps once: a compare per entry, not a division.
-    u32 next = timeline->scan_cursor % timeline->capacity;
+    // The walk starts at the scan cursor (always below the capacity) and wraps once: a compare per entry.
+    u32 next = timeline->scan_cursor;
     for (u32 offset = 0; live && offset < timeline->capacity; ++offset) {
         const u32 index = next;
         next = index + 1 == timeline->capacity ? 0 : index + 1;
@@ -458,7 +414,7 @@ AnimationTimelineResult animation_timeline_defer_advance(AnimationTimeline* time
 }
 
 u64 animation_timeline_next_wake_at_us(const AnimationTimeline* timeline) noexcept {
-    if (!timeline || !timeline->entries || timeline->suspended) {
+    if (timeline->suspended) {
         return 0;
     }
     u64 next = 0;

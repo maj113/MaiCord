@@ -6,7 +6,6 @@ namespace maicord {
 
 enum class Vp8Error : u8 {
     none,
-    invalid_input,
     encoded_limit,
     truncated,
     interframe,
@@ -19,14 +18,11 @@ enum class Vp8Error : u8 {
 
 enum class Vp8BoolError : u8 {
     none,
-    invalid_input,
     truncated,
-    literal_width,
 };
 
 enum class Vp8ControlError : u8 {
     none,
-    invalid_input,
     boolean_stream,
     token_partition_table,
     token_partition_bounds,
@@ -34,9 +30,6 @@ enum class Vp8ControlError : u8 {
 
 enum class Vp8CoefficientError : u8 {
     none,
-    invalid_input,
-    dimensions,
-    token_initialize,
     boolean_stream,
     coefficient_range,
 };
@@ -248,10 +241,8 @@ struct Vp8RowParser {
     u32 row;
     u32 partitions;
 };
-Vp8CoefficientParseResult vp8_row_parser_initialize(Vp8RowParser* parser, const Vp8Keyframe& frame,
-                                                    const Vp8ControlHeader& header,
-                                                    Slice<Vp8TokenContext> top_context,
-                                                    Slice<Vp8SubblockMode> above_modes) noexcept;
+void vp8_row_parser_initialize(Vp8RowParser* parser, const Vp8Keyframe& frame, const Vp8ControlHeader& header,
+                               Slice<Vp8TokenContext> top_context, Slice<Vp8SubblockMode> above_modes) noexcept;
 // Parses the next row into modes[0, columns) and coefficients[0, columns).
 Vp8CoefficientParseResult vp8_row_parser_next(Vp8RowParser* parser, const Vp8ControlHeader& header,
                                               const Vp8ProbabilityWorkspace& probabilities,

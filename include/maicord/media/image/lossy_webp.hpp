@@ -7,9 +7,7 @@ namespace maicord {
 
 enum class LossyWebpError : u8 {
     none,
-    invalid_input,
     container,
-    unsupported_codec,
     vp8_envelope,
     vp8_control,
     vp8_coefficients,
@@ -38,10 +36,10 @@ struct LossyWebpWorkspace {
     Vp8ProbabilityWorkspace probabilities;
 };
 
-// Parses one complete still WebP document, entropy-decodes its VP8 keyframe
-// into caller-owned mode/coefficient records, and decodes an optional external
-// ALPH plane. The VP8 pixel reconstruction and color conversion remain GPU
-// work; no software RGBA fallback is produced here.
+// Parses one complete still lossy WebP document, entropy-decodes its VP8
+// keyframe into caller-owned mode/coefficient records, and decodes an optional
+// external ALPH plane. The VP8 pixel reconstruction and color conversion remain
+// GPU work; no software RGBA fallback is produced here.
 LossyWebpDecodeResult lossy_webp_decode_keyframe(
     ConstSlice<u8> encoded, WebpImage* image, Vp8Keyframe* frame,
     Vp8ControlHeader* header, Vp8ProbabilityWorkspace* probabilities,

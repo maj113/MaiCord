@@ -79,7 +79,7 @@ WebpAlphaDecodeResult webp_alpha_decode(
     Vp8lWorkspace* workspace, Slice<u8> rgba_scratch,
     Slice<u8> alpha_output) noexcept {
     WebpAlphaDecodeResult result{};
-    if (!payload.data || payload.count == 0 || !alpha_output.data) {
+    if (payload.count == 0) {
         return alpha_failure(result, WebpAlphaError::invalid_input);
     }
     if (width == 0 || height == 0 ||
@@ -118,12 +118,8 @@ WebpAlphaDecodeResult webp_alpha_decode(
     } else {
         const u64 required_scratch =
             static_cast<u64>(pixel_count) * 4u;
-        if (!workspace) {
-            return alpha_failure(result,
-                                 WebpAlphaError::invalid_input);
-        }
-        if (!rgba_scratch.data ||
-            rgba_scratch.count < required_scratch ||
+        // A null scratch or output has no room: the capacity checks reject it.
+        if (rgba_scratch.count < required_scratch ||
             (reinterpret_cast<usize>(rgba_scratch.data) & 3u) != 0) {
             return alpha_failure(result,
                                  WebpAlphaError::scratch_capacity);

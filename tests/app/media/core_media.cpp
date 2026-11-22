@@ -660,8 +660,8 @@ void test_animation_timeline() noexcept {
     u32 bounded_buckets[2]{};
     AnimationTimeline bounded{};
     const MediaAssetKey bounded_key = media_asset_custom_emoji(699, true);
-    const bool bounded_ready = animation_timeline_initialize(
-        &bounded, Slice<AnimationTimelineEntry>{bounded_entry, 1}, Slice<u32>{bounded_buckets, 2});
+    animation_timeline_initialize(&bounded, Slice<AnimationTimelineEntry>{bounded_entry, 1},
+                                  Slice<u32>{bounded_buckets, 2});
     const AnimationTimelineResult oversized_frames = animation_timeline_publish(
         &bounded,
         AnimationTimelineDescriptor{bounded_key, 10'000, 1, kAnimationTimelineFrameMaximum + 1u, 0, true},
@@ -670,18 +670,14 @@ void test_animation_timeline() noexcept {
         &bounded,
         AnimationTimelineDescriptor{bounded_key, 10'000, 1, kAnimationTimelineFrameMaximum, 0, true},
         100'000);
-    expect(bounded_ready && oversized_frames.error == AnimationTimelineError::invalid_descriptor &&
+    expect(oversized_frames.error == AnimationTimelineError::invalid_descriptor &&
                maximum_frames.ok() && bounded_entry[0].frame_count == kAnimationTimelineFrameMaximum,
            "animation_timeline_frame_index_narrowing_is_validated");
 
     AnimationTimelineEntry entries[2]{};
     u32 buckets[4]{};
     AnimationTimeline timeline{};
-    expect(!animation_timeline_initialize(nullptr, {}) &&
-               animation_timeline_initialize(&timeline, Slice<AnimationTimelineEntry>{entries, 2},
-                                             Slice<u32>{buckets, 4}) &&
-               timeline.capacity == 2 && timeline.entry_count == 0,
-           "animation_timeline_caller_owned_initialize");
+    animation_timeline_initialize(&timeline, Slice<AnimationTimelineEntry>{entries, 2}, Slice<u32>{buckets, 4});
 
     const MediaAssetKey emoji = media_asset_custom_emoji(700, true);
     const MediaAssetKey sticker = media_asset_sticker(701, 2);
@@ -778,9 +774,9 @@ void test_animation_timeline() noexcept {
     AnimationFrameAdvance peer_advances[1]{};
     const MediaAssetKey peer_a = media_asset_custom_emoji(710, true);
     const MediaAssetKey peer_b = media_asset_custom_emoji(711, true);
-    bool peers_ok = animation_timeline_initialize(&peers, Slice<AnimationTimelineEntry>{peer_entries, 2},
-                                                  Slice<u32>{peer_buckets, 4}) &&
-                    animation_timeline_publish(
+    animation_timeline_initialize(&peers, Slice<AnimationTimelineEntry>{peer_entries, 2},
+                                  Slice<u32>{peer_buckets, 4});
+    bool peers_ok = animation_timeline_publish(
                         &peers, AnimationTimelineDescriptor{peer_a, 10'000, 1, 2, 0, true}, 100'000)
                         .ok() &&
                     animation_timeline_publish(
@@ -803,8 +799,9 @@ void test_animation_timeline() noexcept {
     AnimationTimelineEntry scale_entries[256]{};
     u32 scale_buckets[512]{};
     AnimationTimeline scale{};
-    bool scale_ok = animation_timeline_initialize(
-        &scale, Slice<AnimationTimelineEntry>{scale_entries, 256}, Slice<u32>{scale_buckets, 512});
+    animation_timeline_initialize(&scale, Slice<AnimationTimelineEntry>{scale_entries, 256},
+                                  Slice<u32>{scale_buckets, 512});
+    bool scale_ok = true;
     for (u32 index = 0; index < 256 && scale_ok; ++index) {
         const MediaAssetKey key = media_asset_custom_emoji(900'000 + index, true);
         const AnimationTimelineResult published = animation_timeline_publish(
@@ -885,10 +882,8 @@ void test_encoded_media_cache() noexcept {
     u32 index_buckets[8]{};
     u8 storage[4 * kEncodedMediaCachePageBytes]{};
     EncodedMediaCache cache{};
-    expect(encoded_media_cache_initialize(&cache, Slice<EncodedMediaCacheEntry>{entries, 3},
-                                          Slice<u16>{page_owners, 4}, Slice<u8>{storage, sizeof(storage)},
-                                          Slice<u32>{index_buckets, 8}),
-           "encoded_media_cache_caller_owned_initialize");
+    encoded_media_cache_initialize(&cache, Slice<EncodedMediaCacheEntry>{entries, 3}, Slice<u16>{page_owners, 4},
+                                   Slice<u8>{storage, sizeof(storage)}, Slice<u32>{index_buckets, 8});
 
     u8 one_page[1'000]{};
     u8 two_pages[5'000]{};
@@ -943,11 +938,11 @@ void test_encoded_media_cache() noexcept {
     const bool pinned_erase_rejected = !encoded_media_cache_erase(&cache, key1);
     const bool lease_immutable = lease.acquired && lease.lookup.bytes.count == sizeof(two_pages) &&
                                  lease.lookup.bytes[17] == two_pages[17];
-    const bool released = encoded_media_cache_release(&cache, &lease);
+    encoded_media_cache_release(&cache, &lease);
     const EncodedMediaCacheStoreResult after_release =
         encoded_media_cache_store(&cache, key1, ConstSlice<u8>{one_page, sizeof(one_page)}, fresh);
     expect(pinned_replace.state == EncodedMediaCacheStoreState::no_capacity && pinned_erase_rejected &&
-               lease_immutable && released &&
+               lease_immutable &&
                after_release.state == EncodedMediaCacheStoreState::replaced,
            "encoded_media_cache_lease_pins_immutable_source");
 
@@ -960,7 +955,7 @@ void test_encoded_media_cache() noexcept {
                encoded_media_cache_find(&cache, key1, 0).state == EncodedMediaCacheLookupState::miss,
            "encoded_media_cache_no_store_and_explicit_erase");
 
-    const bool reinitialized = encoded_media_cache_initialize(
+    encoded_media_cache_initialize(
         &cache, Slice<EncodedMediaCacheEntry>{entries, 3}, Slice<u16>{page_owners, 4},
         Slice<u8>{storage, sizeof(storage)}, Slice<u32>{index_buckets, 8});
     const auto animation1 = media_asset_custom_emoji(5001, true);
@@ -972,7 +967,7 @@ void test_encoded_media_cache() noexcept {
     const u64 video_source2 = encoded_media_new_content_identity();
     encoded_media_cache_store(&cache, animation2, {one_page, sizeof(one_page)}, fresh);
     const auto identity2 = encoded_media_cache_find(&cache, animation2, 100);
-    expect(reinitialized && identity1.content_identity != 0 &&
+    expect(identity1.content_identity != 0 &&
                identity1.content_identity == identity2.content_identity && hit.content_identity == 0,
            "encoded_animation_identity_shares_exact_bytes_only");
     expect(video_source1 != 0 && video_source2 != 0 && video_source1 != video_source2 &&
@@ -1018,8 +1013,9 @@ void test_encoded_media_cache_dense_index() noexcept {
         EncodedMediaCacheLease lease = encoded_media_cache_acquire(
             &media.cache, media_asset_custom_emoji(50'000 + index, false), 1);
         exact = exact && lease.acquired && lease.lookup.state == EncodedMediaCacheLookupState::fresh &&
-                lease.lookup.bytes.count == 1 && lease.lookup.bytes[0] == payload &&
-                encoded_media_cache_release(&media.cache, &lease);
+                lease.lookup.bytes.count == 1 && lease.lookup.bytes[0] == payload;
+        if (lease.acquired)
+            encoded_media_cache_release(&media.cache, &lease);
     }
     expect(exact && media.cache.entry_count == kAccountMediaCacheEntryCapacity &&
                used_pages(media.cache) == kAccountMediaCacheEntryCapacity && account_media_stop(&media, 5'000),
@@ -1047,11 +1043,11 @@ void test_cdn_reduced_jpeg_pipeline() noexcept {
     CdnMediaPipeline pipeline{};
     JpegFixtureResult fixture{};
     u32 oriented_bytes = 0;
+    encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 8}, {storage, sizeof(storage)}, {buckets, 8});
     const bool ready =
         build_marked_jpeg_fixture({encoded, sizeof(encoded)}, 640, 480, &fixture) &&
         build_jpeg_exif_orientation_fixture({encoded, fixture.encoded_bytes}, {oriented, sizeof(oriented)}, 6,
-                                            false, &oriented_bytes) &&
-        encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 8}, {storage, sizeof(storage)}, {buckets, 8});
+                                            false, &oriented_bytes);
     cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)}, sizeof(scanlines));
     pipeline.jpeg_workspace = &g_jpeg_workspace;
     pipeline.jpeg_committed = sizeof(g_jpeg_workspace);
@@ -1214,8 +1210,7 @@ void test_cdn_reduced_webp_pipeline() noexcept {
     u32 buckets[16]{};
     EncodedMediaCache cache{};
     CdnMediaPipeline pipeline{};
-    const bool ready =
-        encoded_media_cache_initialize(&cache, {entries, 8}, {owners, 64}, {storage, sizeof(storage)}, {buckets, 16});
+    encoded_media_cache_initialize(&cache, {entries, 8}, {owners, 64}, {storage, sizeof(storage)}, {buckets, 16});
     cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)}, sizeof(scanlines));
     pipeline.webp_workspace = &g_vp8l_workspace;
     const auto policy = [](u32 bytes) noexcept {
@@ -1231,7 +1226,7 @@ void test_cdn_reduced_webp_pipeline() noexcept {
     };
     u32 bytes = build_large_lossy_webp(encoded, 1104, 600, false, 0);
     const auto lossy = cdn_media_pipeline_admit_static_webp(&pipeline, key(9001), policy(bytes), {encoded, bytes}, {});
-    expect(ready && lossy.state == CdnStaticWebpState::decoded_response && lossy.image.width == 1104 &&
+    expect(lossy.state == CdnStaticWebpState::decoded_response && lossy.image.width == 1104 &&
                lossy.image.height == 600 && lossy.image.codec == WebpCodec::none &&
                lossy.rgba8.count == 1104u * 600u * 4u && pixel(lossy, 0, 0) == 0xFF828282u &&
                pixel(lossy, 1103, 599) == 0xFF848484u,
@@ -1278,10 +1273,8 @@ void test_cdn_static_png_pipeline() noexcept {
     ApngWorkspace apng_workspace{};
     GifWorkspace gif_workspace{};
     AnimatedWebpWorkspace animated_webp_workspace{};
-    expect(encoded_media_cache_initialize(&cache, Slice<EncodedMediaCacheEntry>{entries, 3},
-                                          Slice<u16>{page_owners, 5},
-                                          Slice<u8>{storage, sizeof(storage)}, Slice<u32>{buckets, 8}),
-           "cdn_pipeline_caller_owned_initialize");
+    encoded_media_cache_initialize(&cache, Slice<EncodedMediaCacheEntry>{entries, 3}, Slice<u16>{page_owners, 5},
+                                   Slice<u8>{storage, sizeof(storage)}, Slice<u32>{buckets, 8});
     cdn_media_pipeline_initialize(&pipeline, &cache, Slice<u8>{g_png_scanlines, sizeof(g_png_scanlines)},
                                   sizeof(g_png_scanlines));
     pipeline.webp_workspace = &g_vp8l_workspace;
@@ -1448,7 +1441,7 @@ void test_cdn_static_png_pipeline() noexcept {
                jpeg_admitted.image.height == 8 &&
                jpeg_admitted.coefficients == &g_jpeg_workspace.coefficients &&
                jpeg_hit.state == CdnStaticJpegState::decoded_cache_hit &&
-               jpeg_hit.decode.decoded_blocks == 6 &&
+               jpeg_hit.decode.ok() && jpeg_hit.image.coefficient_blocks == 6 &&
                jpeg_coefficient_block(*jpeg_hit.coefficients, jpeg_hit.image.coefficient_blocks, 3).values[0] == -256 &&
                bytes_equal(jpeg_hit.etag, byte_literal("\"jpeg-1\"")),
            "cdn_pipeline_jpeg_decode_before_cache_and_fresh_hit");
@@ -1463,11 +1456,11 @@ void test_cdn_static_png_pipeline() noexcept {
     const CdnStaticJpegResult progressive_hit =
         cdn_media_pipeline_lookup_static_jpeg(&pipeline, progressive_key, 2'010);
     expect(progressive.state == CdnStaticJpegState::decoded_response && progressive.decode.ok() &&
-               progressive.decode.parse.scans == 10 && progressive.decode.decoded_scans == 10 &&
+               progressive.decode.parse.scans == 10 && progressive.image.scan_count == 10 &&
                progressive.image.progressive && progressive.image.width == 16 &&
                progressive.image.height == 16 &&
                progressive_hit.state == CdnStaticJpegState::decoded_cache_hit &&
-               progressive_hit.decode.decoded_scans == 10 &&
+               progressive_hit.decode.ok() && progressive_hit.image.scan_count == 10 &&
                bytes_equal(progressive_hit.etag, byte_literal("\"jpeg-progressive-1\"")),
            "cdn_pipeline_progressive_jpeg_decode_publish_and_hit");
 
@@ -1681,7 +1674,9 @@ void test_cdn_static_png_pipeline() noexcept {
                .ok(),
            "cdn_pipeline_animated_webp_corrupt_frame_offset");
     const AnimatedWebpFrame corrupt_frame = corrupt_animation.frames[3];
-    for (u32 index = 13; index < corrupt_frame.payload_bytes; ++index) {
+    // The frame's VP8L chunk: its header, then its payload.
+    const u32 frame_bytes = 8 + byte_load_le32(g_png_encoded + corrupt_frame.payload_offset + 4);
+    for (u32 index = 13; index < frame_bytes; ++index) {
         g_png_encoded[corrupt_frame.payload_offset + index] = 0xFF;
     }
     const MediaAssetKey corrupt_animated_key = media_asset_custom_emoji(902, true);
@@ -1769,9 +1764,7 @@ void test_cdn_gif_metadata_reuse() noexcept {
     u8 storage[4 * kEncodedMediaCachePageBytes]{}, output[64]{};
     u32 buckets[8]{};
     EncodedMediaCache cache{}; CdnMediaPipeline pipeline{}; GifWorkspace workspace{};
-    if (!encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 4}, {storage, sizeof(storage)}, {buckets, 8})) {
-        expect(false, "gif_metadata_initialize"); return;
-    }
+    encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 4}, {storage, sizeof(storage)}, {buckets, 8});
     cdn_media_pipeline_initialize(&pipeline, &cache, {output, sizeof(output)}, sizeof(output));
     pipeline.gif_workspace = &workspace;
     const auto a = media_asset_sticker(88001, 4), b = media_asset_sticker(88002, 4);
@@ -3217,9 +3210,8 @@ void test_message_media_controller() noexcept {
     AnimationTimelineEntry animation_entries[8]{};
     u32 animation_buckets[16]{};
     AnimationTimeline animations{};
-    const bool animations_ready =
-        animation_timeline_initialize(&animations, Slice<AnimationTimelineEntry>{animation_entries, 8},
-                                      Slice<u32>{animation_buckets, 16});
+    animation_timeline_initialize(&animations, Slice<AnimationTimelineEntry>{animation_entries, 8},
+                                  Slice<u32>{animation_buckets, 16});
 
     MediaAtlasEntry atlas_entries[16]{};
     u32 atlas_buckets[32]{};
@@ -3257,7 +3249,7 @@ void test_message_media_controller() noexcept {
     const u32 static_variant = user_avatar_variant(static_hash);
     const u32 animated_variant = user_avatar_variant(animated_hash);
     expect(messages_ready && first_message.ok() && second_message.ok() && rich_ready && rich_applied.ok() &&
-               users_seeded && animations_ready && atlas_ready && controller_ready && collected.ok() &&
+               users_seeded && atlas_ready && controller_ready && collected.ok() &&
                collected.visited == 2 && collected.candidates == 2 && controller.row_count == 2 &&
                primary.ok() && primary.candidates == 0 &&
                decorated.ok() && decorated.candidates == 6 && capture.count == 6 &&
@@ -3471,9 +3463,9 @@ void test_message_media_default_avatar_candidates() noexcept {
     MessageMediaVisibleRow visible_rows[1]{};
     MessageMediaAssetMark asset_marks[8]{};
     MessageMediaController controller{};
+    animation_timeline_initialize(&animations, Slice<AnimationTimelineEntry>{animation_entries, 4},
+                                  Slice<u32>{animation_buckets, 8});
     const bool ready =
-        animation_timeline_initialize(&animations, Slice<AnimationTimelineEntry>{animation_entries, 4},
-                                      Slice<u32>{animation_buckets, 8}) &&
         media_atlas_initialize(&atlas, 64, 64, 0, Slice<MediaAtlasEntry>{atlas_entries, 4},
                                Slice<u32>{atlas_buckets, 8}, Slice<GlyphAtlasEntry>{atlas_allocations, 4},
                                Slice<GlyphAtlasRow>{atlas_rows, 2}) &&

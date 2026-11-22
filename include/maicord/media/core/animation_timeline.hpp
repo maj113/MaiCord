@@ -111,11 +111,12 @@ struct AnimationTimelineCollectResult {
     }
 };
 
-bool animation_timeline_initialize(AnimationTimeline* timeline, Slice<AnimationTimelineEntry> entries,
-                                   Slice<u32> buckets = {}) noexcept;
+// The bucket table holds at least two buckets per entry.
+void animation_timeline_initialize(AnimationTimeline* timeline, Slice<AnimationTimelineEntry> entries,
+                                   Slice<u32> buckets) noexcept;
 // Expands caller-owned stable storage without changing entry slots. Existing
 // entries remain in place and only the sparse bucket index is rebuilt.
-bool animation_timeline_grow_storage(AnimationTimeline* timeline, Slice<AnimationTimelineEntry> entries,
+void animation_timeline_grow_storage(AnimationTimeline* timeline, Slice<AnimationTimelineEntry> entries,
                                      Slice<u32> buckets) noexcept;
 void animation_timeline_reset(AnimationTimeline* timeline) noexcept;
 // Modal UI loops stop presentation, not elapsed account/network time. Rebase

@@ -489,12 +489,9 @@ bool frame_row(void* context, u32 y, const u8* rgba) noexcept {
 AnimatedWebpError decode_lossy_frame_rgba8(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
                                            const AnimatedWebpFrame& frame, CdnAnimatedWebpResult* out) noexcept {
     ConstSlice<u8> image{}, alpha_chunk{};
-    const AnimatedWebpError chunks = animated_webp_frame_payloads(encoded, frame, &image, &alpha_chunk);
-    if (chunks != AnimatedWebpError::none)
-        return chunks;
-    WebpThumbnailLayout layout{};
-    if (webp_thumbnail_keyframe_layout(image, frame.width, frame.height, {}, &layout) != WebpThumbnailError::none)
-        return AnimatedWebpError::frame_decode;
+    animated_webp_frame_payloads(encoded, frame, &image, &alpha_chunk);
+    WebpThumbnailLayout layout;
+    webp_thumbnail_keyframe_layout(image, frame.width, frame.height, &layout);
     const auto align = [](u64 value) noexcept { return (value + 15u) & ~15ull; };
     const u64 pixels = u64{frame.width} * frame.height;
     const u64 output_bytes = align(pixels * 4u);
@@ -507,8 +504,6 @@ AnimatedWebpError decode_lossy_frame_rgba8(CdnMediaPipeline* pipeline, ConstSlic
     u8* alpha = base + output_bytes;
     u8* scratch = alpha + alpha_bytes;
     if (alpha_chunk.data) {
-        if (!pipeline->webp_workspace)
-            return AnimatedWebpError::invalid_input;
         if (!webp_alpha_decode(alpha_chunk, frame.width, frame.height, pipeline->webp_workspace,
                                {scratch, static_cast<u32>(pixels * 4u)}, {alpha, static_cast<u32>(pixels)})
                  .ok())
@@ -841,7 +836,7 @@ void decode_gif_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 fr
     const GifParseResult parse = out->decode.parse;
     const GifFrame& requested = animation.frames[frame_index];
     cdn_media_pipeline_commit_scanlines(pipeline, u32{requested.width} * requested.height);
-    gif_decode_parsed_frame(&out->decode, encoded, animation, frame_index, pipeline->gif_workspace,
+    gif_decode_parsed_frame(&out->decode, encoded, animation, frame_index,
                             Slice<u8>{pipeline->scanline_storage, pipeline->scanline_capacity});
     out->decode.parse = parse;
     if (!out->decode.ok()) {

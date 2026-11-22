@@ -112,9 +112,6 @@ inline bool configure_default_image(ConstSlice<u8> encoded, const ApngImage& ima
 ApngParseResult apng_parse(ConstSlice<u8> encoded, ApngImage* image,
                            ApngWorkspace* workspace) noexcept {
     ApngParseResult result{};
-    if (!image || !workspace || (!encoded.data && encoded.count != 0)) {
-        return fail(result, ApngError::invalid_input);
-    }
     initialize_image(image, workspace);
     if (encoded.count > kPngEncodedMaximumBytes) {
         return fail(result, ApngError::encoded_limit);

@@ -53,6 +53,10 @@ inline constexpr u32 kScanlineStorageBytes = maximum(2'097'664u, kGifPixelMaximu
 // scanlines are reserved and commit as they fill.
 inline constexpr u32 kCacheTableBytes = kCacheEntryStorageBytes + kCachePageOwnerBytes + kCacheIndexBytes;
 static_assert(kCacheTableBytes % 4096u == 0);
+// encoded_media_cache_initialize takes these as they are.
+static_assert(is_power_of_two(kAccountMediaCacheIndexCapacity) &&
+              kAccountMediaCacheIndexCapacity >= 2 * kAccountMediaCacheEntryCapacity &&
+              kAccountMediaCacheEntryCapacity < kEncodedMediaCacheFreePage);
 inline constexpr u32 kOwnedAllocationBytes = kCacheTableBytes + kCacheStorageBytes + kScanlineStorageBytes;
 
 } // namespace
@@ -790,15 +794,11 @@ AccountMediaRequestResult account_media_initialize(AccountMedia* media, EncodedM
             reinterpret_cast<u32*>(storage + kCacheEntryStorageBytes + kCachePageOwnerBytes);
         u8* encoded_storage = storage + kCacheTableBytes;
         scanlines = encoded_storage + kCacheStorageBytes;
-        if (!encoded_media_cache_initialize(
-                &media->cache, Slice<EncodedMediaCacheEntry>{entries, kAccountMediaCacheEntryCapacity},
-                Slice<u16>{page_owners, kAccountMediaCachePageCapacity},
-                Slice<u8>{encoded_storage, kCacheStorageBytes},
-                Slice<u32>{index_buckets, kAccountMediaCacheIndexCapacity}, true)) {
-            pages_release(media->allocation);
-            SecureZeroMemory(media, sizeof(*media));
-            return result(AccountMediaRequestState::failed, AccountMediaError::cache);
-        }
+        encoded_media_cache_initialize(
+            &media->cache, Slice<EncodedMediaCacheEntry>{entries, kAccountMediaCacheEntryCapacity},
+            Slice<u16>{page_owners, kAccountMediaCachePageCapacity},
+            Slice<u8>{encoded_storage, kCacheStorageBytes},
+            Slice<u32>{index_buckets, kAccountMediaCacheIndexCapacity}, true);
         cache = &media->cache;
         media->owns_cache = true;
     }

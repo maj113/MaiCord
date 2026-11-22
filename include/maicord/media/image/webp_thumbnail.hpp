@@ -13,7 +13,6 @@ inline constexpr u32 kWebpThumbnailEncodedMaximumBytes = 16u * 1024u * 1024u;
 
 enum class WebpThumbnailError : u8 {
     none,
-    invalid_input,
     container,
     unsupported_lossless,
     unsupported_animation,
@@ -39,10 +38,9 @@ struct WebpThumbnailLayout {
 };
 
 WebpThumbnailError webp_thumbnail_parse(ConstSlice<u8> encoded, WebpThumbnailLayout* layout) noexcept;
-// The layout of a bare VP8 keyframe of width x height (an animation frame's VP8 chunk payload), with its raw alpha
-// samples (width * height, unfiltered) or none: animation frames decode on the CPU on a GPU without the VP8 path.
-WebpThumbnailError webp_thumbnail_keyframe_layout(ConstSlice<u8> vp8, u32 width, u32 height, ConstSlice<u8> alpha,
-                                                  WebpThumbnailLayout* layout) noexcept;
+// The layout of a bare VP8 keyframe of width x height (an animation frame's VP8 chunk payload that
+// animated_webp_parse admitted): animation frames decode on the CPU on a GPU without the VP8 path.
+void webp_thumbnail_keyframe_layout(ConstSlice<u8> vp8, u32 width, u32 height, WebpThumbnailLayout* layout) noexcept;
 
 // One straight RGBA8 row of width pixels, top to bottom.
 using WebpThumbnailRowSink = bool (*)(void* context, u32 y, const u8* rgba) noexcept;

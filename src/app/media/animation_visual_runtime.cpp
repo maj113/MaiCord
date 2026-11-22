@@ -42,16 +42,13 @@ bool animation_visual_runtime_initialize(
     }
     runtime->visuals =
         stable_storage_data<AnimationVisualState>(runtime->visual_storage);
-    if (!animation_timeline_initialize(
-            &runtime->timeline,
-            Slice<AnimationTimelineEntry>{
-                stable_storage_data<AnimationTimelineEntry>(runtime->entries),
-                runtime->entries.capacity},
-            Slice<u32>{stable_storage_data<u32>(runtime->buckets),
-                       runtime->buckets.capacity})) {
-        animation_visual_runtime_release(runtime);
-        return false;
-    }
+    animation_timeline_initialize(
+        &runtime->timeline,
+        Slice<AnimationTimelineEntry>{
+            stable_storage_data<AnimationTimelineEntry>(runtime->entries),
+            runtime->entries.capacity},
+        Slice<u32>{stable_storage_data<u32>(runtime->buckets),
+                   runtime->buckets.capacity});
     return true;
 }
 
@@ -76,12 +73,13 @@ bool animation_visual_runtime_reserve(
         !stable_storage_reserve(&runtime->visual_storage, capacity)) {
         return false;
     }
-    return animation_timeline_grow_storage(
+    animation_timeline_grow_storage(
         &runtime->timeline,
         Slice<AnimationTimelineEntry>{
             stable_storage_data<AnimationTimelineEntry>(runtime->entries),
             capacity},
         Slice<u32>{stable_storage_data<u32>(runtime->buckets), capacity * 2u});
+    return true;
 }
 
 AnimationTimelineResult animation_visual_runtime_publish(

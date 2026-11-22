@@ -14,7 +14,7 @@ namespace {
 constexpr u32 kInvalidIndex = kSlotIndexNone;
 volatile LONG64 next_content_identity = 0;
 
-// encoded_media_cache_initialize admits only a power-of-two index, so slot_index_wrap masks and never divides.
+// The one caller sizes the index as a power of two, so slot_index_wrap masks and never divides.
 __forceinline u32 bucket_capacity(const EncodedMediaCache& cache) noexcept {
     const u32 capacity = cache.index_bucket_capacity;
     __builtin_assume((capacity & (capacity - 1)) == 0);
@@ -183,18 +183,10 @@ u64 encoded_media_new_content_identity() noexcept {
     return identity;
 }
 
-bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMediaCacheEntry> entries,
+void encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMediaCacheEntry> entries,
                                     Slice<u16> page_owners, Slice<u8> storage,
                                     Slice<u32> index_buckets, bool storage_reserved) noexcept {
-    if (!cache || !entries.data || entries.count == 0 || entries.count >= kEncodedMediaCacheFreePage ||
-        !storage.data || storage.count == 0 || storage.count % kEncodedMediaCachePageBytes != 0 ||
-        !index_buckets.data || !is_power_of_two(index_buckets.count) || index_buckets.count < entries.count * 2u) {
-        return false;
-    }
     const u32 pages = storage.count / kEncodedMediaCachePageBytes;
-    if (!page_owners.data || page_owners.count < pages) {
-        return false;
-    }
     reset_value<EncodedMediaCache>(cache);
     cache->entries = entries.data;
     cache->entry_capacity = entries.count;
@@ -211,13 +203,12 @@ bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMedia
         page_owners[page] = kEncodedMediaCacheFreePage;
     }
     rebuild_index_locked(cache);
-    return true;
 }
 
 EncodedMediaCacheLookup encoded_media_cache_find(EncodedMediaCache* cache, const MediaAssetKey& key_view,
                                                  u64 now_seconds) noexcept {
     const MediaAssetKey key = key_view; // the cache is rewritten while it is searched
-    if (!cache || !cache->entries || !cache->storage || !media_asset_key_valid(key)) {
+    if (!media_asset_key_valid(key)) {
         return EncodedMediaCacheLookup{{}, {}, 0, 0, EncodedMediaCacheLookupState::invalid};
     }
     AcquireSRWLockExclusive(cache->lock.native());
@@ -230,8 +221,7 @@ EncodedMediaCacheLease encoded_media_cache_acquire(EncodedMediaCache* cache, con
                                                    u64 now_seconds) noexcept {
     const MediaAssetKey key = key_view; // the cache is rewritten while it is searched
     EncodedMediaCacheLease lease{};
-    lease.entry_index = kInvalidIndex;
-    if (!cache || !cache->entries || !cache->storage || !media_asset_key_valid(key)) {
+    if (!media_asset_key_valid(key)) {
         lease.lookup.state = EncodedMediaCacheLookupState::invalid;
         return lease;
     }
@@ -239,39 +229,27 @@ EncodedMediaCacheLease encoded_media_cache_acquire(EncodedMediaCache* cache, con
     u32 entry_index = kInvalidIndex;
     lease.lookup = lookup_locked(cache, key, now_seconds, &entry_index);
     if (lease.lookup.found()) {
-        EncodedMediaCacheEntry& entry = cache->entries[entry_index];
-        if (entry.leases != 0xFFFFu) {
-            ++entry.leases;
-            lease.entry_index = entry_index;
-            lease.generation = entry.generation;
-            lease.acquired = true;
-        } else {
-            lease.lookup = EncodedMediaCacheLookup{{}, {}, 0, 0, EncodedMediaCacheLookupState::invalid};
-        }
+        // At most a few leases per decode lane: the 16-bit count never wraps.
+        ++cache->entries[entry_index].leases;
+        lease.entry_index = entry_index;
+        lease.generation = cache->entries[entry_index].generation;
+        lease.acquired = true;
     }
     ReleaseSRWLockExclusive(cache->lock.native());
     return lease;
 }
 
-bool encoded_media_cache_release(EncodedMediaCache* cache, EncodedMediaCacheLease* lease) noexcept {
-    if (!cache || !cache->entries || !lease || !lease->acquired ||
-        lease->entry_index >= cache->entry_capacity) {
-        return false;
-    }
+// Every caller releases a lease it acquired, once: the entry stays occupied with its generation while leased.
+void encoded_media_cache_release(EncodedMediaCache* cache, EncodedMediaCacheLease* lease) noexcept {
     AcquireSRWLockExclusive(cache->lock.native());
     EncodedMediaCacheEntry& entry = cache->entries[lease->entry_index];
-    const bool valid = entry.occupied && entry.leases != 0 && entry.generation == lease->generation;
-    if (valid) {
-        --entry.leases;
-        if (entry.retiring && entry.leases == 0) {
-            release_entry_locked(cache, lease->entry_index);
-            maintain_index_locked(cache);
-        }
+    --entry.leases;
+    if (entry.retiring && entry.leases == 0) {
+        release_entry_locked(cache, lease->entry_index);
+        maintain_index_locked(cache);
     }
     ReleaseSRWLockExclusive(cache->lock.native());
     reset_value<EncodedMediaCacheLease>(lease);
-    lease->entry_index = kInvalidIndex;
-    return valid;
 }
 
 EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache, const MediaAssetKey& key_view,
@@ -279,8 +257,7 @@ EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache,
                                                        EncodedMediaCachePolicy policy) noexcept {
     const MediaAssetKey key = key_view; // the cache is rewritten while the source is read
     const ConstSlice<u8> encoded = encoded_view;
-    if (!cache || !cache->entries || !cache->page_owners || !cache->storage ||
-        !media_asset_key_valid(key) || !encoded.data || encoded.count == 0 ||
+    if (!media_asset_key_valid(key) || !encoded.data || encoded.count == 0 ||
         !ascii_graphic_string(policy.etag, kEncodedMediaCacheMaximumEtagBytes)) {
         return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::invalid, 0};
     }
@@ -397,7 +374,7 @@ bool encoded_media_cache_refresh(EncodedMediaCache* cache, const MediaAssetKey& 
                                  u16 expected_generation) noexcept {
     const MediaAssetKey key = key_view; // the cache is rewritten below
     const ConstSlice<u8> etag = etag_view;
-    if (!cache || !cache->entries || !media_asset_key_valid(key) ||
+    if (!media_asset_key_valid(key) ||
         !ascii_graphic_string(etag, kEncodedMediaCacheMaximumEtagBytes)) {
         return false;
     }
@@ -426,7 +403,7 @@ bool encoded_media_cache_refresh(EncodedMediaCache* cache, const MediaAssetKey& 
 
 bool encoded_media_cache_erase(EncodedMediaCache* cache, const MediaAssetKey& key_view) noexcept {
     const MediaAssetKey key = key_view; // the cache is rewritten below
-    if (!cache || !cache->entries || !media_asset_key_valid(key)) {
+    if (!media_asset_key_valid(key)) {
         return false;
     }
     AcquireSRWLockExclusive(cache->lock.native());
@@ -443,7 +420,7 @@ bool encoded_media_cache_erase(EncodedMediaCache* cache, const MediaAssetKey& ke
 bool encoded_media_cache_retire(EncodedMediaCache* cache, const MediaAssetKey& key_view,
                                 u16 expected_generation) noexcept {
     const MediaAssetKey key = key_view; // the cache is rewritten below
-    if (!cache || !cache->entries || !media_asset_key_valid(key))
+    if (!media_asset_key_valid(key))
         return false;
     AcquireSRWLockExclusive(cache->lock.native());
     const u32 index = find_entry_locked(*cache, key);

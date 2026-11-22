@@ -175,9 +175,6 @@ __attribute__((minsize))
 PngParseResult png_parse(ConstSlice<u8> encoded,
                          PngImage* image) noexcept {
     PngParseResult result{};
-    if (!image || (!encoded.data && encoded.count != 0)) {
-        return parse_failure(result, PngError::invalid_input);
-    }
     reset_value<PngImage>(image);
     image->transparent_gray = ~0u;
     image->transparent_red = ~0u;
@@ -384,33 +381,13 @@ PngDecodeResult png_decode_parsed_scanlines(
     PngImage* image, DeflateWorkspace* workspace,
     Slice<u8> scanlines) noexcept {
     PngDecodeResult result{};
-    PngGeometry geometry{};
-    // Zero for a null image, interlace above 1 or an empty inflated size.
-    const u32 required = image ? png_decode_buffer_bytes(*image) : 0;
-    if (!required || !workspace || !scanlines.data || scanlines.count < required ||
-        !png_geometry(image->width, image->height, image->bit_depth, image->color_type, &geometry) ||
-        image->idat_span_count == 0 || image->compressed_bytes < 6 ||
-        image->row_bytes != geometry.row_bytes ||
-        image->row_stride != geometry.row_bytes + 1 ||
-        image->inflated_bytes != geometry.inflated_bytes ||
-        image->channels != geometry.channels ||
-        image->bytes_per_pixel != geometry.bytes_per_pixel ||
-        image->palette_count > kPngPaletteCapacity ||
-        (image->color_type == 3 &&
-         image->palette_count > (1u << image->bit_depth)) ||
-        (image->color_type == 3 && image->palette_count == 0)) {
+    // png_parse, or for an APNG frame png_image_configure and the parsed spans, set every field the decode reads:
+    // the geometry, the palette and the IDAT spans (none empty) that hold compressed_bytes. Zero for interlace
+    // above 1 or an empty inflated size.
+    const u32 required = png_decode_buffer_bytes(*image);
+    if (!required || !workspace || !scanlines.data || scanlines.count < required) {
         result.error = PngError::inflated_limit;
         return result;
-    }
-    u64 compressed_bytes = 0;
-    const u32 inline_spans = minimum<u32>(image->idat_span_count, kPngIdatSpanCapacity);
-    for (u32 index = 0; index < inline_spans; ++index) {
-        if (!image->idat_spans[index].data ||
-            image->idat_spans[index].bytes == 0) {
-            result.error = PngError::idat_capacity;
-            return result;
-        }
-        compressed_bytes += image->idat_spans[index].bytes;
     }
     const DeflateInputSpan* spans = image->idat_spans;
     if (image->idat_span_count > kPngIdatSpanCapacity) {
@@ -419,27 +396,13 @@ PngDecodeResult png_decode_parsed_scanlines(
         auto* table = reinterpret_cast<DeflateInputSpan*>(scanlines.data + span_table_offset(*image));
         const u8* chunk = image->idat_spans[0].data - 8;
         u32 count = 0;
-        compressed_bytes = 0;
-        while (byte_load_be32(chunk + 4) == kChunkIdat) {
+        while (count != image->idat_span_count) {
             const u32 length = byte_load_be32(chunk);
-            if (length != 0) {
-                if (count == image->idat_span_count) {
-                    break;
-                }
+            if (length != 0)
                 table[count++] = DeflateInputSpan{chunk + 8, length};
-                compressed_bytes += length;
-            }
             chunk += 12u + u64{length};
         }
-        if (count != image->idat_span_count) {
-            result.error = PngError::idat_capacity;
-            return result;
-        }
         spans = table;
-    }
-    if (compressed_bytes != image->compressed_bytes) {
-        result.error = PngError::idat_capacity;
-        return result;
     }
     const u32 inflate_bytes = image->interlace
                                   ? static_cast<u32>(interlaced_bytes(*image))

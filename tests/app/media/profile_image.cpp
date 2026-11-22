@@ -546,8 +546,8 @@ bool gif_crop_matches(ConstSlice<u8> source, ConstSlice<u8> output, const ImageC
         return false;
     Memory a(kGifPixelMaximum), b(kGifPixelMaximum);
     for (u32 i = 0; i < in.image.frame_count; ++i) {
-        const auto s = gif_decode_parsed_frame(source, in.image, i, in.workspace, {a.data, a.bytes});
-        const auto d = gif_decode_parsed_frame(output, out.image, i, out.workspace, {b.data, b.bytes});
+        const auto s = gif_decode_parsed_frame(source, in.image, i, {a.data, a.bytes});
+        const auto d = gif_decode_parsed_frame(output, out.image, i, {b.data, b.bytes});
         if (!s.ok() || !d.ok() || s.frame.delay_cs != d.frame.delay_cs)
             return false;
         const GifFrame& f = s.frame;
@@ -716,7 +716,7 @@ void test_gif_crop() noexcept {
         exact = exact && crop_png(single, crop_rect(10, 4, 20, 8, 0), &rgba, &s) &&
                 s.output_kind == GuildImageKind::png && !s.animated;
         Memory indices(128 * 64);
-        const auto decoded = gif_decode_parsed_frame(single, frames.image, 0, frames.workspace, {indices.data, indices.bytes});
+        const auto decoded = gif_decode_parsed_frame(single, frames.image, 0, {indices.data, indices.bytes});
         for (u32 y = 0; exact && y < 8; ++y)
             for (u32 x = 0; x < 20; ++x) {
                 u32 want = decoded.palette.rgba[indices.data[(4 + y) * 128 + 10 + x]];

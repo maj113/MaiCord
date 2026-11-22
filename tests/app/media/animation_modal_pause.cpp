@@ -142,8 +142,7 @@ void test_animation_modal_pause(void (*check)(bool, const char*) noexcept) noexc
     AnimationTimelineEntry sweep_entries[8]{};
     u32 sweep_buckets[16]{};
     AnimationTimeline sweep{};
-    check(animation_timeline_initialize(&sweep, {sweep_entries, 8}, {sweep_buckets, 16}),
-          "sweep timeline initializes");
+    animation_timeline_initialize(&sweep, {sweep_entries, 8}, {sweep_buckets, 16});
     animation_timeline_begin_visibility(&sweep);
     animation_timeline_end_visibility(&sweep, 1000);
     check(animation_timeline_collect_due(&sweep, 1000, {next, 4}).advances == 0 &&

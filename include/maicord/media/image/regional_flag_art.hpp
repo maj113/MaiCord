@@ -37,7 +37,8 @@ struct RegionalFlagArt {
 };
 
 // The layers borrow the record; outlines follow the SVG path rules the
-// sources were written in. Malformed records are rejected.
+// sources were written in. Malformed records are rejected, and an outline
+// takes a layer that regional_flag_record_parse made.
 bool regional_flag_record_parse(ConstSlice<u8> record, RegionalFlagArt* output) noexcept;
 bool regional_flag_layer_outline(const RegionalFlagLayer& layer, GlyphOutline* output) noexcept;
 bool regional_flag_compile(const RegionalFlagArt& art, ColrPaintProgram* program) noexcept;

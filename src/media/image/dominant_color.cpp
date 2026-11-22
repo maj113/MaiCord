@@ -179,9 +179,6 @@ double one_decimal(double x) noexcept {
 
 u32 image_palette(ConstSlice<u8> rgba, u32 width, u32 height, Slice<u32> histogram, u32* colors) noexcept {
     const u64 pixels = u64{width} * height;
-    if (!colors || !rgba.data || rgba.count / 4 < pixels || !histogram.data ||
-        histogram.count < kImageDominantColorHistogramEntries)
-        return 0;
     u32* const h = histogram.data;
     clear_bytes(h, kImageDominantColorHistogramEntries * 4u);
     Box whole{{1'000'000, 1'000'000, 1'000'000}, {0, 0, 0}, 0, 0};

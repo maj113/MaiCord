@@ -335,10 +335,9 @@ MAICORD_HASWELL bool convert_planes(const JpegImage& image, const JpegThumbnailL
 }
 } // namespace
 
+// Every caller asks for a nonzero target extent.
 JpegParseResult jpeg_thumbnail_parse(ConstSlice<u8> encoded, u32 target_extent, JpegImage* image,
                                      JpegWorkspace* workspace, JpegThumbnailLayout* layout) noexcept {
-    if (!layout || !target_extent)
-        return parse_failure({}, JpegError::invalid_input);
     reset_value(layout);
     JpegParseResult result = parse_jpeg(encoded, image, workspace, true);
     if (!result.ok())
@@ -371,18 +370,12 @@ JpegParseResult jpeg_thumbnail_parse(ConstSlice<u8> encoded, u32 target_extent, 
     return result;
 }
 
+// The image and layout come from a successful jpeg_thumbnail_parse of `encoded`; every caller passes 16-byte
+// aligned scratch of the layout's coefficient and plane bytes and a row of layout.width pixels.
 JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegImage& image,
                                             const JpegThumbnailLayout& layout, Slice<u8> scratch,
                                             Slice<u8> row, JpegThumbnailRowSink sink, void* context) noexcept {
     JpegDecodeResult result{};
-    const u64 required = layout.coefficient_bytes + layout.plane_bytes;
-    if (!sink || !image.tables || !layout.samples || (!encoded.data && encoded.count) || !scratch.data ||
-        required > scratch.count || !row.data || u64{layout.width} * 4 > row.count ||
-        (reinterpret_cast<usize>(scratch.data) & 15u) || !image.component_count ||
-        static_cast<u64>(image.entropy_offset) + image.entropy_bytes > encoded.count) {
-        result.error = JpegError::invalid_input;
-        return result;
-    }
     auto* blocks = reinterpret_cast<JpegCoefficientBlock*>(scratch.data);
     u8* planes = scratch.data + layout.coefficient_bytes;
     if (image.progressive) {
@@ -433,7 +426,6 @@ JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegIm
                         reconstruct_component_block(image, layout, planes, component_index,
                                                     mcu_x * component.horizontal_sampling + horizontal,
                                                     mcu_y * component.vertical_sampling + vertical, block, end);
-                        ++result.decoded_blocks;
                     }
             }
             if (++mcu_x == image.mcu_columns) {
@@ -450,7 +442,6 @@ JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegIm
         result.error = JpegError::sink;
         return result;
     }
-    result.decoded_scans = image.scan_count;
     result.error = JpegError::none;
     return result;
 }

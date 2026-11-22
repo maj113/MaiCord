@@ -151,8 +151,7 @@ ThumbnailStep decode_thumbnail_rows(AccountMedia* media, MediaAttachmentFormat f
         GifDecodeResult decoded;
         const GifFrame& first = animation.frames[0];
         cdn_media_pipeline_commit_scanlines(&pipeline, u32{first.width} * first.height);
-        gif_decode_parsed_frame(&decoded, encoded, animation, 0, media->gif_workspace,
-                                {pipeline.scanline_storage, pipeline.scanline_capacity});
+        gif_decode_parsed_frame(&decoded, encoded, animation, 0, {pipeline.scanline_storage, pipeline.scanline_capacity});
         if (!decoded.ok() || !target->allocate(animation.canvas_width) ||
             !local_thumbnail_begin(sink, animation.canvas_width, animation.canvas_height,
                                    kLocalPreviewThumbnailExtent, target->output, target->sums))

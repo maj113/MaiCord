@@ -104,16 +104,17 @@ struct EncodedMediaCacheStoreResult {
 // does not reset this namespace. Replay and seek retain the assigned identity.
 u64 encoded_media_new_content_identity() noexcept;
 
-// `storage_reserved` storage is only reserved: the cache commits it as stores reach it, and a store that
-// cannot commit reports no_capacity. Otherwise the caller committed all of it.
-bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMediaCacheEntry> entries,
+// `storage` is whole pages, `page_owners` holds one owner per page and `index_buckets` is a power of two with at
+// least two buckets per entry. `storage_reserved` storage is only reserved: the cache commits it as stores reach
+// it, and a store that cannot commit reports no_capacity. Otherwise the caller committed all of it.
+void encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMediaCacheEntry> entries,
                                     Slice<u16> page_owners, Slice<u8> storage,
                                     Slice<u32> index_buckets, bool storage_reserved = false) noexcept;
 EncodedMediaCacheLookup encoded_media_cache_find(EncodedMediaCache* cache, const MediaAssetKey& key,
                                                  u64 now_seconds) noexcept;
 EncodedMediaCacheLease encoded_media_cache_acquire(EncodedMediaCache* cache, const MediaAssetKey& key,
                                                    u64 now_seconds) noexcept;
-bool encoded_media_cache_release(EncodedMediaCache* cache, EncodedMediaCacheLease* lease) noexcept;
+void encoded_media_cache_release(EncodedMediaCache* cache, EncodedMediaCacheLease* lease) noexcept;
 EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache, const MediaAssetKey& key,
                                                        const ConstSlice<u8>& encoded,
                                                        EncodedMediaCachePolicy policy) noexcept;
