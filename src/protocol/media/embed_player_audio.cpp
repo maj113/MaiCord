@@ -729,12 +729,8 @@ EmbedPlayerError soundcloud_batch_titles(Utf8View json, const SoundcloudTitleBat
 }
 u32 youtube_player_body(Utf8View id, Utf8View visitor, Slice<u8> output) noexcept {
     if (!video_id(id) || !ascii_graphic_string(visitor, 1024, true)) return 0;
-    u8 staged[2048];
-    ProtocolWriter w{{staged, sizeof(staged)}, 0};
-    const bool ok = protocol_write(&w, "{\"context\":{\"client\":{\"clientName\":\"VISIONOS\",\"clientVersion\":\"1.02\",\"hl\":\"en\",\"deviceMake\":\"Apple\",\"deviceModel\":\"RealityDevice17,1\",\"osName\":\"visionOS\",\"osVersion\":\"26.5.23O471\",\"visitorData\":",
-        json_text(visitor), ",\"userAgent\":", json_text(kYoutubeNativeUserAgent), "}},\"videoId\":", json_text(id), '}');
-    if (!ok || !output.data || output.count < w.used) return 0;
-    copy_bytes(output.data, staged, w.used);
-    return w.used;
+    ProtocolWriter w{output, 0};
+    return protocol_write(&w, "{\"context\":{\"client\":{\"clientName\":\"VISIONOS\",\"clientVersion\":\"1.02\",\"hl\":\"en\",\"deviceMake\":\"Apple\",\"deviceModel\":\"RealityDevice17,1\",\"osName\":\"visionOS\",\"osVersion\":\"26.5.23O471\",\"visitorData\":",
+        json_text(visitor), ",\"userAgent\":", json_text(kYoutubeNativeUserAgent), "}},\"videoId\":", json_text(id), '}') ? w.used : 0;
 }
 } // namespace maicord

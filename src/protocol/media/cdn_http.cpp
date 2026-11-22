@@ -228,8 +228,7 @@ CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
     if (!cdn_etag_valid(etag)) {
         return CdnRequestResult{0, CdnHttpError::invalid_etag};
     }
-    u8 request[kCdnMaximumRequestHeadBytes];
-    ProtocolWriter writer{Slice<u8>{request, sizeof(request)}, 0};
+    ProtocolWriter writer{output, 0};
     const char* accept = "video/mp4";
     switch (image_type) {
     case CdnImageType::png: accept = "image/png"; break;
@@ -251,10 +250,9 @@ CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
         (range.bytes == 0 ||
          protocol_write(&writer, "Range: bytes=", range.first, '-', range.first + range.bytes - 1, "\r\n")) &&
         protocol_write(&writer, "\r\n");
-    if (!written || writer.used > output.count) {
+    if (!written) {
         return CdnRequestResult{0, CdnHttpError::output_capacity};
     }
-    copy_bytes(output.data, request, writer.used);
     return CdnRequestResult{writer.used, CdnHttpError::none};
 }
 

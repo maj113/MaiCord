@@ -30,18 +30,12 @@ constexpr bool url_unreserved(u8 value) noexcept {
 // Appends value with every byte but the url_unreserved ones as %XX.
 bool protocol_writer_append_percent_encoded(ProtocolWriter* writer, const Utf8View& value) noexcept;
 
-// Copies a body staged by writer into output once it was written completely
-// and fits. Result is a {bytes, error} pair whose error enum has none and
-// capacity, such as SoundboardWriteResult.
+// The result of a body written in place by writer: its length once it was written completely. Result is a
+// {bytes, error} pair whose error enum has none and capacity, such as SoundboardWriteResult.
 template <typename Result>
-Result protocol_writer_finish(const ProtocolWriter& writer, bool ok, const Slice<u8>& output,
-                              const u8* staged) noexcept {
+Result protocol_writer_finish(const ProtocolWriter& writer, bool ok) noexcept {
     using Error = decltype(Result{}.error);
-    if (!ok || writer.used > output.count) {
-        return {0, Error::capacity};
-    }
-    copy_bytes(output.data, staged, writer.used);
-    return {writer.used, Error::none};
+    return ok ? Result{writer.used, Error::none} : Result{0, Error::capacity};
 }
 
 template <usize Count>

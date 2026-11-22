@@ -95,11 +95,9 @@ RestRouteKey stage_route(const StageRequest& r) noexcept {
             RestMajorParameter::none};
 }
 
+// account_stage_submit validates the request first and gives kStageMaximumTargetBytes and kStageMaximumBodyBytes.
 StageWriteResult stage_write_target(const StageRequest& r, Slice<u8> output) noexcept {
-    if (!stage_request_valid(r) || !output.data)
-        return {0, StageWriteError::input};
-    u8 staged[kStageMaximumTargetBytes];
-    ProtocolWriter w{{staged, sizeof(staged)}, 0};
+    ProtocolWriter w{output, 0};
     bool ok = protocol_write(&w, "/api/v9");
     if (self_operation(r.operation) || user_operation(r.operation)) {
         ok = ok && protocol_write(&w, "/guilds/", r.guild_id, "/voice-states/");
@@ -111,14 +109,11 @@ StageWriteResult stage_write_target(const StageRequest& r, Slice<u8> output) noe
         if (r.operation != StageOperation::start)
             ok = ok && protocol_write(&w, '/', r.channel_id);
     }
-    return protocol_writer_finish<StageWriteResult>(w, ok, output, staged);
+    return protocol_writer_finish<StageWriteResult>(w, ok);
 }
 
 StageWriteResult stage_write_body(const StageRequest& r, Slice<u8> output) noexcept {
-    if (!stage_request_valid(r) || !output.data || !stage_has_body(r.operation))
-        return {0, StageWriteError::input};
-    u8 staged[kStageMaximumBodyBytes];
-    ProtocolWriter w{{staged, sizeof(staged)}, 0};
+    ProtocolWriter w{output, 0};
     bool ok = protocol_write(&w, '{');
     const auto channel = [&]() noexcept { return protocol_write(&w, "\"channel_id\":", snowflake_text(r.channel_id)); };
     switch (r.operation) {
@@ -164,7 +159,7 @@ StageWriteResult stage_write_body(const StageRequest& r, Slice<u8> output) noexc
         break;
     }
     ok = ok && protocol_write(&w, '}');
-    return protocol_writer_finish<StageWriteResult>(w, ok, output, staged);
+    return protocol_writer_finish<StageWriteResult>(w, ok);
 }
 
 namespace {

@@ -35,7 +35,8 @@ struct ThreadMemberSnapshot {
     u32 flags, fields;
 };
 bool thread_action_request_valid(const ThreadActionRequest&) noexcept;
-// Writers preserve output on failure. Unarchive emits archived=false only.
+// The writers take a request that thread_action_request_valid accepted and buffers of
+// kThreadActionMaximumTargetBytes / kThreadActionMaximumBodyBytes. Unarchive emits archived=false only.
 ThreadActionResult thread_action_write_target(
     const ThreadActionRequest&, Slice<u8>) noexcept;
 ThreadActionResult thread_action_write_body(

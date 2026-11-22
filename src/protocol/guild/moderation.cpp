@@ -522,11 +522,9 @@ RestRouteKey guild_moderation_route(const GuildModerationRequest& r) noexcept {
             guild_moderation_method(r.operation), RestMajorParameter::guild};
 }
 
+// account_guild_moderation_submit validates the request first and gives kGuildModerationMaximumTargetBytes.
 GuildModerationResult guild_moderation_write_target(const GuildModerationRequest& r, Slice<u8> output) noexcept {
-    if (!guild_moderation_request_valid(r) || !byte_range_valid({output.data, output.count}))
-        return {0, GuildModerationError::input};
-    u8 target[kGuildModerationMaximumTargetBytes];
-    ProtocolWriter w{{target, sizeof(target)}, 0};
+    ProtocolWriter w{output, 0};
     bool ok = protocol_write(&w, "/api/v9/guilds/", r.guild_id);
     switch (r.operation) {
     case Op::members_search: ok = ok && protocol_write(&w, "/members-search"); break;
@@ -541,7 +539,7 @@ GuildModerationResult guild_moderation_write_target(const GuildModerationRequest
         if (ok && text.bytes) {
             ok = protocol_write(&w, "&query=");
             const auto encoded =
-                ok ? rest_encode_audit_reason(text, {target + w.used, static_cast<u32>(sizeof(target) - w.used)}) : RestAuditReasonResult{};
+                ok ? rest_encode_audit_reason(text, {output.data + w.used, output.count - w.used}) : RestAuditReasonResult{};
             ok = ok && encoded.ok;
             w.used += ok ? encoded.bytes : 0;
         }
@@ -551,15 +549,12 @@ GuildModerationResult guild_moderation_write_target(const GuildModerationRequest
     }
     if (!ok)
         return {0, GuildModerationError::capacity};
-    if (output.count < w.used)
-        return {w.used, GuildModerationError::capacity};
-    copy_bytes(output.data, target, w.used);
     return {w.used, GuildModerationError::none};
 }
 
 GuildModerationResult guild_moderation_write_body(const GuildModerationRequest& r,
                                                   const Slice<u8>& output) noexcept {
-    if (!guild_moderation_request_valid(r) || !byte_range_valid({output.data, output.count}))
+    if (!guild_moderation_request_valid(r))
         return {0, GuildModerationError::input};
     if (r.operation == Op::ban_search)
         return {0, GuildModerationError::none};

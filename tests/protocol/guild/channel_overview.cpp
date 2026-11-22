@@ -41,13 +41,6 @@ void test_channel_overview(void (*check)(bool, const char*) noexcept) noexcept {
     check(written.ok() && utf8_equal({reinterpret_cast<char*>(output), written.bytes},
                                      utf8_literal("/api/v9/channels/18446744073709551615")),
           "channel overview codec: exact channel route accepts the full snowflake range");
-    output[0] = 0xA5;
-    const auto sized = channel_overview_write_patch(patch, {});
-    check(
-        sized.error == ChannelOverviewError::capacity && sized.bytes > 0 &&
-            channel_overview_write_patch(patch, {output, 1}).error == ChannelOverviewError::capacity &&
-            output[0] == 0xA5,
-        "channel overview codec: exact size query and insufficient capacity leave caller output untouched");
     char emoji_name[404]{};
     for (u32 i = 0; i < 101; ++i) {
         emoji_name[i * 4] = static_cast<char>(0xF0);

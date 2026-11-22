@@ -104,29 +104,22 @@ ChannelOverviewResult channel_overview_decode(Utf8View input, ChannelOverviewSna
     return {input.bytes, ChannelOverviewError::none, static_cast<u8>(reader.seen & channel_overview_all)};
 }
 ChannelOverviewResult channel_overview_write_target(u64 channel_id, Slice<u8> output) noexcept {
-    if (!channel_id || !byte_range_valid({output.data, output.count}))
+    if (!channel_id)
         return {0, ChannelOverviewError::input};
-    u8 target[64];
-    ProtocolWriter writer{{target, sizeof(target)}, 0};
+    ProtocolWriter writer{output, 0};
     if (!protocol_write(&writer, "/api/v9/channels/", channel_id))
         return {0, ChannelOverviewError::capacity};
-    if (output.count < writer.used)
-        return {writer.used, ChannelOverviewError::capacity};
-    copy_bytes(output.data, target, writer.used);
     return {writer.used};
 }
+// The one caller gives kChannelOverviewMaximumBodyBytes.
 ChannelOverviewResult channel_overview_write_patch(const ChannelOverviewPatch& patch,
                                                    Slice<u8> output) noexcept {
-    if (!channel_overview_patch_valid(patch) || !byte_range_valid({output.data, output.count}))
+    if (!channel_overview_patch_valid(patch))
         return {0, ChannelOverviewError::input};
-    u8 temporary[kChannelOverviewMaximumBodyBytes];
-    protocol_detail::JsonBody body{{temporary, sizeof(temporary)}};
+    protocol_detail::JsonBody body{output};
     write(patch, body);
     if (!body.ok)
         return {0, ChannelOverviewError::capacity};
-    if (output.count < body.writer.used)
-        return {body.writer.used, ChannelOverviewError::capacity};
-    copy_bytes(output.data, temporary, body.writer.used);
     return {body.writer.used, ChannelOverviewError::none, patch.fields};
 }
 } // namespace maicord

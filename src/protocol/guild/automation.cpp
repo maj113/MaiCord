@@ -656,7 +656,7 @@ GuildAutomationResult decode_list(Utf8View body, Slice<u32> scratch, const Objec
 } // namespace
 
 bool automod_list_next(Utf8View list, u32* at, Utf8View* item) noexcept {
-    if (!at || !item || *at >= list.bytes)
+    if (*at >= list.bytes)
         return false;
     u32 end = *at;
     while (end < list.bytes && list.data[end] != '\n')
@@ -822,11 +822,9 @@ RestRouteKey guild_automation_route(const GuildAutomationRequest& r) noexcept {
     }
 }
 
+// account_guild_automation_submit validates the request first and gives kGuildAutomationMaximumTargetBytes.
 GuildAutomationResult guild_automation_write_target(const GuildAutomationRequest& r, Slice<u8> output) noexcept {
-    if (!guild_automation_request_valid(r) || !byte_range_valid({output.data, output.count}))
-        return {0, GuildAutomationError::input};
-    u8 target[kGuildAutomationMaximumTargetBytes];
-    ProtocolWriter w{{target, sizeof(target)}, 0};
+    ProtocolWriter w{output, 0};
     bool ok = true;
     switch (r.operation) {
     case Op::integration_list:
@@ -854,19 +852,13 @@ GuildAutomationResult guild_automation_write_target(const GuildAutomationRequest
         ok = protocol_write(&w, "/api/v9/guilds/", r.guild_id, "/auto-moderation/rules/", r.target_id);
         break;
     }
-    if (!ok)
-        return {0, GuildAutomationError::capacity};
-    return protocol_writer_finish<GuildAutomationResult>(w, true, output, target);
+    return protocol_writer_finish<GuildAutomationResult>(w, ok);
 }
 
 GuildAutomationResult guild_automation_write_body(const GuildAutomationRequest& r, const Slice<u8>& output) noexcept {
-    if (!guild_automation_request_valid(r) || !byte_range_valid({output.data, output.count}))
-        return {0, GuildAutomationError::input};
     const bool webhook = r.webhook != nullptr, rule = r.rule != nullptr;
     if (!webhook && !rule && r.operation != Op::command_permissions_update)
         return {0, GuildAutomationError::none};
-    if (!output.data || !output.count)
-        return {0, GuildAutomationError::capacity};
     JsonBody b{output};
     if (rule)
         write_rule(b, r.guild_id, *r.rule, r.operation == Op::automod_update);
@@ -897,14 +889,10 @@ GuildAutomationResult guild_automation_write_body(const GuildAutomationRequest& 
 
 GuildAutomationResult guild_webhooks_decode(Utf8View body, Slice<u32> scratch, Slice<GuildWebhook> output,
                                             u32* count) noexcept {
-    if (!count || (!output.data && output.count))
-        return {0, GuildAutomationError::input};
     return decode_list(body, scratch, kWebhookSpec, output.data, output.count, count);
 }
 
 GuildAutomationResult guild_webhook_decode(Utf8View body, Slice<u32> scratch, GuildWebhook* output) noexcept {
-    if (!output)
-        return {0, GuildAutomationError::input};
     const auto s = scan_json<GuildAutomationError>(body, scratch);
     if (s.error != GuildAutomationError::none)
         return {0, s.error};
@@ -918,8 +906,6 @@ GuildAutomationResult guild_webhook_decode(Utf8View body, Slice<u32> scratch, Gu
 
 GuildAutomationResult guild_integrations_decode(Utf8View body, Slice<u32> scratch, Slice<GuildIntegration> output,
                                                 u32* count) noexcept {
-    if (!count || (!output.data && output.count))
-        return {0, GuildAutomationError::input};
     return decode_list(body, scratch, kIntegrationSpec, output.data, output.count, count);
 }
 
@@ -991,8 +977,6 @@ GuildAutomationResult guild_application_commands_decode(Utf8View body, Slice<u32
 }
 
 bool guild_automation_event_decode(Utf8View body, Slice<u32> scratch, GuildAutomationEvent* output) noexcept {
-    if (!output)
-        return false;
     reset_value(output);
     const auto s = scan_json<GuildAutomationError>(body, scratch);
     return s.error == GuildAutomationError::none &&

@@ -63,14 +63,11 @@ u32 prefix_bytes(Utf8View text, u32 maximum_units, u32 maximum_bytes) noexcept {
 // The credential-free GET for an origin-form target on a Discord host.
 AttachmentDownloadRequestResult write_get(ConstSlice<u8> target, CdnHost cdn_host,
                                           Slice<u8> output) noexcept {
-    u8 request[kCdnMaximumTargetBytes + 384];
-    ProtocolWriter writer{{request, sizeof(request)}, 0};
+    ProtocolWriter writer{output, 0};
     const auto host = cdn_host_name(cdn_host);
     if (!protocol_write(&writer, "GET ", target, " HTTP/1.1\r\nHost: ", host, "\r\nUser-Agent: ", kClientUserAgent,
-                        "\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n") ||
-        writer.used > output.count)
+                        "\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n"))
         return {0, CdnHost::none, AttachmentDownloadRequestError::output_capacity};
-    copy_bytes(output.data, request, writer.used);
     return {writer.used, cdn_host, AttachmentDownloadRequestError::none};
 }
 } // namespace

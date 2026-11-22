@@ -50,26 +50,6 @@ GuildAdminRequest guild_request(GuildAdminOperation op, u64 target = 0) noexcept
     return request;
 }
 
-// Every target and body is exact and refuses each short buffer untouched.
-bool bounded(const GuildAdminRequest& request) noexcept {
-    u8 output[8192];
-    const auto target = guild_admin_write_target(request, {output, sizeof(output)});
-    const auto body = guild_admin_write_body(request, {output, sizeof(output)});
-    if (!target.ok() || !body.ok())
-        return false;
-    for (u32 size = 0; size < target.bytes; ++size) {
-        for (auto& byte : output)
-            byte = 0xA5;
-        const auto short_target = guild_admin_write_target(request, {output, size});
-        if (short_target.error != GuildAdminError::capacity || output[0] != 0xA5)
-            return false;
-    }
-    for (u32 size = 1; size < body.bytes; ++size)
-        if (guild_admin_write_body(request, {output, size}).error != GuildAdminError::capacity)
-            return false;
-    return true;
-}
-
 void test_transport() noexcept {
     RestClient details{};
     MemberPatch timeout{};
@@ -165,12 +145,10 @@ void test_transport() noexcept {
     const bool maximum_remove = maximum_written.ok() &&
                                 same(maximum_target, maximum_written.bytes,
                                      utf8_literal("/api/v9/guilds/18446744073709551615/members/"
-                                                  "18446744073709551615/roles/18446744073709551615")) &&
-                                bounded(request);
+                                                  "18446744073709551615/roles/18446744073709551615"));
     request.operation = GuildAdminOperation::member_role_add;
-    check(
-        maximum_remove && bounded(request),
-        "guild admin protocol: both atomic role routes fit maximum IDs and refuse short targets untouched");
+    check(maximum_remove && guild_admin_write_target(request, {maximum_target, sizeof(maximum_target)}).ok(),
+          "guild admin protocol: both atomic role routes fit maximum IDs");
 
     // Server lifecycle and drag-and-drop submissions, captured at the transport.
     request = guild_request(GuildAdminOperation::guild_leave);
@@ -539,7 +517,7 @@ void test_routes() noexcept {
     add(games, RestMethod::get,
         utf8_literal("/api/v9/games?game_ids=356875221078245376&game_ids=700136079562375258"), {});
 
-    bool exact = true, short_buffers = true;
+    bool exact = true;
     for (u32 n = 0; n < count; ++n) {
         u8 target[256], body[1024];
         const auto& row = rows[n];
@@ -553,11 +531,9 @@ void test_routes() noexcept {
         if (!row_exact)
             check(false, "guild admin protocol: route row mismatch");
         exact = exact && row_exact;
-        short_buffers = bounded(row.request) && short_buffers;
     }
     check(exact,
           "guild admin protocol: every operation writes its exact method, path and body");
-    check(short_buffers, "guild admin protocol: every short target buffer is refused untouched");
 
     // Rejections: each request differs from a valid one by one property.
     auto bad = guild_request(GuildAdminOperation::member_kick);

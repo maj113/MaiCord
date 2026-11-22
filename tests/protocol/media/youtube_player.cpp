@@ -623,9 +623,6 @@ MAICORD_TEST_ENTRY(maicord_youtube_player_entry) {
     check(ascii_contains_ignore_case(request_body,utf8_literal("\"clientName\":\"VISIONOS\"")) &&
         ascii_contains_ignore_case(request_body,utf8_literal("\"clientVersion\":\"1.02\"")) &&
         ascii_contains_ignore_case(request_body,kYoutubeNativeUserAgent),"player body and CDN user agent use one matching delivery profile");
-    request[0] = 42;
-    check(!youtube_player_body(id, utf8_literal("public-visitor"), {request, 1}) && request[0] == 42,
-          "request capacity failure is transactional");
     check(!youtube_player_body(id, utf8_literal("bad\r\nvisitor"), {request, sizeof(request)}),
           "bootstrap metadata cannot inject headers");
     test_choice();

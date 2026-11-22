@@ -457,11 +457,9 @@ RestRouteKey guild_asset_route(const GuildAssetRequest& r) noexcept {
             unscoped ? RestMajorParameter::none : RestMajorParameter::guild};
 }
 
+// account_guild_assets_submit validates the request first (never a probe) and gives kGuildAssetMaximumTargetBytes.
 GuildAssetResult guild_asset_write_target(const GuildAssetRequest& r, Slice<u8> output) noexcept {
-    if (!guild_asset_request_valid(r) || r.operation == Op::image_probe || !byte_range_valid({output.data, output.count}))
-        return {0, 0, GuildAssetError::input};
-    u8 target[kGuildAssetMaximumTargetBytes];
-    Sink s{target, sizeof(target), 0, true};
+    Sink s{output.data, output.count, 0, true};
     s.literal("/api/v9/guilds");
     if (r.operation != Op::guild_create) {
         s.literal("/");
@@ -491,9 +489,6 @@ GuildAssetResult guild_asset_write_target(const GuildAssetRequest& r, Slice<u8> 
     }
     if (!s.ok)
         return {0, 0, GuildAssetError::capacity};
-    if (output.count < s.used)
-        return {s.used, 0, GuildAssetError::capacity};
-    copy_bytes(output.data, target, s.used);
     return {s.used, 0, GuildAssetError::none};
 }
 

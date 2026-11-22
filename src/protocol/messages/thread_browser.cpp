@@ -424,10 +424,7 @@ bool thread_browser_request_valid(const ThreadBrowserRequest& request) noexcept 
 }
 ThreadBrowserResult thread_browser_write_target(
     const ThreadBrowserRequest& request, Slice<u8> output) noexcept {
-    if (!thread_browser_request_valid(request) || !byte_range_valid({output.data, output.count}))
-        return {0, ThreadBrowserError::input};
-    u8 temporary[kThreadBrowserMaximumTargetBytes];
-    ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
+    ProtocolWriter writer{output, 0};
     bool valid = protocol_write(&writer, "/api/v9/channels/", request.parent_id, "/threads/search?");
     if (request.mode == ThreadBrowserMode::archived)
         valid = valid && protocol_write(&writer,
@@ -436,8 +433,7 @@ ThreadBrowserResult thread_browser_write_target(
         valid = valid && protocol_write(&writer,
             "archived=false&sort_by=last_message_time&sort_order=desc&limit=25&offset=", request.offset);
     else valid = valid && protocol_write(&writer, "name=", percent_text(request.name));
-    if (!valid || writer.used > output.count) return {writer.used, ThreadBrowserError::capacity};
-    copy_bytes(output.data, temporary, writer.used);
+    if (!valid) return {0, ThreadBrowserError::capacity};
     return {writer.used};
 }
 namespace {

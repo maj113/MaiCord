@@ -45,10 +45,6 @@ void test_attachment_download(void (*check)(bool, const char*) noexcept) noexcep
         unsafe_url = unsafe_url && !attachment_download_write_request(invalid, 77, 42, 2, {request, sizeof(request)}).ok();
     }
     check(unsafe_url, "attachment GET rejects credentials, ports, foreign hosts, traversal, duplicate/missing/bad signatures and fragments");
-    request[0] = 0xa5;
-    const auto capacity = attachment_download_write_request(url, 77, 42, 2, {request, 4});
-    check(capacity.error == AttachmentDownloadRequestError::output_capacity && request[0] == 0xa5,
-        "attachment GET does not publish a partial request on insufficient capacity");
     const auto media = attachment_download_write_media_request(
         utf8_literal("https://media.discordapp.net/external/AbCdEf/https/media.tenor.com/abc/tenor.mp4"),
         {request, sizeof(request)});

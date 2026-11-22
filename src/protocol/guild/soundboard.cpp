@@ -156,11 +156,9 @@ u32 soundboard_body_bytes(const SoundboardRequest& r) noexcept {
     return prefix.used + base64_encoded_size(r.sound.count) + suffix.used;
 }
 
+// account_soundboard.cpp validates the request first and gives the kSoundboardMaximum*Bytes buffers.
 SoundboardWriteResult soundboard_write_target(const SoundboardRequest& r, Slice<u8> output) noexcept {
-    if (!soundboard_request_valid(r) || !output.data)
-        return {0, SoundboardWriteError::input};
-    u8 staged[kSoundboardMaximumTargetBytes];
-    ProtocolWriter w{{staged, sizeof(staged)}, 0};
+    ProtocolWriter w{output, 0};
     bool ok = protocol_write(&w, "/api/v9");
     switch (r.operation) {
     case Op::send:
@@ -175,19 +173,13 @@ SoundboardWriteResult soundboard_write_target(const SoundboardRequest& r, Slice<
             ok = ok && protocol_write(&w, '/', r.sound_id);
         break;
     }
-    return protocol_writer_finish<SoundboardWriteResult>(w, ok, output, staged);
+    return protocol_writer_finish<SoundboardWriteResult>(w, ok);
 }
 
 SoundboardWriteResult soundboard_write_body(const SoundboardRequest& r, Slice<u8> output) noexcept {
-    if (!soundboard_request_valid(r) || !output.data || !soundboard_has_body(r.operation))
-        return {0, SoundboardWriteError::input};
     if (r.operation != Op::create) {
-        u8 staged[kSoundboardMaximumSmallBodyBytes];
-        ProtocolWriter w{{staged, sizeof(staged)}, 0};
-        const bool ok = small_body(r, &w);
-        const auto result = protocol_writer_finish<SoundboardWriteResult>(w, ok, output, staged);
-        secure_clear_bytes(staged, sizeof(staged));
-        return result;
+        ProtocolWriter w{output, 0};
+        return protocol_writer_finish<SoundboardWriteResult>(w, small_body(r, &w));
     }
     const u32 bytes = soundboard_body_bytes(r);
     if (!bytes || output.count < bytes)
@@ -208,16 +200,12 @@ SoundboardWriteResult soundboard_write_body(const SoundboardRequest& r, Slice<u8
 }
 
 SoundboardWriteResult soundboard_write_cdn_target(u64 sound_id, Slice<u8> output) noexcept {
-    if (!sound_id || !output.data)
-        return {0, SoundboardWriteError::input};
-    u8 staged[kSoundboardCdnTargetBytes];
-    ProtocolWriter w{{staged, sizeof(staged)}, 0};
-    const bool ok = protocol_write(&w, "/soundboard-sounds/", sound_id);
-    return protocol_writer_finish<SoundboardWriteResult>(w, ok, output, staged);
+    ProtocolWriter w{output, 0};
+    return protocol_writer_finish<SoundboardWriteResult>(w, protocol_write(&w, "/soundboard-sounds/", sound_id));
 }
 
 u32 soundboard_format_volume(u32 per_mille, Slice<char> output) noexcept {
-    if (per_mille > kSoundboardVolumeScale || !output.data || output.count < 5)
+    if (per_mille > kSoundboardVolumeScale)
         return 0;
     if (per_mille == kSoundboardVolumeScale) {
         output[0] = '1';
@@ -240,7 +228,7 @@ u32 soundboard_format_volume(u32 per_mille, Slice<char> output) noexcept {
 }
 
 bool soundboard_parse_volume(Utf8View text, u32* per_mille) noexcept {
-    if (!per_mille || !text.data || !text.bytes)
+    if (!text.data || !text.bytes)
         return false;
     u32 i = 0;
     if (text.data[0] == '-') {
@@ -466,8 +454,6 @@ bool visit_envelope(void* opaque, JsonString name, JsonValue value) noexcept {
 SoundboardDecodeResult soundboard_decode_sound(const Utf8View& object, u64 guild_id,
                                                const Slice<u32>& scratch,
                                                SoundboardSound* output) noexcept {
-    if (!output)
-        return {0, SoundboardDecodeError::input};
     const auto s = scan_json<SoundboardDecodeError>(object, scratch);
     if (s.error != SoundboardDecodeError::none)
         return {0, s.error};
@@ -487,8 +473,6 @@ SoundboardDecodeResult soundboard_decode_sound(const Utf8View& object, u64 guild
 SoundboardDecodeResult soundboard_decode_sound_list(Utf8View body, u64 guild_id, const Slice<u32>& scratch,
                                                     const Slice<SoundboardSound>& output,
                                                     u64* document_guild) noexcept {
-    if (!output.data && output.count)
-        return {0, SoundboardDecodeError::input};
     const auto s = scan_json<SoundboardDecodeError>(body, scratch);
     if (s.error != SoundboardDecodeError::none)
         return {0, s.error};
@@ -601,8 +585,6 @@ bool visit_effect(void* opaque, JsonString name, JsonValue value) noexcept {
 
 SoundboardDecodeResult soundboard_decode_delete(Utf8View object, Slice<u32> scratch, u64* sound_id,
                                                 u64* guild_id) noexcept {
-    if (!sound_id || !guild_id)
-        return {0, SoundboardDecodeError::input};
     const auto s = scan_json<SoundboardDecodeError>(object, scratch);
     if (s.error != SoundboardDecodeError::none)
         return {0, s.error};
@@ -619,8 +601,6 @@ SoundboardDecodeResult soundboard_decode_delete(Utf8View object, Slice<u32> scra
 
 SoundboardDecodeResult soundboard_decode_effect(Utf8View object, Slice<u32> scratch,
                                                 GatewayVoiceChannelEffect* output) noexcept {
-    if (!output)
-        return {0, SoundboardDecodeError::input};
     const auto s = scan_json<SoundboardDecodeError>(object, scratch);
     if (s.error != SoundboardDecodeError::none)
         return {0, s.error};

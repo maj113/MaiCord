@@ -19,13 +19,11 @@ u32 twitch_playback_body(Utf8View id, Slice<u8> output, bool live) noexcept {
     if (!(live ? twitch_channel_id(id) : twitch_vod_id(id))) return 0;
     char canonical[25];
     if (live) { for (u32 i = 0; i < id.bytes; ++i) canonical[i] = ascii_lower(id.data[i]); id.data = canonical; }
-    u8 staged[512]; ProtocolWriter w{{staged, sizeof(staged)}, 0};
+    ProtocolWriter w{output, 0};
     const auto prefix = live ? utf8_literal("{\"query\":\"query { streamPlaybackAccessToken(channelName:\\\"")
                              : utf8_literal("{\"query\":\"query { videoPlaybackAccessToken(id:\\\"");
-    const bool valid = protocol_write(&w, prefix, id,
-        "\\\", params:{platform:\\\"web\\\",playerBackend:\\\"mediaplayer\\\",playerType:\\\"embed\\\"}) { value signature } }\"}");
-    if (!valid || !output.data || output.count < w.used) return 0;
-    copy_bytes(output.data, staged, w.used); return w.used;
+    return protocol_write(&w, prefix, id,
+        "\\\", params:{platform:\\\"web\\\",playerBackend:\\\"mediaplayer\\\",playerType:\\\"embed\\\"}) { value signature } }\"}") ? w.used : 0;
 }
 namespace {
 using protocol_detail::FieldSet;

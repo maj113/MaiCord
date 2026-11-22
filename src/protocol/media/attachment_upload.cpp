@@ -12,7 +12,7 @@
 namespace maicord {
 namespace {
 bool valid_text(Utf8View value, u32 maximum, bool slash) noexcept {
-    if (!value.data || !value.bytes || value.bytes > maximum || !utf8_validate(value).valid) return false;
+    if (!value.bytes || value.bytes > maximum || !utf8_validate(value).valid) return false;
     for (u32 i = 0; i < value.bytes; ++i) {
         const u8 c = static_cast<u8>(value.data[i]);
         if (c < 0x20 || c == 0x7f || (!slash && (c == '/' || c == '\\'))) return false;
@@ -67,7 +67,7 @@ RestRouteKey attachment_upload_route(u64 channel_id) noexcept {
 }
 AttachmentUploadResponse attachment_upload_parse_response(Utf8View body, u32 expected_id,
     Slice<char> url, Slice<char> uploaded_filename) noexcept {
-    if (body.bytes > 32 * 1024 || !url.data || !uploaded_filename.data) return {};
+    if (body.bytes > 32 * 1024) return {};
     u32 structurals[512];
     const auto scan = json_scan_structurals_avx1(body, {structurals, 512});
     Response r{};
@@ -82,8 +82,7 @@ AttachmentUploadResponse attachment_upload_parse_response(Utf8View body, u32 exp
     return {decoded_url.bytes, decoded_name.bytes, true};
 }
 u32 attachment_upload_write_duration(u32 duration_ms, Slice<char> output) noexcept {
-    char text[16];
-    ProtocolWriter writer{{reinterpret_cast<u8*>(text), sizeof(text)}, 0};
+    ProtocolWriter writer{{reinterpret_cast<u8*>(output.data), output.count}, 0};
     protocol_write(&writer, duration_ms / 1000);
     u32 fraction = duration_ms % 1000, digits = 3;
     while (fraction && fraction % 10 == 0) fraction /= 10, --digits;
@@ -92,8 +91,6 @@ u32 attachment_upload_write_duration(u32 duration_ms, Slice<char> output) noexce
         for (u32 i = digits; i-- > 0; fraction /= 10) decimals[i] = static_cast<char>('0' + fraction % 10);
         protocol_write(&writer, '.', Utf8View{decimals, digits});
     }
-    if (!output.data || output.count < writer.used) return 0;
-    copy_bytes(output.data, text, writer.used);
     return writer.used;
 }
 bool attachment_upload_valid_reference(const UploadedAttachment& attachment) noexcept {
@@ -113,7 +110,7 @@ bool attachment_upload_valid_reference(const UploadedAttachment& attachment) noe
 }
 u32 attachment_upload_write_references(ConstSlice<UploadedAttachment> attachments,
     Slice<u8> output) noexcept {
-    if (!attachments.data || !attachments.count || attachments.count > kAttachmentUploadMaximumCount) return 0;
+    if (!attachments.count || attachments.count > kAttachmentUploadMaximumCount) return 0;
     for (u32 i = 0; i < attachments.count; ++i) {
         if (!attachment_upload_valid_reference(attachments[i])) return 0;
         for (u32 j = 0; j < i; ++j) if (attachments[i].id == attachments[j].id) return 0;
@@ -130,8 +127,7 @@ u32 attachment_upload_write_references(ConstSlice<UploadedAttachment> attachment
         if (attachment_upload_is_voice(a)) {
             char duration[16];
             const u32 duration_bytes = attachment_upload_write_duration(a.duration_ms, {duration, sizeof(duration)});
-            if (!duration_bytes ||
-                !protocol_write(&json, ",\"duration_secs\":", Utf8View{duration, duration_bytes}, ",\"waveform\":",
+            if (!protocol_write(&json, ",\"duration_secs\":", Utf8View{duration, duration_bytes}, ",\"waveform\":",
                                 json_text(a.waveform))) return 0;
         }
         if (!protocol_write(&json, '}')) return 0;

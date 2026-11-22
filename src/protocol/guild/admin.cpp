@@ -765,11 +765,9 @@ RestRouteKey guild_admin_route(const GuildAdminRequest& r) noexcept {
                       : RestMajorParameter::none};
 }
 
+// Callers give kGuildAdminMaximumTargetBytes.
 GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> output) noexcept {
-    if (!byte_range_valid({output.data, output.count}))
-        return {0, 0, GuildAdminError::input};
-    u8 target[kGuildAdminMaximumTargetBytes];
-    GuardedWriter w{{target, sizeof(target)}};
+    GuardedWriter w{output};
     w.put("/api/v9/");
     const Op op = r.operation;
     if (op == Op::guild_leave) {
@@ -837,7 +835,7 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
         // sends "?reason=".
         if (op == Op::member_kick && r.reason.data) {
             w.put("?reason=");
-            const Slice<u8> room{target + w.writer.used, kGuildAdminMaximumTargetBytes - w.writer.used};
+            const Slice<u8> room{output.data + w.writer.used, output.count - w.writer.used};
             const auto encoded = w.ok ? rest_encode_audit_reason(r.reason, room) : RestAuditReasonResult{0, false};
             w.ok = encoded.ok;
             w.writer.used += w.ok ? encoded.bytes : 0;
@@ -859,9 +857,6 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
     }
     if (!w.ok)
         return {0, 0, GuildAdminError::capacity};
-    if (output.count < w.writer.used)
-        return {w.writer.used, 0, GuildAdminError::capacity};
-    copy_bytes(output.data, target, w.writer.used);
     return {w.writer.used, 0, GuildAdminError::none};
 }
 

@@ -49,9 +49,8 @@ void run() noexcept {
     u64 random=1;
     for(u32 i=0;i<10000;++i) {random=random*6364136223846793005ull+1442695040888963407ull;proof(random);}
     check(hash==3460213407u,"native binary64 proof matches 10006 independent JavaScript results");
-    u8 tiny[4]{1,2,3,4};
-    check(!twitter_video_target(utf8_literal("123"),{tiny,sizeof(tiny)}) && tiny[0]==1 && tiny[3]==4 &&
-        !twitter_video_target(utf8_literal("0"),{tiny,sizeof(tiny)}),"invalid and short proof outputs remain untouched");
+    u8 target[128];
+    check(!twitter_video_target(utf8_literal("0"),{target,sizeof(target)}),"invalid post identity has no proof");
 
     constexpr auto fixture=utf8_literal(R"({"__typename":"Tweet","id_str":"123","mediaDetails":[{"type":"photo"},{"type":"video","original_info":{"width":1920,"height":1080},"ext_media_availability":{"status":"Available"},"video_info":{"variants":[{"content_type":"application/x-mpegURL","url":"https://video.twimg.com/unused.m3u8"},{"content_type":"video/mp4","bitrate":2000000,"url":"https://video.twimg.com/ext_tw_video/456/pu/vid/avc1/1280x720/large.mp4?tag=12"},{"content_type":"video/mp4","bitrate":800000,"url":"https://video.twimg.com/ext_tw_video/456/pu/vid/640x360/small.mp4?tag=12"},{"content_type":"video/mp4","bitrate":900000,"url":"https://video.twimg.com/ext_tw_video/456/pu/vid/640x360/expensive.mp4?tag=12"}]}},{"type":"video","video_info":{"variants":[{"content_type":"video/mp4","url":"https://video.twimg.com/ext_tw_video/789/pu/vid/480x480/square.mp4"}]}}]})");
     u32 scratch[2048];EmbedStreams streams{};

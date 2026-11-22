@@ -166,10 +166,6 @@ void test_rejections() noexcept {
     const auto lower = request(StageOperation::lower_hand);
     check(account_stage_submit(rest, &lower, 5).error == RestClientSubmitError::busy,
           "stage account: transport backpressure propagates");
-    capture.error = RestClientSubmitError::none;
-    u8 small[8];
-    check(!stage_write_body(lower, {small, sizeof(small)}).ok() && !stage_write_target(lower, {small, 4}).ok(),
-          "stage account: writers refuse short output");
 }
 } // namespace stage_account_test
 } // namespace maicord

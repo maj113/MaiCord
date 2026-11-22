@@ -88,11 +88,10 @@ RestRouteKey user_social_route(const UserSocialRequest& r) noexcept {
     }
 }
 
+// account_user_social_submit validates the request first and gives kUserSocialMaximumTargetBytes and
+// kUserSocialMaximumBodyBytes; a report body comes from report_write_submit into a buffer of that size.
 UserSocialWriteResult user_social_write_target(const UserSocialRequest& r, Slice<u8> output) noexcept {
-    if (!user_social_request_valid(r) || !output.data)
-        return {0, UserSocialWriteError::input};
-    u8 staged[kUserSocialMaximumTargetBytes];
-    ProtocolWriter w{{staged, sizeof(staged)}, 0};
+    ProtocolWriter w{output, 0};
     bool ok = protocol_write(&w, "/api/v9");
     switch (r.operation) {
     case UserSocialOperation::note_get:
@@ -111,26 +110,21 @@ UserSocialWriteResult user_social_write_target(const UserSocialRequest& r, Slice
         ok = ok && protocol_write(&w, "/channels/", r.channel_id, "/messages/", r.message_id);
         break;
     }
-    return protocol_writer_finish<UserSocialWriteResult>(w, ok, output, staged);
+    return protocol_writer_finish<UserSocialWriteResult>(w, ok);
 }
 
 UserSocialWriteResult user_social_write_body(const UserSocialRequest& r, Slice<u8> output) noexcept {
-    if (!user_social_request_valid(r) || !output.data || !user_social_has_body(r.operation))
-        return {0, UserSocialWriteError::input};
     if (r.operation == UserSocialOperation::report_submit) {
-        if (r.text.bytes > output.count)
-            return {0, UserSocialWriteError::capacity};
         copy_bytes(output.data, r.text.data, r.text.bytes);
         return {r.text.bytes, UserSocialWriteError::none};
     }
-    u8 staged[kUserNoteMaximumBytes * 6 + 64];
-    ProtocolWriter w{{staged, sizeof(staged)}, 0};
+    ProtocolWriter w{output, 0};
     bool ok = false;
     if (r.operation == UserSocialOperation::note_put)
         ok = protocol_write(&w, "{\"note\":", json_text(r.text), '}');
     else
         ok = protocol_write(&w, "{\"flags\":", r.flags, '}');
-    return protocol_writer_finish<UserSocialWriteResult>(w, ok, output, staged);
+    return protocol_writer_finish<UserSocialWriteResult>(w, ok);
 }
 
 bool user_note_decode(Utf8View body, Slice<u32> scratch, bool gateway, UserNoteRecord* output) noexcept {
@@ -428,15 +422,14 @@ const ReportNode* report_menu_node(const ReportMenu& menu, u32 id) noexcept {
 UserSocialWriteResult report_write_submit(const ReportMenu& menu, const ReportSubmission& s,
                                           Slice<u8> output) noexcept {
     const bool message = s.name == ReportMenuName::message;
-    if (!output.data || s.name >= ReportMenuName::count || !s.breadcrumbs.count ||
+    if (s.name >= ReportMenuName::count || !s.breadcrumbs.count ||
         s.breadcrumbs.count > kReportMaximumBreadcrumbs || (!s.answers.data && s.answers.count) ||
         (message ? !s.channel_id || !s.message_id : !s.user_id))
         return {0, UserSocialWriteError::input};
     for (u32 i = 0; i < s.breadcrumbs.count; ++i)
         if (!report_menu_node(menu, s.breadcrumbs[i]))
             return {0, UserSocialWriteError::input};
-    u8 staged[kUserSocialMaximumBodyBytes];
-    protocol_detail::JsonBody b{{staged, sizeof(staged)}};
+    protocol_detail::JsonBody b{output};
     b.begin_object();
     b.member_if(menu.version_json.bytes, "version", menu.version_json);
     b.member_if(menu.variant_json.bytes, "variant", menu.variant_json);
@@ -482,6 +475,6 @@ UserSocialWriteResult report_write_submit(const ReportMenu& menu, const ReportSu
     }
     b.member("name", json_text(report_menu_name(s.name)));
     b.end_object();
-    return protocol_writer_finish<UserSocialWriteResult>(b.writer, b.ok, output, staged);
+    return protocol_writer_finish<UserSocialWriteResult>(b.writer, b.ok);
 }
 } // namespace maicord

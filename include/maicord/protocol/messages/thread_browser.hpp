@@ -97,7 +97,8 @@ struct ThreadBrowserPostPage {
     u32 post_count, text_bytes;
 };
 bool thread_browser_request_valid(const ThreadBrowserRequest&) noexcept;
-// GET only, with no request body. Writers preserve output on every failure.
+// GET only, with no request body. Takes a request that thread_browser_request_valid accepted and a buffer of
+// kThreadBrowserMaximumTargetBytes.
 ThreadBrowserResult thread_browser_write_target(
     const ThreadBrowserRequest&, Slice<u8>) noexcept;
 // Candidate scratch may be changed on failure; the output descriptor is only

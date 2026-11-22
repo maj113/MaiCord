@@ -64,7 +64,8 @@ struct ThreadCreationSnapshot {
     char name[kThreadCreationNameMaximumBytes];
 };
 bool thread_creation_request_valid(const ThreadCreationRequest&) noexcept;
-// POST for from_message, GET for reconcile. Writers preserve output on failure.
+// POST for from_message, GET for reconcile. The writers take a request that thread_creation_request_valid accepted
+// and buffers of kThreadCreationMaximumTargetBytes and kThreadCreationMaximumBodyBytes.
 ThreadCreationResult thread_creation_write_target(const ThreadCreationRequest&, Slice<u8>) noexcept;
 ThreadCreationResult thread_creation_write_body(const ThreadCreationRequest&, Slice<u8>) noexcept;
 // Structural scratch may change on failure, but output is written only on success.

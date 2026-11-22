@@ -163,10 +163,8 @@ void live() noexcept {
     const u32 count = twitch_playback_body(channel, {body, sizeof(body)}, true);
     check(count && ascii_contains_ignore_case({reinterpret_cast<char*>(body), count}, utf8_literal("streamPlaybackAccessToken(channelName:")),
         "live channel metadata uses the bounded channel identity");
-    body[0] = 42;
     check(!twitch_channel_id(utf8_literal("a/b")) && !twitch_channel_id(utf8_literal("a\"b")) &&
-        !twitch_channel_id(utf8_literal("abcdefghijklmnopqrstuvwxyz")) &&
-        !twitch_playback_body(channel, {body, 1}, true) && body[0] == 42, "live request failures preserve the output");
+        !twitch_channel_id(utf8_literal("abcdefghijklmnopqrstuvwxyz")), "live channel identity is bounded");
     EmbedStream stream{};
     check(twitch_playback_manifest(make(token), channel, 1000, {scratch, 4096}, &stream, true) == E::none &&
         ascii_contains_ignore_case({stream.url, stream.url_bytes}, utf8_literal("https://usher.ttvnw.net/api/channel/hls/Example_Channel.m3u8?")) &&

@@ -154,18 +154,15 @@ u32 embed_stream_get(CdnHost cdn, Utf8View url, u64 first, u32 bytes, Slice<u8> 
     const bool whole_preview = (embed_audio_preview_limit(cdn) || embed_playlist_host(cdn)) && !bytes && !first;
     if (embed_playlist_host(cdn) && !whole_preview) return 0;
     if (!embed_stream_location(cdn, url, &location) || (!bytes && !whole_preview) || bytes > kMediaMaximumProgressiveVideoBytes ||
-        first > kMediaMaximumProgressiveVideoBytes - u64{bytes} || !output.data) return 0;
-    u8 staged[kCdnMaximumRequestHeadBytes];
-    ProtocolWriter w{{staged, sizeof(staged)}, 0};
+        first > kMediaMaximumProgressiveVideoBytes - u64{bytes}) return 0;
+    ProtocolWriter w{output, 0};
     const bool ok = protocol_write(&w, "GET ", location.target, " HTTP/1.1\r\nHost: ", location.host, "\r\nUser-Agent: ",
             cdn == CdnHost::google_video ? kYoutubeNativeUserAgent : utf8_literal("Mozilla/5.0")) &&
         (cdn != CdnHost::tiktok_video || protocol_write(&w, "\r\nReferer: https://www.tiktok.com/")) &&
         (cdn != CdnHost::pornhub_video || protocol_write(&w, "\r\nReferer: https://www.pornhub.com/")) &&
         protocol_write(&w, "\r\nAccept: */*\r\nAccept-Encoding: identity") &&
         (whole_preview || protocol_write(&w, "\r\nRange: bytes=", first, '-', first + bytes - 1)) &&
-        protocol_write(&w, "\r\nConnection: keep-alive\r\n\r\n") && w.used <= output.count;
-    if (ok) copy_bytes(output.data, staged, w.used);
-    secure_clear_bytes(staged, sizeof(staged));
+        protocol_write(&w, "\r\nConnection: keep-alive\r\n\r\n");
     return ok ? w.used : 0;
 }
 EmbedPlayerError youtube_player_streams(Utf8View json, Utf8View id, u16 maximum_height,
@@ -286,7 +283,7 @@ u64 twitter_post_id(const Utf8View& id) noexcept { return numeric_id(id); }
 #pragma clang fp contract(off)
 u32 twitter_video_target(Utf8View id,Slice<u8> output) noexcept {
     const u64 post=twitter_post_id(id);
-    if(!post || !output.data) return 0;
+    if(!post) return 0;
     // Public embed request proof: base36(Number(id)/1e15*pi), without dots or
     // zero digits. Binary64 rounding is part of that wire format. Only positive
     // u64 IDs are needed: no general formatter, runtime or allocations.
@@ -307,7 +304,7 @@ u32 twitter_video_target(Utf8View id,Slice<u8> output) noexcept {
             break;
         }
     }
-    u8 target[128];ProtocolWriter w{{target,sizeof(target)},0};
+    ProtocolWriter w{output,0};
     protocol_write(&w,"/tweet-result?id=",id,"&lang=en&token=");
     const auto append=[&](u8 digit) noexcept {
         const u8 byte=static_cast<u8>(digit<10?'0'+digit:'a'+digit-10);
@@ -317,8 +314,6 @@ u32 twitter_video_target(Utf8View id,Slice<u8> output) noexcept {
     while(whole) {integer[n++]=static_cast<u8>(whole%36);whole/=36;}
     while(n) append(integer[--n]);
     for(u32 i=0;i<count;++i) append(digits[i]);
-    if(w.used>output.count) return 0;
-    copy_bytes(output.data,target,w.used);
     return w.used;
 }
 #pragma float_control(pop)

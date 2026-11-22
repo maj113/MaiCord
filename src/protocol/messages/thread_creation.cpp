@@ -127,35 +127,23 @@ bool thread_creation_request_valid(const ThreadCreationRequest& request) noexcep
 }
 ThreadCreationResult thread_creation_write_target(const ThreadCreationRequest& request,
                                                   Slice<u8> output) noexcept {
-    if (!thread_creation_request_valid(request) || !byte_range_valid({output.data, output.count}))
-        return {0, ThreadCreationError::input};
-    u8 temporary[kThreadCreationMaximumTargetBytes];
-    ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
+    ProtocolWriter writer{output, 0};
     if (!protocol_write(&writer, "/api/v9/channels/",
                         request.operation == ThreadCreationOperation::from_message ? request.parent_id
                                                                                    : request.source_message_id) ||
         (request.operation == ThreadCreationOperation::from_message &&
          !protocol_write(&writer, "/messages/", request.source_message_id, "/threads")))
         return {0, ThreadCreationError::capacity};
-    if (writer.used > output.count)
-        return {writer.used, ThreadCreationError::capacity};
-    copy_bytes(output.data, temporary, writer.used);
     return {writer.used};
 }
 ThreadCreationResult thread_creation_write_body(const ThreadCreationRequest& request,
                                                 Slice<u8> output) noexcept {
-    if (!thread_creation_request_valid(request) || !byte_range_valid({output.data, output.count}))
-        return {0, ThreadCreationError::input};
     if (request.operation == ThreadCreationOperation::reconcile)
         return {};
-    u8 temporary[kThreadCreationMaximumBodyBytes];
-    ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
+    ProtocolWriter writer{output, 0};
     if (!protocol_write(&writer, "{\"name\":", json_text(request.name), ",\"type\":", request.thread_type,
                         ",\"auto_archive_duration\":", request.auto_archive_duration, '}'))
         return {0, ThreadCreationError::capacity};
-    if (writer.used > output.count)
-        return {writer.used, ThreadCreationError::capacity};
-    copy_bytes(output.data, temporary, writer.used);
     return {writer.used};
 }
 namespace {

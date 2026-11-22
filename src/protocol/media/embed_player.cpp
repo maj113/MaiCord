@@ -478,13 +478,9 @@ bool twitch_clip_id(const Utf8View& id) noexcept {
 }
 u32 twitch_clip_body(Utf8View id, Slice<u8> out) noexcept {
     if (!twitch_clip_id(id)) return 0;
-    u8 staged[1024];
-    ProtocolWriter w{{staged, sizeof(staged)}, 0};
+    ProtocolWriter w{out, 0};
     constexpr auto query = utf8_literal("query($id:ID!){clip(slug:$id){slug playbackAccessToken(params:{platform:\"web\",playerType:\"clips-viewing\"}){signature value} assets{videoQualities(params:{supportedCodecs:[AVC]}){videoCodec height width bitrate sourceURL}}}}");
-    if (!protocol_write(&w, "{\"query\":", json_text(query), ",\"variables\":{\"id\":", json_text(id), "}}") ||
-        !out.data || out.count < w.used) return 0;
-    copy_bytes(out.data, staged, w.used);
-    return w.used;
+    return protocol_write(&w, "{\"query\":", json_text(query), ",\"variables\":{\"id\":", json_text(id), "}}") ? w.used : 0;
 }
 EmbedPlayerError twitch_clip_streams(Utf8View json, Utf8View id, u16 height, u64 now,
     Slice<u32> scratch, EmbedStreams* out) noexcept {

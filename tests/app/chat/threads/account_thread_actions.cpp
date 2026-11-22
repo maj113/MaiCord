@@ -53,19 +53,12 @@ void run() noexcept {
     invalid[0].thread_id = 0; invalid[1].self_user_id = 0;
     invalid[2].operation = static_cast<ThreadActionOperation>(255);
     for (u32 i = 3; i < 10; ++i) invalid[i].reserved[i - 3] = 1;
-    u8 destination[112]; for (auto& byte : destination) byte = 0xA5;
     for (const auto& value : invalid) {
-        rejected = rejected && account_thread_action_submit(&rest, &value, 106).error == RestClientSubmitError::invalid_input &&
-            !thread_action_write_target(value, {destination, sizeof(destination)}).ok() &&
-            !thread_action_write_body(value, {destination, sizeof(destination)}).ok();
+        rejected = rejected && account_thread_action_submit(&rest, &value, 106).error == RestClientSubmitError::invalid_input;
     }
-    check(rejected && capture.submissions == before_invalid && destination[0] == 0xA5,
-        "thread account: zero IDs invalid enum and each reserved byte refuse before REST/writer publication");
-    check(thread_action_write_target(request, {destination, 1}).error == ThreadActionError::capacity &&
-        destination[0] == 0xA5, "thread protocol: target capacity failure preserves caller output");
+    check(rejected && capture.submissions == before_invalid,
+        "thread account: zero IDs invalid enum and each reserved byte refuse before REST publication");
     request.operation = ThreadActionOperation::unarchive;
-    check(thread_action_write_body(request, {destination, 1}).error == ThreadActionError::capacity &&
-        destination[0] == 0xA5, "thread protocol: body capacity failure preserves caller output");
     constexpr RestClientSubmitError submit_errors[]{RestClientSubmitError::busy,
         RestClientSubmitError::signal, RestClientSubmitError::account_restricted,
         RestClientSubmitError::memory};

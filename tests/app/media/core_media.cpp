@@ -165,14 +165,8 @@ void test_cdn_targets() noexcept {
                           utf8_literal("/stickers/90.gif")),
            "cdn_gif_sticker_media_host");
 
-    u8 short_output[8]{};
-    guard_fill(short_output, sizeof(short_output));
-    const CdnTargetResult short_result =
-        write_custom_emoji_cdn_target(1, false, 32, Slice<u8>{short_output, sizeof(short_output)});
-    const bool short_unchanged = guard_intact(short_output, sizeof(short_output));
     expect(
-        short_result.error == CdnTargetError::output_capacity && short_unchanged &&
-            write_custom_emoji_cdn_target(1, false, 24, Slice<u8>{output, sizeof(output)}).error ==
+        write_custom_emoji_cdn_target(1, false, 24, Slice<u8>{output, sizeof(output)}).error ==
                 CdnTargetError::invalid_input &&
             write_custom_emoji_cdn_target(1, false, 8, Slice<u8>{output, sizeof(output)}).error ==
                 CdnTargetError::invalid_input &&
@@ -488,21 +482,14 @@ void test_cdn_http_policy() noexcept {
                bytes_equal(ConstSlice<u8>{long_request, 5}, byte_literal("GET /")),
            "cdn_long_signed_target_request_capacity");
 
-    u8 short_output[8]{};
-    guard_fill(short_output, sizeof(short_output));
-    const CdnRequestResult short_result =
-        write_static_cdn_get_request(CdnImageType::png, CdnHost::cdn, byte_literal("/stickers/1.png"), {},
-                                         Slice<u8>{short_output, sizeof(short_output)});
-    const bool short_unchanged = guard_intact(short_output, sizeof(short_output));
-    expect(short_result.error == CdnHttpError::output_capacity && short_unchanged &&
-               write_static_cdn_get_request(CdnImageType::png, CdnHost::cdn,
+    expect(write_static_cdn_get_request(CdnImageType::png, CdnHost::cdn,
                                                 byte_literal("/stickers/1.png\r\nCookie:x"), {},
                                                 Slice<u8>{request, sizeof(request)})
                        .error == CdnHttpError::invalid_target &&
                write_static_cdn_get_request(CdnImageType::png, CdnHost::cdn, byte_literal("/stickers/1.png"),
                    byte_literal("\"x\"\r\nAuthorization:x"), Slice<u8>{request, sizeof(request)})
                        .error == CdnHttpError::invalid_etag,
-           "cdn_request_injection_and_transaction_bounds");
+           "cdn_request_injection_bounds");
 
     u8 redirect_target[512]{};
     const CdnRedirectResult cross_origin = parse_cdn_redirect(
