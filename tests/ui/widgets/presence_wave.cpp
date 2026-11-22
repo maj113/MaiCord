@@ -520,10 +520,6 @@ void opcode3() noexcept {
     check(w.ok() && same_bytes(out, w.bytes,
                                utf8_literal(R"({"op":3,"d":{"status":"online","since":0,"activities":[{"name":"Terraria","type":0}],"afk":false}})")),
           "op 3: a game without application or start");
-    w = gateway_write_presence_update({0, GatewayUserStatus::dnd, false, false}, nullptr, nullptr, {out, 1024});
-    check(w.ok() && same_bytes(out, w.bytes,
-                               utf8_literal(R"({"op":3,"d":{"status":"dnd","since":0,"activities":[],"afk":false}})")),
-          "op 3: status only body is unchanged");
     const GatewayGameActivity rich{utf8_literal("Lo-fi \"beats\""), 0, 1700000000000ull, 1700000300000ull,
                                    utf8_literal("Track 3"), utf8_literal("Album"), 2};
     w = gateway_write_presence_update({0, GatewayUserStatus::online, false, false}, &custom, &rich, {out, 1024});

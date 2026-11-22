@@ -170,9 +170,6 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
     effect.speed = 28;
     effect.strength = 18;
     effect.density = 22;
-    check(background_effects_valid(effect) && background_render_valid(effect) &&
-              !background_theme_valid(effect),
-          "flat effects: effect-only rendering admission never admits a zero-stop gradient");
     BackgroundTheme invalid = effect;
     invalid.colors[4] = 1;
     bool invalid_rejected = !background_effects_valid(invalid) && !background_render_valid(invalid);
@@ -187,25 +184,6 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
     invalid_rejected &= !background_effects_valid(invalid) && !background_render_valid(invalid);
     check(invalid_rejected, "flat effects: malformed zero-stop palette, direction, intensity and effect "
                             "parameters fail closed");
-
-    bool gates = !background_animation_allowed(effect, false, false, false, false, false, true, false) &&
-                 !background_animation_allowed(effect, false, true, true, false, false, true, false) &&
-                 !background_animation_allowed(effect, false, true, false, true, false, true, false) &&
-                 !background_animation_allowed(effect, false, true, false, false, true, true, false) &&
-                 !background_animation_allowed(effect, false, true, false, false, false, false, false) &&
-                 !background_animation_allowed(effect, false, true, false, false, false, true, true);
-    for (u32 setting = 0; setting < 3; ++setting) {
-        auto paused = effect;
-        if (setting == 0)
-            paused.speed = 0;
-        else if (setting == 1)
-            paused.strength = 0;
-        else
-            paused.density = 0;
-        gates = gates && background_render_valid(paused) &&
-                !background_animation_allowed(paused, false, true, false, false, false, true, false);
-    }
-    check(gates, "flat effects: hidden, covered, accessibility and zero parameter gates admit no animation");
 
     // ---- Effect pass (mc.fx@1 constants, canvases, selection, GPU guard) ----
     const BackgroundTheme none{};

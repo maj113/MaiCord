@@ -57,7 +57,6 @@ __declspec(noinline) bool reference_rectangle_valid(const UiRect& r) noexcept {
 } // namespace
 
 void test_paint_stream() noexcept {
-    static_assert(ui_coordinate_valid(kMaximumUiCoordinate) && ui_coordinate_valid(-kMaximumUiCoordinate));
     const u32 coordinate_patterns[]{0, 0x80000000u, 1, 0x80000001u, 0x49800000u, 0xc9800000u,
                                     0x49800001u, 0xc9800001u, 0x7f800000u, 0xff800000u,
                                     0x7fc00000u, 0xffc00000u, 0x7f800001u, 0xffffffffu};

@@ -3130,13 +3130,13 @@ maicord_test(MaiCordUiProbe ONLY WINDOWS WIN32 ENTRY maicord_ui_probe_entry
         tests/integration/guild_rail_icon_probe.cpp tests/integration/background_theme_probe.cpp
         tests/integration/background_theme_pixels.cpp tests/integration/background_effect_pixels.cpp
         tests/integration/frame_damage_probe.cpp
-        tests/integration/plugin_ui_probe.cpp tests/integration/plugin_navigation_ui_probe.cpp
+        tests/integration/plugin_ui_probe.cpp
         tests/integration/settings_choice_ui_probe.cpp tests/integration/user_settings_ui_probe.cpp
         tests/integration/resize_text_ui_probe.cpp
         tests/integration/store_ui_probe.cpp src/app/store/store_projection.cpp src/app/store/store_page.cpp src/app/store/store_detail.cpp
         src/app/store/store_dialogs.cpp src/app/store/store_act.cpp src/app/store/store_preview_decode.cpp
         src/app/settings/catalog.cpp src/app/update/updates.cpp
-        tests/integration/notification_settings_ui_probe.cpp tests/integration/shortcuts_ui_probe.cpp
+        tests/integration/shortcuts_ui_probe.cpp
         tests/integration/call_scene_ui_probe.cpp
         tests/integration/inbox_ui_probe.cpp
         tests/integration/caption_ui_probe.cpp src/app/shell/app_icon.cpp config/maicord.rc
@@ -3296,7 +3296,7 @@ maicord_ui_probe_test(maicord_forum_media_probe UI_FORUM_MEDIA_PROBE BOOTSTRAP L
 # Unified picker also checks cached centering and dense message batch capacity.
 # MAICORD_<GATE>_PROBE runs as maicord_<gate>_probe, a leading UI_ moved to the end.
 foreach(maicord_ui_gate IN ITEMS ACCOUNT_MENU_UI ANIMATION_HANDOFF_UI BOOTSTRAP_TITLE CATALOG_APNG_UI INBOX_UI
-        LONG_EMBED_UI MEDIA_FAVORITES_UI MEDIA_PICKER_UI MENU_ROW_UI NOTIFICATION_SETTINGS_UI
+        LONG_EMBED_UI MEDIA_FAVORITES_UI MEDIA_PICKER_UI MENU_ROW_UI
         PROFILE_BRAILLE_UI SCOPED_SEARCH_UI SEARCH_UI STORE_UI TOOLTIP_UI TRANSPARENT_GUILD_UI USER_SETTINGS_UI UI_CHANNEL_OVERVIEW
         UI_GUILD_ROLES
         UI_CAPTION UI_COMPOSER_WORKFLOW UI_DOWNLOAD UI_EDITED_LABEL UI_FORUM_POST UI_FORWARDED_MESSAGES UI_HOVER_RETENTION

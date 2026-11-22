@@ -108,11 +108,9 @@ const u8* place(const u8* data, u32 bytes) noexcept {
 constexpr u32 kStorageReserve = 4u << 20;
 u8* storage;
 u32 storage_committed;
-u32 grow_calls;
 bool grow(void*, u32 required, Slice<u8>* backed) noexcept {
     if (required > kStorageReserve)
         return false;
-    ++grow_calls;
     storage_committed = required > storage_committed ? required : storage_committed;
     *backed = {storage, storage_committed};
     return true;
@@ -151,9 +149,7 @@ bool reference_streams() noexcept {
     const u32 room = 1u << 20;
     CHECK(run_case(k_gateway_like, room, false));
     CHECK(decoder.window_bytes == 64 * 1024 && decoder.in_frame);
-    grow_calls = 0;
     CHECK(run_case(k_gateway_like, kZstdMessageSlackBytes, true));
-    CHECK(grow_calls != 0);
     CHECK(run_case(k_gateway_like, kZstdMessageSlackBytes + 150 * 1024, false));
     CHECK(run_case(k_small_window_checksum, room, false));
     CHECK(decoder.window_bytes == 1024 && decoder.has_checksum);

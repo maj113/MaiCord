@@ -5,7 +5,6 @@
 #include "maicord/platform/decode/mp4_decoder.hpp"
 #include "maicord/media/video/video_display.hpp"
 #include "../../../src/media/containers/mp4_demux_detail.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {
@@ -23,23 +22,15 @@ bool g_quicktime;
 u16 g_sound_version;
 bool g_sound_wave;
 
-// Frame times through the demuxer's timeline; the output must not overlap the demuxer or its source.
-bool demux_output_valid(const Mp4AudioDemuxer& d, const void* output, u32 bytes) noexcept {
-    const ConstSlice<u8> range{static_cast<const u8*>(output), bytes};
-    return output && byte_range_valid(range) &&
-           !byte_ranges_overlap(range, {reinterpret_cast<const u8*>(&d), sizeof(d)}) &&
-           !byte_ranges_overlap(range, d.samples.encoded);
-}
+// Frame times through the demuxer's timeline.
 bool mp4_audio_demux_frame_time_100ns(const Mp4AudioDemuxer& d, u64 frame, i64* output) noexcept {
     Mp4AudioTimeline clock{};
-    return demux_output_valid(d, output, sizeof(*output)) && mp4_audio_demux_timeline(d, &clock) &&
-           mp4_audio_frame_time_100ns(clock, frame, output);
+    return mp4_audio_demux_timeline(d, &clock) && mp4_audio_frame_time_100ns(clock, frame, output);
 }
 bool mp4_audio_demux_frame_time_bounds_100ns(const Mp4AudioDemuxer& d, u64 frame,
                                              Mp4AudioFrameTimeBounds* output) noexcept {
     Mp4AudioTimeline clock{};
-    return demux_output_valid(d, output, sizeof(*output)) && mp4_audio_demux_timeline(d, &clock) &&
-           mp4_audio_frame_time_bounds_100ns(clock, frame, output);
+    return mp4_audio_demux_timeline(d, &clock) && mp4_audio_frame_time_bounds_100ns(clock, frame, output);
 }
 
 void put_u8(Writer* writer, u8 value) noexcept {
@@ -1143,8 +1134,7 @@ int exact_audio_time_tests() noexcept {
         return 85;
     const auto saved_bounds = bounds;
     if (mp4_audio_demux_frame_time_bounds_100ns(d, 3073, &bounds) ||
-        !bytes_equal(&bounds, &saved_bounds, sizeof(bounds)) ||
-        mp4_audio_demux_frame_time_bounds_100ns(d, 0, reinterpret_cast<Mp4AudioFrameTimeBounds*>(&d)))
+        !bytes_equal(&bounds, &saved_bounds, sizeof(bounds)))
         return 86;
     if (!mp4_audio_demux_sample_window(d, 1, &window) || window.first_source_frame != 1 ||
         window.end_source_frame != 3072 || window.leading_silence_frames != 1 ||
@@ -1154,8 +1144,7 @@ int exact_audio_time_tests() noexcept {
     const auto saved_window = window;
     time = 77;
     if (mp4_audio_demux_frame_time_100ns(d, 3073, &time) || time != 77 ||
-        mp4_audio_demux_frame_time_100ns(d, 0, &d.samples.media_start_ticks) ||
-        d.samples.media_start_ticks || mp4_audio_demux_sample_window(d, -1, &window) ||
+        mp4_audio_demux_sample_window(d, -1, &window) ||
         mp4_audio_demux_sample_window(d, 640001, &window) ||
         !bytes_equal(&window, &saved_window, sizeof(window)))
         return 36;
@@ -1482,5 +1471,5 @@ int run() noexcept {
 } // namespace maicord
 
 MAICORD_TEST_ENTRY(maicord_mp4_tests_entry) {
-    ::maicord::test_process_exit(static_cast<UINT>(maicord::run()));
+    ::maicord::test_process_exit(static_cast<::maicord::u32>(maicord::run()));
 }

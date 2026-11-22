@@ -94,7 +94,6 @@ bool jpeg_icc_fixture_write_profile_byte(Slice<u8> encoded, const JpegIccFixture
                                          u32 profile_offset, u8 value) noexcept;
 
 u32 png_fixture_rgba(u32 x, u32 y, u32 width, u32 height) noexcept;
-u32 png_format_fixture_rgba(u8 color_type, u8 bit_depth, u32 x, u32 y) noexcept;
 u32 apng_fixture_source_rgba(u32 frame, u32 x, u32 y) noexcept;
 u32 apng_fixture_canvas_rgba(u32 presented_frame, u32 x, u32 y) noexcept;
 u8 gif_fixture_source_index(u32 frame, u32 x, u32 y) noexcept;

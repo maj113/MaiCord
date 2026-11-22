@@ -47,7 +47,7 @@ void test_color_picker(void (*check)(bool, const char*) noexcept) noexcept {
 
     // Swatches: 32 DIP squares 12 apart, centred in rows; hit tests and arrow keys follow the rows.
     const UiRect row{0, 0, 188, 0};
-    check(color_picker_swatches_height(188, 8) == 2 * kColorPickerSwatch + kColorPickerSwatchGap &&
+    check(color_picker_swatches_height(188, 8) == 76 &&
               color_picker_swatches_height(188, 0) == 0,
           "color picker: eight suggestions wrap into two rows of four");
     const auto first = color_picker_swatch_box(row, 5, 0), last = color_picker_swatch_box(row, 5, 4);
@@ -63,10 +63,10 @@ void test_color_picker(void (*check)(bool, const char*) noexcept) noexcept {
 
     // Paint: square and hue bar use their shader modes; the thumb rings and a focus ring add instances.
     PaintStream paint{};
-    check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1000, 1000), "color picker: paint stream");
+    const bool stream = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1000, 1000);
     const u32 before = paint.count;
     const u32 suggested[]{0xFF0000, 0x00FF00, 0x0000FF};
-    check(color_picker_paint_field(&paint, field, blurple, kDefaultTheme, false) &&
+    check(stream && color_picker_paint_field(&paint, field, blurple, kDefaultTheme, false) &&
               paint.quads[before].border_width == -4 &&
               color_picker_paint_hue(&paint, bar, blurple, kDefaultTheme, true) &&
               color_picker_paint_swatches(&paint, {10, 200, 210, 232}, {suggested, 3}, 0x00FF00, 1, kDefaultTheme,
@@ -79,8 +79,7 @@ void test_color_picker(void (*check)(bool, const char*) noexcept) noexcept {
     // the label is not shown, and screen-reader values follow the colour.
     UiTextMeasureRecord records[48]{};
     UiTextMeasureCache cache{};
-    check(ui_text_measure_cache_initialize(&cache, {records, 48}, fake_text_measure<true>, nullptr),
-          "color picker form: measure cache");
+    const bool measured = ui_text_measure_cache_initialize(&cache, {records, 48}, fake_text_measure<true>, nullptr);
     TextFormContent content{};
     content.title = utf8_literal("Primary Color");
     content.label = utf8_literal("Primary Color");
@@ -92,7 +91,7 @@ void test_color_picker(void (*check)(bool, const char*) noexcept) noexcept {
     content.color = {blurple, {suggested, 3}, 0, true, false};
     TextFormScene scene{};
     const UiRect viewport{0, 0, 800, 700};
-    const bool built = text_form_update(&scene, content, viewport, &cache);
+    const bool built = measured && text_form_update(&scene, content, viewport, &cache);
     const auto* square = text_form_node(scene, TextFormElement::color_field);
     const auto* hue = text_form_node(scene, TextFormElement::color_hue);
     const auto* edit = text_form_node(scene, TextFormElement::edit);

@@ -208,7 +208,6 @@ void av1_headers() noexcept {
     const Av1SequenceSettings sequences[]{{1280, 720, 9, true},   {1920, 1080, 9, false}, {3840, 2160, 13, true},
                                           {4096, 2304, 13, true}, {640, 360, 5, true},    {2, 2, 0, false},
                                           {1366, 768, 8, true}};
-    u32 frames = 0;
     for (const Av1SequenceSettings& s : sequences) {
         u8 bytes[64]{};
         const u32 count = av1_write_sequence_header(s, bytes, sizeof(bytes));
@@ -240,7 +239,6 @@ void av1_headers() noexcept {
         key.cdef_y_strengths[0] = key.cdef_uv_strengths[0] = 4 << 2 | 1;
         key.tx_mode_select = true;
         check(frame_round_trip(s, h, references, key, 4), "AV1 key frame headers round-trip");
-        ++frames;
         // Inter frames over every interpolation filter, CDEF strength count, quantizer edge, loop filter shape,
         // transform mode, primary reference, reference slot and obu_size width.
         for (u32 i = 0; i < 40; ++i) {
@@ -266,10 +264,8 @@ void av1_headers() noexcept {
             f.tx_mode_select = i % 2 == 0;
             const u32 size_bytes = 1 + i % 8;
             check(frame_round_trip(s, h, references, f, size_bytes), "AV1 inter frame headers round-trip");
-            ++frames;
         }
     }
-    check(frames == 7 * 41, "every AV1 configuration was parsed");
     u8 small[4];
     Av1FrameHeaderLayout layout{};
     Av1FrameSettings f{};

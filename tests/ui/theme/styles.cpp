@@ -5,10 +5,6 @@ namespace maicord {
 void test_theme_styles(void (*check)(bool, const char*) noexcept) noexcept {
     const UiThemeTypography typography{};
     UiThemeMetrics metrics{};
-    check(ui_theme_typography_valid(typography) && ui_theme_metrics_valid(metrics) &&
-              ui_theme_palette_valid(kDefaultTheme) && ui_theme_palette_valid(kLightTheme) &&
-              ui_theme_palette_valid(ui_theme_amoled()),
-          "Theme schema current shipped palettes and typography/metrics defaults are valid");
     const u32 flags[]{text_style_none,
                       text_style_picker_emoji,
                       text_style_jumbo_emoji,

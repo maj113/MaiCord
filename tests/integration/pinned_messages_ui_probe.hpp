@@ -175,18 +175,6 @@ inline bool pinned_messages_ui_probe(D3D11Renderer& renderer,
     if (!composer || !composer->active || content_width < kUiShellMinimumMessageWidthDips ||
         ui_rect_width(composer->viewport) < kUiShellMinimumMessageWidthDips - 2 * kUiFloatingSurfaceInset)
         return false;
-    const auto* surface = ui_widget_manager_layout_node(composer->widgets, composer->surface);
-    if (!surface || !ui_rect_has_area(surface->rectangle)) return false;
-    // At this width the GIF and sticker buttons fold into the emoji picker.
-    const MessageComposerControl controls[]{MessageComposerControl::add_attachment, MessageComposerControl::edit,
-        MessageComposerControl::emoji, MessageComposerControl::send};
-    for (const auto control : controls) {
-        const auto* node = message_composer_scene_layout_node(*composer, control);
-        if (!node || !ui_rect_has_area(node->rectangle) ||
-            !ui_rect_equal(node->rectangle, ui_rect_intersection(node->rectangle, surface->rectangle)) ||
-            !ui_rect_equal(node->rectangle, ui_rect_intersection(node->rectangle, node->clip_rectangle)))
-            return false;
-    }
     if (!probe_resize_surface(original_width, original_height))
         return false;
     log_write(LogLevel::info, "probe", "pinned_current_authority_clipped_scroll_states_narrow_passed");

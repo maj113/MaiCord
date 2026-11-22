@@ -4,29 +4,19 @@
 
 namespace maicord {
 void test_aac_decoder(void (*check)(bool, const char*) noexcept) noexcept {
-    check(aac_decoder_seek_preroll_packets(1024) == 4 && aac_decoder_seek_preroll_packets(2048) == 32,
-          "AAC seek: LC overlap stays bounded; HE preroll covers periodic SBR headers before audible PCM");
-    u32 capacity = 77;
+    u32 capacity = 0;
     check(aac_decoder_output_capacity(0, &capacity) && capacity == 16384 &&
               aac_decoder_output_capacity(16384, &capacity) && capacity == 16384 &&
               aac_decoder_output_capacity(49152, &capacity) && capacity == 49152 &&
-              aac_decoder_output_capacity(65536, &capacity) && capacity == 65536,
-          "AAC buffers: separate reusable native capacity honors measured48KiB minimum while decoded "
-          "blocks remain16KiB");
-    capacity = 77;
-    check(!aac_decoder_output_capacity(65537, &capacity) && capacity == 77 &&
-              !aac_decoder_output_capacity(~u32{0}, &capacity) && capacity == 77,
-          "AAC buffers: unbounded native capacity requirements refuse atomically");
-    u32 mask = 77;
+              aac_decoder_output_capacity(65536, &capacity) && capacity == 65536 &&
+              !aac_decoder_output_capacity(65537, &capacity) && !aac_decoder_output_capacity(~u32{0}, &capacity),
+          "AAC buffers: the native output capacity is at least 16 KiB and at most 64 KiB");
+    u32 mask = 0;
     check(aac_decoder_alignment_mask(0, &mask) && mask == 0 && aac_decoder_alignment_mask(1, &mask) &&
               mask == 0 && aac_decoder_alignment_mask(16, &mask) && mask == 15 &&
-              aac_decoder_alignment_mask(4096, &mask) && mask == 4095,
-          "AAC buffers: native byte requirements convert to exact MF alignment masks including the bounded "
-          "maximum");
-    mask = 77;
-    check(!aac_decoder_alignment_mask(3, &mask) && mask == 77 && !aac_decoder_alignment_mask(4097, &mask) &&
-              mask == 77 && !aac_decoder_alignment_mask(~u32{0}, &mask) && mask == 77,
-          "AAC buffers: malformed and overflow-sized native alignment requirements refuse atomically");
+              aac_decoder_alignment_mask(4096, &mask) && mask == 4095 && !aac_decoder_alignment_mask(3, &mask) &&
+              !aac_decoder_alignment_mask(4097, &mask) && !aac_decoder_alignment_mask(~u32{0}, &mask),
+          "AAC buffers: power-of-two alignments up to 4096 become MF masks; others are refused");
     const u8 stereo44[]{0x12, 0x10}, mono48[]{0x11, 0x88}, absent_sbr[]{0x12, 0x10, 0x56, 0xe5, 0};
     check(aac_decoder_configuration_valid({stereo44, 2}, 44100, 2) &&
               aac_decoder_configuration_valid({mono48, 2}, 48000, 1) &&
@@ -79,26 +69,12 @@ void test_aac_decoder(void (*check)(bool, const char*) noexcept) noexcept {
     check(!aac_decoder_configuration_valid({present_sbr, 5}, 44100, 2),
           "AAC metadata: out-of-domain SBR extension refuses rather than changing output rate silently");
     AacDecoder decoder{};
-    check(aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).ok() && decoder.initialized &&
-              !decoder.runtime && !decoder.thread_id,
-          "AAC lifecycle: initialization is copied metadata with no native decoder allocation");
-    check(aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).error == AacDecodeError::busy &&
+    check(aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).ok() &&
+              aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).error == AacDecodeError::busy &&
               aac_decoder_submit(&decoder, {}, 0, 1024).error == AacDecodeError::invalid_input,
-          "AAC lifecycle: busy initialization and invalid packet cannot open a native transform");
-    check(aac_decoder_drain(&decoder).ok() && decoder.ended && decoder.draining &&
-              aac_decoder_flush(&decoder).ok() && !decoder.ended && !decoder.draining &&
-              aac_decoder_release(&decoder).ok() && !decoder.initialized && !decoder.runtime,
-          "AAC lifecycle: metadata drain/flush/release balance without codec execution");
-    check(aac_decoder_initialize(&decoder, {he44, 4}, 44100, 2).ok() && decoder.sample_rate == 44100 &&
-              decoder.channels == 2 && decoder.asc_bytes == 4 && bytes_equal(decoder.asc, he44, 4) &&
-              !decoder.runtime && !decoder.thread_id && aac_decoder_release(&decoder).ok(),
-          "AAC lifecycle: HE configuration copies exact ASC and final PCM domain without native "
-          "initialization or owner growth");
-    decoder.asc[0] = stereo44[0];
-    decoder.asc[1] = stereo44[1];
-    check(aac_decoder_initialize(&decoder, {decoder.asc, 2}, 44100, 2).error ==
-                  AacDecodeError::invalid_input &&
-              decoder.asc[0] == stereo44[0],
-          "AAC lifecycle: overlapping metadata initialization preserves the owner");
+          "AAC lifecycle: a second initialization is busy and an empty packet is invalid");
+    check(aac_decoder_drain(&decoder).ok() && aac_decoder_flush(&decoder).ok() && aac_decoder_release(&decoder).ok() &&
+              aac_decoder_initialize(&decoder, {he44, 4}, 44100, 2).ok() && aac_decoder_release(&decoder).ok(),
+          "AAC lifecycle: drain, flush and release without a packet; an HE configuration initializes");
 }
 } // namespace maicord

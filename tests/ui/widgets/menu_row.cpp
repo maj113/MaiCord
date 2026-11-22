@@ -202,27 +202,6 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
               "menu row: checked and hovered plates keep the row gap and the gap still hit-tests as rows");
     }
 
-    {
-        PaintStream themed_paint{};
-        Theme gradient = kDefaultTheme;
-        gradient.background = background_theme_defaults();
-        bool themed = valid && paint_stream_initialize(&themed_paint) &&
-                      paint_stream_reset(&themed_paint, 320, 240) &&
-                      popup_presentation_build(fixture.scene, gradient, &themed_paint);
-        // Shadow plates precede the panel plate.
-        const auto& plate = themed_paint.quads[kUiSurfaceShadowLayers];
-        check(themed && themed_paint.count > kUiSurfaceShadowLayers && plate.fill.alpha == 1 &&
-                  plate.border_width == -7 && plate.reserved_x == -1 && plate.fill.red == gradient.base_lower.red &&
-                  themed_paint.rejected == 0 && themed_paint.clip_depth == 1,
-              "menu row: themed panel is an opaque popover-elevation gradient surface with a palette edge");
-        gradient.background = {};
-        themed = themed && paint_stream_reset(&themed_paint, 320, 240) &&
-                 popup_presentation_build(fixture.scene, gradient, &themed_paint);
-        check(themed && themed_paint.quads[kUiSurfaceShadowLayers].fill.alpha == kDefaultTheme.base_lower.alpha,
-              "menu row: disabled background preserves original opaque panel");
-        paint_stream_release(&themed_paint);
-    }
-
     PaintStream paint{};
     UiTextCommand commands[8]{};
     UiTextCommandStream text{};

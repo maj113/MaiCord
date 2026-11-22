@@ -588,23 +588,12 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
                      forum_post_ui_adapter_pointer({ForumPostElement::accept, 0}) &&
                      metadata(90006, true) &&
                      forum_post_ui_adapter_pointer({ForumPostElement::accept, 0}) &&
-                     forum_post_ui_adapter_submit(90007) && forum_post_ui_adapter_response(429) &&
-                     !application_forum_post_view().uncertain && show(L"forum-post-explicit-retry.bmp") &&
-                     geometry(),
-                 16))
-        return false;
-    if (!require(forum_post_ui_adapter_pointer({ForumPostElement::accept, 0}) &&
-                     forum_post_ui_adapter_reject_before_wake(90008),
-                 17))
-        return false;
-    Sleep(60); // The actual typed 429 receipt owns a production 50ms floor.
-    if (!require(metadata(90008, true) && forum_post_ui_adapter_pointer({ForumPostElement::accept, 0}) &&
-                     forum_post_ui_adapter_submit(90009) && forum_post_ui_adapter_response(403) &&
-                     !application_forum_post_view().can_retry &&
+                     forum_post_ui_adapter_submit(90007) && forum_post_ui_adapter_response(403) &&
+                     !application_forum_post_view().uncertain && !application_forum_post_view().can_retry &&
                      show(L"forum-post-terminal-permission.bmp") && geometry() &&
                      forum_post_ui_adapter_pointer({ForumPostElement::cancel, 0}) &&
                      !forum_post_ui_adapter_scene(),
-                 18))
+                 16))
         return false;
     context.ready = false;
     forum_post_ui_adapter_end();

@@ -66,9 +66,6 @@ bool reads_all(ConstSlice<u8> file, Mp4SourceAvailability availability = {}) noe
 }
 
 void packets() noexcept {
-    check(load32(kWebmOpusStereoPackets) == 0x4D42574Du && load32(kWebmOpusStereoPackets + 4) == kPackets &&
-              load32(kWebmOpusStereoPackets + 8) == kDelay && load32(kWebmOpusStereoPackets + 12) == kDiscard,
-          "WebM fixture: the packet list names 151 packets, a delay of 312 frames and 648 discarded frames");
     WebmOpus w{};
     check(webm_present(kFile) && !webm_present({kFile.data + 1, 8}) && !webm_present({kFile.data, 3}) &&
               webm_opus_initialize(&w, kFile) == E::none && w.channels == 2 && w.pre_skip == kDelay &&

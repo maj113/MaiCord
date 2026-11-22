@@ -203,19 +203,6 @@ u32 format_sample(u8 bit_depth, u32 channel, u32 x, u32 y) noexcept {
                            : seed & sample_maximum(bit_depth);
 }
 
-} // namespace media_fixture_detail
-
-namespace {
-
-u8 expand_sample(u32 sample, u8 bit_depth) noexcept {
-    const u32 maximum_sample = sample_maximum(bit_depth);
-    return static_cast<u8>((sample * 255u + maximum_sample / 2u) / maximum_sample);
-}
-
-} // namespace
-
-namespace media_fixture_detail {
-
 u32 indexed_palette_count(u8 bit_depth) noexcept {
     return bit_depth == 8 ? 17u : 1u << bit_depth;
 }
@@ -572,46 +559,6 @@ u32 png_fixture_rgba(u32 x, u32 y, u32 width, u32 height) noexcept {
     const u8 red = static_cast<u8>(32 + x * 3);
     const u8 green = static_cast<u8>(48 + y * 3);
     const u8 blue = static_cast<u8>(224 - x * 2);
-    return static_cast<u32>(red) | static_cast<u32>(green) << 8 | static_cast<u32>(blue) << 16 |
-           static_cast<u32>(alpha) << 24;
-}
-
-u32 png_format_fixture_rgba(u8 color_type, u8 bit_depth, u32 x, u32 y) noexcept {
-    u8 red = 0;
-    u8 green = 0;
-    u8 blue = 0;
-    u8 alpha = 255;
-    if (color_type == 0) {
-        const u32 gray = format_sample(bit_depth, 0, x, y);
-        red = green = blue = expand_sample(gray, bit_depth);
-        alpha = gray == format_sample(bit_depth, 0, 0, 0) ? 0 : 255;
-    } else if (color_type == 2) {
-        const u32 samples[3] = {
-            format_sample(bit_depth, 0, x, y),
-            format_sample(bit_depth, 1, x, y),
-            format_sample(bit_depth, 2, x, y),
-        };
-        red = expand_sample(samples[0], bit_depth);
-        green = expand_sample(samples[1], bit_depth);
-        blue = expand_sample(samples[2], bit_depth);
-        alpha = samples[0] == format_sample(bit_depth, 0, 0, 0) &&
-                        samples[1] == format_sample(bit_depth, 1, 0, 0) &&
-                        samples[2] == format_sample(bit_depth, 2, 0, 0)
-                    ? 0
-                    : 255;
-    } else if (color_type == 3) {
-        const u32 count = indexed_palette_count(bit_depth);
-        return indexed_palette_rgba((x * 3u + y * 5u) % count);
-    } else if (color_type == 4) {
-        const u8 gray = expand_sample(format_sample(bit_depth, 0, x, y), bit_depth);
-        red = green = blue = gray;
-        alpha = expand_sample(format_sample(bit_depth, 1, x, y), bit_depth);
-    } else if (color_type == 6) {
-        red = expand_sample(format_sample(bit_depth, 0, x, y), bit_depth);
-        green = expand_sample(format_sample(bit_depth, 1, x, y), bit_depth);
-        blue = expand_sample(format_sample(bit_depth, 2, x, y), bit_depth);
-        alpha = expand_sample(format_sample(bit_depth, 3, x, y), bit_depth);
-    }
     return static_cast<u32>(red) | static_cast<u32>(green) << 8 | static_cast<u32>(blue) << 16 |
            static_cast<u32>(alpha) << 24;
 }

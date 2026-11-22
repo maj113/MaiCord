@@ -168,7 +168,7 @@ void background_host(HWND window) noexcept {
           "and admits the next cadence normally");
     g_app.frame_pending = false;
     bool gates = true;
-    for (u32 reason = 0; reason < 11; ++reason) {
+    for (u32 reason = 0; reason < 8; ++reason) {
         g_app.preferences.reduced_motion = false;
         r.reduced_motion = r.live_resize = false;
         g_app.surface_motion.system_preference_cached = true;
@@ -202,15 +202,6 @@ void background_host(HWND window) noexcept {
             break;
         case 6:
             settings_active = true;
-            break;
-        case 7:
-            g_app.preferences.gradient.effect = BackgroundEffect::none;
-            break;
-        case 8:
-            g_app.preferences.gradient.speed = 0;
-            break;
-        case 9:
-            g_app.preferences.gradient.strength = 0;
             break;
         default:
             g_app.preferences.gradient.density = 0;

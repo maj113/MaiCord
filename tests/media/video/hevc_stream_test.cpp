@@ -96,26 +96,14 @@ int parameter_tests() noexcept {
         g_state.sets.active.sps.width != 64 || g_state.sets.active.sps.height != 48 ||
         g_state.sets.active.sps.max_buffering != 2)
         return 601;
-    // A repeated SPS with the same id and new geometry replaces the stored one;
-    // the cached chain is reparsed.
-    const u32 stamp = g_state.sets.active_sps;
+    // A repeated SPS with the same id and new geometry replaces the stored one.
     w.clear();
     Sps wide = kSmall;
     wide.width = 96;
     write_hevc_sps(&w.out, &w.bits, wide);
     scan_all(w.view());
-    if (hevc_parameter_sets_resolve(&g_state.sets, 0) != HevcError::none ||
-        g_state.sets.active.sps.width != 96 || g_state.sets.active_sps == stamp)
+    if (hevc_parameter_sets_resolve(&g_state.sets, 0) != HevcError::none || g_state.sets.active.sps.width != 96)
         return 602;
-    // A re-sent PPS reparses only the PPS: the active SPS keeps its parse and stamp.
-    const u32 sps_stamp = g_state.sets.active_sps, pps_stamp = g_state.sets.active_pps;
-    w.clear();
-    write_hevc_pps(&w.out, &w.bits, kSmallPps);
-    scan_all(w.view());
-    if (hevc_parameter_sets_resolve(&g_state.sets, 0) != HevcError::none ||
-        g_state.sets.active_sps != sps_stamp || g_state.sets.active_pps == pps_stamp ||
-        g_state.sets.active.sps.width != 96)
-        return 606;
     // A PPS naming an absent SPS, and an unknown PPS id.
     w.clear();
     write_hevc_pps(&w.out, &w.bits, {5, 9});

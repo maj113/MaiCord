@@ -118,9 +118,6 @@ bool resize_text_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache, bo
 bool store_ui_probe(D3D11Renderer& renderer, PopupScene& popup, UiTextMeasureCache& cache, bool (*relayout)() noexcept,
                     bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept;
 
-bool notification_settings_ui_probe(D3D11Renderer& renderer,
-                                    bool (*capture)(const wchar_t*) noexcept) noexcept;
-
 bool inbox_ui_probe(D3D11Renderer& renderer, PopupScene& popup, bool (*capture)(const wchar_t*) noexcept) noexcept;
 extern u32 inbox_ui_probe_stage;
 bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_height) noexcept,
@@ -1730,8 +1727,6 @@ int run_probe() noexcept {
     }
     const bool caption_requested = probe_option_enabled(L"MAICORD_UI_CAPTION_PROBE");
     const bool inbox_requested = probe_option_enabled(L"MAICORD_INBOX_UI_PROBE");
-    const bool notification_settings_requested =
-        probe_option_enabled(L"MAICORD_NOTIFICATION_SETTINGS_UI_PROBE");
     const bool user_settings_requested = probe_option_enabled(L"MAICORD_USER_SETTINGS_UI_PROBE");
     const bool resize_text_requested = probe_option_enabled(L"MAICORD_UI_RESIZE_TEXT_PROBE");
     const bool store_requested = probe_option_enabled(L"MAICORD_STORE_UI_PROBE");
@@ -2210,11 +2205,6 @@ int run_probe() noexcept {
         DestroyWindow(g_probe.window);
         log_close();
         return valid ? 0 : 220 + (initialize_failed ? 10 : inbox_ui_probe_stage);
-    }
-    if (notification_settings_requested) {
-        const bool valid = initialize_fixture(true) &&
-                           notification_settings_ui_probe(g_probe.renderer, probe_capture_frame);
-        return finish_probe(valid ? 0 : 249);
     }
     if (store_requested) {
         const bool valid = initialize_fixture(true) && store_ui_probe(g_probe.renderer, g_probe.popup_scene, g_probe.text_measure_cache,

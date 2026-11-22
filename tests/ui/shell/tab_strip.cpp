@@ -457,8 +457,8 @@ void caption_layout() noexcept {
           "without tabs the title spans from the icon to the buttons, centred");
     state.tabs = &v;
     const UiCaptionBarLayout on = ui_caption_bar_layout(theme, 1000, state);
-    const float region = minimum(maximum(1000 * .2f, kUiCaptionServerMinimum), kUiCaptionServerMaximum);
-    check(on.title_leading && near(on.title.left, on.buttons[0].left - region) &&
+    // The server region is a fifth of the bar's width, at least 120 and at most 184 DIPs.
+    check(on.title_leading && near(on.title.left, on.buttons[0].left - 184) &&
               near(on.title.right, on.buttons[0].left - theme.scale.caption_padding),
           "with tabs the title is a fixed region beside the window buttons");
     check(near(on.tabs.area.left, on.icon_target.right) &&
@@ -486,12 +486,11 @@ void caption_layout() noexcept {
               near(badge.tabs.area.right, badge.update.left - kUiCaptionDragGap),
           "the update badge sits before the server region");
     // The region and the strip at the window's smallest and a wide window.
-    const float widths[]{624, 864, 1000, 1920};
-    for (const float width : widths) {
+    const float widths[]{624, 864, 1000, 1920}, regions[]{124.8f, 172.8f, 184, 184};
+    for (u32 i = 0; i < 4; ++i) {
         state.update = UiCaptionUpdate::hidden;
-        const UiCaptionBarLayout bar = ui_caption_bar_layout(theme, width, state);
-        const float expected = minimum(maximum(width * .2f, kUiCaptionServerMinimum), kUiCaptionServerMaximum);
-        check(near(bar.buttons[0].left - bar.title.left, expected) && bar.tabs.area.right - bar.tabs.area.left > 250.f,
+        const UiCaptionBarLayout bar = ui_caption_bar_layout(theme, widths[i], state);
+        check(near(bar.buttons[0].left - bar.title.left, regions[i]) && bar.tabs.area.right - bar.tabs.area.left > 250.f,
               "the server region and the strip at each width");
     }
     // The strip's tooltip anchors to the hovered tab.

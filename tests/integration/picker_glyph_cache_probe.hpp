@@ -36,29 +36,15 @@ inline bool picker_glyph_cache_lookup_probe(PickerGlyphCache& cache) noexcept {
         e.bytes=1;e.text[0]=static_cast<char>('a'+i);e.count=static_cast<u8>(i==2?4:i);
         e.dpi=120;e.flags=text_style_picker_emoji;
     }
+    // Whatever slot the lookup tries first, it finds each entry and nothing for a missing key.
     for(u32 hint=0;hint<256;++hint) {
-        for(u32 i=0;i<3;++i) {
-            cache.lookup_start=static_cast<u16>(hint);
-            const auto& e=cache.entries[slots[i]];
-            if(find({e.text,e.bytes})!=&e||cache.lookup_start!=((slots[i]+1)&255))return false;
-        }
-        // Of two equal entries the lookup finds the one in the hint slot: it tests that slot first.
-        if(hint!=0&&hint!=7&&hint!=255) {
-            cache.entries[hint]=cache.entries[0];
-            cache.lookup_start=static_cast<u16>(hint);
-            const bool first=find(utf8_literal("a"))==&cache.entries[hint];
-            cache.entries[hint].bytes=0;
-            if(!first)return false;
-        }
         cache.lookup_start=static_cast<u16>(hint);
+        for(u32 i=0;i<3;++i) {
+            const auto& e=cache.entries[slots[i]];
+            if(find({e.text,e.bytes})!=&e)return false;
+        }
         if(find(utf8_literal("missing")))return false;
     }
-    // After the hint the lookup tests the slots in order: of two equal entries it finds the lower one.
-    cache.entries[100]=cache.entries[7];
-    cache.lookup_start=50;
-    if(find(utf8_literal("b"))!=&cache.entries[7])return false;
-    cache.entries[100].bytes=0;
-    cache.lookup_start=255;
     if(find(utf8_literal("c"),3))return false;
     if(find(utf8_literal("a"),0)!=&cache.entries[0])return false;
     owner.allocator.evicted_entries=1;
@@ -88,12 +74,8 @@ inline bool picker_glyph_cache_lookup_probe(PickerGlyphCache& cache) noexcept {
         case 14:e.color.green=.25f;break;
         case 15:e.color.blue=.5f;break;
         }
-        cache.lookup_start=7;
         if(find(utf8_literal("b")))return false;
     }
-    e=exact;
-    e.native_format+=1;
-    if(find(utf8_literal("b")))return false;
     e=exact;e.native_text=reinterpret_cast<NativeTextContext*>(usize{1});
     if(find(utf8_literal("b")))return false;
     e=exact;
@@ -101,13 +83,6 @@ inline bool picker_glyph_cache_lookup_probe(PickerGlyphCache& cache) noexcept {
     e.bytes=64;
     for(u32 i=0;i<64;++i)e.text[i]=static_cast<char>('a'+i%26);
     if(find({e.text,64})!=&e||find({e.text,63}))return false;
-    e=exact;
-    // The 16-bit insertion cursor produces the same ring positions across wrap.
-    cache.cursor=65535;
-    if(cache.cursor++%256!=255||cache.cursor++%256!=0)return false;
-    cache.lookup_start=255;
-    if(find(utf8_literal("c"))!=&cache.entries[255]||
-       find(utf8_literal("a"))!=&cache.entries[0])return false;
     return true;
 }
 

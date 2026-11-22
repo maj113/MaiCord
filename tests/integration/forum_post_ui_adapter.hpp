@@ -37,7 +37,6 @@ bool forum_post_ui_adapter_pointer_down(ForumPostTarget) noexcept;
 bool forum_post_ui_adapter_pointer_up() noexcept;
 bool forum_post_ui_adapter_synchronize() noexcept;
 bool forum_post_ui_adapter_submit(u64) noexcept;
-bool forum_post_ui_adapter_reject_before_wake(u64) noexcept;
 bool forum_post_ui_adapter_response(u16, Utf8View = {}, RestClientError = RestClientError::none,
                                     u64 exact_id = 0) noexcept;
 bool forum_post_ui_adapter_flight(ForumPostRequest*, u64*) noexcept;

@@ -1,11 +1,10 @@
 #include "maicord/ui/guild/rail_scene.hpp"
 #include "../../support/ui_scene_fixtures.hpp"
-#include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/layout/scroll_host.hpp"
 
-// The server rail and scrollable menus scroll through the shared scroll host
-// exactly like the message and channel lists: wheel and keyboard targets
-// glide over several frames with smooth scrolling on and jump with it off.
+// The server rail scrolls through the shared scroll host like the message and channel lists: wheel and keyboard
+// targets glide over several frames with smooth scrolling on and jump with it off. Menus share the same path; the
+// popup scene's scroll tests cover them.
 namespace maicord {
 namespace {
 struct RailFixture {
@@ -25,16 +24,6 @@ bool rail_write(void* context, u64, double offset, bool* changed) noexcept {
         guild_rail_scene_scroll(&f.scene, f.view, static_cast<float>(offset - f.scene.scroll_dips));
     *changed = result.changed;
     return result.ok();
-}
-// Mirrors the client's menu surface adapter.
-bool popup_read(void* context, u64, UiScrollRange* range) noexcept {
-    const auto& popup = *static_cast<PopupScene*>(context);
-    *range = {popup.rectangle, popup.scroll_offset, popup.scroll_max, popup_scene_scroll_step(popup), 1};
-    return popup.active;
-}
-bool popup_write(void* context, u64, double offset, bool* changed) noexcept {
-    auto& popup = *static_cast<PopupScene*>(context);
-    return popup_scene_scroll(&popup, static_cast<float>(offset - popup.scroll_offset), changed);
 }
 bool settled_at(float value, float target) noexcept {
     return value > target - .01f && value < target + .01f;
@@ -121,64 +110,13 @@ void test_menu_rail_smooth_scroll(void (*check)(bool, const char*) noexcept) noe
               ui_scroll_host_scroll_to(&host, rail_binding, 400, now) == UiScrollDispatch::handled &&
               settled_at(rail.scene.scroll_dips, 400) && !ui_scroll_host_active(host),
           "rail smooth scroll: with smoothing off wheel and reveal jump immediately");
-
-    // Menus (server dropdown, context menus, submenus) share the same path.
-    constexpr u32 kItems = 30;
-    static PopupItem items[kItems]{};
-    for (u32 i = 0; i < kItems; ++i)
-        items[i] = {utf8_literal("Menu row"), i + 1, popup_item_enabled};
-    static PopupScene popup{};
-    static PopupRowWidget popup_rows[kItems]{};
-    static UiWidget popup_widgets[2 + 3 * kItems]{};
-    static UiLayoutNode popup_nodes[2 + 3 * kItems]{};
-    check(popup_scene_initialize(&popup, {items, kItems}, {popup_rows, kItems}, {popup_widgets, 2 + 3 * kItems},
-                                 {popup_nodes, 2 + 3 * kItems}) &&
-              popup_scene_open(&popup, PopupKind::context_menu, 9, {items, kItems}, {20, 20, 240, 40},
-                               {0, 0, 640, 320}, 220)
-                  .ok() &&
-              popup.scroll_max > 96,
-          "menu smooth scroll: a menu taller than its space scrolls");
-    const UiScrollBinding popup_binding{&popup, 14, popup_read, popup_write};
-    const UiPoint over{(popup.rectangle.left + popup.rectangle.right) * .5f,
-                       (popup.rectangle.top + popup.rectangle.bottom) * .5f};
+    // The client's retained-tree pass skips the rail's root (its virtual owner), so the wheel reaches the rail's
+    // surface binding.
     host = {};
-    // The client's retained-tree pass skips the panel (its virtual owner), so
-    // the wheel reaches the menu surface binding mirrored here.
-    check(ui_scroll_host_wheel_widgets(&host, &popup.widgets, over, -120, 3, false, now, 1, popup.panel) ==
+    check(ui_scroll_host_wheel_widgets(&host, &rail.scene.widgets, inside, -120, 3, false, now, 1, rail.scene.root) ==
                   UiScrollDispatch::unhandled &&
-              ui_scroll_host_wheel_widgets(&host, &rail.scene.widgets, inside, -120, 3, false, now, 1,
-                                           rail.scene.root) == UiScrollDispatch::unhandled &&
               !ui_scroll_host_active(host),
-          "menu smooth scroll: retained trees leave menu and rail wheels to their surface bindings");
-    const float step = 3 * popup_scene_scroll_step(popup);
-    check(ui_scroll_host_wheel(&host, popup_binding, over, -120, 3, false, now) == UiScrollDispatch::handled &&
-              popup.scroll_offset == 0 && ui_scroll_host_active(host),
-          "menu smooth scroll: a wheel notch queues an animation instead of jumping");
-    now += 16'667;
-    check(ui_scroll_host_tick(&host, now, &changed) && changed && popup.scroll_offset > 0 &&
-              popup.scroll_offset < step,
-          "menu smooth scroll: the first frame moves only part of the notch");
-    const PopupHit hit = popup_scene_hit_test(popup, over.x, over.y);
-    PopupItemLayout hit_layout{};
-    check(hit.source_index < kItems && popup_scene_resolve_item_layout(popup, hit.source_index, &hit_layout) &&
-              ui_rect_contains(hit_layout.row->rectangle, over.x, over.y),
-          "menu smooth scroll: hover and click hit testing follow the animated offset");
-    check(settle(&host, &now) >= 3 && settled_at(popup.scroll_offset, step),
-          "menu smooth scroll: the notch lands on its exact target over multiple frames");
-    // Keyboard End: selection reveal is replayed through the host.
-    const float menu_before = popup.scroll_offset;
-    check(popup_scene_select_index(&popup, kItems - 1, &changed) && popup.scroll_offset > menu_before + step,
-          "menu smooth scroll: End selects and reveals the last row");
-    const float menu_after = popup.scroll_offset;
-    check(popup_scene_scroll(&popup, menu_before - menu_after, &changed) &&
-              ui_scroll_host_scroll_to(&host, popup_binding, menu_after, now) == UiScrollDispatch::handled &&
-              popup.scroll_offset == menu_before && settle(&host, &now) >= 3 && settled_at(popup.scroll_offset, menu_after) &&
-              popup.selected_index == kItems - 1,
-          "menu smooth scroll: keyboard reveal glides over multiple frames and keeps the selection");
-    host.immediate = true;
-    check(ui_scroll_host_wheel(&host, popup_binding, over, 120, 3, false, now) == UiScrollDispatch::handled &&
-              settled_at(popup.scroll_offset, menu_after - step) && !ui_scroll_host_active(host),
-          "menu smooth scroll: with smoothing off a wheel notch jumps immediately");
+          "rail smooth scroll: the retained tree leaves the rail wheel to its surface binding");
 }
 
 } // namespace maicord

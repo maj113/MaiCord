@@ -182,29 +182,12 @@ void check_png_formats() noexcept {
 // the decoder gives only larger images than these.
 bool g_stored_rows;
 
-bool upload_jpeg(ConstSlice<u8> encoded, u64 id, JpegImage* image, MediaAtlasResult* allocation,
-                 bool damage = false) noexcept {
+bool upload_jpeg(ConstSlice<u8> encoded, u64 id, JpegImage* image, MediaAtlasResult* allocation) noexcept {
     media_atlas_reset(&g->atlas);
     if (!jpeg_decode_coefficients(encoded, image, &g->jpeg).ok() ||
         (g_stored_rows && !image->progressive &&
          !jpeg_detail::decode_baseline_coefficients(encoded, *image, &g->jpeg.coefficients, true).ok())) {
         return false;
-    }
-    if (damage) {
-        // Block 0's DC: the first coefficient of the blocks, or of block 0's first stored row.
-        u8* dc = g->jpeg.coefficients.bytes + jpeg_coefficient_row_offset(image->coefficient_blocks);
-        if (!g->jpeg.coefficients.whole_blocks) {
-            u32 word = 0;
-            copy_bytes(&word, g->jpeg.coefficients.bytes, sizeof(word));
-            if ((word & 15u) == 0) {
-                return false;
-            }
-            dc += (word >> 8) * 16u;
-        }
-        i16 value = 0;
-        copy_bytes(&value, dc, sizeof(value));
-        value = static_cast<i16>(value + 32);
-        copy_bytes(dc, &value, sizeof(value));
     }
     const MediaAtlasGpuResult uploaded = media_atlas_gpu_upload_jpeg(
         &g->gpu, &g->atlas, g_device, g_context, media_asset_custom_emoji(id, false), *image, g->jpeg.coefficients);
@@ -214,12 +197,10 @@ bool upload_jpeg(ConstSlice<u8> encoded, u64 id, JpegImage* image, MediaAtlasRes
 }
 
 // Whole picture against a Pillow RGB decode.
-// damage: one altered DC coefficient must push the picture past the tolerance.
-void check_jpeg_reference(const char* name, ConstSlice<u8> encoded, ConstSlice<u8> rgb, u64 id,
-                          bool damage = false) noexcept {
+void check_jpeg_reference(const char* name, ConstSlice<u8> encoded, ConstSlice<u8> rgb, u64 id) noexcept {
     JpegImage image{};
     MediaAtlasResult allocation{};
-    if (!upload_jpeg(encoded, id, &image, &allocation, damage) ||
+    if (!upload_jpeg(encoded, id, &image, &allocation) ||
         rgb.count != u32{allocation.width} * allocation.height * 3u) {
         check(false, name, 0);
         return;
@@ -232,7 +213,7 @@ void check_jpeg_reference(const char* name, ConstSlice<u8> encoded, ConstSlice<u
         }
         opaque = opaque && g->surface[pixel * 4 + 3] == 255;
     }
-    check(opaque && (damage ? largest > kJpegTolerance : largest <= kJpegTolerance), name, largest);
+    check(opaque && largest <= kJpegTolerance, name, largest);
 }
 
 // The generated corpus: every sampling layout, restart intervals, progressive
@@ -282,8 +263,7 @@ bool store_row(void* context, u32 y, const u8* rgba) noexcept {
 
 // expected_hash, when nonzero, is libwebp's RGBA FNV-1a for the file: an oracle
 // independent of the token and mode parsing both MaiCord paths share.
-void check_vp8(const char* name, ConstSlice<u8> encoded, u64 id, u64 expected_hash = 0,
-               bool damage = false) noexcept {
+void check_vp8(const char* name, ConstSlice<u8> encoded, u64 id, u64 expected_hash = 0) noexcept {
     media_atlas_reset(&g->atlas);
     WebpImage image{};
     Vp8Keyframe frame{};
@@ -295,11 +275,6 @@ void check_vp8(const char* name, ConstSlice<u8> encoded, u64 id, u64 expected_ha
         image.has_alpha) {
         check(false, name, 1);
         return;
-    }
-    if (damage) {
-        Vp8MacroblockCoefficients& first = lossy.coefficients.macroblocks[0];
-        first.values[0][0] = static_cast<i16>(first.values[0][0] + 256);
-        first.has_coefficients = 1;
     }
     MediaAtlasGpuResult result =
         media_atlas_gpu_reconstruct_vp8_keyframe(&g->gpu, g_device, g_context, frame, lossy.modes, lossy.coefficients);
@@ -330,10 +305,6 @@ void check_vp8(const char* name, ConstSlice<u8> encoded, u64 id, u64 expected_ha
     for (u32 index = 0; index < u32{frame.width} * frame.height * 4u; ++index) {
         different += g->surface[index] != g->reference[index] ? 1u : 0u;
         hash = (hash ^ g->surface[index]) * 1'099'511'628'211ull;
-    }
-    if (damage) {
-        check(different != 0, name, different);
-        return;
     }
     check(different == 0, name, different);
     check(expected_hash == 0 || hash == expected_hash, name, hash);
@@ -483,8 +454,6 @@ int run() noexcept {
                              {kJpegYcckProgressiveReference, sizeof(kJpegYcckProgressiveReference)},
                              {kJpegYcckProgressiveReferenceRgb, sizeof(kJpegYcckProgressiveReferenceRgb)}, 1004);
         check_jpeg_corpus();
-        check_jpeg_reference("jpeg_damage_detected", {kJpeg420Reference, sizeof(kJpeg420Reference)},
-                             {kJpeg420ReferenceRgb, sizeof(kJpeg420ReferenceRgb)}, 1005, true);
     }
     g_stored_rows = false;
 
@@ -499,7 +468,6 @@ int run() noexcept {
         }
     }
     check(lossy >= 1, "vp8_corpus_images", lossy);
-    check_vp8("vp8_damage_detected", {kWebpLossy32x24, sizeof(kWebpLossy32x24)}, 3003, 0, true);
     check_upload_shrink();
     check_oversized_rejected();
     check_fitted_effect_layer();

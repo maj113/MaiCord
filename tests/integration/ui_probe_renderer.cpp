@@ -137,8 +137,6 @@ bool probe_popup_overlays() noexcept {
     log_write(LogLevel::info, "probe", "text_edit_menu_shortcuts_hardware_and_retention_passed");
     if (!plugin_ui_probe(g_probe.renderer, g_probe.popup_scene, probe_capture_frame))
         return false;
-    if (!plugin_navigation_ui_probe(g_probe.renderer, g_probe.popup_scene, probe_capture_frame))
-        return false;
     if (!settings_choice_ui_probe(g_probe.renderer, g_probe.popup_scene, probe_capture_frame))
         return false;
 

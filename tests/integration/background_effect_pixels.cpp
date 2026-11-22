@@ -787,105 +787,13 @@ bool light_samples_pixels(D3D11Renderer& r, const Theme& light, const Theme& cus
     return true;
 }
 
-// GPU milliseconds per frame over `frames` frames at one clock (the effect's target stands still; only the
-// composite runs), or a negative value when the device could not time them.
-float frame_gpu_ms(D3D11Renderer& r, const Theme& theme, u32 frames) noexcept {
-    ID3D11Device* device = r.graphics.device;
-    ID3D11DeviceContext* context = r.graphics.context;
-    const D3D11_QUERY_DESC disjoint_desc{D3D11_QUERY_TIMESTAMP_DISJOINT, 0}, stamp_desc{D3D11_QUERY_TIMESTAMP, 0};
-    ID3D11Query *disjoint = nullptr, *begin = nullptr, *end = nullptr;
-    float result = -1;
-    if (SUCCEEDED(device->CreateQuery(&disjoint_desc, &disjoint)) && SUCCEEDED(device->CreateQuery(&stamp_desc, &begin)) &&
-        SUCCEEDED(device->CreateQuery(&stamp_desc, &end))) {
-        bool drawn = true;
-        context->Begin(disjoint);
-        context->End(begin);
-        for (u32 i = 0; i < frames && drawn; ++i)
-            drawn = frame(r, theme, 2.f);
-        context->End(end);
-        context->End(disjoint);
-        context->Flush();
-        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT data{};
-        u64 first = 0, last = 0;
-        const u64 deadline = GetTickCount64() + 1000;
-        HRESULT state = S_FALSE;
-        while ((state = context->GetData(disjoint, &data, sizeof(data), 0)) == S_FALSE && GetTickCount64() < deadline)
-            Sleep(1);
-        // Each timestamp resolves on its own, possibly after the disjoint query.
-        HRESULT got_first = S_FALSE, got_last = S_FALSE;
-        while (drawn && state == S_OK && (got_first = context->GetData(begin, &first, sizeof(first), 0)) == S_FALSE &&
-               GetTickCount64() < deadline)
-            Sleep(1);
-        while (drawn && got_first == S_OK && (got_last = context->GetData(end, &last, sizeof(last), 0)) == S_FALSE &&
-               GetTickCount64() < deadline)
-            Sleep(1);
-        if (!data.Disjoint && data.Frequency && got_first == S_OK && got_last == S_OK && last >= first)
-            result = static_cast<float>(static_cast<double>(last - first) * 1000.0 / static_cast<double>(data.Frequency) / frames);
-    }
-    com_release(end);
-    com_release(begin);
-    com_release(disjoint);
-    return result;
-}
-
-// What the transform costs: whole frames of a 1440p window covered by one canvas, the effect's target standing
-// still, without an effect, then with the plain composite, half way through the cross-fade and adapted (normal:
-// aurora, add: Starfield).
-// The best of three runs of 24 frames each; logged in nanoseconds per frame, never asserted (timings vary).
-bool light_cost(D3D11Renderer& r, const Theme& theme) noexcept {
-    const u32 width = r.width, height = r.height;
-    struct Restore {
-        D3D11Renderer& r;
-        u32 width, height;
-        ~Restore() noexcept { renderer_resize(&r, width, height); }
-    } restore_size{r, width, height};
-    if (!renderer_resize(&r, 2560, 1440) || r.width != 2560)
-        return failure(241);
-    const float w = r.width * 96.f / r.dpi, h = r.height * 96.f / r.dpi;
-    const UiRect canvas{0, 0, w, h};
-    Scene scene(r, theme, &canvas, 1, nullptr);
-    if (!scene.built)
-        return failure(242);
-    StreamSwap restore{r, scene.stream, kDefaultTheme, true};
-    install(r, scene);
-    const auto best = [&]() noexcept {
-        float least = -1;
-        frame(r, theme, 2.f);
-        for (u32 run = 0; run < 3; ++run) {
-            const float ms = frame_gpu_ms(r, theme, 24);
-            least = ms >= 0 && (least < 0 || ms < least) ? ms : least;
-        }
-        return least < 0 ? 0u : static_cast<u32>(least * 1e6f + .5f);
-    };
-    log_u64(LogLevel::info, "probe", "effect_light_cost_no_effect_ns", best());
-    const u32 measured[2]{1, kStarfield};
-    constexpr float kAmounts[3]{0, .5f, 1};
-    const char* names[2][3]{{"effect_light_cost_aurora_plain_ns", "effect_light_cost_aurora_crossfade_ns",
-                             "effect_light_cost_aurora_adapted_ns"},
-                            {"effect_light_cost_starfield_plain_ns", "effect_light_cost_starfield_crossfade_ns",
-                             "effect_light_cost_starfield_adapted_ns"}};
-    for (u32 i = 0; i < 2; ++i) {
-        const BackgroundEffectSpec spec = spec_of(kSamples[measured[i]]);
-        if (renderer_select_effect(&r, spec, settings_of(4, spec.blend)).state == EffectSelect::rejected)
-            return failure(243);
-        for (u32 amount = 0; amount < 3; ++amount) {
-            renderer_set_effect_light(&r, kAmounts[amount]);
-            log_u64(LogLevel::info, "probe", names[i][amount], best());
-            if (!r.effect.draws_last_frame)
-                return failure(244);
-        }
-        renderer_clear_effect(&r);
-    }
-    return true;
-}
-
 bool light_pixels(D3D11Renderer& r) noexcept {
     auto preferences = client_preferences_defaults();
     preferences.theme = ClientTheme::custom_light_gradient;
     preferences.gradient = {{0xfde8d8, 0xdce8fb, 0, 0, 0}, 135, 2, 65, BackgroundEffect::none, 50, 25, 35};
     const Theme custom = client_theme_projection(preferences);
     return custom.appearance == ThemeAppearance::light && light_pass_pixels(r, kLightTheme) &&
-           light_samples_pixels(r, kLightTheme, custom) && light_cost(r, kLightTheme);
+           light_samples_pixels(r, kLightTheme, custom);
 }
 
 // ---- Device loss ---------------------------------------------------------------------------------

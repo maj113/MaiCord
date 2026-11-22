@@ -382,16 +382,6 @@ bool forum_post_ui_adapter_submit(u64 id) noexcept {
         },
         &id);
 }
-bool forum_post_ui_adapter_reject_before_wake(u64 id) noexcept {
-    return call(
-        +[](void* opaque) noexcept {
-            const u64 wake = application_forum_post_next_wake();
-            const u32 submits = forum_adapter->submissions;
-            return wake > 1 && !application_forum_post_submit(*static_cast<u64*>(opaque), wake - 1) &&
-                   forum_adapter->submissions == submits;
-        },
-        &id);
-}
 bool forum_post_ui_adapter_response(u16 status, Utf8View body, RestClientError error,
                                     u64 exact) noexcept {
     if (!forum_adapter || !forum_adapter->flight_id)

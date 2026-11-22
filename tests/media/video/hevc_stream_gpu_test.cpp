@@ -28,7 +28,6 @@ struct Capture {
     bool zero_copy;   // Every picture was a slice of the decoder's own array.
     ID3D11Texture2D* texture;
     u32 texture_width, texture_height;
-    bool skip_readback; // Timing: no CPU wait inside the frame callback.
 };
 
 // Reads slice `subresource` and checks one sample per CTU against the PCM pattern.
@@ -90,7 +89,7 @@ void on_frame(void* context, u32 ssrc, const GpuStreamFrame& frame) noexcept {
     ++capture->frames;
     capture->keyframes += frame.keyframe ? 1u : 0u;
     capture->last_rtp = frame.rtp_timestamp;
-    if (!capture->skip_readback && !matches(capture, gpu, capture->sps, capture->pattern))
+    if (!matches(capture, gpu, capture->sps, capture->pattern))
         ++capture->mismatches;
 }
 void on_keyframe(void* context, u32) noexcept {
@@ -109,31 +108,6 @@ struct Stream {
         return ok ? bytes : 0;
     }
 };
-
-u64 now_ticks() noexcept {
-    LARGE_INTEGER value{};
-    QueryPerformanceCounter(&value);
-    return static_cast<u64>(value.QuadPart);
-}
-
-// Decode CPU time of one picture.
-void measure(Capture* capture, Stream* s, u32 rtp, const char* label) noexcept {
-    LARGE_INTEGER frequency{};
-    QueryPerformanceFrequency(&frequency);
-    u64 cycles_before = 0, cycles_after = 0;
-    QueryThreadCycleTime(GetCurrentThread(), &cycles_before);
-    capture->skip_readback = true;
-    const u64 start = now_ticks();
-    s->push(rtp);
-    capture->skip_readback = false;
-    QueryThreadCycleTime(GetCurrentThread(), &cycles_after);
-    const u64 submitted = now_ticks();
-    const u64 hz = static_cast<u64>(frequency.QuadPart ? frequency.QuadPart : 1);
-    test_write_text(label);
-    test_write_metric(" cpu_us ", (submitted - start) * 1'000'000ull / hz);
-    test_write_text(label);
-    test_write_metric(" cpu_cycles ", cycles_after - cycles_before);
-}
 
 int small_stream(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits, Output* out) noexcept {
     Capture capture{device, context};
@@ -190,8 +164,6 @@ int small_stream(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits,
         test_write_metric("hevc expected ", 3 * p_upload);
         fail(51);
     }
-    test_write_metric("hevc stream surfaces ", stats.surfaces);
-    test_write_metric("hevc stream p_upload_bytes ", p_upload);
     // A lost reference (POC 4 missing): frozen output, one immediate request,
     // then throttled while waiting.
     if (!status) {
@@ -272,8 +244,6 @@ int small_stream(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits,
         if (stats.reinitializations != before.reinitializations + 1 || !stats.surfaces ||
             capture.mismatches)
             fail(57);
-        write_picture(out, bits, capture.sps, pps, kTrailR, 1, 0);
-        measure(&capture, &s, 901, "hevc small_p");
     }
     // Main10 is refused once and never asked for again.
     if (!status) {
@@ -306,7 +276,6 @@ int large_streams(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits
     const Sps large[] = {{1, 1920, 1088, 8, 5, 1, 2, 8, 123},
                          {2, 2560, 1440, 0, 5, 1, 2, 8, 150},
                          {3, 3840, 2176, 16, 5, 1, 2, 8, 153}};
-    const char* labels[] = {"hevc 1080p", "hevc 1440p", "hevc 4k"};
     int status = 0;
     for (u32 i = 0; i < 3 && !status; ++i) {
         const Pps pps{static_cast<u8>(10 + i), large[i].id};
@@ -314,7 +283,7 @@ int large_streams(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits
         capture.pattern = 4 + i;
         const u32 before = capture.frames;
         write_idr(out, bits, large[i], pps, capture.pattern, ctb_columns(large[i]));
-        const u32 idr_bytes = s.push(400 + i);
+        s.push(400 + i);
         write_picture(out, bits, large[i], pps, kTrailR, 1, 0);
         s.push(500 + i);
         const auto stats = gpu_stream_decoder_stats(decoder);
@@ -332,15 +301,6 @@ int large_streams(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits
             status = 61 + static_cast<int>(i);
             break;
         }
-        test_write_text(labels[i]);
-        test_write_metric(" idr_bytes ", idr_bytes);
-        test_write_text(labels[i]);
-        test_write_metric(" surfaces ", stats.surfaces);
-        test_write_text(labels[i]);
-        test_write_metric(" surface_bytes ", u64{stats.surfaces} * ((large[i].width + 63u) & ~63u) *
-                                          ((large[i].height + 63u) & ~63u) * 3u / 2u);
-        write_picture(out, bits, large[i], pps, kTrailR, 2, 0);
-        measure(&capture, &s, 600 + i, labels[i]);
     }
     gpu_stream_decoder_destroy(decoder);
     com_release(capture.staging);
@@ -444,13 +404,7 @@ int call_decoders(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits
 
 int hevc_stream_gpu_test(ID3D11Device* device, ID3D11DeviceContext* context, h264_fixture::Bits bits,
                          h264_fixture::Output out) noexcept {
-    LARGE_INTEGER frequency{};
-    QueryPerformanceFrequency(&frequency);
-    const u64 probe_start = now_ticks();
-    const u32 codecs = gpu_stream_decoder_codecs(device);
-    test_write_metric("hevc capability probe us ",
-               (now_ticks() - probe_start) * 1'000'000ull / static_cast<u64>(frequency.QuadPart ? frequency.QuadPart : 1));
-    if (!(codecs & gpu_stream_codec_bit(GpuStreamCodec::h265))) {
+    if (!(gpu_stream_decoder_codecs(device) & gpu_stream_codec_bit(GpuStreamCodec::h265))) {
         test_write_text("hevc stream gpu: no hardware HEVC Main decode with shader-readable output; skipped\n");
         return 0;
     }

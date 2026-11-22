@@ -163,11 +163,12 @@ void test_theme_tokens(void (*check)(bool, const char*) noexcept) noexcept {
               !parse(utf8_literal("{\"version\":\"2.0\",\"colors\":{\"accent\":\"{semantic.text.muted}\"}}"), &output).ok() &&
               !parse(utf8_literal("{\"version\":\"2.0\",\"colors\":{\"accent\":\"#12345\"}}"), &output).ok() &&
               !parse(utf8_literal("{\"version\":\"2.0\",\"colors\":{\"accent\":\"{colors.accent}@2\"}}"), &output).ok() &&
-              !parse(utf8_literal("{\"version\":\"3.0\"}"), &output).ok() &&
+              parse(utf8_literal("{\"version\":\"3.0\"}"), &output).error == ClientThemeDocumentError::unsupported_version &&
+              parse(utf8_literal("{\"version\":1}"), &output).error == ClientThemeDocumentError::unsupported_version &&
               !parse(utf8_literal("{\"version\":\"2.x\"}"), &output).ok() &&
               bytes_equal(&output, &before, sizeof(output)),
-          "theme document v2: unknown/misdirected references, bad hex and other majors are refused without "
-          "publication");
+          "theme document v2: unknown/misdirected references, bad hex, other majors and integer versions are refused "
+          "without publication");
     const auto partial = parse(utf8_literal("{\"version\":\"2.3\",\"future\":1,\"semantic\":{\"future\":{},"
                                             "\"overlay\":{\"scrim\":[0,0,0,0.4],\"future\":\"#fff\"}},"
                                             "\"scale\":{\"radius_md\":10,\"future\":1},"
@@ -184,14 +185,6 @@ void test_theme_tokens(void (*check)(bool, const char*) noexcept) noexcept {
               !parse(utf8_literal("{\"version\":\"2.0\",\"motion\":{\"fast\":5000}}"), &output).ok() &&
               !parse(utf8_literal("{\"version\":\"2.0\",\"motion\":{\"fast\":{\"curve\":\"bounce\"}}}"), &output).ok(),
           "theme document v2: scale and motion values are bounded");
-    const auto untouched = output;
-    const auto retired = parse(utf8_literal("{\"version\":1,\"semantic\":{\"text\":{\"normal\":[1,0,0,1]}},"
-                                            "\"colors\":{\"accent\":[0,1,0,1]}}"),
-                               &output);
-    check(!retired.ok() && retired.error == ClientThemeDocumentError::unsupported_version &&
-              bytes_equal(&output, &untouched, sizeof(output)),
-          "theme document: the retired version 1 schema is refused as an unsupported version without publication");
-
     const auto components = parse(
         utf8_literal("{\"version\":\"2.0\",\"semantic\":{\"text\":{\"link\":\"#00ff00\"}},\"components\":{"
                      "\"icons\":{\"muted\":\"{semantic.text.link}@0.5\",\"weight\":1.5,\"future\":1},"

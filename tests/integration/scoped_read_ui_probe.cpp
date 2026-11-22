@@ -945,32 +945,6 @@ bool stale_refresh_contract() noexcept {
     }
     return project();
 }
-void costs() noexcept {
-    const void* owners[]{fixture, g_app.account_ui};
-    constexpr const char* committed_names[]{"fixture_committed_bytes", "account_ui_committed_bytes"};
-    constexpr const char* reserved_names[]{"fixture_reserved_bytes", "account_ui_reserved_bytes"};
-    for (u32 i = 0; i < 2; ++i) {
-        MEMORY_BASIC_INFORMATION region{};
-        if (VirtualQuery(owners[i], &region, sizeof(region)) == sizeof(region)) {
-            log_u64(LogLevel::info, "scoped_read_cost", committed_names[i],
-                    region.State == MEM_COMMIT ? region.RegionSize : 0);
-            log_u64(LogLevel::info, "scoped_read_cost", reserved_names[i], region.RegionSize);
-        }
-    }
-    log_u64(LogLevel::info, "scoped_read_cost", "glyph_instance_capacity",
-            g_app.renderer.pipeline.glyph_instance_capacity);
-    ID3D11Buffer* buffers[]{g_app.renderer.pipeline.ui_instance_buffer,
-                            g_app.renderer.pipeline.glyph_instance_buffer,
-                            g_app.renderer.pipeline.media_instance_buffer};
-    constexpr const char* buffer_names[]{"paint_gpu_capacity_bytes", "text_gpu_capacity_bytes",
-                                         "media_gpu_capacity_bytes"};
-    for (u32 i = 0; i < 3; ++i) {
-        D3D11_BUFFER_DESC description{};
-        if (buffers[i])
-            buffers[i]->GetDesc(&description);
-        log_u64(LogLevel::info, "scoped_read_cost", buffer_names[i], description.ByteWidth);
-    }
-}
 // ---- server menus --------------------------------------------------------------------
 UiRect header_rectangle() noexcept {
     const auto* node =
@@ -1280,7 +1254,6 @@ bool scenarios() noexcept {
                                  read(kParent, 2000000, 0),
                              317))
         return fail_at(__LINE__);
-    costs();
     if (!stale_refresh_contract())
         return fail_at(__LINE__);
     // Directly exercise the production shortcut owner. Its surrounding history

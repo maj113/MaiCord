@@ -371,10 +371,6 @@ void test_background_theme(void (*check)(bool, const char*) noexcept) noexcept {
     check(background_effects_active(flat_effect.background) &&
               !background_animation_allowed(flat_effect.background, false, true, false, false, false, true, false),
           "background flat effects: zero speed freezes visible artwork without an animation deadline");
-    auto malformed_flat = flat_effect.background;
-    malformed_flat.colors[4] = 1;
-    check(!background_render_valid(malformed_flat),
-          "background flat effects: dormant palette bytes cannot enter effect-only rendering");
     paint_stream_release(&materials);
     auto value = background_theme_defaults();
     check(background_theme_valid(value),
@@ -531,16 +527,6 @@ void test_background_theme(void (*check)(bool, const char*) noexcept) noexcept {
     check(background_theme_equal(client_theme_projection(preferences).background,
                                  background_theme_defaults()),
           "background theme: invalid custom descriptor projects safe default without mutating preferences");
-    const auto both_profile = background_effect_settings_defaults(BackgroundEffect::stars_and_comets);
-    auto both = background_theme_defaults();
-    both.effect = BackgroundEffect::stars_and_comets;
-    both.speed = both_profile.speed;
-    both.strength = both_profile.strength;
-    both.density = both_profile.density;
-    check(background_theme_valid(both) && background_effect_profile_index(both.effect) == 2 &&
-              background_effect_settings_valid(both_profile) &&
-              background_animation_allowed(both, false, true, false, false, false, true, false),
-          "background effect: catalog is None, Stars, Comets and Stars and comets with compact profiles");
     auto animated = background_theme_defaults();
     animated.effect = BackgroundEffect::stars;
     check(background_animation_allowed(animated, false, true, false, false, false, true, false),

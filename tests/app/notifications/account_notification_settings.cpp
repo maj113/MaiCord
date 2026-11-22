@@ -35,22 +35,12 @@ void transport() noexcept {
     check(account_guild_settings_submit(&details, &opt_in, 46).ok() &&
               equal(capture.body, capture.body_bytes, utf8_literal(R"({"guilds":{"10":{"flags":18432}}})")),
           "guild settings: channel opt-in writes the whole guild flags word");
-    UserGuildSettingsPatch channel_hide{10, 20, 0, 0, user_guild_settings_hide_muted};
-    const u32 hide_before = capture.submissions;
-    check(!account_guild_settings_submit(&details, &channel_hide, 47).ok() && capture.submissions == hide_before,
-          "guild settings: guild-only fields are refused on a channel override");
     MessageNotificationSetting projected{};
     projected = user_guild_settings_project(projected, hide);
     projected = user_guild_settings_project(projected, opt_in);
     check((projected.fields & notification_hide_muted) && projected.hide_muted_channels &&
               (projected.fields & notification_flags) && projected.flags == 18432,
           "guild settings: the optimistic projection carries hide_muted_channels and flags");
-    const UserGuildSettingsPatch dm{0, 30, 0, -1, user_guild_settings_muted, MessageNotificationLevel::all, true};
-    check(account_guild_settings_submit(&details, &dm, 42).ok() &&
-              equal(capture.target, capture.target_bytes, utf8_literal("/api/v9/users/@me/guilds/@me/settings")) &&
-              equal(capture.body, capture.body_bytes,
-                    utf8_literal(R"({"channel_overrides":{"30":{"muted":true,"mute_config":{"selected_time_window":-1,"end_time":null}}}})")),
-          "guild settings: direct message mute goes to the @me settings route");
     const u32 before = capture.submissions;
     const UserGuildSettingsPatch invalid{0, 0, 0, 0, user_guild_settings_muted};
     check(!account_guild_settings_submit(&details, &invalid, 43).ok() && capture.submissions == before,

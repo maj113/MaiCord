@@ -13,20 +13,6 @@ void check(bool valid, const char* label) noexcept {
     test_check(&g_failures, valid, label);
 }
 
-bool contains(const char* text, u32 bytes, const char* needle) noexcept {
-    u32 length = 0;
-    while (needle[length])
-        ++length;
-    for (u32 i = 0; i + length <= bytes; ++i) {
-        u32 j = 0;
-        while (j < length && text[i + j] == needle[j])
-            ++j;
-        if (j == length)
-            return true;
-    }
-    return false;
-}
-
 // Builds the text commands of the sign-in screen in `status` with every second factor on offer, key selected. The screen is the
 // one the application's view builds: the security key's state as the view says it, and (the PIN being a code) the code method
 // of a ceremony that asks for it.
@@ -66,7 +52,7 @@ bool build(LoginStatus status, LoginSecurityKey key, UiTextCommand* commands, Ui
 
 bool some_command_says(const UiTextCommand* commands, const UiTextCommandStream& text, const char* needle) noexcept {
     for (u32 i = 0; i < text.count; ++i)
-        if (contains(commands[i].text.data, commands[i].text.bytes, needle))
+        if (test_contains(commands[i].text, {needle, c_string_length(needle)}))
             return true;
     return false;
 }

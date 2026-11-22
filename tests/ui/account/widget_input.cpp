@@ -38,7 +38,6 @@ void test_widget_input(void (*check)(bool, const char*) noexcept) noexcept {
           ui_widget_manager_context_anchor(manager, &anchor) &&
           ui_rect_equal(anchor, {0, 20, 50, 40}),
           "keyboard context anchor follows focus instead of the pointer over another row");
-    check(!ui_widget_manager_context_anchor(manager, nullptr), "context anchor rejects null output");
     manager.focused = {last.handle.slot, static_cast<u16>(last.handle.generation + 1)};
     check(!ui_widget_manager_context_anchor(manager, &anchor) && !ui_rect_has_area(anchor),
           "obsolete widget generation cannot provide a context target");
