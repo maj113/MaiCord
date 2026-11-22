@@ -60,4 +60,39 @@ MAICORD_HASWELL_FMA __forceinline float fused(float a, float b, float c) noexcep
     return _mm_cvtss_f32(_mm_fmadd_ss(_mm_set_ss(a), _mm_set_ss(b), _mm_set_ss(c)));
 }
 
+// Integer lanes for the SILK encoder's fixed point.
+template <typename To, typename From> __forceinline To as(From value) noexcept {
+    return __builtin_bit_cast(To, value);
+}
+__forceinline I4 splat(i32 value) noexcept {
+    return I4{value, value, value, value};
+}
+// multiply_16(a, b) in each lane, for a b whose high halves are zero.
+__forceinline I4 multiply_low(I4 a, I4 b) noexcept {
+    return as<I4>(_mm_madd_epi16(as<__m128i>(a), as<__m128i>(b)));
+}
+// v negated where s is negative, zero where s is zero.
+__forceinline I4 signed_as(I4 v, I4 s) noexcept {
+    return as<I4>(_mm_sign_epi32(as<__m128i>(v), as<__m128i>(s)));
+}
+// The first lane where v equals m; one lane must.
+__forceinline u32 first_equal(I4 v, I4 m) noexcept {
+    return static_cast<u32>(__builtin_ctz(static_cast<u32>(_mm_movemask_epi8(as<__m128i>(v == m))))) >> 2;
+}
+// The first lane holding the least (greatest) value, and that value in every lane.
+struct Extreme {
+    u32 at;
+    I4 value;
+};
+__forceinline Extreme least(I4 v) noexcept {
+    I4 m = __builtin_elementwise_min(v, __builtin_shufflevector(v, v, 2, 3, 0, 1));
+    m = __builtin_elementwise_min(m, __builtin_shufflevector(m, m, 1, 0, 3, 2));
+    return {first_equal(v, m), m};
+}
+__forceinline Extreme greatest(I4 v) noexcept {
+    I4 m = __builtin_elementwise_max(v, __builtin_shufflevector(v, v, 2, 3, 0, 1));
+    m = __builtin_elementwise_max(m, __builtin_shufflevector(m, m, 1, 0, 3, 2));
+    return {first_equal(v, m), m};
+}
+
 } // namespace maicord::opus

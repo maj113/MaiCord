@@ -455,7 +455,15 @@ SilkPitch silk_find_pitch(SilkEncoderChannel* channel, const SilkComplexity& com
     reflection_to_prediction(a, reflection, order);
     bandwidth_expand(a, order, 0.99f);
     clear_bytes(residual, order * sizeof(float));
-    for (u32 i = order; i < kLength; ++i) {
+    // Eight samples at a time, each with the multiplies and subtractions of the scalar sum in its order.
+    u32 i = order;
+    for (; i + 8 <= kLength; i += 8) {
+        F8 sum = load8(x + i);
+        for (u32 j = 0; j < order; ++j)
+            sum -= splat8(a[j]) * load8(x + i - 1 - j);
+        store8(residual + i, sum);
+    }
+    for (; i < kLength; ++i) {
         float sum = x[i];
         for (u32 j = 0; j < order; ++j)
             sum -= a[j] * x[i - 1 - j];
@@ -480,53 +488,73 @@ SilkPitch silk_find_pitch(SilkEncoderChannel* channel, const SilkComplexity& com
 
 // ---- Noise shaping ----
 namespace {
+// The analysis window of a subframe: the subframe and the shaping lookahead on both sides, with sine slopes.
+constexpr u32 kShapeFlat = 3 * kSilkRate, kShapeWindow = kSilkSubframe + 2 * kShapeLookahead,
+              kShapeSlope = (kShapeWindow - kShapeFlat) / 2;
+constexpr u32 kBlocks = kShapeOrderMaximum / 4;
+static_assert(kSilkSubframes == 4, "two pairs of subframes");
+
 // Correlations of the signal after a chain of first-order allpass sections: a frequency axis warped towards
 // the ear's resolution. Section m's output is o[m] = s[m - 1] + w * s[m] - w * o[m - 1] with o[0] the
 // input, and becomes its state; out[m] sums input * o[m]. As in the quantizer's shaping filter
 // (silk_excitation.cpp), four steps of the recurrence written out let the chain advance four sections at a
 // time: o[m] = E[m] + w^4 * o[m - 4], E a five-tap combination of the old states.
 //
-// The states are kept in blocks of four sections, and each block is read back as the same block that the
-// sample before stored. A wider read across several newer stores would wait until those stores reach the
-// cache, and each sample waits for the states of the one before. The multiplies and adds are fused: a step
-// of the chain then waits for one instruction, not two.
-MAICORD_HASWELL_FMA void warped_autocorrelation(float* out, const float* x, float w, u32 length,
-                                                u32 order) noexcept {
+// The four subframes' windows are independent: a vector holds a block of four sections of two subframes,
+// and the two pairs of subframes run side by side, so that one sample's chain does not wait for the one
+// before. Each subframe gets the operations it got alone. The states are read back as the same vectors that
+// the sample before stored. The multiplies and adds are fused: a step of the chain then waits for one
+// instruction, not two.
+MAICORD_HASWELL_FMA void warped_autocorrelation(float (*out)[kShapeOrderMaximum + 1], const float (*x)[kShapeWindow],
+                                                float w, u32 order) noexcept {
     #pragma clang fp contract(off)
-    F4 states[kShapeOrderMaximum / 4]{}; // block b: the states of sections 4b + 1 to 4b + 4
-    float input_before = 0;               // the state before the first section: the previous input
+    F8 states[2][kBlocks]{}; // pair h, block b: the states of sections 4b + 1 to 4b + 4
+    F8 sums[2][kBlocks]{};
+    F8 energy[2]{};
+    float input_before[4]{}; // the state before the first section: the previous input
     const u32 blocks = (order + 3) / 4;
     const float w2 = w * w, rest = 1.f - w2;
-    const F4 tap0 = splat4(w), tap1 = splat4(rest), tap2 = splat4(-w * rest), tap3 = splat4(w2 * rest),
-             tap4 = splat4(-w2 * w);
+    const F8 tap0 = splat8(w), tap1 = splat8(rest), tap2 = splat8(-w * rest), tap3 = splat8(w2 * rest),
+             tap4 = splat8(-w2 * w);
     // The first four sections: the input's way through them, and E's count of a section before the first
     // taken out.
-    const F4 entry_input{-w, w2, -w2 * w, w2 * w2}, entry_state{w2, -w2 * w, w2 * w2, 0.f},
-        carry = splat4(w2 * w2);
-    F4 sums[kShapeOrderMaximum / 4]{};
-    float energy_sum = 0;
-    for (u32 n = 0; n < length; ++n) {
-        const F4 input = splat4(x[n]);
-        F4 before{0.f, 0.f, 0.f, input_before}, o{};
-        for (u32 b = 0; b < blocks; ++b) {
-            const F4 block = states[b];
-            const F4 e =
-                _mm_fmadd_ps(tap1, __builtin_shufflevector(before, block, 3, 4, 5, 6), tap0 * block) +
-                _mm_fmadd_ps(tap4, before,
-                             _mm_fmadd_ps(tap3, __builtin_shufflevector(before, block, 1, 2, 3, 4),
-                                          tap2 * __builtin_shufflevector(before, block, 2, 3, 4, 5)));
-            o = b == 0 ? e + _mm_fmadd_ps(entry_input, input, entry_state * splat4(input_before))
-                       : _mm_fmadd_ps(carry, o, e);
-            sums[b] = _mm_fmadd_ps(input, o, sums[b]);
-            states[b] = o;
-            before = block;
+    const F8 entry_input{-w, w2, -w2 * w, w2 * w2, -w, w2, -w2 * w, w2 * w2},
+        entry_state{w2, -w2 * w, w2 * w2, 0.f, w2, -w2 * w, w2 * w2, 0.f}, carry = splat8(w2 * w2), zero{};
+    for (u32 n = 0; n < kShapeWindow; ++n) {
+        for (u32 h = 0; h < 2; ++h) {
+            const float a = x[2 * h][n], c = x[2 * h + 1][n];
+            const F8 input{a, a, a, a, c, c, c, c};
+            const F8 previous{input_before[2 * h], input_before[2 * h], input_before[2 * h], input_before[2 * h],
+                              input_before[2 * h + 1], input_before[2 * h + 1], input_before[2 * h + 1],
+                              input_before[2 * h + 1]};
+            F8 before = __builtin_shufflevector(zero, previous, 0, 1, 2, 8, 4, 5, 6, 12), o{};
+            for (u32 b = 0; b < blocks; ++b) {
+                const F8 block = states[h][b];
+                const F8 e =
+                    _mm256_fmadd_ps(tap1, __builtin_shufflevector(before, block, 3, 8, 9, 10, 7, 12, 13, 14),
+                                    tap0 * block) +
+                    _mm256_fmadd_ps(
+                        tap4, before,
+                        _mm256_fmadd_ps(tap3, __builtin_shufflevector(before, block, 1, 2, 3, 8, 5, 6, 7, 12),
+                                        tap2 * __builtin_shufflevector(before, block, 2, 3, 8, 9, 6, 7, 12, 13)));
+                o = b == 0 ? e + _mm256_fmadd_ps(entry_input, input, entry_state * previous)
+                           : _mm256_fmadd_ps(carry, o, e);
+                sums[h][b] = _mm256_fmadd_ps(input, o, sums[h][b]);
+                states[h][b] = o;
+                before = block;
+            }
+            energy[h] += input * input;
+            input_before[2 * h] = a, input_before[2 * h + 1] = c;
         }
-        input_before = x[n];
-        energy_sum += x[n] * x[n];
     }
-    out[0] = energy_sum;
-    for (u32 m = 1; m <= order; ++m)
-        out[m] = sums[(m - 1) / 4][(m - 1) % 4];
+    // Rows of kShapeOrderMaximum + 1: the blocks past the order land inside the row, unused.
+    for (u32 s = 0; s < 4; ++s)
+        out[s][0] = energy[s >> 1][4 * (s & 1)];
+    for (u32 b = 0; b < blocks; ++b)
+        for (u32 h = 0; h < 2; ++h) {
+            store4(&out[2 * h][1 + 4 * b], low4(sums[h][b]));
+            store4(&out[2 * h + 1][1 + 4 * b], high4(sums[h][b]));
+        }
 }
 inline float warped_gain(const float* a, float warping, u32 order) noexcept {
     const float lambda = -warping;
@@ -536,7 +564,7 @@ inline float warped_gain(const float* a, float warping, u32 order) noexcept {
     return 1.f / (1.f - lambda * gain);
 }
 // Warped coefficients to their monic form, with their magnitudes limited (by bandwidth expansion) to what
-// the quantizer's Q13 holds.
+// the quantizer's Q13 holds. Without warping (0) the coefficients are monic already: only the limit acts.
 __attribute__((minsize)) void monic_warped(float* a, float warping, float limit, u32 order) noexcept {
     const auto to_monic = [&]() noexcept {
         for (u32 i = order - 1; i > 0; --i)
@@ -563,20 +591,6 @@ __attribute__((minsize)) void monic_warped(float* a, float warping, float limit,
                          0.99f - (0.8f + 0.1f * static_cast<float>(round)) * (largest - limit) /
                                      (largest * static_cast<float>(at + 1)));
         gain = to_monic();
-    }
-}
-__attribute__((minsize)) void limit_coefficients(float* a, float limit, u32 order) noexcept {
-    for (u32 round = 0; round < 10; ++round) {
-        float largest = -1;
-        u32 at = 0;
-        for (u32 i = 0; i < order; ++i)
-            if (absolute_value(a[i]) > largest)
-                largest = absolute_value(a[i]), at = i;
-        if (largest <= limit)
-            return;
-        bandwidth_expand(a, order,
-                         0.99f - (0.8f + 0.1f * static_cast<float>(round)) * (largest - limit) /
-                                     (largest * static_cast<float>(at + 1)));
     }
 }
 } // namespace
@@ -623,18 +637,20 @@ __attribute__((minsize)) void silk_noise_shape(SilkEncoderChannel* channel,
     const float warping =
         complexity.warped ? static_cast<float>(kSilkRate) * 0.015f + 0.01f * shape->coding_quality : 0.f;
     const u32 order = complexity.shape_order;
-    constexpr u32 kFlat = 3 * kSilkRate, kWindow = kSilkSubframe + 2 * kShapeLookahead,
-                  kSlope = (kWindow - kFlat) / 2;
+    float windowed[kSilkSubframes][kShapeWindow], correlations[kSilkSubframes][kShapeOrderMaximum + 1];
     const float* from = x - kShapeLookahead;
     for (u32 k = 0; k < kSilkSubframes; ++k, from += kSilkSubframe) {
-        float windowed[kWindow], correlation[kShapeOrderMaximum + 1], reflection[kShapeOrderMaximum];
-        sine_window(windowed, from, 1, kSlope);
-        copy_bytes(windowed + kSlope, from + kSlope, kFlat * sizeof(float));
-        sine_window(windowed + kSlope + kFlat, from + kSlope + kFlat, 2, kSlope);
-        if (complexity.warped)
-            warped_autocorrelation(correlation, windowed, warping, kWindow, order);
-        else
-            autocorrelation(correlation, windowed, kWindow, order + 1);
+        sine_window(windowed[k], from, 1, kShapeSlope);
+        copy_bytes(windowed[k] + kShapeSlope, from + kShapeSlope, kShapeFlat * sizeof(float));
+        sine_window(windowed[k] + kShapeSlope + kShapeFlat, from + kShapeSlope + kShapeFlat, 2, kShapeSlope);
+    }
+    if (complexity.warped)
+        warped_autocorrelation(correlations, windowed, warping, order);
+    for (u32 k = 0; k < kSilkSubframes; ++k) {
+        float* const correlation = correlations[k];
+        float reflection[kShapeOrderMaximum];
+        if (!complexity.warped)
+            autocorrelation(correlation, windowed[k], kShapeWindow, order + 1);
         correlation[0] += correlation[0] * 3e-5f + 1.f; // white noise
         float* const a = shape->ar[k];
         clear_bytes(a, sizeof(shape->ar[k]));
@@ -644,10 +660,7 @@ __attribute__((minsize)) void silk_noise_shape(SilkEncoderChannel* channel,
         if (complexity.warped)
             shape->gains[k] *= warped_gain(a, warping, order);
         bandwidth_expand(a, order, expansion);
-        if (complexity.warped)
-            monic_warped(a, warping, 3.999f, order);
-        else
-            limit_coefficients(a, 3.999f, order);
+        monic_warped(a, warping, 3.999f, order);
     }
     // The gains follow the SNR target, above a floor of 2 dB.
     const float gain_scale = exp2_approximate(-0.16f * snr), gain_floor = exp2_approximate(0.16f * 2.f);

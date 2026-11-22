@@ -85,6 +85,12 @@ MAICORD_SIMD_HASWELL __m256i _mm256_max_epi32(__m256i __a, __m256i __b) {
 MAICORD_SIMD_HASWELL __m256i _mm256_cmpgt_epi32(__m256i __a, __m256i __b) {
     return (__m256i)((__v8si)__a > (__v8si)__b);
 }
+MAICORD_SIMD_HASWELL __m256i _mm256_mul_epi32(__m256i __a, __m256i __b) {
+    return (__m256i)__builtin_ia32_pmuldq256((__v8si)__a, (__v8si)__b);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_permutevar8x32_epi32(__m256i __a, __m256i __b) {
+    return (__m256i)__builtin_ia32_permvarsi256((__v8si)__a, (__v8si)__b);
+}
 MAICORD_SIMD_HASWELL __m256i _mm256_mullo_epi16(__m256i __a, __m256i __b) {
     return (__m256i)((__v16hu)__a * (__v16hu)__b);
 }

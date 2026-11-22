@@ -332,12 +332,11 @@ void interpolate_nlsf(i16* __restrict out, const i16* from, const i16* to, i32 f
     for (u32 i = 0; i < kOrder; ++i)
         out[i] = static_cast<i16>(from[i] + ((factor_q2 * (to[i] - from[i])) >> 2));
 }
-// The residual of x under quantized coefficients (Q12); the first kOrder outputs are zero.
+// The residual of x under quantized coefficients (Q12), from out[kOrder] on.
 void lpc_residual(float* out, const float* x, const i16* lpc_q12, u32 length) noexcept {
     float a[kOrder];
     for (u32 i = 0; i < kOrder; ++i)
         a[i] = static_cast<float>(lpc_q12[i]) * (1.f / 4096);
-    clear_bytes(out, kOrder * sizeof(float));
     for (u32 i = kOrder; i < length; ++i) {
         float sum = x[i];
         for (u32 j = 0; j < kOrder; ++j)
@@ -462,7 +461,7 @@ __attribute__((minsize)) void silk_find_prediction(SilkEncoderChannel* channel,
     // Quantize, with weights that for an interpolated frame also reflect the blended first half.
     i16 weights[kOrder];
     nlsf_weights(weights, nlsf);
-    const bool interpolate = complexity.interpolate_nlsf && ix.interpolation < 4;
+    const bool interpolate = ix.interpolation < 4; // set below 4 only with complexity.interpolate_nlsf
     if (interpolate) {
         i16 blended[kOrder], blended_weights[kOrder];
         interpolate_nlsf(blended, channel->previous_nlsf_q15, nlsf, ix.interpolation);

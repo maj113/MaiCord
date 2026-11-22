@@ -150,6 +150,7 @@ MAICORD_SIMD(128) long long _mm_cvtsi128_si64(__m128i __a) { return __a[0]; }
 MAICORD_SIMD(128) int _mm_cvtss_si32(__m128 __a) { return __builtin_ia32_cvtss2si((__v4sf)__a); }
 MAICORD_SIMD(128) int _mm_cvt_ss2si(__m128 __a) { return __builtin_ia32_cvtss2si((__v4sf)__a); }
 MAICORD_SIMD(128) __m128 _mm_cvtepi32_ps(__m128i __a) { return (__m128)__builtin_convertvector((__v4si)__a, __v4sf); }
+MAICORD_SIMD(128) __m128i _mm_cvtps_epi32(__m128 __a) { return (__m128i)__builtin_ia32_cvtps2dq((__v4sf)__a); }
 MAICORD_SIMD(128) __m128 _mm_castsi128_ps(__m128i __a) { return (__m128)__a; }
 MAICORD_SIMD(128) __m128i _mm_cvtepi16_epi32(__m128i __v) {
     return (__m128i)__builtin_convertvector(__builtin_shufflevector((__v8hi)__v, (__v8hi)__v, 0, 1, 2, 3), __v4si);
@@ -217,6 +218,9 @@ MAICORD_SIMD(128) __m128i _mm_max_epu8(__m128i __a, __m128i __b) {
     return (__m128i)__builtin_elementwise_max((__v16qu)__a, (__v16qu)__b);
 }
 MAICORD_SIMD(128) __m128i _mm_abs_epi16(__m128i __a) { return (__m128i)__builtin_elementwise_abs((__v8hi)__a); }
+MAICORD_SIMD(128) __m128i _mm_sign_epi32(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_ia32_psignd128((__v4si)__a, (__v4si)__b);
+}
 MAICORD_SIMD(128) __m128i _mm_and_si128(__m128i __a, __m128i __b) { return (__m128i)((__v2du)__a & (__v2du)__b); }
 MAICORD_SIMD(128) __m128i _mm_or_si128(__m128i __a, __m128i __b) { return (__m128i)((__v2du)__a | (__v2du)__b); }
 MAICORD_SIMD(128) __m128i _mm_xor_si128(__m128i __a, __m128i __b) { return (__m128i)((__v2du)__a ^ (__v2du)__b); }
