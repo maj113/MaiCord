@@ -96,6 +96,26 @@ bool wait_units(u32 count) noexcept {
     return wait_until([count]() noexcept { return unit_count() >= count; });
 }
 
+// The time of the newest unit.
+u64 last_unit_time() noexcept {
+    AcquireSRWLockShared(&g_collector.lock);
+    const u64 time = g_collector.count ? g_collector.units[g_collector.count - 1].timestamp_us : 0;
+    ReleaseSRWLockShared(&g_collector.lock);
+    return time;
+}
+
+// Waits for the unit of the picture taken at `time`.
+bool wait_unit_at(u64 time) noexcept {
+    return wait_until([time]() noexcept {
+        AcquireSRWLockShared(&g_collector.lock);
+        bool found = false;
+        for (u32 i = 0; i < g_collector.count && !found; ++i)
+            found = g_collector.units[i].timestamp_us == time;
+        ReleaseSRWLockShared(&g_collector.lock);
+        return found;
+    });
+}
+
 // The capture's clock (the client clock in microseconds): the next picture at least a 60 fps interval after `last`.
 u64 next_timestamp(u64 last) noexcept {
     const Clock clock = clock_initialize();
@@ -286,19 +306,34 @@ int run_codec(ID3D11Device* device, ID3D11DeviceContext* context, GpuStreamCodec
         com_release(sources[0]);
         return 1;
     }
-    u32 picture_of_unit[kUnits]{};
-    u32 expected_units = 0;
+    // The pictures taken, by capture time. A keyframe request that finds the capture silent for 100 ms
+    // (gpu_stream_encoder_shared.inc) encodes the newest picture again, stamped at the request. A loaded machine can
+    // make any request find that, so each unit is matched to its picture by its time, not by its place in the stream.
+    u64 taken_time[kUnits]{};
+    u32 taken_picture[kUnits]{}, taken = 0;
+    const auto take = [&](ID3D11Texture2D* texture, u32 picture, u64 time) noexcept {
+        if (!gpu_stream_encoder_submit(encoder, {texture, kWidth, kHeight, time, false}))
+            return false;
+        taken_time[taken] = time;
+        taken_picture[taken++] = picture;
+        return true;
+    };
+    // The unit count before each keyframe request, hold release and size change: the unit after it is a keyframe.
+    u32 key_after[4]{}, keys = 0;
     u64 timestamp = 0;
     for (u32 i = 0; encoder && i < kFrames; ++i) {
         fill(i);
         context->UpdateSubresource(sources[i & 1], 0, nullptr, g_pixels, kWidth * 4, 0);
-        if (i == kKeyframeAt)
+        if (i == kKeyframeAt) {
+            key_after[keys++] = unit_count();
             gpu_stream_encoder_request_keyframe(encoder);
+            // A repeat that the request made has a time from before this read: the next picture follows it.
+            const u64 now = clock_now_microseconds();
+            timestamp = now > timestamp ? now : timestamp;
+        }
         timestamp = next_timestamp(timestamp);
-        test_check(&failures, gpu_stream_encoder_submit(encoder, {sources[i & 1], kWidth, kHeight, timestamp, false}),
-                   "every picture is taken");
-        picture_of_unit[expected_units++] = i;
-        test_check(&failures, wait_units(expected_units), "every picture becomes a unit");
+        test_check(&failures, take(sources[i & 1], i, timestamp), "every picture is taken");
+        test_check(&failures, wait_unit_at(timestamp), "every picture becomes a unit");
     }
     // Faster than max_fps: refused without a unit.
     if (encoder && full)
@@ -307,25 +342,25 @@ int run_codec(ID3D11Device* device, ID3D11DeviceContext* context, GpuStreamCodec
     // A still capture: once a frame interval passed without a picture, a keyframe request encodes the newest picture
     // again at once.
     if (encoder && full) {
-        Sleep(110); // the encoder's still-capture threshold is 100 ms
+        Sleep(110); // at least the encoder's still-capture threshold of 100 ms
+        key_after[keys++] = unit_count();
         gpu_stream_encoder_request_keyframe(encoder);
-        picture_of_unit[expected_units++] = kFrames - 1;
-        test_check(&failures, wait_units(expected_units), "a keyframe request with a still capture is answered");
+        test_check(&failures, wait_units(key_after[keys - 1] + 1), "a keyframe request with a still capture is answered");
     }
     // Held (nobody watches): a picture is still taken and converted, but nothing is encoded until the release, which
     // encodes it as a keyframe at once.
-    u32 released_unit = kUnits;
+    u32 held = kUnits;
     if (encoder && full && unit_count()) {
         gpu_stream_encoder_hold(encoder, true);
-        timestamp = next_timestamp(g_collector.units[unit_count() - 1].timestamp_us);
-        test_check(&failures, gpu_stream_encoder_submit(encoder, {source, kWidth, kHeight, timestamp, false}),
-                   "a held encoder still takes pictures");
+        const u32 before_hold = unit_count();
+        timestamp = next_timestamp(last_unit_time());
+        held = taken;
+        test_check(&failures, take(source, kFrames - 1, timestamp), "a held encoder still takes pictures");
         Sleep(30);
-        test_check(&failures, unit_count() == expected_units, "a held encoder encodes nothing");
+        test_check(&failures, unit_count() == before_hold, "a held encoder encodes nothing");
+        key_after[keys++] = before_hold;
         gpu_stream_encoder_hold(encoder, false);
-        released_unit = expected_units;
-        picture_of_unit[expected_units++] = kFrames - 1;
-        test_check(&failures, wait_units(expected_units), "the release encodes the held picture");
+        test_check(&failures, wait_units(before_hold + 1), "the release encodes the held picture");
     }
     GpuVideoFrame preview{};
     u32 preview_sequence = 0;
@@ -341,17 +376,16 @@ int run_codec(ID3D11Device* device, ID3D11DeviceContext* context, GpuStreamCodec
         test_check(&failures, false, "the preview exists");
     }
     // Another extent: the stream restarts with a keyframe at it.
-    const u32 before_reconfiguration = expected_units;
+    const u32 before_reconfiguration = unit_count();
     // The repeated picture was stamped when it was repeated: later pictures follow it.
     if (unit_count())
-        timestamp = g_collector.units[unit_count() - 1].timestamp_us;
+        timestamp = last_unit_time();
     if (encoder && full) {
         gpu_stream_encoder_configure(encoder, {kResizedWidth, kResizedHeight, kMaxFps, kBitrate / 2});
         timestamp = next_timestamp(timestamp);
-        test_check(&failures, gpu_stream_encoder_submit(encoder, {source, kWidth, kHeight, timestamp, false}),
-                   "a picture after the size change is taken");
-        picture_of_unit[expected_units++] = kFrames - 1;
-        test_check(&failures, wait_units(expected_units), "a picture after the size change is encoded");
+        key_after[keys++] = before_reconfiguration;
+        test_check(&failures, take(source, kFrames - 1, timestamp), "a picture after the size change is taken");
+        test_check(&failures, wait_unit_at(timestamp), "a picture after the size change is encoded");
     }
     const GpuStreamEncoderStats stats = gpu_stream_encoder_stats(encoder);
     if (failures) {
@@ -365,15 +399,37 @@ int run_codec(ID3D11Device* device, ID3D11DeviceContext* context, GpuStreamCodec
     com_release(sources[1]);
     com_release(sources[0]);
 
+    // Each unit's picture: the picture taken at its time, or for a repeat the newest picture taken before it. Every
+    // picture taken is a unit at its own time, except a held one that the release found older than 100 ms (repeated
+    // at the release's time instead). Each keyframe trigger repeats at most one picture.
     const Collector& c = g_collector;
-    test_check(&failures, !c.ended && !c.overflow && c.count == expected_units && stats.encoded == c.count &&
-                              stats.reconfigurations == (full ? 1u : 0u) && !stats.failure,
+    u32 picture_of_unit[kUnits]{};
+    u32 repeats = 0, missing = 0;
+    bool known = true;
+    for (u32 i = 0; i < c.count; ++i) {
+        u32 k = 0;
+        while (k < taken && taken_time[k] < c.units[i].timestamp_us)
+            ++k;
+        const bool exact = k < taken && taken_time[k] == c.units[i].timestamp_us;
+        repeats += exact ? 0u : 1u;
+        known = known && (exact || k);
+        picture_of_unit[i] = exact ? taken_picture[k] : k ? taken_picture[k - 1] : 0;
+    }
+    for (u32 k = 0; k < taken; ++k) {
+        bool seen = false;
+        for (u32 i = 0; i < c.count && !seen; ++i)
+            seen = c.units[i].timestamp_us == taken_time[k];
+        missing += seen || k == held ? 0u : 1u;
+    }
+    test_check(&failures, !c.ended && !c.overflow && known && !missing && repeats <= keys &&
+                              stats.encoded == c.count && stats.reconfigurations == (full ? 1u : 0u) && !stats.failure,
                "the unit count and statistics");
     for (u32 i = 0; i < c.count; ++i) {
         const Unit& unit = c.units[i];
         const bool reconfigured = i >= before_reconfiguration;
-        const bool must_key = i == 0 || i == kKeyframeAt || (full && i == kFrames) || i == released_unit ||
-                              i == before_reconfiguration;
+        bool must_key = i == 0;
+        for (u32 k = 0; k < keys; ++k)
+            must_key = must_key || i == key_after[k];
         test_check(&failures, !must_key || unit.keyframe, "keyframes where they were asked for");
         test_check(&failures, unit.width == (reconfigured ? kResizedWidth : kWidth) &&
                                   unit.height == (reconfigured ? kResizedHeight : kHeight),
@@ -421,13 +477,6 @@ int run_codec(ID3D11Device* device, ID3D11DeviceContext* context, GpuStreamCodec
     test_write_text(codec_name(codec));
     test_write_metric(" bytes per picture: ", c.count ? c.used / c.count : 0);
     return failures ? 1 : 0;
-}
-
-u64 last_unit_time() noexcept {
-    AcquireSRWLockShared(&g_collector.lock);
-    const u64 time = g_collector.count ? g_collector.units[g_collector.count - 1].timestamp_us : 0;
-    ReleaseSRWLockShared(&g_collector.lock);
-    return time;
 }
 
 // A capture that keeps producing, as the screen capture does for changing content: a changing picture every frame

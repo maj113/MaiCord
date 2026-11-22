@@ -943,6 +943,16 @@ bool clipboard_has_attachment() noexcept {
            (descriptors && IsClipboardFormatAvailable(descriptors)) || (png && IsClipboardFormatAvailable(png)) ||
            IsClipboardFormatAvailable(CF_DIBV5) || IsClipboardFormatAvailable(CF_DIB);
 }
+extern "C" __declspec(dllimport) HWND WINAPI GetClipboardOwner();
+// Whether the system clipboard changed since `sequence` and a window of this process owns it now: a write by the probe.
+// The sequence number is machine-wide: another program (the user, a clipboard history) changes it too, but then owns
+// the clipboard itself.
+bool clipboard_changed_here(DWORD sequence) noexcept {
+    DWORD process = 0;
+    const HWND owner = GetClipboardOwner();
+    return GetClipboardSequenceNumber() != sequence && owner && GetWindowThreadProcessId(owner, &process) &&
+           process == GetCurrentProcessId();
+}
 bool forum_media_ui_adapter_paste_file() noexcept {
     const DWORD sequence = GetClipboardSequenceNumber();
     const bool captured = call(+[](void*) noexcept {
@@ -1037,7 +1047,7 @@ bool forum_media_ui_adapter_paste_file() noexcept {
             return failure(13);
         return true;
     });
-    if (GetClipboardSequenceNumber() != sequence) {
+    if (clipboard_changed_here(sequence)) {
         log_u64(LogLevel::error, "probe", "forum_media_clipboard_sequence_changed", 1);
         return false;
     }

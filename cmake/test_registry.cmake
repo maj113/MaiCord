@@ -814,7 +814,7 @@ maicord_test(MaiCordCatalogIndexTests ONLY WINDOWS ENTRY maicord_catalog_index_t
 # plugins (the clear-urls sample, which then strips links through the pre-send hook), themes and
 # effects; startup enabling from catalog-state.bin; replayed, unsigned and mismatched downloads.
 maicord_test(MaiCordCatalogServiceTests ONLY WINDOWS ENTRY maicord_catalog_service_tests_entry
-    SOURCES tests/app/plugins/catalog_service.cpp src/app/plugins/catalog_service.cpp src/app/plugins/catalog_worker.cpp
+    SOURCES tests/app/plugins/catalog_service.cpp src/app/plugins/catalog_service.cpp
         src/app/plugins/dev_console.cpp src/core/log.cpp ${maicord_plugin_fakes}
     LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_catalog maicord_plugin_runtime
         maicord_packages maicord_protocol kernel32 bcrypt ws2_32 maicord_sspicli crypt32
