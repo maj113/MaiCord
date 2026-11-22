@@ -29,7 +29,7 @@ struct Mp4AudioFrameTimeBounds {
 // arithmetic, with only the final native timestamp rounded DOWN to 100ns. source_frames
 // includes final decoder padding; content_ticks excludes the leading empty edit. A
 // nonzero source_start_ticks admits a nonzero TFDT origin. The functions below leave
-// output unchanged on failure or overflow and reject output that overlaps the clock.
+// output unchanged on failure or overflow.
 struct Mp4AudioTimeline {
     u64 source_frames, source_start_ticks, media_start_ticks, empty_edit_ticks, content_ticks;
     u32 sample_rate, media_timescale, edit_timescale, content_timescale;

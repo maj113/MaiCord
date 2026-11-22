@@ -54,9 +54,6 @@ int annexb_tests() noexcept {
     if (h264_annexb_next(&cursor).error != H264Error::end) return 107;
     cursor = {{nullptr, 0}, 0};
     if (h264_annexb_next(&cursor).error != H264Error::end) return 108;
-    cursor = {{nullptr, 4}, 0};
-    if (h264_annexb_next(&cursor).error != H264Error::invalid_input || h264_annexb_next(nullptr).error != H264Error::invalid_input)
-        return 109;
     // A start code split across the end of input yields no phantom NAL.
     constexpr u8 tail[] = {0, 0, 1, 0x41, 5, 0, 0};
     cursor = {{tail, sizeof(tail)}, 0};
@@ -145,7 +142,6 @@ int parameter_tests() noexcept {
     u8 oversized[kH264StreamMaximumPpsBytes + 8]{};
     oversized[0] = 0x68; oversized[1] = 0xC0; // pps 0, sps 0
     if (h264_parameter_sets_store(sets, {oversized, sizeof(oversized)}) != H264Error::unsupported) return 129;
-    if (h264_parameter_sets_store(nullptr, {oversized, 2}) != H264Error::invalid_input) return 130;
     return 0;
 }
 

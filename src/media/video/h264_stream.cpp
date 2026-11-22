@@ -35,18 +35,18 @@ Slot* select_slot(Slot (&slots)[Count], u8 id, bool (*matches)(const Slot&, u8))
 inline bool sps_matches(const H264StreamSps& slot, u8 id) noexcept { return slot.parsed.id == id; }
 bool pps_matches(const H264StreamPps& slot, u8 id) noexcept { return slot.id == id; }
 
+// h264_reference_plan keeps at most 16 references, each on a surface below 32.
 inline u32 reference_mask(const H264ReferenceState& references) noexcept {
     u32 mask = 0;
-    for (u32 i = 0; i < references.count && i < 16; ++i)
-        if (references.pictures[i].surface < 32) mask |= 1u << references.pictures[i].surface;
+    for (u32 i = 0; i < references.count; ++i)
+        mask |= 1u << references.pictures[i].surface;
     return mask;
 }
 
+// The SPS parse gives a coded extent of one macroblock or more and at most 16 references.
 inline bool stream_supported(const H264Sps& sps) noexcept {
-    return sps.coded_width && sps.coded_height && sps.coded_width <= kH264StreamMaximumDimension &&
-           sps.coded_height <= kH264StreamMaximumDimension &&
+    return sps.coded_width <= kH264StreamMaximumDimension && sps.coded_height <= kH264StreamMaximumDimension &&
            u64{sps.coded_width} * sps.coded_height <= kH264StreamMaximumPixels && !sps.transform_bypass &&
-           sps.max_references <= 16 &&
            video_display_extent(sps.width, sps.height, sps.sar_width, sps.sar_height).width != 0;
 }
 
@@ -79,8 +79,6 @@ MAICORD_HASWELL u32 h264_annexb_zeros(const u8* data, u32 from, u32 count) noexc
 }
 
 H264Nal h264_annexb_next(H264AnnexBCursor* cursor) noexcept {
-    if (!cursor || (!cursor->bytes.data && cursor->bytes.count) || cursor->offset > cursor->bytes.count)
-        return {{}, H264Error::invalid_input};
     const u8* data = cursor->bytes.data;
     const u32 count = cursor->bytes.count;
     for (;;) {
@@ -123,7 +121,7 @@ H264Nal h264_annexb_next(H264AnnexBCursor* cursor) noexcept {
 
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 H264Error h264_parameter_sets_store(H264ParameterSets* sets, ConstSlice<u8> nal) noexcept {
-    if (!sets || !nal.data || nal.count < 2) return H264Error::invalid_input;
+    if (nal.count < 2) return H264Error::invalid_input;
     const u8 type = nal.data[0] & 31u;
     if (type == 7) {
         H264Sps sps;
@@ -162,7 +160,6 @@ H264Error h264_parameter_sets_store(H264ParameterSets* sets, ConstSlice<u8> nal)
 
 H264Error h264_parameter_sets_resolve(const H264ParameterSets& sets, u8 pps_id, H264Sps* sps,
                                       H264Pps* pps) noexcept {
-    if (!sps || !pps) return H264Error::invalid_input;
     const H264StreamPps* picture = nullptr;
     for (const auto& slot : sets.pps)
         if (slot.valid && slot.id == pps_id) picture = &slot;
@@ -194,7 +191,6 @@ bool h264_sps_decode_compatible(const H264Sps& a, const H264Sps& b) noexcept {
 
 H264ScanStatus h264_stream_scan(H264ParameterSets* sets, H264StreamScanner* scanner,
                                 H264StreamPicture* picture) noexcept {
-    if (!sets || !scanner || !picture) return H264ScanStatus::end;
     picture->slice_count = 0;
     picture->bitstream_bytes = 0;
     picture->all_intra = true;
@@ -214,7 +210,6 @@ H264ScanStatus h264_stream_scan(H264ParameterSets* sets, H264StreamScanner* scan
             scanner->has_pending = false;
         } else nal = h264_annexb_next(&scanner->cursor);
         if (nal.error == H264Error::end) break;
-        if (nal.error == H264Error::invalid_input) { damage(nal.error); vcl = true; break; }
         if (nal.error != H264Error::none) {
             // Corrupt NAL of unknown role: whatever picture it touches is lost.
             damage(nal.error);
@@ -308,7 +303,6 @@ H264ScanStatus h264_stream_scan(H264ParameterSets* sets, H264StreamScanner* scan
 }
 
 void h264_stream_reset(H264StreamState* state) noexcept {
-    if (!state) return;
     reset_value(&state->references);
     reset_value(&state->output);
     state->waiting = true;
@@ -317,28 +311,26 @@ void h264_stream_reset(H264StreamState* state) noexcept {
 }
 
 void h264_stream_lost(H264StreamState* state) noexcept {
-    if (!state) return;
     h264_stream_reset(state);
     ++state->dropped;
 }
 
 H264StreamAction h264_stream_prepare(H264StreamState* state, const H264StreamPicture& picture,
                                      H264StreamDecode* decode) noexcept {
-    if (!state || !decode || !picture.slice_count) return H264StreamAction::request_keyframe;
     // Callers read *decode only after a decode action; it is built in place: each field below, the plan by
     // h264_reference_plan.
     H264StreamDecode& next = *decode;
     const H264Slice& first = picture.first;
     const H264Sps& sps = picture.sps;
     bool reset = first.idr;
-    for (u32 i = 0; i < first.marking_count && i < 32; ++i) reset |= first.marking[i].operation == 5;
+    for (u32 i = 0; i < first.marking_count; ++i) reset |= first.marking[i].operation == 5;
     if (first.idr) {
         if (!stream_supported(sps)) {
             state->unsupported = true;
             h264_stream_lost(state);
             return H264StreamAction::unsupported;
         }
-        const u32 limit = sps.restriction ? minimum<u32>(sps.max_reorder, 16) : kH264StreamAdaptiveReorder;
+        const u32 limit = sps.restriction ? sps.max_reorder : kH264StreamAdaptiveReorder;
         next.surfaces_needed = static_cast<u8>(minimum<u32>(
             kH264StreamMaximumSurfaces, reference_frames(sps) + limit + 1u + kVideoStreamPresentationSurfaces));
         next.reinitialize = !state->surfaces || !state->active || sps.coded_width != state->sps.coded_width ||
@@ -397,12 +389,11 @@ H264StreamAction h264_stream_prepare(H264StreamState* state, const H264StreamPic
 }
 
 void h264_stream_set_surfaces(H264StreamState* state, u8 surfaces) noexcept {
-    if (state) state->surfaces = surfaces > 32 ? 32 : surfaces;
+    state->surfaces = surfaces > 32 ? 32 : surfaces;
 }
 
 void h264_stream_commit(H264StreamState* state, const H264StreamPicture& picture,
                         const H264StreamDecode& decode, u32 rtp_timestamp) noexcept {
-    if (!state || decode.surface >= 32) return;
     const H264Slice& first = picture.first;
     if (first.idr) {
         const H264Sps& sps = picture.sps;
@@ -413,7 +404,7 @@ void h264_stream_commit(H264StreamState* state, const H264StreamPicture& picture
         const u32 surfaces = state->surfaces ? state->surfaces : decode.surfaces_needed;
         const u32 used = reference_frames(sps) + 1u + kVideoStreamPresentationSurfaces;
         const u32 room = surfaces > used ? surfaces - used : 0;
-        const u32 limit = sps.restriction ? minimum<u32>(sps.max_reorder, 16) : kH264StreamAdaptiveReorder;
+        const u32 limit = sps.restriction ? sps.max_reorder : kH264StreamAdaptiveReorder;
         state->reorder_limit = static_cast<u8>(minimum(limit, room));
         // Declared reordering is honoured immediately; otherwise start at zero
         // latency and grow only if the stream proves to reorder.
@@ -433,7 +424,6 @@ void h264_stream_commit(H264StreamState* state, const H264StreamPicture& picture
 }
 
 bool h264_stream_pop(H264StreamState* state, H264StreamOutput* output) noexcept {
-    if (!state || !output) return false;
     while (state->output.count) {
         if (!state->drain && state->output.count <= state->reorder) return false;
         H264Output picture{};

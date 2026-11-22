@@ -95,7 +95,7 @@ u32 h264_escape_bytes(ConstSlice<u8> nal, u32 bytes) noexcept {
 
 H264Error h264_parse_slice_detail(ConstSlice<u8> nal, const H264Sps& sps, const H264Pps& pps,
                                   H264SliceDetail* output) noexcept {
-    if (!output || !nal.data || nal.count < 2 || sps.id != pps.sps_id)
+    if (nal.count < 2 || sps.id != pps.sps_id)
         return H264Error::invalid_input;
     const u8 nal_type = nal.data[0] & 31u;
     if (nal.data[0] & 0x80u)

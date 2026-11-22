@@ -222,9 +222,6 @@ void test_ogg_opus(void (*check)(bool, const char*) noexcept) noexcept {
     check(ogg_opus_demux_initialize(&d, {fixture.bytes, fixture.count}, {}, always_cancelled) ==
               OggOpusError::cancelled,
           "ogg_opus_initialize_cancelled");
-    check(ogg_opus_demux_initialize(&d, {fixture.bytes, fixture.count}, {fixture.bytes, 1}) ==
-              OggOpusError::invalid_input,
-          "ogg_opus_source_scratch_alias_rejected");
 
     OggFixture tag_continuation{};
     u8 head[19]{};

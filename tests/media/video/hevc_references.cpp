@@ -70,9 +70,6 @@ int hevc_reference_tests() noexcept {
     state.count = 2;
     if (hevc_reference_plan(state, sps, picture, 2, &plan) != HevcError::malformed)
         return 7;
-    sps.max_buffering = 16;
-    if (hevc_reference_plan(state, sps, picture, 2, &plan) != HevcError::invalid_input)
-        return 8;
     return 0;
 }
 } // namespace maicord

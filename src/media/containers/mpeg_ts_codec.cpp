@@ -8,14 +8,14 @@
 namespace maicord {
 namespace {
 using E = MpegTsError;
-bool separate(ConstSlice<u8> input, const void* output, u32 size) noexcept {
-    return input.data && input.count && input.count <= kMpegTsMaximumBytes && byte_range_valid(input) &&
-        output && byte_range_valid(output,size) && !byte_ranges_overlap(input.data,input.count,output,size);
+// The input of one PES. Every output is a local of the segment store or a test.
+bool input_valid(ConstSlice<u8> input) noexcept {
+    return input.data && input.count && input.count <= kMpegTsMaximumBytes && byte_range_valid(input);
 }
 E parsed(H264Error error) noexcept { return error == H264Error::unsupported ? E::unsupported : E::malformed; }
 }
 MpegTsError mpeg_ts_aac_frame(ConstSlice<u8> input, MpegTsAacFrame* output) noexcept {
-    if (!separate(input,output,sizeof(*output))) return E::invalid_input;
+    if (!input_valid(input)) return E::invalid_input;
     const auto* p = input.data;
     if (input.count < 7 || p[0] != 255 || (p[1] & 246) != 240) return E::malformed;
     if (!(p[1] & 1) || (p[2] >> 6) != 1 || (p[6] & 3)) return E::unsupported;
@@ -32,7 +32,7 @@ MpegTsError mpeg_ts_aac_frame(ConstSlice<u8> input, MpegTsAacFrame* output) noex
     value.payload = {p+7,value.bytes-7}; *output = value; return E::none;
 }
 MpegTsError packed_aac_segment(ConstSlice<u8> input, PackedAudioSegment* output) noexcept {
-    if (!separate(input,output,sizeof(*output))) return E::invalid_input;
+    if (!input_valid(input)) return E::invalid_input;
     if (input.count>1024*1024) return E::capacity;
     const auto* p=input.data;
     if (input.count<10 || !bytes_equal(p,"ID3",3)) return E::malformed;
@@ -71,7 +71,7 @@ MpegTsError packed_aac_segment(ConstSlice<u8> input, PackedAudioSegment* output)
     *output={payload,timestamp};return E::none;
 }
 MpegTsError mpeg_ts_avc_configuration(ConstSlice<u8> input, MpegTsAvcConfiguration* output) noexcept {
-    if (!separate(input,output,sizeof(*output))) return E::invalid_input;
+    if (!input_valid(input)) return E::invalid_input;
     H264AnnexBCursor cursor{input,0}; ConstSlice<u8> sps{},pps{};
     for (u32 count = 0;; ++count) {
         const auto nal = h264_annexb_next(&cursor);
@@ -103,11 +103,10 @@ MpegTsError mpeg_ts_avc_configuration(ConstSlice<u8> input, MpegTsAvcConfigurati
     value.count=at+pps.count; *output=value; return E::none;
 }
 MpegTsError mpeg_ts_avc_sample(ConstSlice<u8> input, Slice<u8> scratch, u32* output) noexcept {
-    if (!separate(input,output,sizeof(*output)) || !scratch.data || !scratch.count ||
-        !byte_range_valid(scratch.data,scratch.count) || byte_ranges_overlap(scratch.data,scratch.count,output,sizeof(*output))) return E::invalid_input;
-    if (byte_ranges_overlap(input.data,input.count,scratch.data,scratch.count) &&
-        (reinterpret_cast<usize>(input.data)<reinterpret_cast<usize>(scratch.data) ||
-         reinterpret_cast<usize>(input.data)-reinterpret_cast<usize>(scratch.data)<512)) return E::invalid_input;
+    // The segment store converts in place: the input lies at least 512 bytes after the scratch and stays ahead of it
+    // (mpeg_ts_segment_store.cpp video_units).
+    if (!input_valid(input) || !scratch.count)
+        return E::invalid_input;
     H264AnnexBCursor cursor{input,0}; u32 used=0; bool picture=false;
     for (u32 count=0;;++count) {
         const auto nal=h264_annexb_next(&cursor);

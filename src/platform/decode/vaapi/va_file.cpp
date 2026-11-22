@@ -44,8 +44,7 @@ bool submit_hevc_sample(Session* session, const HevcConfiguration& configuration
                         ConstSlice<u8> sample, const HevcReferenceState& references, const HevcReferencePlan& plan,
                         u8 surface) noexcept {
     HevcGpuReferences mapped{};
-    if (!hevc_gpu_reference_map(references, plan, surface, &mapped) || !picture.slice_count ||
-        !picture_begin(session, surface))
+    if (!hevc_gpu_reference_map(references, plan, surface, &mapped) || !picture_begin(session, surface))
         return false;
     PictureParameterHevc parameters;
     hevc_picture_parameters(configuration.sps, configuration.pps, picture, picture.slice_type == 2, plan, mapped, surface,

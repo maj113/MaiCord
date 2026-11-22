@@ -58,7 +58,7 @@ void initial_lists(const H264Sps& sps, const H264Slice& first, const H264Referen
     const i32 current_order = order.top < order.bottom ? order.top : order.bottom;
     u8 shorts[16], longs[16];
     u32 short_count = 0, long_count = 0;
-    for (u32 i = 0; i < dpb.count && i < 16; ++i)
+    for (u32 i = 0; i < dpb.count; ++i)
         (dpb.pictures[i].long_term() ? longs[long_count++] : shorts[short_count++]) = static_cast<u8>(i);
     const auto wrap = [&](u8 index) noexcept {
         const i32 frame_num = dpb.pictures[index].frame_num;
@@ -134,7 +134,7 @@ bool apply_changes(const H264Sps& sps, const H264Slice& first, const H264Referen
                 no_wrap -= modulus;
             prediction = no_wrap;
             picture_number = no_wrap > first.frame_num ? no_wrap - modulus : no_wrap;
-            for (u32 i = 0; i < dpb.count && i < 16; ++i) {
+            for (u32 i = 0; i < dpb.count; ++i) {
                 const H264Reference& reference = dpb.pictures[i];
                 const i32 wrapped = static_cast<i32>(reference.frame_num) > first.frame_num
                                         ? static_cast<i32>(reference.frame_num) - modulus
@@ -144,7 +144,7 @@ bool apply_changes(const H264Sps& sps, const H264Slice& first, const H264Referen
             }
         } else {
             picture_number = static_cast<i32>(change.value);
-            for (u32 i = 0; i < dpb.count && i < 16; ++i)
+            for (u32 i = 0; i < dpb.count; ++i)
                 if (dpb.pictures[i].long_term() && dpb.pictures[i].long_term_index == change.value)
                     picture = static_cast<u8>(i);
         }
@@ -186,7 +186,7 @@ void h264_picture_parameters(const H264Sps& a, const H264Pps& b, const H264Slice
     for (auto& entry : p.reference_frames)
         entry = invalid_picture();
     if (!first.idr)
-        for (u32 i = 0; i < references.count && i < 16; ++i)
+        for (u32 i = 0; i < references.count; ++i)
             p.reference_frames[i] = reference_picture(references.pictures[i], surfaces);
     p.picture_width_in_mbs_minus1 = static_cast<u16>(a.coded_width / 16u - 1u);
     p.picture_height_in_mbs_minus1 = static_cast<u16>(a.coded_height / 16u - 1u);

@@ -104,8 +104,7 @@ E configuration(Mp4SegmentStore& s,const MpegTsProgram& program,const MpegTsPes&
     s.track=track; return E::none;
 }
 E fill(Mp4SegmentStore& s,u32 number,ConstSlice<u8> body,u64 duration_us,u64 initial_reference=0) noexcept {
-    if(!duration_us || duration_us>30000000 || !body.data || !body.count ||
-        !byte_range_valid(body) || mp4_segment_store_overlaps(s,body.data,body.count)) return E::invalid_input;
+    if(!duration_us || duration_us>30000000) return E::invalid_input;
     const u32 capacity=s.track.audio?1024*1024:8*1024*1024, stride=s.track.audio?4:16, table=samples_limit*stride;
     if(body.count>capacity-table-headroom) return E::unsupported;
     const bool packed=s.track.audio && body.count>=3 && bytes_equal(body.data,"ID3",3);
@@ -235,8 +234,8 @@ E fill(Mp4SegmentStore& s,u32 number,ConstSlice<u8> body,u64 duration_us,u64 ini
 }
 }
 Mp4DemuxError mpeg_ts_segment_store_initialize(Mp4SegmentStore* s,ConstSlice<u8> bytes,bool audio,u32 count,u64 duration,u64 reference) noexcept {
-    if(!s||!byte_range_valid(s,sizeof(*s))||s->initialization.base||s->count||s->slots[0].storage.base||s->slots[1].storage.base||
-        !count||count>8192||mp4_segment_store_overlaps(*s,bytes.data,bytes.count)) return E::invalid_input;
+    if(s->initialization.base||s->count||s->slots[0].storage.base||s->slots[1].storage.base||!count||count>8192)
+        return E::invalid_input;
     Mp4SegmentStore next{}; next.track.audio=audio; next.count=count; next.nominal_duration=duration; next.nominal_timescale=1000000;
     next.live=next.transport=true; next.generation=s->generation; next.request_serial=s->request_serial;
     advance(next.generation); advance(next.request_serial);

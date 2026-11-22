@@ -78,9 +78,7 @@ E edits(const ConstSlice<u8>& bytes, const Box& track, Mp4FragmentTrack& out) no
 }
 } // namespace
 Mp4DemuxError mp4_fragment_track_initialize(ConstSlice<u8> bytes, bool audio, Mp4FragmentTrack* output) noexcept {
-    const ConstSlice<u8> region{reinterpret_cast<const u8*>(output), sizeof(*output)};
-    if (!output || !byte_range_valid(region) || !bytes.data || !byte_range_valid(bytes) ||
-        byte_ranges_overlap(bytes, region) || bytes.count > 1024 * 1024) return E::invalid_input;
+    if (!bytes.data || !byte_range_valid(bytes) || bytes.count > 1024 * 1024) return E::invalid_input;
     const Box root{0, 0, 0, bytes.count};
     Box ftyp{}, moov{}, mvhd{}, mvex{}, track{};
     if (!unique(bytes, root, fourcc('f','t','y','p'), &ftyp) || ftyp.end - ftyp.payload < 8 ||

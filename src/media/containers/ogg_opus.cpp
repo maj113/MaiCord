@@ -2,7 +2,6 @@
 #include "maicord/media/video/encoded_video_limits.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/crc32.hpp"
 #include "maicord/core/intrinsics.hpp"
 #include "maicord/sys/simd.hpp"
@@ -17,12 +16,6 @@ __m128i reverse_bits(__m128i bytes) noexcept {
     const __m128i nibble = _mm_set1_epi8(0x0F);
     return _mm_or_si128(_mm_shuffle_epi8(reversed, _mm_and_si128(bytes, nibble)),
                         _mm_shuffle_epi8(_mm_srli_epi16(reversed, 4), _mm_and_si128(_mm_srli_epi16(bytes, 4), nibble)));
-}
-bool scratch_valid(const ConstSlice<u8>& encoded, const Slice<u8>& scratch, const void* out, u32 out_bytes) noexcept {
-    return (!scratch.count || scratch.data) &&
-           !byte_ranges_overlap(encoded.data, encoded.count, out, out_bytes) &&
-           !byte_ranges_overlap(scratch.data, scratch.count, encoded.data, encoded.count) &&
-           !byte_ranges_overlap(scratch.data, scratch.count, out, out_bytes);
 }
 struct Page {
     u32 offset{}, body{}, end{}, segments{}, serial{}, sequence{};
@@ -252,8 +245,7 @@ u32 ogg_page_checksum(ConstSlice<u8> page) noexcept {
 
 OggOpusError ogg_opus_demux_initialize(OggOpusDemuxer* out, ConstSlice<u8> encoded, Slice<u8> scratch,
                                        OggOpusCancelled cancelled, void* context) noexcept {
-    if (!out || !encoded.data || !encoded.count || encoded.count > kMediaMaximumEncodedVideoBytes ||
-        !scratch_valid(encoded, scratch, out, sizeof(*out)))
+    if (!encoded.data || !encoded.count || encoded.count > kMediaMaximumEncodedVideoBytes)
         return OggOpusError::invalid_input;
     OggOpusDemuxer d{};
     d.encoded = encoded;
@@ -370,9 +362,7 @@ OggOpusError ogg_opus_demux_initialize(OggOpusDemuxer* out, ConstSlice<u8> encod
 }
 OggOpusPacket ogg_opus_demux_next(OggOpusDemuxer* d, Slice<u8> scratch) noexcept {
     OggOpusPacket packet{};
-    if (!d || !d->ready || !d->encoded.data || !d->encoded.count ||
-        d->encoded.count > kMediaMaximumEncodedVideoBytes || d->cursor.decoded_frame > d->decoded_frames ||
-        d->cursor.packet_index > d->packet_count || !scratch_valid(d->encoded, scratch, d, sizeof(*d))) {
+    if (!d->ready) {
         packet.error = OggOpusError::invalid_input;
         return packet;
     }
@@ -411,10 +401,7 @@ void ogg_opus_demux_reset(OggOpusDemuxer* d) noexcept {
 }
 OggOpusError ogg_opus_demux_seek(OggOpusDemuxer* d, u64 target, OggOpusSeekPoint* out, Slice<u8> scratch,
                                  OggOpusCancelled cancelled, void* context) noexcept {
-    if (!d || !d->ready || !out || target > d->total_frames ||
-        !scratch_valid(d->encoded, scratch, d, sizeof(*d)) ||
-        !scratch_valid(d->encoded, scratch, out, sizeof(*out)) ||
-        byte_ranges_overlap(d, sizeof(*d), out, sizeof(*out)))
+    if (!d->ready || target > d->total_frames)
         return OggOpusError::invalid_input;
     auto candidate = *d;
     ogg_opus_demux_reset(&candidate);

@@ -1,5 +1,4 @@
 #include "maicord/media/containers/mp4_segment_store.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 // Segment bookkeeping, once per segment: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
@@ -18,19 +17,11 @@ bool mp4_segment_store_range_fits(const Mp4SegmentStore& s, u32 number, const Mp
     }
     return true;
 }
-bool mp4_segment_store_overlaps(const Mp4SegmentStore& s, const void* p, u32 bytes) noexcept {
-    if (!byte_range_valid(p, bytes) || byte_ranges_overlap(&s, sizeof(s), p, bytes) ||
-        byte_ranges_overlap(s.initialization.base, s.initialization.reserved, p, bytes)) return true;
-    for (const auto& slot : s.slots)
-        if (byte_ranges_overlap(slot.storage.base, slot.storage.reserved, p, bytes)) return true;
-    return false;
-}
 Mp4DemuxError mp4_segment_store_initialize(Mp4SegmentStore* s, ConstSlice<u8> init, bool audio,
     u32 count, u64 duration, u32 timescale, bool live) noexcept {
-    if (!s || !byte_range_valid(s, sizeof(*s)) || s->initialization.base || s->count ||
-        s->slots[0].storage.base || s->slots[1].storage.base || !init.data || !init.count || init.count > 1024 * 1024 ||
-        !byte_range_valid(init) || mp4_segment_store_overlaps(*s, init.data, init.count) || !count || count > 8192 ||
-        !timescale || timescale > 1000000000 || !duration || duration > u64{86400} * timescale) return E::invalid_input;
+    if (s->initialization.base || s->count || s->slots[0].storage.base || s->slots[1].storage.base || !count ||
+        count > 8192 || !timescale || timescale > 1000000000 || !duration || duration > u64{86400} * timescale)
+        return E::invalid_input;
     Mp4SegmentStore value{};
     const auto parsed = mp4_fragment_track_initialize(init, audio, &value.track);
     if (parsed != E::none) return parsed;
@@ -66,11 +57,10 @@ Mp4DemuxError mp4_segment_store_request(Mp4SegmentStore* s, u32 number) noexcept
     return E::data_pending;
 }
 Mp4DemuxError mp4_segment_store_accept(Mp4SegmentStore* s, u32 number, u64 serial, ConstSlice<u8> bytes) noexcept {
-    if (!s || s->transport || !s->initialization.base || !s->pending || s->demand != number || serial != s->request_serial ||
-        number >= s->count || !bytes.data || !bytes.count || !byte_range_valid(bytes) ||
-        mp4_segment_store_overlaps(*s, bytes.data, bytes.count)) return E::invalid_input;
+    if (s->transport || !s->initialization.base || !s->pending || s->demand != number || serial != s->request_serial ||
+        number >= s->count) return E::invalid_input;
+    // The caller bounds the body: 1 MiB for audio, 8 MiB for video (segmented_video_accept).
     const u32 capacity = s->track.audio ? 1024 * 1024 : 8 * 1024 * 1024;
-    if (bytes.count > capacity) return E::unsupported;
     Mp4MediaSegment parsed{};
     const auto error = mp4_media_segment_initialize(bytes, s->track, &parsed);
     if (error != E::none) return error;

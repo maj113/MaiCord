@@ -1,7 +1,6 @@
 #include "maicord/media/containers/mp4_fragment_source.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/containers/mp4_segment_store.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "mp4_demux_detail.hpp"
 // Container parsing, once per sample and no byte loop: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
@@ -79,12 +78,6 @@ E load(Mp4FragmentSource& stream) noexcept {
 bool mp4_fragment_source_valid(const Mp4FragmentSource& stream) noexcept {
     return (stream.source != nullptr) != (stream.segments != nullptr);
 }
-bool mp4_fragment_source_overlaps(const Mp4FragmentSource& stream, const void* p, u32 bytes) noexcept {
-    if (!byte_range_valid(p, bytes) || byte_ranges_overlap(&stream, sizeof(stream), p, bytes)) return true;
-    if (stream.segments) return mp4_segment_store_overlaps(*stream.segments, p, bytes);
-    return stream.source && (byte_ranges_overlap(stream.source, sizeof(*stream.source), p, bytes) ||
-        byte_ranges_overlap(stream.source->base, stream.source->total_bytes, p, bytes));
-}
 ConstSlice<u8> mp4_fragment_source_bytes(const Mp4FragmentSource& stream) noexcept {
     return stream.segments ? ConstSlice<u8>{stream.segments->initialization.base, stream.segments->initialization_bytes}
         : stream.source ? progressive_source_bytes(*stream.source) : ConstSlice<u8>{};
@@ -107,8 +100,7 @@ E sample_bytes(Mp4FragmentSource& stream, u32 segment, const Mp4FragmentSample& 
 }
 }
 Mp4DemuxError mp4_fragment_source_initialize_segments(Mp4SegmentStore* store, Mp4FragmentSource* output) noexcept {
-    if (!store || !store->count || !output || output->source || output->segments ||
-        mp4_segment_store_overlaps(*store, output, sizeof(*output))) return E::invalid_input;
+    if (!store || !store->count || output->source || output->segments) return E::invalid_input;
     auto error = mp4_segment_store_request(store, 0);
     if (error != E::none) return error;
     const auto* first = mp4_segment_store_find(*store, 0);
@@ -145,8 +137,7 @@ bool mp4_fragment_source_refresh(Mp4FragmentSource* stream) noexcept {
 }
 Mp4DemuxError mp4_fragment_source_initialize(ProgressiveSource* source, bool audio,
                                              Mp4FragmentSource* output) noexcept {
-    if (!source || !source->base || !source->total_bytes || !output || output->source || output->segments ||
-        byte_ranges_overlap(progressive_source_bytes(*source), {reinterpret_cast<const u8*>(output), sizeof(*output)}))
+    if (!source || !source->base || !source->total_bytes || output->source || output->segments)
         return E::invalid_input;
     const auto reader = audio ? ProgressiveTrack::audio : ProgressiveTrack::video;
     if (source->readers[audio ? 1 : 0].metadata_bytes) return E::invalid_input;
@@ -178,8 +169,7 @@ Mp4DemuxError mp4_fragment_source_initialize(ProgressiveSource* source, bool aud
     return E::none;
 }
 Mp4DemuxError mp4_fragment_source_find(Mp4FragmentSource* stream, u64 time, Mp4FragmentRange* output) noexcept {
-    if (!stream || !mp4_fragment_source_valid(*stream) || !output ||
-        mp4_fragment_source_overlaps(*stream, output, sizeof(*output))) return E::invalid_input;
+    if (!mp4_fragment_source_valid(*stream)) return E::invalid_input;
     if (stream->segments && stream->segments->live && !mp4_fragment_source_refresh(stream)) return E::malformed;
     if (time < stream->index.first_time || time - stream->index.first_time >= stream->index.duration) return E::invalid_input;
     if (!stream->segments) return mp4_fragment_index_seek(stream->index, time, output) ? E::none : E::malformed;
@@ -220,8 +210,7 @@ Mp4DemuxError mp4_fragment_source_find(Mp4FragmentSource* stream, u64 time, Mp4F
     return E::unsupported;
 }
 Mp4DemuxError mp4_fragment_source_peek(Mp4FragmentSource* stream, Mp4FragmentPacket* output) noexcept {
-    if (!stream || !mp4_fragment_source_valid(*stream) || !output ||
-        mp4_fragment_source_overlaps(*stream, output, sizeof(*output))) return E::invalid_input;
+    if (!mp4_fragment_source_valid(*stream)) return E::invalid_input;
     if (stream->segments && stream->segments->live && !mp4_fragment_source_refresh(stream)) return E::malformed;
     mp4_fragment_source_cancel_prepare(stream);
     if (stream->ended) return E::end_of_stream;
@@ -307,8 +296,7 @@ E packet_unit(const Mp4FragmentSource& stream, const Mp4FragmentPacket& packet, 
 } // namespace
 Mp4DemuxError mp4_fragment_source_prepare(Mp4FragmentSource* stream, u32 segment, u32 sample,
                                           Mp4FragmentPosition* output) noexcept {
-    if (!stream || !mp4_fragment_source_valid(*stream) || !output ||
-        mp4_fragment_source_overlaps(*stream, output, sizeof(*output))) return E::invalid_input;
+    if (!mp4_fragment_source_valid(*stream)) return E::invalid_input;
     if (stream->segments && stream->segments->live && !mp4_fragment_source_refresh(stream)) return E::malformed;
     Mp4FragmentPosition value{};
     value.owner = stream;
@@ -376,16 +364,11 @@ bool mp4_fragment_source_adopt(Mp4FragmentSource* stream, const Mp4FragmentPosit
     return true;
 }
 Mp4DemuxError mp4_fragment_position_unit(const Mp4FragmentPosition& position, Mp4AccessUnit* output) noexcept {
-    if (!position.owner || !mp4_fragment_source_valid(*position.owner) || !output ||
-        position.generation != generation(*position.owner) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(&position), sizeof(position)},
-                            {reinterpret_cast<const u8*>(output), sizeof(*output)}) ||
-        mp4_fragment_source_overlaps(*position.owner, output, sizeof(*output))) return E::invalid_input;
+    if (!position.owner || !mp4_fragment_source_valid(*position.owner) ||
+        position.generation != generation(*position.owner)) return E::invalid_input;
     return packet_unit(*position.owner, position.packet, output);
 }
 Mp4DemuxError mp4_fragment_source_unit(Mp4FragmentSource* stream, Mp4AccessUnit* output) noexcept {
-    if (!stream || !mp4_fragment_source_valid(*stream) || !output ||
-        mp4_fragment_source_overlaps(*stream, output, sizeof(*output))) return E::invalid_input;
     Mp4FragmentPacket packet{};
     const auto error = mp4_fragment_source_peek(stream, &packet);
     if (error != E::none) return error;

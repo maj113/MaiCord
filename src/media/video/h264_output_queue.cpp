@@ -5,14 +5,15 @@
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
+// push keeps count at 17 at most and every queued surface below 32.
 static u32 h264_pending_surfaces(const H264OutputQueue& queue) noexcept {
     u32 mask = 0;
-    for (u32 i = 0; i < queue.count && i < 17; ++i)
-        if (queue.pictures[i].surface < 32) mask |= 1u << queue.pictures[i].surface;
+    for (u32 i = 0; i < queue.count; ++i)
+        mask |= 1u << queue.pictures[i].surface;
     return mask;
 }
+// Every caller's capacity is its surface pool, 32 at most.
 u8 h264_free_surface(const H264OutputQueue& queue, u32 references, u8 capacity) noexcept {
-    if (!capacity || capacity > 32 || queue.count > 17) return 255;
     u32 busy = references | h264_pending_surfaces(queue);
     if (queue.leased < 32) busy |= 1u << queue.leased;
     for (u8 i = 0; i < capacity; ++i) if (!(busy & (1u << i))) return i;
@@ -25,13 +26,13 @@ bool h264_output_ready(const H264OutputQueue& queue, u32 references,
     return population_count(references | h264_pending_surfaces(queue)) > max_buffering;
 }
 bool h264_output_push(H264OutputQueue* queue, H264Output picture) noexcept {
-    if (!queue || queue->count >= 17 || picture.surface >= 32 || picture.surface == queue->leased ||
+    if (queue->count >= 17 || picture.surface >= 32 || picture.surface == queue->leased ||
         (h264_pending_surfaces(*queue) & (1u << picture.surface))) return false;
     queue->pictures[queue->count++] = picture;
     return true;
 }
 bool h264_output_pop(H264OutputQueue* queue, H264Output* picture) noexcept {
-    if (!queue || !picture || !queue->count || queue->count > 17 || queue->leased != 255) return false;
+    if (!queue->count || queue->leased != 255) return false;
     u32 selected = 0;
     for (u32 i = 1; i < queue->count; ++i)
         if (queue->pictures[i].poc < queue->pictures[selected].poc) selected = i;

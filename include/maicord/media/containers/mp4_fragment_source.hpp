@@ -27,7 +27,6 @@ struct Mp4FragmentSource {
 };
 static_assert(sizeof(Mp4FragmentSource) <= 560);
 bool mp4_fragment_source_valid(const Mp4FragmentSource&) noexcept;
-bool mp4_fragment_source_overlaps(const Mp4FragmentSource&, const void*, u32) noexcept;
 ConstSlice<u8> mp4_fragment_source_bytes(const Mp4FragmentSource&) noexcept;
 // Short-lived seek proposal. It owns no lease and must be used immediately on
 // the same lane, before another read/select/write/eviction. The current source

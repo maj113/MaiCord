@@ -64,8 +64,6 @@ u32 escapes_in(const u8* data, u32 bytes) noexcept {
 
 HevcError hevc_parse_slice_detail(const HevcNal& n, const HevcConfiguration& c, const HevcSliceDetail* previous,
                                   HevcSliceDetail* output) noexcept {
-    if (!output)
-        return HevcError::invalid_input;
     const auto& s = c.sps;
     const auto& p = c.pps;
     auto b = hevc_payload(n.bytes, n.type);

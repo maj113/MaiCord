@@ -9,7 +9,6 @@ constexpr bool fits(i64 n) noexcept { return n >= (-2'147'483'647ll - 1) && n <=
 
 H264Error h264_picture_order(const H264PocState& state, const H264Sps& sps,
     const H264Slice& slice, H264PictureOrder* output) noexcept {
-    if (!output) return H264Error::invalid_input;
     if (!state.ready && !slice.idr) return H264Error::unsupported;
     const u32 max_frame = 1u << sps.frame_num_bits;
     if (slice.frame_num >= max_frame || (slice.idr && (slice.frame_num || !slice.reference)))
@@ -55,7 +54,6 @@ H264Error h264_picture_order(const H264PocState& state, const H264Sps& sps,
 
 H264Error h264_picture_order_commit(H264PocState* state, const H264Slice& slice,
     H264PictureOrder* picture) noexcept {
-    if (!state || !picture || slice.marking_count > 32) return H264Error::invalid_input;
     bool reset = false;
     for (u32 i = 0; i < slice.marking_count; ++i) reset |= slice.marking[i].operation == 5;
     H264PictureOrder order = *picture;

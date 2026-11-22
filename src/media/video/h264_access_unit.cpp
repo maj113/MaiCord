@@ -60,8 +60,6 @@ H264Error repeated_parameter(const H264Nal& nal, ConstSlice<u8> avcc, const H264
 } // namespace
 H264Error h264_parse_picture(ConstSlice<u8> bytes, u8 length_bytes, const H264Sps& sps, const H264Pps& pps,
                              H264Picture* output, ConstSlice<u8> avcc) noexcept {
-    if (!output)
-        return H264Error::invalid_input;
     H264Picture picture{};
     picture.all_intra = true;
     H264NalCursor cursor{bytes, 0, length_bytes};

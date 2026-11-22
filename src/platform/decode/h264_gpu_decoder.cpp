@@ -8,7 +8,6 @@
 #include "maicord/media/containers/mp4_fragment_source.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/initguid.hpp"
 #include "maicord/sys/dxva.hpp"
@@ -107,7 +106,7 @@ HRESULT submit(State* s, const H264ReferencePlan& plan, u8 surface) noexcept {
 static bool initialize_decoder(H264GpuDecoder* probe, ConstSlice<u8> encoded, ID3D11Device* device,
                                  ID3D11DeviceContext* context,
                                  Mp4SourceAvailability availability, Mp4FragmentSource* fragmented) noexcept {
-    if (!probe || !device || !context || !encoded.data || !encoded.count)
+    if (!encoded.data || !encoded.count)
         return false;
     h264_gpu_decoder_release(probe);
     // A progressive source is borrowed in place; its owner outlives release.
@@ -200,8 +199,7 @@ bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, 
 bool h264_gpu_decoder_initialize_fragmented(H264GpuDecoder* decoder, Mp4FragmentSource* source,
                                             ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
     Mp4SourceAvailability availability{};
-    if (!decoder || decoder->state || !device || !context || !source ||
-        !h264_fragment_availability(source, &decoder->demux_error, &availability)) return false;
+    if (!h264_fragment_availability(source, &decoder->demux_error, &availability)) return false;
     return initialize_decoder(decoder, mp4_fragment_source_bytes(*source), device, context, availability, source);
 }
 
@@ -219,7 +217,7 @@ Mp4DecodedFrame output_frame(State* s) noexcept {
 Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, u32 max_submissions) noexcept {
     Mp4DecodedFrame frame{};
     frame.error = Mp4DecodeError::invalid_input;
-    if (!probe || !probe->state) return frame;
+    if (!probe->state) return frame;
     auto* s = static_cast<State*>(probe->state);
     s->seek.pending = false;
     if(max_submissions&&s->output.leased!=255)return frame;
@@ -230,7 +228,7 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, u32 max_submissions
     for (;;) {
         const auto& a = s->picture.sps;
         if (s->output.count && h264_output_ready(s->output, reference_mask(*s),
-            h264_sps_output_reorder(a), maximum<u8>(h264_sps_dpb_frames(a), 1))) {
+            h264_sps_output_reorder(a), h264_sps_dpb_frames(a))) {
             return output_frame(s);
         }
         // The unit is read only when it is ok, and the cursor copy only for a plain MP4.
@@ -316,18 +314,14 @@ ConstSlice<u8> h264_gpu_decoder_source(const H264GpuDecoder& decoder) noexcept {
     return s&&s->demux.ready?s->demux.encoded:ConstSlice<u8>{};
 }
 bool h264_gpu_decoder_acknowledge_frame(H264GpuDecoder* decoder) noexcept {
-    if(!decoder||!decoder->state)return false;
+    if(!decoder->state)return false;
     auto* s=static_cast<State*>(decoder->state);if(!s->demux.ready)return false;
     s->output.leased=255;return true;
 }
 Mp4DemuxError h264_gpu_decoder_seek(H264GpuDecoder* decoder,i64 target,Mp4SeekPoint* point) noexcept {
-    if(!decoder||!decoder->state||!point)return Mp4DemuxError::invalid_input;
+    if(!decoder->state)return Mp4DemuxError::invalid_input;
     auto* s=static_cast<State*>(decoder->state);
-    const ConstSlice<u8> output{reinterpret_cast<const u8*>(point),sizeof(*point)};
-    if(!s->demux.ready||s->output.leased!=255||!byte_range_valid(output)||
-        byte_ranges_overlap(output,{reinterpret_cast<const u8*>(decoder),sizeof(*decoder)})||
-        byte_ranges_overlap(output,{reinterpret_cast<const u8*>(s),sizeof(*s)})||
-        byte_ranges_overlap(output,s->demux.encoded))return Mp4DemuxError::invalid_input;
+    if(!s->demux.ready||s->output.leased!=255)return Mp4DemuxError::invalid_input;
     Mp4Demuxer next; copy_value(&next, s->demux);Mp4SeekPoint selected{};
     const auto result=s->fragmented ? h264_fragment_seek(*s->fragmented,&s->seek,s->picture,target,&selected,false)
                                     : mp4_demux_seek_sync(&next,target,&selected);
@@ -338,7 +332,7 @@ Mp4DemuxError h264_gpu_decoder_seek(H264GpuDecoder* decoder,i64 target,Mp4SeekPo
     return Mp4DemuxError::none;
 }
 bool h264_gpu_decoder_rewind(H264GpuDecoder* decoder) noexcept {
-    if(!decoder||!decoder->state)return false;
+    if(!decoder->state)return false;
     auto* s=static_cast<State*>(decoder->state);
     if (s->fragmented) {
         Mp4SeekPoint point{};
@@ -350,7 +344,7 @@ bool h264_gpu_decoder_rewind(H264GpuDecoder* decoder) noexcept {
     copy_value(&s->demux, next);reset_value(&s->references);reset_value(&s->output);return true;
 }
 bool h264_gpu_decoder_seek_start(H264GpuDecoder* decoder) noexcept {
-    if(!decoder||!decoder->state)return false;
+    if(!decoder->state)return false;
     const auto* s=static_cast<const State*>(decoder->state);
     if(!s->demux.ready||s->output.leased!=255)return false;
     if(!h264_gpu_decoder_rewind(decoder))return false;
@@ -358,7 +352,6 @@ bool h264_gpu_decoder_seek_start(H264GpuDecoder* decoder) noexcept {
 }
 
 void h264_gpu_decoder_release(H264GpuDecoder* probe) noexcept {
-    if (!probe) return;
     if (auto* s = static_cast<State*>(probe->state)) {
         gpu_decoder_surfaces_release(&s->surfaces);
         com_release(s->decoder);
@@ -414,7 +407,7 @@ void gpu_decoder_fence_release(GpuDecoderFence* f) noexcept {
 }
 
 bool h264_gpu_decoder_wait(H264GpuDecoder* decoder, u32 timeout_ms) noexcept {
-    if (!decoder || !decoder->state || !timeout_ms || timeout_ms > 16) return false;
+    if (!decoder->state || !timeout_ms || timeout_ms > 16) return false;
     auto* s = static_cast<State*>(decoder->state);
     const HRESULT status = gpu_decoder_fence_wait(&s->wait, s->context, s->guard, timeout_ms);
     if (FAILED(status)) decoder->status = status;

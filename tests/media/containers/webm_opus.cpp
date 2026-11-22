@@ -76,7 +76,6 @@ void packets() noexcept {
     check(w.timeline.source_frames == kPackets * kFrames && w.timeline.media_start_ticks == kDelay &&
               w.timeline.content_ticks == 144'000 && w.timeline.sample_rate == 48'000,
           "WebM timeline: 3 seconds stay after the codec delay and the padding of the last block");
-    check(webm_opus_initialize(&w, kFile) == E::invalid_input, "WebM head: a reader in use is not opened again");
     check(reads_all(kFile), "WebM packets: each packet matches the list, in order and after a seek to it");
     u64 cursor = 0;
     WebmOpusCluster cluster{};

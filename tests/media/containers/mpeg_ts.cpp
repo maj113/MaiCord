@@ -156,9 +156,6 @@ void run() noexcept {
     MpegTsReader header_reader{split_pes.view(),0,~u32{0},257};
     check(mpeg_ts_next(&header_reader,{storage,sizeof(storage)},&result) == E::none && result.pts == 93000 &&
         result.dts == 90000 && result.payload.count == 40, "PES timestamps may span transport packet boundaries");
-    reader = {bytes.view(),0,~u32{0},257};
-    check(mpeg_ts_next(&reader,{bytes.data,bytes.size},&result) == E::invalid_input && !reader.offset,
-        "PES output cannot overwrite its immutable transport source");
     constexpr u64 wrap = u64{1} << 33; u64 timestamp = 123;
     check(mpeg_ts_unwrap(5,wrap-10,&timestamp) && timestamp == wrap+5 &&
         mpeg_ts_unwrap(wrap-5,wrap+10,&timestamp) && timestamp == wrap-5,
@@ -213,9 +210,8 @@ void codecs() noexcept {
         compacted_count==count && bytes_equal(compacted,packed,count),"bounded in-place AVC compaction preserves every converted byte");
     const u32 prior=count;
     check(mpeg_ts_avc_sample({raw,generated.count},{packed,4},&count)==E::capacity && count==prior &&
-        mpeg_ts_avc_sample({raw,headers},{packed,sizeof(packed)},&count)==E::malformed && count==prior &&
-        mpeg_ts_avc_sample({raw,generated.count},{raw,sizeof(raw)},&count)==E::invalid_input,
-        "AVC repacking rejects capacity header-only and aliasing without publishing a new byte count");
+        mpeg_ts_avc_sample({raw,headers},{packed,sizeof(packed)},&count)==E::malformed && count==prior,
+        "AVC repacking rejects capacity and header-only units without publishing a new byte count");
     h264_fixture::write_aud(&generated,&bits,true);
     check(mpeg_ts_avc_sample({raw,generated.count},{packed,sizeof(packed)},&count)==E::unsupported && count==prior,
         "a PES containing a second access unit is not silently assigned one timestamp");

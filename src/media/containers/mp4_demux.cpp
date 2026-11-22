@@ -347,11 +347,9 @@ Mp4DemuxError edits(Mp4Demuxer& d,const Box& moov,const Box& track,
 
 Mp4DemuxError initialize_tables(Mp4Demuxer* demuxer,ConstSlice<u8> encoded,
     u32 handler,Box* description,Mp4SourceAvailability availability) noexcept {
-    if (!demuxer || !description || !byte_range_valid(encoded) || !encoded.data || encoded.count < 16u ||
-        !byte_range_valid({reinterpret_cast<const u8*>(demuxer),sizeof(*demuxer)}) ||
-        byte_ranges_overlap(encoded,{reinterpret_cast<const u8*>(demuxer),sizeof(*demuxer)})) {
+    // Every caller's demuxer is its own local or member, apart from the source.
+    if (!byte_range_valid(encoded) || !encoded.data || encoded.count < 16u)
         return Mp4DemuxError::invalid_input;
-    }
     reset_value<Mp4Demuxer>(demuxer);
     if (encoded.count>(availability.available?kMediaMaximumProgressiveVideoBytes:kMp4DemuxMaximumEncodedBytes))
         return Mp4DemuxError::unsupported;
@@ -504,10 +502,7 @@ bool sample_key_less(i64 pts,u32 index,i64 bound_pts,u32 bound_index) noexcept {
 }
 
 Mp4DemuxError seek_sync(Mp4Demuxer* d,i64 target,Mp4SeekPoint* point,SyncClassifier classify) noexcept {
-    if(!d||!point||!d->ready||target<0||static_cast<u64>(target)>d->duration_us)return Mp4DemuxError::invalid_input;
-    const ConstSlice<u8> output{reinterpret_cast<const u8*>(point),sizeof(*point)};
-    if(!byte_range_valid(output)||byte_ranges_overlap(output,{reinterpret_cast<const u8*>(d),sizeof(*d)})||
-        byte_ranges_overlap(output,d->encoded))return Mp4DemuxError::invalid_input;
+    if(!d->ready||target<0||static_cast<u64>(target)>d->duration_us)return Mp4DemuxError::invalid_input;
     Mp4Demuxer scan,selected{};copy_value(&scan,*d);mp4_demux_reset(&scan);
     const Mp4SourceAvailability availability=scan.availability;
     reset_value(&scan.availability);
@@ -557,10 +552,9 @@ using namespace mp4_demux_detail;
 
 Mp4DemuxError mp4_demux_initialize(Mp4Demuxer* demuxer,ConstSlice<u8> encoded,
                                    Mp4SourceAvailability availability) noexcept {
-    if(!demuxer)return Mp4DemuxError::invalid_input;
     Box description{};
     const auto result=initialize_tables(demuxer,encoded,fourcc('v','i','d','e'),&description,availability);
-    // invalid_input rejected the arguments before touching demuxer, which may alias them.
+    // invalid_input rejected the source before touching demuxer.
     if(result!=Mp4DemuxError::none){if(result!=Mp4DemuxError::invalid_input)demuxer->ready=false;return result;}
     const auto described=parse_description(demuxer,description);
     if(described!=Mp4DemuxError::none)demuxer->ready=false;
@@ -568,7 +562,7 @@ Mp4DemuxError mp4_demux_initialize(Mp4Demuxer* demuxer,ConstSlice<u8> encoded,
 }
 
 void mp4_demux_reset(Mp4Demuxer* demuxer) noexcept {
-    if (!demuxer || !demuxer->ready) {
+    if (!demuxer->ready) {
         return;
     }
     demuxer->sample_index = 0;
@@ -589,7 +583,7 @@ void mp4_demux_reset(Mp4Demuxer* demuxer) noexcept {
 namespace {
 // Reads the next sample into `result` and moves the cursor past it. The caller stores the returned error.
 Mp4DemuxError next_unit(Mp4Demuxer* demuxer, Mp4AccessUnit& result) noexcept {
-    if (!demuxer || !demuxer->ready)
+    if (!demuxer->ready)
         return Mp4DemuxError::invalid_input;
     if (demuxer->sample_index >= demuxer->sample_count)
         return Mp4DemuxError::end_of_stream;
@@ -663,13 +657,12 @@ ConstSlice<u8> mp4_demux_avcc(const Mp4Demuxer& demuxer) noexcept {
 }
 
 Mp4DemuxError mp4_demux_seek_sample(Mp4Demuxer* d,u32 sample) noexcept {
-    if(!d||!d->ready||sample>=d->sample_count)return Mp4DemuxError::invalid_input;
+    if(!d->ready||sample>=d->sample_count)return Mp4DemuxError::invalid_input;
     Mp4Demuxer cursor=*d;mp4_demux_reset(&cursor);
     for(u32 i=0;i<sample;++i){const auto unit=mp4_demux_next(&cursor);if(!unit.ok())return unit.error;}
     *d=cursor;return Mp4DemuxError::none;
 }
 Mp4DemuxError mp4_demux_seek_sync(Mp4Demuxer* d,i64 target,Mp4SeekPoint* point) noexcept {
-    if(d&&d->nal_length_bytes!=1&&d->nal_length_bytes!=2&&d->nal_length_bytes!=4)return Mp4DemuxError::invalid_input;
     return seek_sync(d,target,point,[](ConstSlice<u8> bytes,u8 length_bytes) noexcept {
         u32 at{};bool idr=false,non_idr=false;
         while(at<bytes.count){if(bytes.count-at<length_bytes)return SyncKind::malformed;
@@ -687,7 +680,6 @@ bool mp4_demux_available(const Mp4Demuxer& d,ConstSlice<u8> bytes) noexcept {
     return d.availability.available(d.availability.context,static_cast<u64>(bytes.data-d.encoded.data),bytes.count);
 }
 Mp4AccessUnit mp4_demux_next_ready(Mp4Demuxer* d) noexcept {
-    if(!d)return mp4_demux_next(d);
     Mp4Demuxer cursor;copy_value(&cursor,*d);
     auto unit=mp4_demux_next(&cursor);
     if(unit.ok()&&!mp4_demux_available(*d,unit.bytes)){unit.error=Mp4DemuxError::data_pending;return unit;}

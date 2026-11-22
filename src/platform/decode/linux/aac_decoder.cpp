@@ -5,7 +5,6 @@
 // for the Windows decoder. HE-AAC (SBR, PS) is refused at initialization: its core stream is not the PCM the
 // container's configuration promises.
 #include "maicord/platform/decode/aac_decoder.hpp"
-#include "../../audio/audio_support.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/media/audio/aac_lc.hpp"
@@ -27,8 +26,6 @@ struct State {
 constexpr usize align_up(usize value) noexcept {
     return (value + kAacLcStateAlignment - 1) & ~(kAacLcStateAlignment - 1);
 }
-
-using audio_detail::disjoint;
 
 // The decoder state and the State block in one allocation: the core first (it needs 64-byte alignment, a page gives
 // it), then the block.
@@ -57,8 +54,7 @@ State* state_of(const AacDecoder& owner) noexcept {
 } // namespace
 
 AacDecodeResult aac_decoder_initialize(AacDecoder* owner, ConstSlice<u8> asc, u32 rate, u32 channels) noexcept {
-    if (!owner || !aac_decoder_configuration_valid(asc, rate, channels) ||
-        !disjoint(owner, sizeof(*owner), asc.data, asc.count))
+    if (!aac_decoder_configuration_valid(asc, rate, channels))
         return {Error::invalid_input};
     if (owner->initialized || owner->runtime)
         return {Error::busy};
@@ -77,9 +73,8 @@ AacDecodeResult aac_decoder_initialize(AacDecoder* owner, ConstSlice<u8> asc, u3
 }
 
 AacDecodeResult aac_decoder_submit(AacDecoder* owner, ConstSlice<u8> frame, i64 pts, u64 duration) noexcept {
-    if (!owner || !owner->initialized || !frame.count || frame.count > kAacDecoderMaximumPacketBytes ||
-        pts == (-0x7fffffffffffffffll - 1) || !duration || duration > static_cast<u64>(0x7fffffffffffffffll) ||
-        !disjoint(owner, sizeof(*owner), frame.data, frame.count))
+    if (!owner->initialized || !frame.count || frame.count > kAacDecoderMaximumPacketBytes ||
+        pts == (-0x7fffffffffffffffll - 1) || !duration || duration > static_cast<u64>(0x7fffffffffffffffll))
         return {Error::invalid_input};
     if (owner->draining || owner->ended)
         return {Error::end_of_stream};
@@ -108,7 +103,7 @@ AacDecodeResult aac_decoder_submit(AacDecoder* owner, ConstSlice<u8> frame, i64 
 }
 
 AacDecodedBlock aac_decoder_read(AacDecoder* owner, Slice<u8> pcm) noexcept {
-    if (!owner || !owner->initialized || !disjoint(owner, sizeof(*owner), pcm.data, pcm.count))
+    if (!owner->initialized)
         return {Error::invalid_input};
     if (owner->ended)
         return {Error::end_of_stream};
@@ -123,8 +118,6 @@ AacDecodedBlock aac_decoder_read(AacDecoder* owner, Slice<u8> pcm) noexcept {
         return {Error::need_input};
     }
     const u32 bytes = kFrameSamples * owner->channels * static_cast<u32>(sizeof(float));
-    if (!disjoint(state, sizeof(*state), pcm.data, pcm.count))
-        return {Error::invalid_input};
     copy_bytes(pcm.data, state->pcm, bytes);
     state->pending = false;
     owner->output_frames += kFrameSamples;
@@ -132,7 +125,7 @@ AacDecodedBlock aac_decoder_read(AacDecoder* owner, Slice<u8> pcm) noexcept {
 }
 
 AacDecodeResult aac_decoder_drain(AacDecoder* owner) noexcept {
-    if (!owner || !owner->initialized)
+    if (!owner->initialized)
         return {Error::invalid_input};
     if (owner->draining)
         return {};
@@ -143,7 +136,7 @@ AacDecodeResult aac_decoder_drain(AacDecoder* owner) noexcept {
 }
 
 AacDecodeResult aac_decoder_flush(AacDecoder* owner) noexcept {
-    if (!owner || !owner->initialized)
+    if (!owner->initialized)
         return {Error::invalid_input};
     if (State* state = state_of(*owner)) {
         aac_lc_reset(state->decoder);
@@ -156,8 +149,6 @@ AacDecodeResult aac_decoder_flush(AacDecoder* owner) noexcept {
 }
 
 AacDecodeResult aac_decoder_release(AacDecoder* owner) noexcept {
-    if (!owner)
-        return {Error::invalid_input};
     if (State* state = state_of(*owner)) {
         void* memory = owner->runtime;
         const usize bytes = state->bytes;

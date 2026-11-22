@@ -7,8 +7,6 @@ H264Error h264_gpu_configuration_from_demux(const Mp4Demuxer& input, H264GpuPict
                                             Mp4DemuxError* demux_error) noexcept {
     if (demux_error)
         *demux_error = Mp4DemuxError::none;
-    if (!out)
-        return H264Error::invalid_input;
     Mp4Demuxer demux = input;
     const auto unit = mp4_demux_next_ready(&demux);
     if (!unit.ok()) {
@@ -21,7 +19,7 @@ H264Error h264_gpu_configuration_from_demux(const Mp4Demuxer& input, H264GpuPict
 }
 H264Error h264_gpu_configuration_from_unit(const Mp4AccessUnit& unit, ConstSlice<u8> avcc,
     u8 length_bytes, u32 width, u32 height, H264GpuPicture* out) noexcept {
-    if (!out || !unit.ok() || !unit.bytes.data || !unit.bytes.count || !avcc.data || !avcc.count)
+    if (!unit.bytes.data || !unit.bytes.count || !avcc.data || !avcc.count)
         return H264Error::invalid_input;
     H264GpuPicture picture{};
     picture.unit = unit;

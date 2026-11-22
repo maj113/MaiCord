@@ -32,15 +32,15 @@ struct Mp4SegmentStore {
     bool live{}, ended{}, refresh_pending{}, transport{};
 };
 static_assert(sizeof(Mp4SegmentStore) <= 1024);
-// Copies the bounded initialization once. Segment pages are allocated only on
-// receipt: <=8 MiB per video slot, <=1 MiB per audio slot. No per-packet work.
+// Copies the initialization (not empty, at most 1 MiB, outside the store: the caller's download) once. Segment
+// pages are allocated only on receipt: <=8 MiB per video slot, <=1 MiB per audio slot, the caller's bound of each
+// body. No per-packet work.
 Mp4DemuxError mp4_segment_store_initialize(Mp4SegmentStore*, ConstSlice<u8> initialization,
     bool audio, u32 count, u64 nominal_duration, u32 nominal_timescale, bool live = false) noexcept;
 // Extend stable live file ordinals after a validated playlist refresh. Cached
 // active bytes survive removal from the advertised window. An uncached expired
 // ordinal needs caller resynchronization; it must never be silently renumbered.
 Mp4DemuxError mp4_segment_store_extend(Mp4SegmentStore*, u32 first_available, u32 count, bool ended) noexcept;
-bool mp4_segment_store_overlaps(const Mp4SegmentStore&, const void*, u32) noexcept;
 // A file's interval must not overlap a resident neighbour, and live neighbours abut exactly.
 bool mp4_segment_store_range_fits(const Mp4SegmentStore&, u32 number, const Mp4FragmentRange&) noexcept;
 const Mp4SegmentSlot* mp4_segment_store_find(const Mp4SegmentStore&, u32 number) noexcept;

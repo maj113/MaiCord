@@ -193,7 +193,7 @@ inline u32 av1_next(RtpVideoPacketizer& p, u8* out) noexcept {
 
 bool rtp_packetizer_begin(RtpVideoPacketizer* packetizer, RtpVideoPacketCodec codec, ConstSlice<u8> frame,
                           bool keyframe, u32 max_payload) noexcept {
-    if (!packetizer || !frame.data || !frame.count || max_payload < 64)
+    if (!frame.data || !frame.count || max_payload < 64)
         return false;
     reset_value(packetizer);
     auto& p = *packetizer;

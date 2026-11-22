@@ -280,7 +280,12 @@ int run_codec(ID3D11Device* device, ID3D11DeviceContext* context, GpuStreamCodec
     ID3D11Texture2D* const source = sources[(kFrames - 1) & 1];
     GpuStreamEncoder* encoder = gpu_stream_encoder_create(
         {device, codec, {kWidth, kHeight, kMaxFps, kBitrate}, {&g_collector, on_unit, on_ended}});
-    test_check(&failures, encoder != nullptr, "the encoder starts");
+    if (!encoder) {
+        test_check(&failures, false, "the encoder starts");
+        com_release(sources[1]);
+        com_release(sources[0]);
+        return 1;
+    }
     u32 picture_of_unit[kUnits]{};
     u32 expected_units = 0;
     u64 timestamp = 0;
@@ -446,7 +451,11 @@ int run_stream(ID3D11Device* device, ID3D11DeviceContext* context, GpuStreamCode
         return 1;
     GpuStreamEncoder* encoder = gpu_stream_encoder_create(
         {device, codec, {kWidth, kHeight, 30, kBitrate}, {&g_collector, on_unit, on_ended}});
-    test_check(&failures, encoder != nullptr, "the stream encoder starts");
+    if (!encoder) {
+        test_check(&failures, false, "the stream encoder starts");
+        com_release(source);
+        return 1;
+    }
     auto* pixels = reinterpret_cast<u32*>(g_pixels);
     const u64 first = next_timestamp(0);
     u64 timestamp = first;

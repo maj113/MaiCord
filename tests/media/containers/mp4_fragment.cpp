@@ -312,8 +312,6 @@ void media_segment_tests() noexcept {
           "separate segment must use the initialization track identity");
     --track.defaults.track_id;
     const auto original = w;
-    check(mp4_media_segment_initialize(w.view(), track, reinterpret_cast<Mp4MediaSegment*>(w.data)) == E::invalid_input &&
-          bytes_equal(w.data, original.data, w.size), "separate segment output cannot overwrite borrowed media");
     byte_store_be32(w.data + index + 24, 1);
     check(mp4_media_segment_initialize(w.view(), track, &segment) == E::malformed,
           "separate media index cannot skip into the fragment header");
@@ -964,9 +962,6 @@ void audio_tests() noexcept {
     invalid = exact; invalid.source_start_ticks = ~u64{0}; invalid.media_timescale = 1;
     check(!mp4_audio_frame_time_100ns(invalid, 0, &untouched) && untouched == 99,
           "unrepresentable AAC origin cannot wrap native timestamps");
-    invalid = exact;
-    check(!mp4_audio_frame_time_100ns(invalid, 0, reinterpret_cast<i64*>(&invalid.media_start_ticks)) &&
-          bytes_equal(&invalid, &exact, sizeof(exact)), "timestamp outputs cannot overwrite their own clock metadata");
 }
 void source_tests() noexcept {
     using E = Mp4DemuxError;

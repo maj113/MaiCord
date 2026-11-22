@@ -39,8 +39,6 @@ inline void weights(HevcBits& b, u32 l0, u32 l1, bool bipred) noexcept {
 } // namespace
 HevcError hevc_parse_slice(const HevcNal& n, const HevcConfiguration& c, const HevcPictureHeader* previous,
                            HevcSlice* output) noexcept {
-    if (!output)
-        return HevcError::invalid_input;
     // Both callers read *output only after success: parse in place.
     reset_value(output);
     HevcSlice& out = *output;
@@ -236,8 +234,6 @@ bool hevc_picture_header_same(const HevcPictureHeader& a, const HevcPictureHeade
     return true;
 }
 HevcError hevc_picture_parameter_id(ConstSlice<u8> unit, u8 length, u8* id) noexcept {
-    if (!id)
-        return HevcError::invalid_input;
     HevcNalCursor cursor{unit, 0, length};
     for (u32 count = 0; count < 256; ++count) {
         const auto n = hevc_next_nal(&cursor);
@@ -262,9 +258,6 @@ HevcError hevc_picture_parameter_id(ConstSlice<u8> unit, u8 length, u8* id) noex
 }
 HevcError hevc_parse_picture(ConstSlice<u8> unit, const HevcConfiguration& c,
                              HevcPicture* output) noexcept {
-    if (!output || !unit.data || !unit.count || !c.sps.coded_width || !c.sps.max_buffering ||
-        c.sps.poc_bits < 4 || c.sps.poc_bits > 16)
-        return HevcError::invalid_input;
     HevcPicture v; // Spans below slice_count are written before they are read.
     HevcNalCursor cursor{unit, 0, c.nal_length_bytes};
     u32 nals{}, last_address{};

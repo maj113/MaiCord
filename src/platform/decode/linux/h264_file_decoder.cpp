@@ -4,7 +4,6 @@
 #include "../software/software_decoder.hpp"
 #include "../vaapi/va.hpp"
 #include "../vaapi/va_file.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_error.hpp"
@@ -338,7 +337,7 @@ u32 reference_mask(const State& s) noexcept {
 
 bool initialize_decoder(H264GpuDecoder* probe, ConstSlice<u8> encoded, GpuDevice* device,
                         Mp4SourceAvailability availability, Mp4FragmentSource* fragmented) noexcept {
-    if (!probe || !device || !encoded.data || !encoded.count)
+    if (!encoded.data || !encoded.count)
         return false;
     h264_gpu_decoder_release(probe);
     // A progressive source is borrowed in place; its owner outlives release.
@@ -438,8 +437,7 @@ bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, 
 bool h264_gpu_decoder_initialize_fragmented(H264GpuDecoder* decoder, Mp4FragmentSource* source, GpuDevice* device,
                                             GpuContext*) noexcept {
     Mp4SourceAvailability availability{};
-    if (!decoder || decoder->state || !device || !source ||
-        !h264_fragment_availability(source, &decoder->demux_error, &availability))
+    if (!h264_fragment_availability(source, &decoder->demux_error, &availability))
         return false;
     return initialize_decoder(decoder, mp4_fragment_source_bytes(*source), device, availability, source);
 }
@@ -447,7 +445,7 @@ bool h264_gpu_decoder_initialize_fragmented(H264GpuDecoder* decoder, Mp4Fragment
 Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, u32 max_submissions) noexcept {
     Mp4DecodedFrame frame{};
     frame.error = Mp4DecodeError::invalid_input;
-    if (!probe || !probe->state)
+    if (!probe->state)
         return frame;
     auto* s = static_cast<State*>(probe->state);
     s->seek.pending = false;
@@ -459,7 +457,7 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, u32 max_submissions
     for (;;) {
         const auto& a = s->picture.sps;
         const bool ready = s->session ? h264_output_ready(s->output, reference_mask(*s), h264_sps_output_reorder(a),
-                                                          maximum<u8>(h264_sps_dpb_frames(a), 1))
+                                                          h264_sps_dpb_frames(a))
                                       : h264_output_ready(s->output, 0, 0, 1); // libopenh264 reordered already
         if (s->output.count && ready)
             return output_frame(s);
@@ -574,7 +572,7 @@ ConstSlice<u8> h264_gpu_decoder_source(const H264GpuDecoder& decoder) noexcept {
 }
 
 bool h264_gpu_decoder_acknowledge_frame(H264GpuDecoder* decoder) noexcept {
-    if (!decoder || !decoder->state)
+    if (!decoder->state)
         return false;
     auto* s = static_cast<State*>(decoder->state);
     if (!s->demux.ready)
@@ -584,14 +582,10 @@ bool h264_gpu_decoder_acknowledge_frame(H264GpuDecoder* decoder) noexcept {
 }
 
 Mp4DemuxError h264_gpu_decoder_seek(H264GpuDecoder* decoder, i64 target, Mp4SeekPoint* point) noexcept {
-    if (!decoder || !decoder->state || !point)
+    if (!decoder->state)
         return Mp4DemuxError::invalid_input;
     auto* s = static_cast<State*>(decoder->state);
-    const ConstSlice<u8> output{reinterpret_cast<const u8*>(point), sizeof(*point)};
-    if (!s->demux.ready || s->output.leased != 255 || !byte_range_valid(output) ||
-        byte_ranges_overlap(output, {reinterpret_cast<const u8*>(decoder), sizeof(*decoder)}) ||
-        byte_ranges_overlap(output, {reinterpret_cast<const u8*>(s), sizeof(*s)}) ||
-        byte_ranges_overlap(output, s->demux.encoded))
+    if (!s->demux.ready || s->output.leased != 255)
         return Mp4DemuxError::invalid_input;
     Mp4Demuxer next;
     copy_value(&next, s->demux);
@@ -614,7 +608,7 @@ Mp4DemuxError h264_gpu_decoder_seek(H264GpuDecoder* decoder, i64 target, Mp4Seek
 }
 
 bool h264_gpu_decoder_rewind(H264GpuDecoder* decoder) noexcept {
-    if (!decoder || !decoder->state)
+    if (!decoder->state)
         return false;
     auto* s = static_cast<State*>(decoder->state);
     if (s->fragmented) {
@@ -641,7 +635,7 @@ bool h264_gpu_decoder_rewind(H264GpuDecoder* decoder) noexcept {
 }
 
 bool h264_gpu_decoder_seek_start(H264GpuDecoder* decoder) noexcept {
-    if (!decoder || !decoder->state)
+    if (!decoder->state)
         return false;
     const auto* s = static_cast<const State*>(decoder->state);
     if (!s->demux.ready || s->output.leased != 255)
@@ -654,8 +648,6 @@ bool h264_gpu_decoder_seek_start(H264GpuDecoder* decoder) noexcept {
 }
 
 void h264_gpu_decoder_release(H264GpuDecoder* probe) noexcept {
-    if (!probe)
-        return;
     if (auto* s = static_cast<State*>(probe->state)) {
         release_tiers(s);
         pages_release(s, s->allocation);
@@ -668,8 +660,8 @@ bool h264_gpu_decoder_busy(const H264GpuDecoder&) noexcept {
     return false;
 }
 
-bool h264_gpu_decoder_wait(H264GpuDecoder* decoder, u32) noexcept {
-    return decoder != nullptr;
+bool h264_gpu_decoder_wait(H264GpuDecoder*, u32) noexcept {
+    return true;
 }
 
 } // namespace maicord

@@ -33,10 +33,6 @@ bool hevc_container_present(ConstSlice<u8> source) noexcept {
 }
 Mp4DemuxError hevc_demux_initialize(Mp4Demuxer* output, ConstSlice<u8> source,
                                     Mp4SourceAvailability availability) noexcept {
-    // initialize_tables refuses an invalid source range with the same error.
-    if (!output || !byte_range_valid({reinterpret_cast<const u8*>(output), sizeof(*output)}) ||
-        byte_ranges_overlap(source, {reinterpret_cast<const u8*>(output), sizeof(*output)}))
-        return Mp4DemuxError::invalid_input;
     Mp4Demuxer d{};
     Box description{};
     const auto e = initialize_tables(&d, source, fourcc('v', 'i', 'd', 'e'), &description, availability);

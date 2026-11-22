@@ -129,8 +129,7 @@ HRESULT gpu_stream_create_decoder(GpuStream* stream, const GpuStreamDecoderDesc&
 // driver's bitstream and control buffers.
 HRESULT gpu_stream_submit(GpuStream* stream, const GpuStreamSubmission& submission) noexcept {
     const u8 surface = submission.surface;
-    if (surface >= stream->surfaces.count || !stream->surfaces.views[surface] || !submission.units ||
-        submission.entry_bytes > kControlBytes)
+    if (surface >= stream->surfaces.count)
         return E_INVALIDARG;
     HRESULT status = S_OK;
     for (u32 attempt = 0;; ++attempt) {

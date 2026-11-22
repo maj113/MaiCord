@@ -6,7 +6,6 @@
 #include "maicord/media/video/video_display.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "hevc_gpu_geometry.hpp"
 #if defined(_WIN32)
 #include "hevc_dxva_parameters.hpp"
@@ -180,21 +179,8 @@ bool reset(H264GpuDecoder& handle) noexcept {
 
 bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded, GpuDevice* device,
                                  [[maybe_unused]] GpuContext* context, Mp4SourceAvailability availability) noexcept {
-    if (!handle || !device || !encoded.data || !encoded.count)
-        return false;
-#if defined(_WIN32)
-    if (!context)
-        return false;
-#endif
-    hevc_gpu_decoder_release(handle);
     // A progressive source is borrowed in place; its owner outlives release.
     const bool borrowed = availability.available != nullptr;
-    if (encoded.count > (borrowed ? kMediaMaximumProgressiveVideoBytes : kMp4DemuxMaximumEncodedBytes)) {
-        handle->status = E_INVALIDARG;
-        handle->demux_error = Mp4DemuxError::unsupported;
-        handle->parse_error = H264Error::unsupported;
-        return false;
-    }
     constexpr u32 offset = (sizeof(State) + 15u) & ~15u;
     auto* s = static_cast<State*>(commit_pages(u64{offset} + (borrowed ? 0 : encoded.count)));
     if (!s) {
@@ -231,11 +217,8 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
     }
     const auto& a = s->config.sps;
     const auto surface_extent = hevc_gpu_surface_extent(a.coded_width, a.coded_height);
-    if (SUCCEEDED(result) &&
-        (a.profile != 1 || !surface_extent.width || !a.max_buffering || a.max_buffering > 15 ||
-         a.max_reorder > 15 || a.log2_min_cb_minus3 > 3 || !a.width || !a.height ||
-         a.crop_x > a.coded_width || a.width > a.coded_width - a.crop_x || a.crop_y > a.coded_height ||
-         a.height > a.coded_height - a.crop_y)) {
+    // hevc_parse_sps bounds the buffering, the coding block size and the crop; the profile and the surface size stay.
+    if (SUCCEEDED(result) && (a.profile != 1 || !surface_extent.width)) {
         handle->parse_error = H264Error::unsupported;
         result = E_INVALIDARG;
     }
@@ -312,7 +295,7 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
 Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, u32 budget) noexcept {
     Mp4DecodedFrame frame{};
     frame.error = Mp4DecodeError::invalid_input;
-    if (!handle || !handle->state)
+    if (!handle->state)
         return frame;
     auto& s = *static_cast<State*>(handle->state);
     if (budget && s.output.leased != 255)
@@ -388,7 +371,7 @@ Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, u32 budget) noexce
 }
 
 bool hevc_gpu_decoder_acknowledge_frame(H264GpuDecoder* handle) noexcept {
-    if (!handle || !handle->state)
+    if (!handle->state)
         return false;
     static_cast<State*>(handle->state)->output.leased = 255;
     return true;
@@ -408,14 +391,10 @@ H264GpuMovie hevc_gpu_decoder_movie(const H264GpuDecoder& handle) noexcept {
             first.presentation_time_us_signed, first.ok()};
 }
 Mp4DemuxError hevc_gpu_decoder_seek(H264GpuDecoder* handle, i64 target, Mp4SeekPoint* point) noexcept {
-    if (!handle || !handle->state || !point)
+    if (!handle->state)
         return Mp4DemuxError::invalid_input;
     auto& s = *static_cast<State*>(handle->state);
-    const ConstSlice<u8> out{reinterpret_cast<const u8*>(point), sizeof(*point)};
-    if (s.output.leased != 255 || !byte_range_valid(out) ||
-        byte_ranges_overlap(out, {reinterpret_cast<const u8*>(handle), sizeof(*handle)}) ||
-        byte_ranges_overlap(out, {reinterpret_cast<const u8*>(&s), sizeof(s)}) ||
-        byte_ranges_overlap(out, s.demux.encoded))
+    if (s.output.leased != 255)
         return Mp4DemuxError::invalid_input;
     auto next = s.demux;
     Mp4SeekPoint selected{};
@@ -439,7 +418,7 @@ Mp4DemuxError hevc_gpu_decoder_seek(H264GpuDecoder* handle, i64 target, Mp4SeekP
     return result;
 }
 bool hevc_gpu_decoder_seek_start(H264GpuDecoder* handle) noexcept {
-    if (!handle || !handle->state || static_cast<State*>(handle->state)->output.leased != 255)
+    if (!handle->state || static_cast<State*>(handle->state)->output.leased != 255)
         return false;
     if (!reset(*handle))
         return false;
@@ -448,8 +427,6 @@ bool hevc_gpu_decoder_seek_start(H264GpuDecoder* handle) noexcept {
     return true;
 }
 void hevc_gpu_decoder_release(H264GpuDecoder* handle) noexcept {
-    if (!handle)
-        return;
     if (auto* s = static_cast<State*>(handle->state)) {
 #if defined(_WIN32)
         gpu_decoder_surfaces_release(&s->surfaces);
@@ -468,7 +445,7 @@ void hevc_gpu_decoder_release(H264GpuDecoder* handle) noexcept {
 }
 #if defined(_WIN32)
 bool hevc_gpu_decoder_wait(H264GpuDecoder* handle, u32 timeout) noexcept {
-    if (!handle || !handle->state || !timeout || timeout > 16)
+    if (!handle->state || !timeout || timeout > 16)
         return false;
     auto& s = *static_cast<State*>(handle->state);
     const HRESULT result = gpu_decoder_fence_wait(&s.wait, s.context, s.guard, timeout);
@@ -479,7 +456,7 @@ bool hevc_gpu_decoder_wait(H264GpuDecoder* handle, u32 timeout) noexcept {
 #else
 // The decoder runs on the calling thread: there is no device backpressure to wait for.
 bool hevc_gpu_decoder_wait(H264GpuDecoder* handle, u32) noexcept {
-    return handle && handle->state;
+    return handle->state != nullptr;
 }
 #endif
 } // namespace maicord

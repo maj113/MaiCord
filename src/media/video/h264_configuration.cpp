@@ -7,7 +7,7 @@ namespace maicord {
 
 H264Error h264_select_parameters(ConstSlice<u8> avcc, u8 pps_id,
     H264Sps* sps, H264Pps* pps) noexcept {
-    if (!sps || !pps || !avcc.data || avcc.count < 7) return H264Error::invalid_input;
+    if (!avcc.data || avcc.count < 7) return H264Error::invalid_input;
     if (avcc.data[0] != 1 || (avcc.data[4] & 0xFCu) != 0xFCu ||
         (avcc.data[4] & 3u) == 2 || (avcc.data[5] & 0xE0u) != 0xE0u) return H264Error::malformed;
     const u32 sps_count = avcc.data[5] & 31u;

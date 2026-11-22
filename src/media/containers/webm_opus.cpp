@@ -248,7 +248,7 @@ bool webm_present(ConstSlice<u8> head) noexcept {
 }
 
 Mp4DemuxError webm_opus_initialize(WebmOpus* output, ConstSlice<u8> encoded, Mp4SourceAvailability availability) noexcept {
-    if (!output || output->encoded.data || !encoded.data || encoded.count < 4)
+    if (encoded.count < 4)
         return E::invalid_input;
     WebmOpus w{};
     w.encoded = encoded;

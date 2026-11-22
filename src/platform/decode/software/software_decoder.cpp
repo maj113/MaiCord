@@ -236,7 +236,7 @@ void h264_inspect(SoftwareDecoder* d, ConstSlice<u8> unit) noexcept {
     H264AnnexBCursor cursor{unit, 0};
     for (;;) {
         const H264Nal nal = h264_annexb_next(&cursor);
-        if (nal.error == H264Error::end || nal.error == H264Error::invalid_input)
+        if (nal.error == H264Error::end)
             return;
         if (nal.error != H264Error::none)
             continue;

@@ -53,7 +53,7 @@ void marking(H264Bits* b, u32 max_frame_num, H264Slice* slice) noexcept {
 } // namespace
 
 H264Error h264_slice_parameter_id(ConstSlice<u8> nal, u8* output) noexcept {
-    if (!output || !nal.data || nal.count < 2) return H264Error::invalid_input;
+    if (nal.count < 2) return H264Error::invalid_input;
     if (nal.data[0] & 0x80u) return H264Error::malformed;
     const u8 type = nal.data[0] & 31u;
     if (type != 1 && type != 5) return H264Error::unsupported;
@@ -65,7 +65,7 @@ H264Error h264_slice_parameter_id(ConstSlice<u8> nal, u8* output) noexcept {
 
 H264Error h264_parse_slice(ConstSlice<u8> nal, const H264Sps& sps,
     const H264Pps& pps, H264Slice* output) noexcept {
-    if (!output || !nal.data || nal.count < 2 || sps.id != pps.sps_id)
+    if (nal.count < 2 || sps.id != pps.sps_id)
         return H264Error::invalid_input;
     const u8 nal_type = nal.data[0] & 31u;
     if (nal.data[0] & 0x80u) return H264Error::malformed;
@@ -138,8 +138,7 @@ H264Error h264_parse_slice(ConstSlice<u8> nal, const H264Sps& sps,
 }
 
 bool h264_same_picture(const H264Slice& a, const H264Slice& b) noexcept {
-    return a.marking_count <= 32 && b.marking_count <= 32 &&
-        a.frame_num == b.frame_num && a.pps_id == b.pps_id &&
+    return a.frame_num == b.frame_num && a.pps_id == b.pps_id &&
         (a.reference != 0) == (b.reference != 0) && a.idr == b.idr &&
         (!a.idr || a.idr_id == b.idr_id) && a.poc_lsb == b.poc_lsb &&
         a.delta_bottom == b.delta_bottom && a.delta_poc0 == b.delta_poc0 &&

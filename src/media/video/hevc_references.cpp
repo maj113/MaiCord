@@ -2,18 +2,18 @@
 // Reference bookkeeping, once per picture: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace maicord {
+// hevc_reference_plan keeps at most 15 references, each on a surface below 32.
 u32 hevc_reference_surfaces(const HevcReferenceState& s) noexcept {
     u32 mask{};
-    for (u32 i = 0; i < s.count && i < 15; ++i)
-        if (s.pictures[i].surface < 32)
-            mask |= 1u << s.pictures[i].surface;
+    for (u32 i = 0; i < s.count; ++i)
+        mask |= 1u << s.pictures[i].surface;
     return mask;
 }
 HevcError hevc_reference_plan(const HevcReferenceState& s, const HevcSps& a, const HevcPictureHeader& p,
                               u8 surface, HevcReferencePlan* output) noexcept {
-    if (!output || s.count > 15 || surface >= 32 || a.poc_bits < 4 || a.poc_bits > 16 || !a.max_buffering ||
-        a.max_buffering > 15 || p.short_term.negative + p.short_term.positive > 15 ||
-        p.long_term_count > 15)
+    // The SPS parse bounds poc_bits to 4-16 and the DPB to 1-15 pictures, the slice parse the header's reference
+    // counts to 15, and a plan leaves at most 15 references.
+    if (surface >= 32)
         return HevcError::invalid_input;
     if (!s.ready && !p.irap)
         return HevcError::unsupported;

@@ -263,7 +263,7 @@ HevcError parse_vps(ConstSlice<u8> nal, u8* id, u8* layers) noexcept {
 } // namespace
 HevcNal hevc_next_nal(HevcNalCursor* c) noexcept {
     HevcNal n{};
-    if (!c || !c->bytes.data || c->length_bytes < 1 || c->length_bytes > 4 || c->offset > c->bytes.count) {
+    if (!c->bytes.data || c->length_bytes < 1 || c->length_bytes > 4 || c->offset > c->bytes.count) {
         n.error = HevcError::invalid_input;
         return n;
     }
@@ -384,8 +384,6 @@ HevcError hevc_parse_reference_set(HevcBits& b, const HevcReferenceSet* sets, u3
     return b.error;
 }
 HevcError hevc_parse_sps(ConstSlice<u8> nal, HevcSps* output) noexcept {
-    if (!output)
-        return HevcError::invalid_input;
     // Parsed in place: *output holds a valid SPS only when this returns none.
     HevcSps& s = *output;
     clear_bytes(&s, sizeof(s));
@@ -517,13 +515,11 @@ HevcError hevc_sps_id(ConstSlice<u8> nal, u8* id) noexcept {
     const u32 value = b.ue(15);
     if (layers > 6)
         b.error = HevcError::malformed;
-    if (b.error == HevcError::none && id)
+    if (b.error == HevcError::none)
         *id = static_cast<u8>(value);
-    return id ? b.error : HevcError::invalid_input;
+    return b.error;
 }
 HevcError hevc_parse_pps(ConstSlice<u8> nal, const HevcSps& s, HevcPps* output) noexcept {
-    if (!output || !s.coded_width || !s.coded_height)
-        return HevcError::invalid_input;
     HevcPps p{};
     copy_value(&p.scaling, s.scaling);
     auto b = hevc_payload(nal, 34);
@@ -600,7 +596,7 @@ HevcError hevc_parse_pps(ConstSlice<u8> nal, const HevcSps& s, HevcPps* output) 
     return b.error;
 }
 HevcError hevc_select_parameters(ConstSlice<u8> config, u8 pps_id, HevcConfiguration* output) noexcept {
-    if (!output || !config.data || config.count < 23 || config.count > 65536 || pps_id > 63)
+    if (!config.data || config.count < 23 || config.count > 65536 || pps_id > 63)
         return HevcError::invalid_input;
     if (config[0] != 1 || (config[1] & 31u) != 1)
         return HevcError::unsupported;
@@ -691,7 +687,6 @@ HevcError hevc_select_parameters(ConstSlice<u8> config, u8 pps_id, HevcConfigura
     if (!vps.data || !sps.data || !pps.data)
         return HevcError::malformed;
     HevcConfiguration c{};
-    clear_bytes(&c, sizeof(c));
     u8 vid{}, layers{};
     auto e = parse_vps(vps, &vid, &layers);
     if (e != HevcError::none)

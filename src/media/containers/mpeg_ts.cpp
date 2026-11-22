@@ -187,8 +187,7 @@ bool stamp(const u8* b, u8 prefix, u64* result) noexcept {
 }
 } // namespace
 MpegTsError mpeg_ts_program(ConstSlice<u8> b, MpegTsProgram* output) noexcept {
-    if (!input(b) || !output || !byte_range_valid(output, sizeof(*output)) ||
-        byte_ranges_overlap(b.data, b.count, output, sizeof(*output))) return E::invalid_input;
+    if (!input(b)) return E::invalid_input;
     MpegTsProgram value{}; Section pat{}, pmt{}; bool clock = false;
     for (u32 at = 0; at < b.count; at += 188) {
         Packet p{}; auto error = packet(b, at, &p); if (error != E::none) return error;
@@ -208,13 +207,10 @@ MpegTsError mpeg_ts_program(ConstSlice<u8> b, MpegTsProgram* output) noexcept {
     *output = value; return E::none;
 }
 MpegTsError mpeg_ts_next(MpegTsReader* reader, Slice<u8> scratch, MpegTsPes* output) noexcept {
-    if (!reader || !byte_range_valid(reader, sizeof(*reader)) || !input(reader->source) ||
-        reader->offset > reader->source.count || reader->offset % 188 || reader->pid < 16 || reader->pid >= kMpegTsNoPid ||
-        (reader->previous != ~u32{0} && (reader->previous >= reader->offset || reader->previous % 188)) ||
-        !scratch.data || !scratch.count || !output) return E::invalid_input;
-    const ConstSlice<u8> spans[]{reader->source, {scratch.data, scratch.count},
-        {reinterpret_cast<const u8*>(reader), sizeof(*reader)}, {reinterpret_cast<const u8*>(output), sizeof(*output)}};
-    if (!byte_ranges_all_disjoint({spans, 4})) return E::invalid_input;
+    // Callers start a reader at offset 0 of a source mpeg_ts_program accepted, and the scratch is store memory, never
+    // the downloaded source.
+    if (!input(reader->source) || reader->pid < 16 || reader->pid >= kMpegTsNoPid || !scratch.count)
+        return E::invalid_input;
     auto next = *reader; u32 used = 0; bool started = false;
     while (next.offset < next.source.count) {
         Packet p{}; auto error = packet(next.source, next.offset, &p); if (error != E::none) return error;
@@ -250,7 +246,7 @@ MpegTsError mpeg_ts_next(MpegTsReader* reader, Slice<u8> scratch, MpegTsPes* out
 }
 bool mpeg_ts_unwrap(u64 raw, u64 reference, u64* output) noexcept {
     constexpr u64 wrap = u64{1} << 33, half = wrap / 2, mask = wrap - 1;
-    if (!output || !byte_range_valid(output, sizeof(*output)) || raw >= wrap) return false;
+    if (raw >= wrap) return false;
     const u64 forward = (raw - (reference & mask)) & mask;
     if (forward == half) return false;
     if (forward < half) { if (reference > ~u64{0} - forward) return false; *output = reference + forward; }

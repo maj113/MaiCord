@@ -1,25 +1,16 @@
 #include "maicord/media/containers/mp4_fragment_audio.hpp"
 #include "maicord/media/containers/mp4_segment_store.hpp"
 #include "maicord/media/containers/webm_opus.hpp"
-#include "maicord/core/byte_range.hpp"
 // Container parsing, once per packet and no byte loop: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
 using E = Mp4DemuxError;
-bool separate(const Mp4FragmentSource& source, const void* owner, u32 owner_bytes,
-              const void* output, u32 bytes) noexcept {
-    const ConstSlice<u8> range{static_cast<const u8*>(output), bytes};
-    return byte_range_valid(range) &&
-        !byte_ranges_overlap(range, {static_cast<const u8*>(owner), owner_bytes}) &&
-        !mp4_fragment_source_overlaps(source, output, bytes);
-}
 }
 Mp4DemuxError mp4_fragment_audio_initialize(Mp4FragmentSource* source, Mp4FragmentAudio* output) noexcept {
-    if (!source || !mp4_fragment_source_valid(*source) || !output || output->source || !source->track.audio ||
-        source->ended || source->segment.index || (source->loaded && source->fragment.index) ||
-        !separate(*source, source, sizeof(*source), output, sizeof(*output))) return E::invalid_input;
+    if (!source || !mp4_fragment_source_valid(*source) || output->source || !source->track.audio ||
+        source->ended || source->segment.index || (source->loaded && source->fragment.index)) return E::invalid_input;
     const auto& track = source->track;
     const auto& index = source->index;
     if (!track.sample_rate || !track.timescale || !track.movie_timescale || track.media_start < 0 ||
@@ -145,15 +136,14 @@ Mp4DemuxError mp4_fragment_audio_refresh(Mp4FragmentAudio* audio) noexcept {
     return E::none;
 }
 Mp4DemuxError mp4_fragment_audio_peek(Mp4FragmentAudio* audio, Mp4FragmentAudioPacket* output) noexcept {
-    if (audio && audio->webm && output) {
+    if (audio && audio->webm) {
         ConstSlice<u8> bytes{};
         auto error = webm_opus_peek(audio->webm, &bytes);
         if (error == E::none) error = timed(*audio, bytes, audio->webm->frames_per_packet, output);
         audio->pending = error == E::none;
         return error;
     }
-    if (!audio || !audio->source || !mp4_fragment_source_valid(*audio->source) || !output ||
-        !separate(*audio->source, audio, sizeof(*audio), output, sizeof(*output))) return E::invalid_input;
+    if (!audio || !audio->source || !mp4_fragment_source_valid(*audio->source)) return E::invalid_input;
     const auto refreshed = mp4_fragment_audio_refresh(audio);
     if (refreshed != E::none) return refreshed;
     Mp4FragmentPacket packet{};

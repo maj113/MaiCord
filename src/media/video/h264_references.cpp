@@ -34,7 +34,7 @@ void clear_references(H264ReferenceState* state) noexcept {
 
 H264Error h264_reference_plan(const H264ReferenceState& state, const H264Sps& sps,
     const H264Slice& slice, u8 surface, H264ReferencePlan* output) noexcept {
-    if (!output || surface >= 32 || (!slice.adaptive_marking && slice.marking_count))
+    if (surface >= 32 || (!slice.adaptive_marking && slice.marking_count))
         return H264Error::invalid_input;
     if (!slice.reference && (slice.adaptive_marking || slice.marking_count)) return H264Error::malformed;
     H264ReferencePlan plan{};
@@ -49,8 +49,6 @@ H264Error h264_reference_plan(const H264ReferenceState& state, const H264Sps& sp
         const u32 expected = (state.last_reference_frame + 1u) % modulus;
         if (slice.frame_num != state.last_reference_frame && slice.frame_num != expected)
             return sps.gaps ? H264Error::unsupported : H264Error::malformed;
-        for (u32 i = 0; i < state.count; ++i)
-            if (state.pictures[i].surface == surface) return H264Error::invalid_input;
     }
     bool current_long = false;
     u8 current_long_index = 0;

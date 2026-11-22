@@ -718,7 +718,7 @@ __declspec(noinline) void store(Av1Reference* slot, const Av1FrameHeader& h) noe
 } // namespace
 
 Av1Status av1_next_obu(ConstSlice<u8> data, u32* offset, Av1Obu* obu) noexcept {
-    if (!offset || !obu || !data.data || *offset >= data.count)
+    if (!data.data || *offset >= data.count)
         return Av1Status::truncated;
     u32 at = *offset;
     const u8 header = data[at++];
@@ -756,7 +756,7 @@ Av1Status av1_next_obu(ConstSlice<u8> data, u32* offset, Av1Obu* obu) noexcept {
 }
 
 Av1Status av1_parse_sequence_header(ConstSlice<u8> payload, Av1SequenceHeader* output) noexcept {
-    if (!output || !payload.data)
+    if (!payload.data)
         return Av1Status::truncated;
     Bits b(payload);
     Av1SequenceHeader s{};
@@ -872,7 +872,7 @@ Av1Status av1_parse_sequence_header(ConstSlice<u8> payload, Av1SequenceHeader* o
 Av1Status av1_parse_frame_header(const Av1SequenceHeader& sequence, const Av1References& references,
                                  ConstSlice<u8> payload, u8 temporal_id, u8 spatial_id,
                                  Av1FrameHeader* output) noexcept {
-    if (!output || !payload.data || !sequence.max_width)
+    if (!payload.data || !sequence.max_width)
         return Av1Status::truncated;
     Bits b(payload);
     Parser parser{sequence, references, *output, b, 0, 0, {}, false};
@@ -891,7 +891,7 @@ void av1_update_references(Av1References& references, const Av1FrameHeader& h) n
 
 Av1Status av1_parse_tile_group(const Av1FrameHeader& header, ConstSlice<u8> payload, Slice<Av1Tile> tiles,
                                u32* tile_start, u32* tile_end) noexcept {
-    if (!payload.data || !tile_start || !tile_end || !header.tile_columns || !header.tile_rows)
+    if (!payload.data) // A parsed header has one tile column and row at least.
         return Av1Status::truncated;
     const u32 count = u32{header.tile_columns} * header.tile_rows;
     Bits b(payload);

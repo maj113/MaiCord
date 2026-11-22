@@ -78,7 +78,7 @@ bool stream_unit_is_keyframe(GpuStreamCodec codec, ConstSlice<u8> bytes) noexcep
     H264AnnexBCursor cursor{bytes, 0};
     for (;;) {
         const H264Nal nal = h264_annexb_next(&cursor);
-        if (nal.error == H264Error::end || nal.error == H264Error::invalid_input)
+        if (nal.error == H264Error::end)
             return false;
         if (nal.error == H264Error::none && (codec == GpuStreamCodec::h264 ? nal.type == 5 : false))
             return true;

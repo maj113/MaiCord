@@ -110,9 +110,8 @@ int h264_state_tests() noexcept {
     const auto saved_refs = refs;
     H264ReferencePlan plan{}, saved_plan{};
     plan.after.count = saved_plan.after.count = 13;
-    if (h264_reference_plan(refs, sps, picture(2, 0), 0, &plan) != H264Error::invalid_input ||
+    if (h264_reference_plan(refs, sps, picture(4, 0), 1, &plan) != H264Error::malformed ||
         !bytes_equal(&plan, &saved_plan, sizeof(plan)) || !bytes_equal(&refs, &saved_refs, sizeof(refs))) return 54;
-    if (h264_reference_plan(refs, sps, picture(4, 0), 1, &plan) != H264Error::malformed) return 55;
     sps.gaps = true;
     if (h264_reference_plan(refs, sps, picture(4, 0), 1, &plan) != H264Error::unsupported) return 56;
     sps.gaps = false;

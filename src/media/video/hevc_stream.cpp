@@ -45,15 +45,14 @@ bool slice_start(ConstSlice<u8> nal, u8 type, bool* first, u8* pps_id) noexcept 
     return b.error == HevcError::none;
 }
 
+// The SPS parse bounds the coded extent to 4096, the DPB to 1-15 pictures and the reordering below it.
 inline bool stream_supported(const HevcSps& sps) noexcept {
-    return sps.coded_width <= 4096 && sps.coded_height <= 4096 && sps.max_buffering &&
-           sps.max_buffering <= 15 && sps.max_reorder < sps.max_buffering &&
-           video_display_extent(sps.width, sps.height, sps.sar_width, sps.sar_height).width != 0;
+    return video_display_extent(sps.width, sps.height, sps.sar_width, sps.sar_height).width != 0;
 }
 
 // SPS (33) or PPS (34) NAL. A failing set invalidates a stored set of the same id.
 inline HevcError hevc_parameter_sets_store(HevcParameterSets* sets, ConstSlice<u8> nal) noexcept {
-    if (!sets || !nal.data || nal.count < 3)
+    if (nal.count < 3)
         return HevcError::invalid_input;
     const u8 type = nal_type(nal);
     if (type == 33) {
@@ -104,8 +103,6 @@ inline HevcError hevc_parameter_sets_store(HevcParameterSets* sets, ConstSlice<u
 } // namespace
 
 HevcError hevc_parameter_sets_resolve(HevcParameterSets* sets, u8 pps_id) noexcept {
-    if (!sets)
-        return HevcError::invalid_input;
     const HevcStreamPps* picture = nullptr;
     for (const auto& slot : sets->pps)
         if (slot.valid && slot.id == pps_id)
@@ -140,8 +137,6 @@ HevcError hevc_parameter_sets_resolve(HevcParameterSets* sets, u8 pps_id) noexce
 
 HevcScanStatus hevc_stream_scan(HevcParameterSets* sets, HevcStreamScanner* scanner,
                                 HevcStreamPicture* picture) noexcept {
-    if (!sets || !scanner || !picture)
-        return HevcScanStatus::end;
     picture->slice_count = 0;
     picture->bitstream_bytes = 0;
     picture->last_address = 0;
@@ -167,10 +162,6 @@ HevcScanStatus hevc_stream_scan(HevcParameterSets* sets, HevcStreamScanner* scan
             nal = h264_annexb_next(&scanner->cursor);
         if (nal.error == H264Error::end)
             break;
-        if (nal.error == H264Error::invalid_input) {
-            damage(HevcError::invalid_input);
-            break;
-        }
         if (nal.error != H264Error::none || nal.bytes.count < 2 || !(nal.bytes[1] & 7u)) {
             damage(HevcError::malformed); // Corrupt NAL of unknown role.
             continue;
@@ -259,8 +250,6 @@ HevcScanStatus hevc_stream_scan(HevcParameterSets* sets, HevcStreamScanner* scan
 }
 
 void hevc_stream_reset(HevcStreamState* state) noexcept {
-    if (!state)
-        return;
     reset_value(&state->references);
     reset_value(&state->output);
     state->waiting = true;
@@ -269,16 +258,12 @@ void hevc_stream_reset(HevcStreamState* state) noexcept {
 }
 
 void hevc_stream_lost(HevcStreamState* state) noexcept {
-    if (!state)
-        return;
     hevc_stream_reset(state);
     ++state->dropped;
 }
 
 HevcStreamAction hevc_stream_prepare(HevcStreamState* state, const HevcStreamPicture& picture,
                                      HevcStreamDecode* decode) noexcept {
-    if (!state || !decode || !picture.slice_count)
-        return HevcStreamAction::request_keyframe;
     const HevcPictureHeader& header = picture.header;
     const HevcSps& sps = state->sets.active.sps;
     const u8 type = header.nal_type;
@@ -353,14 +338,11 @@ HevcStreamAction hevc_stream_prepare(HevcStreamState* state, const HevcStreamPic
 }
 
 void hevc_stream_set_surfaces(HevcStreamState* state, u8 surfaces) noexcept {
-    if (state)
-        state->surfaces = surfaces > 32 ? 32 : surfaces;
+    state->surfaces = surfaces > 32 ? 32 : surfaces;
 }
 
 void hevc_stream_commit(HevcStreamState* state, const HevcStreamPicture& picture,
                         const HevcStreamDecode& decode, u32 rtp_timestamp) noexcept {
-    if (!state || decode.surface >= 32)
-        return;
     const HevcPictureHeader& header = picture.header;
     if (header.irap) {
         const HevcSps& sps = state->sets.active.sps;
@@ -386,8 +368,6 @@ void hevc_stream_commit(HevcStreamState* state, const HevcStreamPicture& picture
 }
 
 bool hevc_stream_pop(HevcStreamState* state, H264StreamOutput* output) noexcept {
-    if (!state || !output)
-        return false;
     if (state->output.count && (state->drain || state->output.count > state->reorder)) {
         H264Output picture{};
         if (h264_output_pop(&state->output, &picture)) {

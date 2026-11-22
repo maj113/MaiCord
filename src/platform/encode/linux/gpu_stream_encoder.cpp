@@ -772,7 +772,7 @@ void release(GpuStreamEncoder* e) noexcept {
 } // namespace
 
 u32 gpu_stream_encoder_codecs(GpuDevice* device) noexcept {
-    const Driver* d = device ? driver(device) : nullptr;
+    const Driver* d = driver(device);
     if (!d)
         return 0;
     u32 codecs = 0;
@@ -783,8 +783,7 @@ u32 gpu_stream_encoder_codecs(GpuDevice* device) noexcept {
 }
 
 GpuStreamEncoder* gpu_stream_encoder_create(const GpuStreamEncoderOptions& options) noexcept {
-    if (!options.device || options.codec > GpuStreamCodec::av1 || !options.sink.unit || !options.sink.ended ||
-        !settings_valid(options.settings))
+    if (!settings_valid(options.settings))
         return nullptr;
     const Driver* d = driver(options.device);
     const Choice choice = d ? choose(*d, options.codec) : Choice{};
@@ -826,8 +825,6 @@ GpuStreamEncoder* gpu_stream_encoder_create(const GpuStreamEncoderOptions& optio
 #pragma clang attribute pop
 
 bool gpu_stream_encoder_submit(GpuStreamEncoder* e, const CaptureFrame& frame) noexcept {
-    if (!e)
-        return false;
     AcquireSRWLockExclusive(&e->lock);
     saturating_increment(e->stats.submitted);
     const GpuStreamEncoderSettings& s = e->options.settings;
@@ -861,7 +858,7 @@ bool gpu_stream_encoder_submit(GpuStreamEncoder* e, const CaptureFrame& frame) n
 }
 
 void gpu_stream_encoder_configure(GpuStreamEncoder* e, const GpuStreamEncoderSettings& settings) noexcept {
-    if (!e || !settings_valid(settings))
+    if (!settings_valid(settings))
         return;
     AcquireSRWLockExclusive(&e->lock);
     e->options.settings = settings;
@@ -869,8 +866,6 @@ void gpu_stream_encoder_configure(GpuStreamEncoder* e, const GpuStreamEncoderSet
 }
 
 bool gpu_stream_encoder_preview(GpuStreamEncoder* e, GpuVideoFrame* frame, u32* sequence) noexcept {
-    if (!e || !frame || !sequence)
-        return false;
     const Driver* d = e->driver;
     AcquireSRWLockExclusive(&e->lock);
     bool ok = e->newest != kNone;

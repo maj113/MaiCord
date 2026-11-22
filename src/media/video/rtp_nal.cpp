@@ -123,8 +123,6 @@ __declspec(noinline) RtpDepacketize append_fragment(RtpVideoAssembly& assembly, 
 }
 
 __forceinline RtpDepacketize push(const NalCodec& c, RtpVideoAssembly* assembly, ConstSlice<u8> payload) noexcept {
-    if (!assembly)
-        return RtpDepacketize::damaged;
     auto& a = *assembly;
     if (!payload.data || payload.count < c.header_bytes || !valid_header(c, payload.data)) {
         drop_fragment(a);

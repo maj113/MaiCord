@@ -108,7 +108,7 @@ void vui(H264Bits* bits, H264Sps* sps) noexcept {
 } // namespace
 
 H264Nal h264_next_nal(H264NalCursor* cursor) noexcept {
-    if (!cursor || !cursor->bytes.data || (cursor->length_bytes != 1 &&
+    if (!cursor->bytes.data || (cursor->length_bytes != 1 &&
         cursor->length_bytes != 2 && cursor->length_bytes != 4) ||
         cursor->offset > cursor->bytes.count) return {{}, H264Error::invalid_input};
     u32 offset = cursor->offset;
@@ -126,7 +126,6 @@ H264Nal h264_next_nal(H264NalCursor* cursor) noexcept {
 }
 
 H264Error h264_parse_sps(ConstSlice<u8> nal, H264Sps* output) noexcept {
-    if (!output) return H264Error::invalid_input;
     H264Bits bits = payload(nal, 7);
     if (bits.error != H264Error::none) return bits.error;
     H264Sps sps{};
@@ -190,7 +189,6 @@ H264Error h264_parse_sps(ConstSlice<u8> nal, H264Sps* output) noexcept {
 }
 
 H264Error h264_parse_pps(ConstSlice<u8> nal, const H264Sps& sps, H264Pps* output) noexcept {
-    if (!output) return H264Error::invalid_input;
     H264Bits bits = payload(nal, 8);
     if (bits.error != H264Error::none) return bits.error;
     H264Pps pps{};
@@ -230,11 +228,12 @@ H264Error h264_parse_pps(ConstSlice<u8> nal, const H264Sps& sps, H264Pps* output
     return H264Error::none;
 }
 
+// The SPS parse bounds max_references, max_buffering and max_reorder to 16, and the coded extent to at least one
+// macroblock.
 u8 h264_sps_dpb_frames(const H264Sps& sps) noexcept {
     const u8 references = sps.max_references ? sps.max_references : 1;
-    if (sps.restriction) {
-        return static_cast<u8>(minimum<u32>(16, maximum<u32>(maximum<u32>(sps.max_buffering, references), 1)));
-    }
+    if (sps.restriction)
+        return maximum<u8>(sps.max_buffering, references);
     u32 dpb_mbs = 0;
     switch (sps.level) {
     case 9: case 10: dpb_mbs = 396; break;
@@ -252,14 +251,14 @@ u8 h264_sps_dpb_frames(const H264Sps& sps) noexcept {
     default: return 16;
     }
     const u32 frame_mbs = (sps.coded_width / 16u) * (sps.coded_height / 16u);
-    const u32 frames = frame_mbs ? minimum<u32>(16, dpb_mbs / frame_mbs) : 0;
+    const u32 frames = minimum<u32>(16, dpb_mbs / frame_mbs);
     // A level too small for the picture or its own reference count is a
     // mislabelled stream; keep the syntax maximum for it.
-    return frames && frames >= references ? static_cast<u8>(frames) : 16;
+    return frames >= references ? static_cast<u8>(frames) : 16;
 }
 
 u8 h264_sps_output_reorder(const H264Sps& sps) noexcept {
-    return sps.restriction ? static_cast<u8>(minimum<u32>(sps.max_reorder, 16)) : h264_sps_dpb_frames(sps);
+    return sps.restriction ? sps.max_reorder : h264_sps_dpb_frames(sps);
 }
 
 } // namespace maicord

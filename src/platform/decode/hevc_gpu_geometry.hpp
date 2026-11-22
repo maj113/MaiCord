@@ -6,10 +6,9 @@ struct HevcGpuSurfaceExtent {
     u32 width{}, height{};
 };
 // DXVA HEVC recommends surfaces aligned to 64 pixels. The coded SPS dimensions
-// and its conformance crop remain separate from this allocation extent.
+// (1 to 4096 each, as the SPS parse bounds them) and its conformance crop remain
+// separate from this allocation extent.
 constexpr HevcGpuSurfaceExtent hevc_gpu_surface_extent(u32 width, u32 height) noexcept {
-    if (!width || !height || width > 4096 || height > 4096 || u64{width} * height > 2048u * 2048u)
-        return {};
     const u32 aligned_width = (width + 63u) & ~63u;
     const u32 aligned_height = (height + 63u) & ~63u;
     if (u64{aligned_width} * aligned_height > 2048u * 2048u)

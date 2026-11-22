@@ -47,7 +47,7 @@ bool settings_valid(const GpuStreamEncoderSettings& s) noexcept {
 } // namespace
 
 void gpu_stream_encoder_set_bitrate(GpuStreamEncoder* e, u32 bitrate) noexcept {
-    if (!e || !bitrate)
+    if (!bitrate)
         return;
     AcquireSRWLockExclusive(&e->lock);
     e->options.settings.bitrate = bitrate;
@@ -55,8 +55,6 @@ void gpu_stream_encoder_set_bitrate(GpuStreamEncoder* e, u32 bitrate) noexcept {
 }
 
 void gpu_stream_encoder_request_keyframe(GpuStreamEncoder* e) noexcept {
-    if (!e)
-        return;
     AcquireSRWLockExclusive(&e->lock);
     e->keyframe_requested = true;
     repeat_newest(e);
@@ -64,8 +62,6 @@ void gpu_stream_encoder_request_keyframe(GpuStreamEncoder* e) noexcept {
 }
 
 void gpu_stream_encoder_hold(GpuStreamEncoder* e, bool hold) noexcept {
-    if (!e)
-        return;
     AcquireSRWLockExclusive(&e->lock);
     if (e->holding != hold) {
         e->holding = hold;
@@ -85,8 +81,6 @@ void gpu_stream_encoder_hold(GpuStreamEncoder* e, bool hold) noexcept {
 }
 
 GpuStreamEncoderStats gpu_stream_encoder_stats(const GpuStreamEncoder* e) noexcept {
-    if (!e)
-        return {};
     auto* lock = const_cast<SRWLOCK*>(&e->lock);
     AcquireSRWLockShared(lock);
     const GpuStreamEncoderStats stats = e->stats;

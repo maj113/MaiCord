@@ -63,7 +63,7 @@ u32 end_obu(BitWriter* w, u32 size_bytes) noexcept {
 } // namespace
 
 u32 av1_write_sequence_header(const Av1SequenceSettings& s, u8* output, u32 capacity) noexcept {
-    if (!output || !s.width || !s.height)
+    if (!s.width || !s.height)
         return 0;
     BitWriter w{output, capacity, 0, false};
     begin_obu(&w, kObuSequenceHeader, 1);
@@ -97,8 +97,7 @@ u32 av1_write_sequence_header(const Av1SequenceSettings& s, u8* output, u32 capa
 
 u32 av1_write_frame_header(const Av1SequenceSettings& s, const Av1FrameSettings& f, u32 size_bytes, u8* output,
                            u32 capacity, Av1FrameHeaderLayout* layout) noexcept {
-    if (!output || !layout || !size_bytes || size_bytes > 8 || !f.base_q_idx || f.cdef_bits > 3 ||
-        f.interpolation_filter > 4)
+    if (!size_bytes || size_bytes > 8 || !f.base_q_idx || f.cdef_bits > 3 || f.interpolation_filter > 4)
         return 0;
     BitWriter w{output, capacity, 0, false};
     begin_obu(&w, kObuFrameHeader, size_bytes);

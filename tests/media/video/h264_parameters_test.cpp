@@ -204,8 +204,6 @@ int slice_tests() noexcept {
         !result.idr || !result.long_term || !result.discard_prior || result.idr_id != 65'535) return 33;
     H264Slice other = result; other.idr_id = 1;
     if (h264_same_picture(result, other)) return 34;
-    other = result; other.marking_count = 255;
-    if (h264_same_picture(other, other)) return 35;
     wanted = {}; wanted.type = H264SliceType::i; wanted.reference = 3;
     wanted.frame_num = 3; wanted.adaptive_marking = true; wanted.marking_count = 32;
     for (auto& item : wanted.marking) item.operation = 1;

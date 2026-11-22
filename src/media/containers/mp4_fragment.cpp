@@ -1,6 +1,5 @@
 #include "maicord/media/containers/mp4_fragment.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "mp4_demux_detail.hpp"
 // Container parsing, once per sample and no byte loop: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
@@ -10,14 +9,6 @@ namespace {
 using namespace mp4_demux_detail;
 using E = Mp4DemuxError;
 constexpr u64 limit = 0x7fffffffffffffffull;
-bool output_region_valid(ConstSlice<u8> input, const void* output, u32 bytes) noexcept {
-    const ConstSlice<u8> region{static_cast<const u8*>(output), bytes};
-    return input.data && byte_range_valid(input) && output && byte_range_valid(region) &&
-           !byte_ranges_overlap(input, region);
-}
-template <typename T> __forceinline bool output_valid(ConstSlice<u8> input, T* output) noexcept {
-    return output_region_valid(input, output, static_cast<u32>(sizeof(T)));
-}
 bool box(ConstSlice<u8> input, u32 type, Box* out) noexcept {
     u64 cursor = 0;
     return next_box(input, &cursor, input.count, out) && cursor == input.count && out->type == type;
@@ -36,10 +27,8 @@ inline bool offset(u64 base, i32 delta, u64* out) noexcept {
 }
 bool index_range(const Mp4FragmentIndex& index, u32 number, u64 time, bool seek,
                  Mp4FragmentRange* output) noexcept {
-    if (!output_valid(index.entries, output) || !index.count || index.count > 8192 ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(&index), sizeof(index)},
-                            {reinterpret_cast<const u8*>(output), sizeof(*output)}) ||
-        index.entries.count != index.count * 12 || (!seek && number >= index.count)) return false;
+    if (!index.count || index.count > 8192 || index.entries.count != index.count * 12 ||
+        (!seek && number >= index.count)) return false;
     u64 at = index.first_offset, ticks = index.first_time;
     for (u32 i = 0; i < index.count; ++i) {
         const auto* p = index.entries.data + i * 12;
@@ -58,7 +47,6 @@ u32 stride(u32 flags) noexcept {
 }
 } // namespace
 Mp4DemuxError mp4_fragment_defaults(ConstSlice<u8> bytes, Mp4FragmentDefaults* output) noexcept {
-    if (!output_valid(bytes, output)) return E::invalid_input;
     Box trex{};
     if (!box(bytes, fourcc('t','r','e','x'), &trex) || trex.end - trex.payload != 24) return E::malformed;
     const auto* p = bytes.data + trex.payload;
@@ -70,7 +58,7 @@ Mp4DemuxError mp4_fragment_defaults(ConstSlice<u8> bytes, Mp4FragmentDefaults* o
 }
 Mp4DemuxError mp4_fragment_index_initialize(ConstSlice<u8> bytes, u64 offset, u64 entity_bytes,
                                            Mp4FragmentIndex* output) noexcept {
-    if (!output_valid(bytes, output) || offset > entity_bytes || bytes.count > entity_bytes - offset)
+    if (offset > entity_bytes || bytes.count > entity_bytes - offset)
         return E::invalid_input;
     Box sidx{};
     if (!box(bytes, fourcc('s','i','d','x'), &sidx) || sidx.end - sidx.payload < 24) return E::malformed;
@@ -108,11 +96,9 @@ bool mp4_fragment_index_range(const Mp4FragmentIndex& index, u32 number, Mp4Frag
 }
 bool mp4_fragment_index_follow(const Mp4FragmentIndex& index, const Mp4FragmentRange& prior,
                                 Mp4FragmentRange* output) noexcept {
-    if (!output_valid(index.entries, output) || !index.count || index.count > 8192 ||
+    if (!index.count || index.count > 8192 ||
         index.entries.count != index.count * 12 || prior.index >= index.count - 1 ||
-        prior.bytes > ~u64{0} - prior.offset || prior.time > limit || prior.duration > limit - prior.time ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(&index), sizeof(index)},
-                            {reinterpret_cast<const u8*>(output), sizeof(*output)})) return false;
+        prior.bytes > ~u64{0} - prior.offset || prior.time > limit || prior.duration > limit - prior.time) return false;
     const u32 next = prior.index + 1;
     const auto* p = index.entries.data + next * 12;
     *output = {prior.offset + prior.bytes, prior.time + prior.duration, read_u32(p + 4), read_u32(p), next};
@@ -122,16 +108,12 @@ bool mp4_fragment_index_seek(const Mp4FragmentIndex& index, u64 time, Mp4Fragmen
     return index_range(index, 0, time, true, output);
 }
 void mp4_fragment_reset(Mp4Fragment* cursor) noexcept {
-    if (!cursor) return;
     cursor->index = cursor->run_index = cursor->run_sample = 0;
     cursor->decode_time = cursor->first_time;
     cursor->media_cursor = cursor->run_count ? cursor->runs[0].offset : 0;
 }
 Mp4DemuxError mp4_fragment_next(Mp4Fragment* cursor, Mp4FragmentSample* output) noexcept {
-    if (!cursor || !output_valid(cursor->metadata, output) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(cursor), sizeof(*cursor)},
-                            {reinterpret_cast<const u8*>(output), sizeof(*output)}) ||
-        !cursor->count || !cursor->run_count || cursor->run_count > 8) return E::invalid_input;
+    // A cursor of mp4_fragment_initialize (or the transport store) has 1-8 runs of one sample or more each.
     if (cursor->index == cursor->count) return E::end_of_stream;
     if (cursor->run_index >= cursor->run_count) return E::malformed;
     auto& run = cursor->runs[cursor->run_index];
@@ -166,7 +148,7 @@ Mp4DemuxError mp4_fragment_next(Mp4Fragment* cursor, Mp4FragmentSample* output) 
 }
 Mp4DemuxError mp4_fragment_initialize(ConstSlice<u8> prefix, u64 source_offset, u64 segment_bytes,
                                      const Mp4FragmentDefaults& defaults, Mp4Fragment* output) noexcept {
-    if (!output_valid(prefix, output) || !defaults.track_id || prefix.count < 16 ||
+    if (!defaults.track_id || prefix.count < 16 ||
         prefix.count > segment_bytes || segment_bytes > ~u64{0} - source_offset) return E::invalid_input;
     Box moof{}; u64 cursor = 0;
     if (!next_box(prefix, &cursor, prefix.count, &moof) || moof.type != fourcc('m','o','o','f') ||

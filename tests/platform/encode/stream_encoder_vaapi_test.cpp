@@ -234,6 +234,8 @@ void run_codec(GpuDevice* device, GpuContext* context, const Buffer& buffer, Gpu
     GpuStreamEncoder* encoder =
         gpu_stream_encoder_create({device, codec, {kWidth, kHeight, 60, kBitrate}, {nullptr, on_unit, on_ended}});
     check(encoder != nullptr, "the encoder starts");
+    if (!encoder)
+        return;
     u32 picture_of_unit[kUnits]{};
     u32 expected = 0;
     u64 timestamp = 0;

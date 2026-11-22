@@ -25,23 +25,20 @@ E next_fragment(ConstSlice<u8> bytes, const Mp4FragmentTrack& track, u32 offset,
     if (error != E::none) return error;
     *output = value; *next = static_cast<u32>(mdat.end); return E::none;
 }
-bool input_valid(ConstSlice<u8> bytes, const Mp4FragmentTrack& track, const void* output, u32 size) noexcept {
+// One media file and its validated track. Every output is a local or a member of the segment store or the source.
+bool input_valid(ConstSlice<u8> bytes, const Mp4FragmentTrack& track) noexcept {
     return bytes.data && bytes.count && bytes.count <= 8 * 1024 * 1024 && byte_range_valid(bytes) &&
-        output && byte_range_valid(output, size) && track.defaults.track_id && track.timescale &&
-        !byte_ranges_overlap(bytes.data, bytes.count, output, size) &&
-        !byte_ranges_overlap(&track, sizeof(track), output, size) &&
-        !byte_ranges_overlap(track.configuration.data, track.configuration.count, output, size);
+        track.defaults.track_id && track.timescale;
 }
 }
 Mp4DemuxError mp4_media_segment_fragment(ConstSlice<u8> bytes, const Mp4FragmentTrack& track,
     u32 offset, Mp4Fragment* output, u32* next) noexcept {
-    if (!input_valid(bytes, track, output, sizeof(*output)) || !input_valid(bytes, track, next, sizeof(*next)) ||
-        byte_ranges_overlap(output, sizeof(*output), next, sizeof(*next)) || offset > bytes.count) return E::invalid_input;
+    if (!input_valid(bytes, track) || offset > bytes.count) return E::invalid_input;
     return next_fragment(bytes, track, offset, output, next);
 }
 Mp4DemuxError mp4_media_segment_initialize(ConstSlice<u8> bytes, const Mp4FragmentTrack& track,
                                             Mp4MediaSegment* output) noexcept {
-    if (!input_valid(bytes, track, output, sizeof(*output))) return E::invalid_input;
+    if (!input_valid(bytes, track)) return E::invalid_input;
     u64 at = 0; Box child{};
     if (!next_box(bytes, &at, bytes.count, &child)) return E::malformed;
     if (child.type == fourcc('s','t','y','p')) {

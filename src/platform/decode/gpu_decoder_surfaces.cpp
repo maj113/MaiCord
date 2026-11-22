@@ -77,8 +77,6 @@ Mp4DecodedFrame gpu_decoder_output_frame(H264OutputQueue* output, GpuVideoFrame*
 HRESULT gpu_decoder_surfaces_create(GpuDecoderSurfaces* surfaces, ID3D11Device* device,
                                     ID3D11VideoDevice* video, const GUID& profile, u32 width, u32 height,
                                     u32 count) noexcept {
-    if (!surfaces || !device || !video || surfaces->texture || !count)
-        return E_INVALIDARG;
     if (count > kGpuDecoderSurfaceCapacity)
         return DXGI_ERROR_UNSUPPORTED;
     D3D11_TEXTURE2D_DESC texture{};
@@ -119,8 +117,6 @@ HRESULT gpu_decoder_surfaces_create(GpuDecoderSurfaces* surfaces, ID3D11Device* 
 }
 
 void gpu_decoder_surfaces_release(GpuDecoderSurfaces* surfaces) noexcept {
-    if (!surfaces)
-        return;
     for (u32 i = 0; i < kGpuDecoderSurfaceCapacity; ++i) {
         com_release(surfaces->chroma[i]);
         com_release(surfaces->luma[i]);
