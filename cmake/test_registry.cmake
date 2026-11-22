@@ -1400,6 +1400,13 @@ maicord_test(MaiCordAccountMenuRuntimeTests ONLY WINDOWS ENTRY maicord_account_m
     LIBS ${maicord_headless_test_libs} maicord_message_runtime kernel32 user32
     INCLUDES src/app
     TIMEOUT 10 TEST maicord_account_menu_runtime)
+maicord_test(MaiCordAuthorHydrationTests ONLY WINDOWS ENTRY maicord_author_hydration_entry
+    SOURCES ${maicord_account_fake}
+    SOURCES tests/app/account/author_hydration.cpp src/app/account/author_hydration.cpp
+        src/app/shell/state.cpp src/core/log.cpp
+    LIBS ${maicord_headless_ui_test_libs} kernel32 user32
+    INCLUDES src/app
+    TIMEOUT 10 TEST maicord_author_hydration)
 maicord_test(MaiCordAccountSwitchObserveTests ONLY WINDOWS ENTRY maicord_account_switch_observe_entry
     SOURCES tests/app/account/account_switch_observe.cpp src/app/account/application_account_switch.cpp
         src/app/account/account_inventory.cpp src/app/shell/state.cpp src/core/log.cpp

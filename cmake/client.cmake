@@ -81,7 +81,7 @@ else()
         src/app/shell/input_routing.cpp
         src/app/shell/caption.cpp src/app/shell/tabs.cpp src/app/shell/app_icon.cpp
         src/app/shell/keyboard_focus.cpp src/app/account/application_account_module.cpp
-        src/app/account/application_account_logout.cpp
+        src/app/account/application_account_logout.cpp src/app/account/author_hydration.cpp
         src/app/account/account_pump.cpp src/app/account/account_presentation.cpp src/app/account/account_text_refresh.cpp
         src/app/account/application_account_reconnect.cpp
         src/app/chat/threads/starter.cpp src/app/chat/channel_session.cpp

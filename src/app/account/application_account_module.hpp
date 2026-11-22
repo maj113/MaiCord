@@ -8,9 +8,11 @@ namespace maicord {
 
 struct AccountModuleStatus;
 struct AccountHostStopResult;
+struct MemberListScene;
 
 namespace app_detail {
 
+struct AccountUiRuntime;
 bool application_account_module_load() noexcept;
 void application_account_module_release() noexcept;
 bool application_account_return_to_login(bool rejected) noexcept;
@@ -24,8 +26,13 @@ void application_account_prestart_cancel() noexcept;
 bool application_account_prestart_pending() noexcept;
 bool application_account_attach_if_present() noexcept;
 bool synchronize_member_subscription(u64 now_ms) noexcept;
+// author_hydration.cpp: the people the view shows. A frame without a running account does nothing.
 void synchronize_visible_author_hydration(u64 now_ms) noexcept;
 u64 application_author_hydration_next_wake() noexcept;
+// Forgets the followed people and the pending member interest (READY, and the account's stop).
+void application_author_hydration_reset() noexcept;
+// Pins the user and member record of every resident member row of the scene.
+void pin_resident_members(AccountUiRuntime& ui, const MemberListScene& scene, u64 guild_id) noexcept;
 GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClientEvent* event,
                                                        Slice<u8> payload_output) noexcept;
 // Categorical metadata only; does not inspect payload or change model/UI state.
