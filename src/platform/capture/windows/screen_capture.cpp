@@ -687,8 +687,6 @@ CaptureSupport capture_support() noexcept {
 }
 
 u32 capture_sources(Slice<CaptureSource> output) noexcept {
-    if (!output.data || !output.count)
-        return 0;
     SourceList list{output, 0, process_id(), GetShellWindow(),
                     system_function<DwmAttribute>(L"dwmapi.dll", "DwmGetWindowAttribute")};
     EnumDisplayMonitors(nullptr, nullptr, visit_monitor, reinterpret_cast<LPARAM>(&list));
@@ -705,7 +703,7 @@ u32 capture_sources(Slice<CaptureSource> output) noexcept {
 
 bool capture_thumbnail(GpuDevice* device, const CaptureSource& source, u32 max_width, u32 max_height, u8* rgba,
                        u32* width, u32* height) noexcept {
-    if (!device || !rgba || !width || !height || !max_width || !max_height)
+    if (!device)
         return false;
     *width = *height = 0;
     const bool window = source.kind == CaptureSourceKind::window;
@@ -781,7 +779,7 @@ bool capture_thumbnail(GpuDevice* device, const CaptureSource& source, u32 max_w
 }
 
 ScreenCapture* capture_start(const CaptureOptions& options, const CaptureSink& sink) noexcept {
-    if (!options.device || !sink.frame || !sink.ended || !options.source.handle)
+    if (!options.device || !options.source.handle)
         return nullptr;
     auto* r = commit_pages<Runtime>();
     if (!r)
@@ -801,8 +799,6 @@ ScreenCapture* capture_start(const CaptureOptions& options, const CaptureSink& s
 
 void capture_stop(ScreenCapture* capture) noexcept {
     auto* r = reinterpret_cast<Runtime*>(capture);
-    if (!r)
-        return;
     SetEvent(r->stop);
     thread_wait(r->thread, INFINITE);
     free_runtime(r);

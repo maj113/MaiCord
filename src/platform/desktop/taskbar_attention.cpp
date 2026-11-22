@@ -99,8 +99,6 @@ float taskbar_attention_root(float value) noexcept {
 
 TaskbarAttentionPlan taskbar_attention_plan(TaskbarAttentionState* state, const TaskbarAttentionInput& input) noexcept {
     TaskbarAttentionPlan plan{};
-    if (!state)
-        return plan;
     plan.badge = taskbar_attention_badge(input.mentions, input.unread, input.badge_enabled);
     plan.set_badge = !state->badge_applied || plan.badge != state->badge;
     plan.mentions = input.mentions;
@@ -143,8 +141,6 @@ bool taskbar_attention_render_badge(u8 badge, u32 extent, Slice<u32> pixels) noe
 
 #if defined(_WIN32)
 bool taskbar_attention_initialize(TaskbarAttention* attention) noexcept {
-    if (!attention)
-        return false;
     reset_value(attention);
     attention->created_message = RegisterWindowMessageW(L"TaskbarButtonCreated");
     attention->com_initialized = SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
@@ -152,7 +148,7 @@ bool taskbar_attention_initialize(TaskbarAttention* attention) noexcept {
 }
 
 bool taskbar_attention_window_message(TaskbarAttention* attention, UINT message) noexcept {
-    if (!attention || !attention->created_message || message != attention->created_message)
+    if (!attention->created_message || message != attention->created_message)
         return false;
     // Explorer restarts recreate the button; the overlay must be reapplied.
     attention->button_ready = true;
@@ -163,7 +159,7 @@ bool taskbar_attention_window_message(TaskbarAttention* attention, UINT message)
 void taskbar_attention_apply(TaskbarAttention* attention, Window owner, const TaskbarAttentionPlan& plan,
                              u32 dpi) noexcept {
     const HWND window = win32_hwnd(owner);
-    if (!attention || !window)
+    if (!window)
         return;
     if (plan.stop_flash)
         window_request_attention(owner, Attention::stop);
@@ -199,8 +195,6 @@ void taskbar_attention_apply(TaskbarAttention* attention, Window owner, const Ta
 
 void taskbar_attention_release(TaskbarAttention* attention, Window owner) noexcept {
     const HWND window = win32_hwnd(owner);
-    if (!attention)
-        return;
     if (attention->list) {
         if (window && attention->button_ready)
             attention->list->SetOverlayIcon(window, nullptr, L"");
@@ -214,15 +208,13 @@ void taskbar_attention_release(TaskbarAttention* attention, Window owner) noexce
 }
 #else
 bool taskbar_attention_initialize(TaskbarAttention* attention) noexcept {
-    if (!attention)
-        return false;
     reset_value(attention);
     return true;
 }
 
 void taskbar_attention_apply(TaskbarAttention* attention, Window window, const TaskbarAttentionPlan& plan,
                              u32) noexcept {
-    if (!attention || !window)
+    if (!window)
         return;
     if (plan.stop_flash)
         window_request_attention(window, Attention::stop);
@@ -238,8 +230,6 @@ void taskbar_attention_apply(TaskbarAttention* attention, Window window, const T
 }
 
 void taskbar_attention_release(TaskbarAttention* attention, Window window) noexcept {
-    if (!attention)
-        return;
     if (window && attention->state.flashing)
         window_request_attention(window, Attention::stop);
     dbus::launcher_entry_update(dbus::LauncherEntryState{});

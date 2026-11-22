@@ -298,7 +298,7 @@ StreamAudioMethod stream_audio_method() noexcept {
 bool stream_audio_start(StreamAudioCapture* capture, const StreamAudioOptions& options,
                         const StreamAudioSink& sink) noexcept {
     const Api* a = api();
-    if (!capture || capture->runtime || !sink.block || !a)
+    if (capture->runtime || !a)
         return false;
     auto* r = commit_pages<Runtime>();
     if (!r)
@@ -355,7 +355,7 @@ bool stream_audio_start(StreamAudioCapture* capture, const StreamAudioOptions& o
 }
 
 void stream_audio_stop(StreamAudioCapture* capture) noexcept {
-    if (!capture || !capture->runtime)
+    if (!capture->runtime)
         return;
     destroy(static_cast<Runtime*>(capture->runtime));
     capture->runtime = nullptr;

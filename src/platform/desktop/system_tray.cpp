@@ -126,8 +126,6 @@ TrayIconState tray_icon_state(const TrayInput& input) noexcept {
 
 TrayPlan tray_plan(TrayModel* model, const TrayInput& input, bool available) noexcept {
     TrayPlan plan{};
-    if (!model)
-        return plan;
     if (!available) {
         plan.remove = model->shown;
         reset_value(model);
@@ -142,12 +140,11 @@ TrayPlan tray_plan(TrayModel* model, const TrayInput& input, bool available) noe
 }
 
 void tray_model_reset(TrayModel* model) noexcept {
-    if (model)
-        reset_value(model);
+    reset_value(model);
 }
 
 u32 tray_menu_build(const TrayInput& input, TrayMenuItem* items, u32 capacity) noexcept {
-    if (!items || capacity < kTrayMenuItems)
+    if (capacity < kTrayMenuItems)
         return 0;
     items[0] = {L"Open MaiCord", tray_command_open, false, false};
     items[1] = {L"Mute", tray_command_mute, input.self_mute || input.self_deaf, true};
@@ -157,8 +154,6 @@ u32 tray_menu_build(const TrayInput& input, TrayMenuItem* items, u32 capacity) n
 }
 
 u32 tray_tooltip(const TrayInput& input, wchar_t* text, u32 capacity) noexcept {
-    if (!text || !capacity)
-        return 0;
     u32 at = append(text, 0, capacity, L"MaiCord");
     const wchar_t* detail = nullptr;
     switch (tray_icon_state(input)) {
@@ -242,8 +237,6 @@ HICON create_icon(TrayIconState state, u8 badge, const TrayIconPalette& palette,
 } // namespace
 
 bool system_tray_initialize(SystemTray* tray, HWND window, u32 callback_message) noexcept {
-    if (!tray)
-        return false;
     reset_value(tray);
     tray->window = window;
     tray->callback_message = callback_message;
@@ -253,7 +246,7 @@ bool system_tray_initialize(SystemTray* tray, HWND window, u32 callback_message)
 
 bool system_tray_apply(SystemTray* tray, const TrayPlan& plan, const TrayIconPalette& palette, const wchar_t* tooltip,
                        u32 dpi) noexcept {
-    if (!tray || !tray->window)
+    if (!tray->window)
         return false;
     NOTIFYICONDATAW data{};
     data.cbSize = sizeof(data);
@@ -275,7 +268,7 @@ bool system_tray_apply(SystemTray* tray, const TrayPlan& plan, const TrayIconPal
     data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
     data.uCallbackMessage = tray->callback_message;
     data.hIcon = icon;
-    append(data.szTip, 0, sizeof(data.szTip) / sizeof(data.szTip[0]), tooltip ? tooltip : L"MaiCord");
+    append(data.szTip, 0, sizeof(data.szTip) / sizeof(data.szTip[0]), tooltip);
     bool applied = false;
     if (!tray->added || plan.add) {
         applied = Shell_NotifyIconW(NIM_ADD, &data) != FALSE || Shell_NotifyIconW(NIM_MODIFY, &data) != FALSE;
@@ -299,7 +292,7 @@ bool system_tray_apply(SystemTray* tray, const TrayPlan& plan, const TrayIconPal
 }
 
 bool system_tray_shell_restarted(SystemTray* tray, UINT message) noexcept {
-    if (!tray || !tray->created_message || message != tray->created_message)
+    if (!tray->created_message || message != tray->created_message)
         return false;
     tray->added = false;
     tray_model_reset(&tray->model);
@@ -307,7 +300,7 @@ bool system_tray_shell_restarted(SystemTray* tray, UINT message) noexcept {
 }
 
 u32 system_tray_menu(SystemTray* tray, const TrayMenuItem* items, u32 count) noexcept {
-    if (!tray || !tray->window || !items)
+    if (!tray->window)
         return tray_command_none;
     const HMENU menu = CreatePopupMenu();
     if (!menu)
@@ -333,8 +326,6 @@ u32 system_tray_menu(SystemTray* tray, const TrayMenuItem* items, u32 count) noe
 }
 
 void system_tray_release(SystemTray* tray) noexcept {
-    if (!tray)
-        return;
     if (tray->added && tray->window) {
         NOTIFYICONDATAW data{};
         data.cbSize = sizeof(data);

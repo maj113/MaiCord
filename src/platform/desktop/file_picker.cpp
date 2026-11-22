@@ -348,7 +348,7 @@ bool title_widen(Runtime* runtime, Utf8View title) noexcept {
     return !title.bytes || MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, title.data, static_cast<int>(title.bytes), runtime->title, 255) != 0;
 }
 NativeFilePickerError initialize(NativeFilePicker* picker, u32 maximum_files) noexcept {
-    if (!picker || picker->runtime || picker->thread || picker->notification || !maximum_files ||
+    if (picker->runtime || picker->thread || picker->notification || !maximum_files ||
         maximum_files > kNativeFilePickerMaximumFiles) return NativeFilePickerError::invalid_input;
     reset_value(picker);
     auto* runtime = commit_pages<Runtime>();
@@ -423,16 +423,15 @@ NativeFilePickerError native_file_picker_save_start(NativeFilePicker* picker, Wi
     return NativeFilePickerError::none;
 }
 bool native_file_picker_save_selection(const NativeFilePicker* picker, NativeFileSaveSelection* output) noexcept {
-    if (output) reset_value(output);
+    reset_value(output);
     const auto status = native_file_picker_status(picker);
-    if (!output || !picker || !picker->runtime || !status.ok())
+    if (!status.ok())
         return false;
     const auto* runtime = static_cast<const Runtime*>(picker->runtime);
     if (!runtime->save || !runtime->selected[0].count) return false;
     *output = {runtime->selected[0], runtime->snapshots[0], runtime->destination_exists, runtime->overwrite_authorized}; return true;
 }
 NativeFilePickerError native_file_picker_take_drop(NativeFilePicker* picker, DroppedFiles* drop, u32 maximum_files) noexcept {
-    if (!drop) return NativeFilePickerError::invalid_input;
     const auto initialized = initialize(picker, maximum_files);
     if (initialized != NativeFilePickerError::none) return initialized;
     auto* runtime = static_cast<Runtime*>(picker->runtime);
@@ -441,7 +440,6 @@ NativeFilePickerError native_file_picker_take_drop(NativeFilePicker* picker, Dro
     return NativeFilePickerError::none;
 }
 NativeFilePickerError native_file_picker_take_clipboard(NativeFilePicker* picker, ClipboardCapture* input, u32 maximum_files, u64 maximum_bytes) noexcept {
-    if (!input || !input->object || !maximum_bytes) return NativeFilePickerError::invalid_input;
     const auto initialized = initialize(picker, maximum_files);
     if (initialized != NativeFilePickerError::none) return initialized;
     auto* runtime = static_cast<Runtime*>(picker->runtime); runtime->clipboard = *input;
@@ -458,13 +456,13 @@ UploadSource native_file_picker_source(const NativeFilePicker* picker, u32 index
     return status.ok() && index < status.count ? static_cast<const Runtime*>(picker->runtime)->sources[index] : UploadSource{};
 }
 ConstSlice<wchar_t> native_file_picker_oversize_name(const NativeFilePicker* picker) noexcept {
-    if (!picker || !picker->runtime || static_cast<NativeFilePickerPhase>(read_acquire(&picker->phase)) != NativeFilePickerPhase::complete)
+    if (!picker->runtime || static_cast<NativeFilePickerPhase>(read_acquire(&picker->phase)) != NativeFilePickerPhase::complete)
         return {};
     const auto& oversize = static_cast<const Runtime*>(picker->runtime)->oversize;
     return {oversize.name, oversize.name_units};
 }
 NativeFilePickerResult native_file_picker_status(const NativeFilePicker* picker) noexcept {
-    if (!picker || !picker->runtime) return {};
+    if (!picker->runtime) return {};
     const auto phase = static_cast<NativeFilePickerPhase>(read_acquire(&picker->phase));
     return phase == NativeFilePickerPhase::complete ? static_cast<const Runtime*>(picker->runtime)->result : NativeFilePickerResult{0, 0, NativeFilePickerError::none, phase};
 }
@@ -475,12 +473,12 @@ ConstSlice<wchar_t> native_file_picker_path(const NativeFilePicker* picker, u32 
 }
 bool native_file_picker_snapshot(const NativeFilePicker* picker, u32 index, FileSnapshot* output) noexcept {
     const auto status = native_file_picker_status(picker);
-    if (!output || !status.ok() || index >= status.count) return false;
+    if (!status.ok() || index >= status.count) return false;
     *output = static_cast<const Runtime*>(picker->runtime)->snapshots[index];
     return true;
 }
 void native_file_picker_cancel(NativeFilePicker* picker) noexcept {
-    if (!picker || !picker->runtime) return;
+    if (!picker->runtime) return;
     auto* runtime = static_cast<Runtime*>(picker->runtime);
     if (InterlockedExchange(&runtime->cancelled, 1)) return;
     // The dialog thread sees the flag at its next check or this post, whichever follows publication of the window.
@@ -489,7 +487,6 @@ void native_file_picker_cancel(NativeFilePicker* picker) noexcept {
     ReleaseSRWLockExclusive(&runtime->cancel_lock);
 }
 bool native_file_picker_release(NativeFilePicker* picker, u32 timeout_ms) noexcept {
-    if (!picker) return false;
     if (!picker->runtime) return true;
     native_file_picker_cancel(picker);
     if (picker->thread && WaitForSingleObject(picker->thread, timeout_ms) != WAIT_OBJECT_0) return false;

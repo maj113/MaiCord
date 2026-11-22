@@ -80,8 +80,7 @@ const wl_surface_listener kSurfaceEvents = {on_surface_enter, on_surface_leave, 
                                             on_preferred_buffer_transform};
 
 void on_token_done(void*, xdg_activation_token_v1* token, const char* string) noexcept {
-    if (g.activation_manager && g.window.surface)
-        xdg_activation_v1_activate(g.activation_manager, string, g.window.surface);
+    xdg_activation_v1_activate(g.activation_manager, string, g.window.surface);
     xdg_activation_token_v1_destroy(token);
     g.extras.token = nullptr;
 }
@@ -293,7 +292,7 @@ bool window_wayland_system_bell() noexcept {
 void window_set_icon(Window window, const IconImage* images, u32 count) noexcept {
     constexpr u32 kMaxIcons = 4;
     constexpr u32 kMaxExtent = 256;
-    if (!is_window(window) || !g.icon_manager || !g.shm || !images)
+    if (!is_window(window) || !g.icon_manager)
         return;
     const IconImage* chosen[kMaxIcons];
     usize offsets[kMaxIcons];

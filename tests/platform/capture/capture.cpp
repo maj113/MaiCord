@@ -265,7 +265,7 @@ void test_pods() noexcept {
     copy_bytes(broken, kGoldenFixedRgba, sizeof(broken));
     reinterpret_cast<u32*>(broken)[20] = 2; // SPA_VIDEO_FORMAT_I420
     const bool planar = parse_video_format(reinterpret_cast<const Pod*>(broken), &parsed);
-    check(!truncated && !other && !planar && !parse_video_format(nullptr, &parsed),
+    check(!truncated && !other && !planar,
           "pods: a truncated object, another object and a planar format are refused");
 }
 

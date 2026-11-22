@@ -29,7 +29,7 @@ StagedFileResult fence(const volatile LONG* cancellation, u64 deadline) noexcept
 } // namespace
 StagedFileResult staged_file_begin(StagedFile* owner, NetworkLoop* loop, const wchar_t* destination_path,
     const wchar_t* stage_path, u64 expected_bytes, bool destination_exists, bool overwrite_authorized, FileSnapshot destination) noexcept {
-    if (!owner || owner->file.handle || owner->file.pending || owner->stage_owned || !destination_path || !destination_path[0] ||
+    if (owner->file.handle || owner->file.pending || owner->stage_owned || !destination_path || !destination_path[0] ||
         !stage_path || !stage_path[0] || same_path(destination_path, stage_path) || expected_bytes > 0x7fffffffffffffffull ||
         (destination_exists && (!overwrite_authorized || !destination.identity.index))) return {ERROR_INVALID_PARAMETER, StagedFileError::invalid_input};
     owner->destination_path = destination_path; owner->stage_path = stage_path; owner->expected_bytes = expected_bytes;
@@ -41,7 +41,7 @@ StagedFileResult staged_file_begin(StagedFile* owner, NetworkLoop* loop, const w
     return {static_cast<u32>(created.native_error), created.ok() ? StagedFileError::none : StagedFileError::create};
 }
 StagedFileResult staged_file_commit(StagedFile* owner, u64 acknowledged_bytes, const volatile LONG* cancellation, u64 deadline) noexcept {
-    if (!owner || !owner->stage_owned || !owner->file.handle) return {ERROR_INVALID_PARAMETER, StagedFileError::invalid_input};
+    if (!owner->stage_owned || !owner->file.handle) return {ERROR_INVALID_PARAMETER, StagedFileError::invalid_input};
     if (owner->file.pending) return {ERROR_IO_PENDING, StagedFileError::draining};
     auto allowed = fence(cancellation, deadline); if (!allowed.ok()) return allowed;
     FileSnapshot stage{}; u32 native = 0;
@@ -57,7 +57,6 @@ StagedFileResult staged_file_commit(StagedFile* owner, u64 acknowledged_bytes, c
     owner->stage_owned = false; return {};
 }
 StagedFileResult staged_file_discard(StagedFile* owner) noexcept {
-    if (!owner) return {ERROR_INVALID_PARAMETER, StagedFileError::invalid_input};
     network_file_close(&owner->file);
     if (owner->file.pending) return {ERROR_IO_PENDING, StagedFileError::draining};
     if (owner->stage_owned) {

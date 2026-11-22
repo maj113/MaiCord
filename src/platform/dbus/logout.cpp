@@ -16,8 +16,7 @@ bool logout_in_progress() noexcept {
     if (status == Status::ok) {
         Reader r;
         message_reader(reply, &r);
-        if (!reader_bool(&r, &shutting_down))
-            shutting_down = false;
+        reader_bool(&r, &shutting_down);  // stays false when the reply holds no boolean
     }
     if (status == Status::ok || status == Status::error_reply)
         message_release(&reply);

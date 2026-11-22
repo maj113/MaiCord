@@ -228,8 +228,6 @@ bool type_offset(const TzifZone& zone, u32 type, TzifOffset* output) noexcept {
 } // namespace
 
 TzifStatus tzif_open(ConstSlice<u8> data, TzifZone* zone) noexcept {
-    if (!zone || !data.data)
-        return TzifStatus::truncated;
     *zone = {};
     Header header{};
     u8 version = 0;
@@ -301,8 +299,6 @@ TzifStatus tzif_open(ConstSlice<u8> data, TzifZone* zone) noexcept {
 }
 
 bool tzif_parse_rule(const char* text, u32 length, TzifRule* rule) noexcept {
-    if (!text || !rule)
-        return false;
     *rule = {};
     RuleReader reader{text, length, 0};
     i32 seconds = 0;
@@ -344,8 +340,6 @@ void tzif_zone_from_rule(const TzifRule& rule, TzifZone* zone) noexcept {
 }
 
 bool tzif_offset_at(const TzifZone& zone, i64 unix_seconds, TzifOffset* output) noexcept {
-    if (!output)
-        return false;
     const i64 days = floor_days(unix_seconds);
     if (days < kMinimumDays || days > kMaximumDays)
         return false;
@@ -371,8 +365,6 @@ bool tzif_offset_at(const TzifZone& zone, i64 unix_seconds, TzifOffset* output) 
 }
 
 bool tzif_local_to_utc(const TzifZone& zone, i64 local_seconds, i64* unix_seconds) noexcept {
-    if (!unix_seconds)
-        return false;
     // The offsets in force a day either side bracket the one the reading belongs to: no zone changes twice in two days
     // by more than a day, and a transition inside the day maps to one of the two.
     TzifOffset before{}, after{};
@@ -393,7 +385,7 @@ bool tzif_local_to_utc(const TzifZone& zone, i64 local_seconds, i64* unix_second
 }
 
 bool tzif_name_valid(const char* name, u32 length) noexcept {
-    if (!name || length == 0 || length > 63 || name[0] == '/' || name[length - 1] == '/')
+    if (length == 0 || length > 63 || name[0] == '/' || name[length - 1] == '/')
         return false;
     for (u32 i = 0; i < length; ++i) {
         const char c = name[i];
@@ -406,8 +398,6 @@ bool tzif_name_valid(const char* name, u32 length) noexcept {
 }
 
 u32 tzif_name_from_path(const char* path, char* output, u32 capacity) noexcept {
-    if (!path || !output || capacity == 0)
-        return 0;
     const u32 length = c_string_length(path);
     static constexpr char marker[] = "zoneinfo/";
     constexpr u32 marker_length = sizeof(marker) - 1;

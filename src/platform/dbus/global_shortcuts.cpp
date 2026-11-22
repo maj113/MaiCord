@@ -55,9 +55,8 @@ void on_activated(void*, const Message& signal) noexcept {
     // The bus's arg0 filter only matches strings, so a signal for another session is dropped here.
     if (!c_string_equal(session, g.session))
         return;
-    const bool active = signal.member && signal.member[0] == 'A';  // Activated, not Deactivated
-    if (g.handler)
-        g.handler(g.context, id, active, timestamp);
+    const bool active = signal.member[0] == 'A';  // Activated, not Deactivated (message_parse requires a signal's member)
+    g.handler(g.context, id, active, timestamp);
 }
 
 void on_bound(void*, u32 code, Reader*) noexcept {
@@ -241,8 +240,7 @@ const char* keysym_of(Key key, char (&scratch)[8]) noexcept {
 } // namespace
 
 bool global_shortcut_trigger(Key key, u8 modifiers, char* out, u32 capacity) noexcept {
-    if (capacity)
-        out[0] = 0;
+    out[0] = 0;
     char scratch[8];
     const char* name = keysym_of(key, scratch);
     if (!name)
@@ -271,7 +269,7 @@ bool global_shortcut_trigger(Key key, u8 modifiers, char* out, u32 capacity) noe
 
 bool global_shortcuts_start(const GlobalShortcut* shortcuts, u32 count, GlobalShortcutHandler handler,
                             void* context) noexcept {
-    if (g.started || count == 0 || count > kMaxShortcuts || !shortcuts)
+    if (g.started || count > kMaxShortcuts)
         return false;
     g.started = true;
     g.handler = handler;

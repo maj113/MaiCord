@@ -279,7 +279,8 @@ MAICORD_TEST_ENTRY(maicord_capture_pipewire_entry) {
     const StreamEnd end = consumer ? consumer_end(consumer) : StreamEnd::failed;
     check(ReadAcquire(&g_received.frames) == after_stop && (end == StreamEnd::none || end == StreamEnd::closed),
           "pipewire: no frame and no failure once the source goes");
-    consumer_close(consumer);
+    if (consumer)
+        consumer_close(consumer);
     if (frames < 20)
         test_write_metric("frames received: ", static_cast<u64>(frames));
     for (DumbBuffer& buffer : g_producer.buffers)

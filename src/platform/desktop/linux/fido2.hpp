@@ -32,12 +32,6 @@ enum class Outcome : u8 {
 
 inline constexpr u32 kMaximumDevices = 16;
 inline constexpr u32 kMaximumPinBytes = 63;  // CTAP2: at most 63 bytes of UTF-8
-inline constexpr u32 kDefaultTimeoutMs = 120'000;
-inline constexpr u32 kMaximumTimeoutMs = 600'000;
-// A request's timeout: zero takes the default, and the maximum caps it.
-constexpr u32 clamped_timeout(u32 timeout_ms) noexcept {
-    return timeout_ms == 0 ? kDefaultTimeoutMs : timeout_ms > kMaximumTimeoutMs ? kMaximumTimeoutMs : timeout_ms;
-}
 inline constexpr u32 kRescanMs = 250;  // between looks for a key that is not there yet
 
 struct Result {

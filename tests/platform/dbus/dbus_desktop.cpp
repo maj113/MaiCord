@@ -457,8 +457,7 @@ void test_shortcuts() noexcept {
           "a portal without GlobalShortcuts: unavailable");
     global_shortcuts_stop();
     set_mode("shortcuts-error", false);
-    check(!global_shortcuts_start(nullptr, 0, on_shortcut, nullptr) && !global_shortcuts_start(&shortcut, 9, on_shortcut, nullptr),
-          "no shortcuts, or too many, are refused");
+    check(!global_shortcuts_start(&shortcut, 9, on_shortcut, nullptr), "too many shortcuts are refused");
 }
 
 void test_shortcuts_bare() noexcept {
@@ -511,10 +510,10 @@ bool pick_done() noexcept {
 // The colour picker's eyedropper over Screenshot.PickColor; the mock answers (0.25, 0.5, 1.0).
 void test_screen_color(bool bare) noexcept {
     g_picked = false;
-    check(screen_color_pick_start(pick_settled, nullptr) &&
-              screen_color_pick_state(nullptr) == ScreenColorState::picking,
-          "the eyedropper asks the Screenshot portal");
     u32 rgb = 0;
+    check(screen_color_pick_start(pick_settled, nullptr) &&
+              screen_color_pick_state(&rgb) == ScreenColorState::picking,
+          "the eyedropper asks the Screenshot portal");
     if (bare)
         check(pump(pick_done, 4000) && screen_color_pick_state(&rgb) == ScreenColorState::failed,
               "no portal: the eyedropper fails");
@@ -522,7 +521,7 @@ void test_screen_color(bool bare) noexcept {
         check(pump(pick_done, 4000) && screen_color_pick_state(&rgb) == ScreenColorState::picked && rgb == 0x4080FF,
               "PickColor's (ddd) colour becomes 0xRRGGBB");
     screen_color_pick_end();
-    check(screen_color_pick_state(nullptr) == ScreenColorState::idle, "ending the pick returns to idle");
+    check(screen_color_pick_state(&rgb) == ScreenColorState::idle, "ending the pick returns to idle");
 }
 
 void test_file_chooser() noexcept {
@@ -713,7 +712,6 @@ void test_instance_names() noexcept {
               !instance_bus_name("io.9x", nullptr, name, sizeof(name), path, sizeof(path)) &&
               !instance_bus_name("io.x y", nullptr, name, sizeof(name), path, sizeof(path)) &&
               !instance_bus_name("io.x.", nullptr, name, sizeof(name), path, sizeof(path)) &&
-              !instance_bus_name(nullptr, nullptr, name, sizeof(name), path, sizeof(path)) &&
               !instance_bus_name(kApplicationId, nullptr, name, 8, path, sizeof(path)),
           "invalid ids and small buffers are refused");
     char dashed_name[160], dashed_path[200];

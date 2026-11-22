@@ -72,7 +72,7 @@ struct Win32WindowOptions {
 // Registers the window class and creates the main window with the window procedure of this backend, which
 // translates every message into a WindowEvent for `sink` (win32_translate) and runs the hooks around it. Messages
 // sent while the window is being created reach the sink too, before `*out` is set. False when the class or the
-// window cannot be created; `reason`, when given, then names the step that failed ("register_class_failed",
+// window cannot be created; `*reason` then names the step that failed ("register_class_failed",
 // "adjust_initial_bounds_failed", "create_window_failed") for the caller's log.
 bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions& options, WindowSink sink,
                          void* context, Window* out, const char** reason) noexcept;

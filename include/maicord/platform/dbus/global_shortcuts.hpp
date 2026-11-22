@@ -27,8 +27,8 @@ enum class GlobalShortcutsState : u8 {
 
 using GlobalShortcutHandler = void (*)(void* context, const char* id, bool active, u64 timestamp_us) noexcept;
 
-// Starts a session with these shortcuts (at most 8; the strings are copied). Restarts from scratch after a bus
-// reconnect. False without a session bus.
+// Starts a session with these shortcuts (1 to 8 of them; the strings are copied) and a handler. Restarts from scratch
+// after a bus reconnect. False without a session bus.
 bool global_shortcuts_start(const GlobalShortcut* shortcuts, u32 count, GlobalShortcutHandler handler,
                             void* context) noexcept;
 GlobalShortcutsState global_shortcuts_state() noexcept;

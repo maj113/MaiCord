@@ -149,7 +149,7 @@ void window_request_close(Window window) noexcept {
 
 bool window_set_fullscreen(Window window, bool fullscreen) noexcept {
     const HWND hwnd = win32_hwnd(window);
-    if (!hwnd || fullscreen == g_fullscreen.on)
+    if (fullscreen == g_fullscreen.on)
         return false;
     if (fullscreen) {
         reset_value(&g_fullscreen.placement);
@@ -190,8 +190,7 @@ void window_request_attention(Window window, Attention attention) noexcept {
 }
 
 bool window_set_capture_excluded(Window window, bool excluded) noexcept {
-    const HWND hwnd = win32_hwnd(window);
-    return hwnd && SetWindowDisplayAffinity(hwnd, excluded ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
+    return SetWindowDisplayAffinity(win32_hwnd(window), excluded ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE) != FALSE;
 }
 
 void window_set_drop_target(Window window, bool accept_files) noexcept {
@@ -243,10 +242,8 @@ bool window_pointer_position(Window window, float* x_px, float* y_px) noexcept {
         x = static_cast<float>(point.x);
         y = static_cast<float>(point.y);
     }
-    if (x_px)
-        *x_px = x;
-    if (y_px)
-        *y_px = y;
+    *x_px = x;
+    *y_px = y;
     return true;
 }
 

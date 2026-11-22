@@ -74,7 +74,6 @@ bool open_client(Client* client, SecretStatus* status) noexcept {
     builder_release(&body);
     if (!ok) {
         connection_close(client->connection);
-        client->connection = nullptr;
         return false;
     }
     // (v output, o session)
@@ -87,19 +86,16 @@ bool open_client(Client* client, SecretStatus* status) noexcept {
     if (!parsed) {
         *status = SecretStatus::failed;
         connection_close(client->connection);
-        client->connection = nullptr;
         return false;
     }
     return true;
 }
 
+// Ends a client that open_client opened.
 void close_client(Client* client) noexcept {
-    if (!client->connection)
-        return;
     const CallTarget target{kService, client->session, kSessionInterface, "Close"};
     connection_call(client->connection, target, nullptr, 0, nullptr, nullptr);
     connection_close(client->connection);
-    client->connection = nullptr;
 }
 
 void append_attributes(Builder* body, const SecretAttribute* attributes, u32 count) noexcept {

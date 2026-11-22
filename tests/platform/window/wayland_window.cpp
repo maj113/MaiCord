@@ -1140,7 +1140,7 @@ void test_pointer() noexcept {
     });
     expect("the drag's capture ends", EventType::capture_lost, [](const Record&) { return true; });
     expect("the pointer leaves", EventType::pointer_leave, [](const Record&) { return true; });
-    check(!window_pointer_position(g_window, nullptr, nullptr), "the pointer is outside afterwards");
+    check(!window_pointer_position(g_window, &x, &y), "the pointer is outside afterwards");
 
     // The wheel: a notch is 120, down is negative as on Windows; continuous scrolling carries pixels as well.
     mark();

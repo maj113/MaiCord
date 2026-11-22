@@ -204,7 +204,7 @@ void send_request(const TextInputRequest& request) noexcept {
         hint |= zwp_text_input_v3_content_hint_hidden_text | zwp_text_input_v3_content_hint_sensitive_data;
     zwp_text_input_v3_set_content_type(input, hint, purpose_of(request.purpose));
     // Surface-local logical coordinates: the client pixels the app works in, divided by the scale.
-    const u32 dpi = g.window.dpi ? g.window.dpi : 96;
+    const u32 dpi = g.window.dpi;
     zwp_text_input_v3_set_cursor_rectangle(input, request.x * 96 / static_cast<i32>(dpi),
                                            request.y * 96 / static_cast<i32>(dpi),
                                            maximum<i32>(request.width * 96 / static_cast<i32>(dpi), 1),
@@ -230,8 +230,6 @@ void text_shutdown() noexcept {
 
 bool text_input_enable(const TextInputRequest& request) noexcept {
     TextState& state = g.text;
-    if (!state.input)
-        return false;
     // Kept (with its own copy of the text) so it can be sent when the compositor gives the text input focus later.
     g_wanted = request;
     g_wanted.surrounding = Utf8View{};

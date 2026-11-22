@@ -206,15 +206,6 @@ WebAuthnMfaResult serialize_creation(Ceremony& c, SecureBuffer* output) noexcept
 bool begin(const fido2::Api& api, bool creating, const Waker& wake, u64 token) noexcept {
     Ceremony& c = g_ceremony;
     const WebAuthnMfaRequestOptions& request = c.creation.request;
-    if (request.challenge_bytes == 0 || request.challenge_bytes > kWebAuthnMfaMaximumChallengeBytes ||
-        request.credential_count > kWebAuthnMfaMaximumAllowedCredentials ||
-        request.credential_id_bytes > kWebAuthnMfaCredentialIdStorageBytes ||
-        (creating && (c.creation.user_id_bytes == 0 || c.creation.user_id_bytes > kWebAuthnMfaMaximumUserIdBytes ||
-                      c.creation.algorithm_count == 0 ||
-                      c.creation.algorithm_count > kWebAuthnMfaMaximumAlgorithms))) {
-        reset(c);
-        return false;
-    }
     c.creating = creating;
     const Slice<u8> client_data_output{c.client_data, static_cast<u32>(sizeof(c.client_data))};
     const WebAuthnMfaResult client_data = creating ? webauthn_mfa_write_creation_client_data(c.creation, client_data_output)
@@ -240,7 +231,7 @@ bool begin(const fido2::Api& api, bool creating, const Waker& wake, u64 token) n
     c.api = &api;
     c.wake = wake;
     c.token = token;
-    c.deadline = clock_monotonic_milliseconds() + fido2::clamped_timeout(request.timeout_ms);
+    c.deadline = clock_monotonic_milliseconds() + request.timeout_ms;
     set_state(c, WebAuthnCeremonyState::running);
     c.thread = thread_start(worker, &c, kWorkerStackBytes, nullptr);
     if (!c.thread) {
@@ -256,7 +247,6 @@ bool webauthn_ceremony_start_with(const fido2::Api& api, const WebAuthnMfaReques
                                   u64 token) noexcept {
     if (state_of(g_ceremony) != WebAuthnCeremonyState::idle)
         return false;
-    clear_bytes(&g_ceremony, static_cast<u32>(sizeof(g_ceremony)));
     copy_bytes(&g_ceremony.creation.request, &request, static_cast<u32>(sizeof(request)));
     return begin(api, false, wake, token);
 }
@@ -265,7 +255,6 @@ bool webauthn_ceremony_start_creation_with(const fido2::Api& api, const WebAuthn
                                            const Waker& wake, u64 token) noexcept {
     if (state_of(g_ceremony) != WebAuthnCeremonyState::idle)
         return false;
-    clear_bytes(&g_ceremony, static_cast<u32>(sizeof(g_ceremony)));
     copy_bytes(&g_ceremony.creation, &creation, static_cast<u32>(sizeof(creation)));
     return begin(api, true, wake, token);
 }
@@ -296,7 +285,7 @@ WebAuthnPinPrompt webauthn_ceremony_pin_prompt() noexcept {
 bool webauthn_ceremony_submit_pin(ConstSlice<u8> pin) noexcept {
     Ceremony& c = g_ceremony;
     // CTAP2 PINs are 4 to 63 bytes of UTF-8 and carry no NUL.
-    if (state_of(c) != WebAuthnCeremonyState::need_pin || !pin.data || pin.count < 4 || pin.count > fido2::kMaximumPinBytes)
+    if (state_of(c) != WebAuthnCeremonyState::need_pin || pin.count < 4 || pin.count > fido2::kMaximumPinBytes)
         return false;
     for (u32 i = 0; i < pin.count; ++i)
         if (pin.data[i] == 0)
@@ -317,30 +306,21 @@ void webauthn_ceremony_cancel() noexcept {
     if (c.device)
         c.api->fido_dev_cancel(c.device);
     unlock_device(c);
-    if (c.event)
-        event_set(c.event);
+    event_set(c.event);
 }
 
 WebAuthnCeremonyResult webauthn_ceremony_finish(SecureBuffer* serialized_credential) noexcept {
     Ceremony& c = g_ceremony;
-    if (state_of(c) != WebAuthnCeremonyState::done)
-        return {WebAuthnCeremonyError::invalid_input, 0};
     WebAuthnCeremonyResult result{error_of(c.outcome), c.creating ? c.made.native : c.result.native};
     if (result.ok()) {
-        if (!serialized_credential || !serialized_credential->data || !serialized_credential->locked ||
-            serialized_credential->capacity == 0) {
-            result.error = WebAuthnCeremonyError::invalid_input;
-        } else {
-            secure_buffer_clear(serialized_credential);
-            const WebAuthnMfaResult serialized = c.creating ? serialize_creation(c, serialized_credential)
-                                                            : serialize_assertion(c, serialized_credential);
-            if (serialized.ok())
-                serialized_credential->bytes = serialized.bytes;
-            else
-                result.error = serialized.error == WebAuthnMfaError::output_too_small
-                                   ? WebAuthnCeremonyError::output_too_small
-                                   : WebAuthnCeremonyError::failed;
-        }
+        const WebAuthnMfaResult serialized = c.creating ? serialize_creation(c, serialized_credential)
+                                                        : serialize_assertion(c, serialized_credential);
+        if (serialized.ok())
+            serialized_credential->bytes = serialized.bytes;
+        else
+            result.error = serialized.error == WebAuthnMfaError::output_too_small
+                               ? WebAuthnCeremonyError::output_too_small
+                               : WebAuthnCeremonyError::failed;
     }
     reset(c);
     return result;

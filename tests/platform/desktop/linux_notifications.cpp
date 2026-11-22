@@ -33,9 +33,6 @@ DesktopNotificationPayload payload(Utf8View title, Utf8View body) noexcept {
 
 void test_lifecycle() noexcept {
     DesktopNotifications notifications{};
-    check(!desktop_notifications_initialize(nullptr, {}).ok(), "initialize needs a handle");
-    check(desktop_notifications_initialize(&notifications, {}).error == DesktopNotificationError::invalid_input,
-          "initialize needs an application id");
     const auto early = desktop_notifications_show_once(&notifications, payload(utf8_literal("t"), utf8_literal("b")));
     check(early.state == DesktopNotificationShowState::failed && !early.native_show_attempted,
           "a toast before initialize fails without a send");

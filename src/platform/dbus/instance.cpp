@@ -309,8 +309,6 @@ InstanceResult forward_to_socket_owner(const SocketAddress& address, const Launc
 
 bool instance_bus_name(const char* application_id, const char* profile_key, char* name, u32 name_capacity, char* path,
                        u32 path_capacity) noexcept {
-    if (!application_id)
-        return false;
     const u32 length = c_string_length(application_id);
     u32 elements = 1;
     bool element_start = true;

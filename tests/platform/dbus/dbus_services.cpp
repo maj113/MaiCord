@@ -318,9 +318,6 @@ void test_notification_direct() noexcept {
     notifications_set_handler(on_notification, nullptr);
     check(notification_backend() == NotificationBackend::direct, "outside a sandbox the daemon is used directly");
 
-    NotificationRequest bad{};
-    check(!notification_show(bad), "a notification needs a summary");
-
     NotificationRequest request{};
     request.summary = "Hello";
     request.body = "Body text";

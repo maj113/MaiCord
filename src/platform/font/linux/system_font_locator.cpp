@@ -319,7 +319,7 @@ u32 system_font_language(char (&output)[16]) noexcept {
 
 bool system_font_locator_find(SystemFontLocator* locator, const SystemFontRequest& request,
                               SystemFontFile* output) noexcept {
-    if (!locator || !output || !request.family.data || request.family.count == 0 || request.weight == 0)
+    if (!request.family.data || request.family.count == 0 || request.weight == 0)
         return false;
     if (open_fontconfig(locator))
         return fontconfig_find(locator, request, output);
@@ -327,8 +327,6 @@ bool system_font_locator_find(SystemFontLocator* locator, const SystemFontReques
 }
 
 u32 system_font_locator_role(SystemFontLocator* locator, SystemFontRole role, SystemFontName* output) noexcept {
-    if (!locator || !output || static_cast<u32>(role) >= static_cast<u32>(SystemFontRole::count))
-        return 0;
     if (open_fontconfig(locator)) {
         const u32 count = fontconfig_role(locator, role, output);
         if (count)
@@ -339,13 +337,13 @@ u32 system_font_locator_role(SystemFontLocator* locator, SystemFontRole role, Sy
 
 u32 system_font_locator_fallbacks(SystemFontLocator* locator, u32 scalar, SystemFontName* output,
                                   u32 capacity) noexcept {
-    if (!locator || !output || capacity == 0 || scalar > 0x10FFFF || !open_fontconfig(locator))
+    if (!open_fontconfig(locator))
         return 0;
     return fontconfig_fallbacks(locator, scalar, output, capacity);
 }
 
 void system_font_locator_idle(SystemFontLocator* locator) noexcept {
-    if (!locator || locator->state != 1)
+    if (locator->state != 1)
         return;
     locator->api.fini();
     shared_library_close(&locator->library);
@@ -354,8 +352,6 @@ void system_font_locator_idle(SystemFontLocator* locator) noexcept {
 }
 
 void system_font_locator_release(SystemFontLocator* locator) noexcept {
-    if (!locator)
-        return;
     system_font_locator_idle(locator);
     font_locator::scan_release(locator);
     clear_bytes(locator, sizeof(*locator));

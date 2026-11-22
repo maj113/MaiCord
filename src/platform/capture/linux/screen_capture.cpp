@@ -301,7 +301,7 @@ bool capture_thumbnail(GpuDevice*, const CaptureSource&, u32, u32, u8*, u32*, u3
 }
 
 ScreenCapture* capture_start(const CaptureOptions& options, const CaptureSink& sink) noexcept {
-    if (!sink.frame || !sink.ended || !pipewire::api())
+    if (!pipewire::api())
         return nullptr;
     auto* r = commit_pages<Runtime>();
     if (!r)
@@ -323,8 +323,6 @@ ScreenCapture* capture_start(const CaptureOptions& options, const CaptureSink& s
 
 void capture_stop(ScreenCapture* capture) noexcept {
     auto* r = reinterpret_cast<Runtime*>(capture);
-    if (!r)
-        return;
     event_set(r->stop);
     thread_wait(r->thread, INFINITE);
     free_runtime(r);

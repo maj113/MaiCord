@@ -66,8 +66,6 @@ bool spell_checker_choose_language(const wchar_t* locale, bool (*supported)(void
 
 #if defined(_WIN32)
 bool spell_checker_open(SpellChecker* spell) noexcept {
-    if (!spell)
-        return false;
     if (spell->checker)
         return true;
     if (spell->attempted)
@@ -148,8 +146,6 @@ bool spell_checker_ignore(SpellChecker* spell, Utf8View word) noexcept {
 }
 
 void spell_checker_release(SpellChecker* spell) noexcept {
-    if (!spell)
-        return;
     com_release(spell->checker);
     com_release(spell->factory);
     if (spell->com_initialized)

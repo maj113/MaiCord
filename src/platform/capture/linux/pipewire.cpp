@@ -208,7 +208,7 @@ void buffer_params(const Pod** pods) noexcept {
 }
 
 bool parse_video_format(const Pod* pod, VideoFormat* format) noexcept {
-    if (!pod || pod->type != kTypeObject || pod->size < 8)
+    if (pod->type != kTypeObject || pod->size < 8)
         return false;
     const u8* body = reinterpret_cast<const u8*>(pod + 1);
     u32 object_type = 0;
@@ -423,8 +423,6 @@ bool consumer_linked(const Consumer* consumer) noexcept {
 }
 
 void consumer_close(Consumer* c) noexcept {
-    if (!c)
-        return;
     const Api* a = c->api;
     if (c->loop) {
         a->pw_thread_loop_lock(c->loop);

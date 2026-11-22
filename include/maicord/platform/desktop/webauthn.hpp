@@ -75,9 +75,6 @@ enum class WebAuthnCeremonyState : u8 { idle, running, need_pin, done };
 
 enum class WebAuthnCeremonyError : u8 {
     none,
-    unavailable,     // no libfido2
-    invalid_input,
-    client_data,
     no_device,       // no key plugged in before the request's time ran out
     cannot_open,     // keys are there and none can be opened
     not_registered,  // the keys present hold none of the credentials
@@ -106,6 +103,7 @@ struct WebAuthnPinPrompt {
     i32 retries;  // attempts left before the key blocks its PIN; -1 when the key did not say
 };
 
+// The options are as webauthn_mfa_decode_request (or _creation) gave them.
 bool webauthn_ceremony_start(const WebAuthnMfaRequestOptions& request, const Waker& wake, u64 token) noexcept;
 // The same ceremony registering a key: a credential for the relying party and user of `creation` instead of an assertion;
 // finish writes the credential JSON of the registration request (what windows_webauthn_register writes).
@@ -115,7 +113,7 @@ WebAuthnPinPrompt webauthn_ceremony_pin_prompt() noexcept;
 // The user's PIN (UTF-8, 4 to 63 bytes); only while the state is need_pin. The ceremony copies it and the caller clears its own.
 bool webauthn_ceremony_submit_pin(ConstSlice<u8> pin) noexcept;
 void webauthn_ceremony_cancel() noexcept;
-// Only when the state is done. Writes the credential into the locked buffer when the key answered.
+// Only when the state is done, into a buffer fresh from secure_buffer_initialize: the credential when the key answered.
 WebAuthnCeremonyResult webauthn_ceremony_finish(SecureBuffer* serialized_credential) noexcept;
 void webauthn_ceremony_release() noexcept;
 #endif

@@ -196,9 +196,6 @@ void missing() noexcept {
     check(!spell_checker_add(&spell, {"zorp", 4}) && !spell_checker_ignore(&spell, {"zorp", 4}), "no_add_or_ignore");
     spell_checker_release(&spell);
     check(!spell.checker && !spell.factory && !spell.attempted, "release_resets_the_attempt");
-    check(spell_checker_open(nullptr) == false && spell_checker_check(nullptr, {"a", 1}) ==
-                                                      SpellCheckerVerdict::unavailable,
-          "null_checker");
 }
 
 bool run(const char* mode, const char* argument) noexcept {

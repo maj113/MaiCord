@@ -22,15 +22,15 @@ inline void clipboard_attachment_shutdown() noexcept {}
 struct ClipboardAttachmentOversize { u64 bytes; u32 name_units; wchar_t name[260]; };
 #if defined(_WIN32)
 // Called on an initialized MTA. Successful visit transfers one source reference. A named file or image refused
-// for size returns ERROR_FILE_TOO_LARGE and, when `oversize` is set, is recorded there (a path the visitor
-// refuses is the visitor's to record).
+// for size returns ERROR_FILE_TOO_LARGE and is recorded in `oversize` (a path the visitor refuses is the visitor's to
+// record).
 using ClipboardAttachmentVisitor = bool (*)(void*, ConstSlice<wchar_t> path,
     ConstSlice<wchar_t> filename, UploadSource source) noexcept;
 DWORD clipboard_attachment_visit(ClipboardCapture* input, u32 maximum_files, u64 maximum_bytes,
     ClipboardAttachmentVisitor visitor, void* context, u32* count,
-    ClipboardAttachmentOversize* oversize = nullptr) noexcept;
-// Records a file refused for size in `oversize` when it is set; a name past the record's capacity is cut. The file
-// picker records the files its visitor refuses with it.
+    ClipboardAttachmentOversize* oversize) noexcept;
+// Records a file refused for size in `oversize`; a name past the record's capacity is cut. The file picker records the
+// files its visitor refuses with it.
 void clipboard_attachment_note_oversize(ClipboardAttachmentOversize* oversize, ConstSlice<wchar_t> name,
     u64 bytes) noexcept;
 #endif

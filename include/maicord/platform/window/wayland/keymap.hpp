@@ -110,7 +110,7 @@ Key specific_modifier_key(u32 evdev) noexcept;
 // beyond Unicode.
 bool is_message_character(u32 code_point) noexcept;
 
-// UTF-16 code units of a code point: 1 or 2 (a surrogate pair); 0 for a value that is not a Unicode scalar.
+// UTF-16 code units of a Unicode scalar (an is_message_character): 1 or 2 (a surrogate pair).
 u32 utf16_units(u32 code_point, u16 (&units)[2]) noexcept;
 
 } // namespace maicord::wayland

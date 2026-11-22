@@ -256,14 +256,10 @@ bool is_message_character(u32 code_point) noexcept {
 }
 
 u32 utf16_units(u32 code_point, u16 (&units)[2]) noexcept {
-    if (code_point >= 0xD800 && code_point <= 0xDFFF)
-        return 0;
     if (code_point < 0x10000) {
         units[0] = static_cast<u16>(code_point);
         return 1;
     }
-    if (code_point > 0x10FFFF)
-        return 0;
     const u32 offset = code_point - 0x10000;
     units[0] = static_cast<u16>(0xD800 + (offset >> 10));
     units[1] = static_cast<u16>(0xDC00 + (offset & 0x3FF));

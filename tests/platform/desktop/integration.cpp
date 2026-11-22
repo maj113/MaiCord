@@ -338,8 +338,7 @@ void test_single_instance(Check check) noexcept {
     } forged{1, 0, 3, {L'a', L'b', L'c', 0}};
     COPYDATASTRUCT bad{kDesktopForwardMagic, 12 + 6, &forged};
     COPYDATASTRUCT foreign{0x1234, 12, &forged};
-    check(!desktop_instance_receive(&bad, &received) && !desktop_instance_receive(&foreign, &received) &&
-              !desktop_instance_receive(nullptr, &received),
+    check(!desktop_instance_receive(&bad, &received) && !desktop_instance_receive(&foreign, &received),
           "single instance: malformed or foreign WM_COPYDATA is refused");
     if (window)
         DestroyWindow(window);

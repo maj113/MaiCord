@@ -298,7 +298,6 @@ u64 clipboard_image_png_length(ConstSlice<u8> png) noexcept {
     return 0;
 }
 DWORD clipboard_paste_png(ClipboardPasteKind kind, ConstSlice<u8> payload, u64 limit, ClipboardPng* output) noexcept {
-    if (!output || !payload.data || !limit) return ERROR_INVALID_PARAMETER;
     reset_value(output);
     if (kind == ClipboardPasteKind::png) {
         const u64 bytes = clipboard_image_png_length(payload);

@@ -187,7 +187,7 @@ bool clipboard_write_image(const u8* rgba, u32 width, u32 height, u32 stride, co
     const u64 png_bytes = clipboard_image_png_bytes(width, height);
     const UINT png_format = RegisterClipboardFormatW(L"PNG");
     const UINT html_format = source_url.bytes ? RegisterClipboardFormatW(L"HTML Format") : 0;
-    if (!rgba || !dib_bytes || !png_bytes || stride < width * 4 || png_bytes > 0xffffffffull ||
+    if (!dib_bytes || !png_bytes ||
         !png_format || (source_url.bytes && !html_format))
         return false;
     ClipboardPayload payloads[3]{{CF_DIBV5, GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(dib_bytes))},

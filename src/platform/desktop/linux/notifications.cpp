@@ -37,7 +37,7 @@ struct Runtime {
 Runtime g_runtime;
 
 Runtime* runtime_of(DesktopNotifications* notifications) noexcept {
-    return notifications && notifications->runtime == &g_runtime && g_runtime.initialized ? &g_runtime : nullptr;
+    return notifications->runtime == &g_runtime && g_runtime.initialized ? &g_runtime : nullptr;
 }
 
 bool same_message(const DesktopNotificationActivation& a, const DesktopNotificationActivation& b) noexcept {
@@ -154,8 +154,6 @@ DesktopNotificationShowState desktop_notification_show_state(DesktopNotification
 
 DesktopNotificationResult desktop_notifications_initialize(DesktopNotifications* notifications,
                                                            const DesktopNotificationConfig& config) noexcept {
-    if (!notifications || !config.app_id.count)
-        return {DesktopNotificationError::invalid_input, 0};
     reset_value(&g_runtime);
     g_runtime.wake = config.wake;
     g_runtime.initialized = true;
@@ -232,8 +230,7 @@ DesktopNotificationResult desktop_notifications_remove_channel(DesktopNotificati
 
 DesktopNotificationResult desktop_notifications_history_step(DesktopNotifications* notifications,
                                                              bool* pending) noexcept {
-    if (pending)
-        *pending = false;
+    *pending = false;
     return runtime_of(notifications) ? DesktopNotificationResult{}
                                      : DesktopNotificationResult{DesktopNotificationError::closed, 0};
 }
@@ -271,7 +268,7 @@ DesktopNotificationResult desktop_notifications_set_wake(DesktopNotifications* n
 bool desktop_notifications_take_activation(DesktopNotifications* notifications,
                                            DesktopNotificationActivation* activation) noexcept {
     Runtime* runtime = runtime_of(notifications);
-    if (!runtime || !activation || !runtime->activation_count)
+    if (!runtime || !runtime->activation_count)
         return false;
     *activation = runtime->activations[0];
     for (u32 i = 1; i < runtime->activation_count; ++i)

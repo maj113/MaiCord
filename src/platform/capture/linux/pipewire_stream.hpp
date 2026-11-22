@@ -42,7 +42,7 @@ struct Consumer;
 // consumes node `node`. Frames reach `sink.frame` on PipeWire's thread; when the stream ends, `ended` is set once.
 // `cursor` is whether the producer draws the cursor into the pixels (it is copied into each frame).
 Consumer* consumer_open(int fd, u32 node, bool cursor, u32 max_fps, const CaptureSink& sink, Waitable ended) noexcept;
-// Stops PipeWire's thread; no frame is delivered after it returns. Null is fine.
+// Stops PipeWire's thread; no frame is delivered after it returns.
 void consumer_close(Consumer* consumer) noexcept;
 // Why the stream ended (none while it runs).
 StreamEnd consumer_end(const Consumer* consumer) noexcept;

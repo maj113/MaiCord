@@ -29,8 +29,8 @@ u32 portal_property(Connection* c, const char* interface, const char* name, u32 
     if (status == Status::ok) {
         Reader r;
         message_reader(reply, &r);
-        if (!reader_enter_variant(&r, nullptr) || !reader_u32(&r, &value))
-            value = 0;
+        if (reader_enter_variant(&r, nullptr))
+            reader_u32(&r, &value);  // stays 0 when the variant holds no u32
     }
     if (status == Status::ok || status == Status::error_reply)
         message_release(&reply);

@@ -159,7 +159,7 @@ bool screen_color_pick_start(void (*settled)(void* context) noexcept, void* cont
 }
 
 ScreenColorState screen_color_pick_state(u32* rgb) noexcept {
-    if (rgb && g_pick.state == ScreenColorState::picked)
+    if (g_pick.state == ScreenColorState::picked)
         *rgb = g_pick.rgb;
     return g_pick.state;
 }

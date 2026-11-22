@@ -626,7 +626,7 @@ constexpr TextVtbl kTextVtbl{unknown_vtbl<kText>(),
 #undef UIA_MARSHAL
 
 void* element_create(UiaProviderHost* host, u64 key, bool root) noexcept {
-    if (!host || !host->connected)
+    if (!host->connected)
         return nullptr;
     if (root && host->root) {
         auto* cached = static_cast<Element*>(host->root);
@@ -711,7 +711,7 @@ void variant_free(const UiaRuntime* runtime, VARIANT* value) noexcept {
 
 // The element a raised event is about; null while the runtime is unloaded or the host disconnected.
 Element* event_element(UiaProviderHost* host, u64 key) noexcept {
-    if (!host || !host->runtime || !host->connected)
+    if (!host->runtime || !host->connected)
         return nullptr;
     return static_cast<Element*>(element_create(host, key, key == 0));
 }
@@ -729,7 +729,7 @@ bool raise_event(UiaProviderHost* host, u64 key, int event) noexcept {
 using namespace provider_detail;
 
 bool uia_host_initialize(UiaProviderHost* host, HWND window, const UiaHostCallbacks& callbacks) noexcept {
-    if (!host || !callbacks.tree)
+    if (!callbacks.tree)
         return false;
     reset_value<UiaProviderHost>(host);
     host->window = window;
@@ -741,7 +741,7 @@ bool uia_host_initialize(UiaProviderHost* host, HWND window, const UiaHostCallba
 }
 
 bool uia_host_load(UiaProviderHost* host) noexcept {
-    if (!host || !host->connected)
+    if (!host->connected)
         return false;
     if (host->runtime)
         return true;
@@ -754,7 +754,7 @@ bool uia_host_load(UiaProviderHost* host) noexcept {
 
 bool uia_host_window_message(UiaProviderHost* host, UINT message, WPARAM wparam, LPARAM lparam,
                              LRESULT* result) noexcept {
-    if (host && result && host->call_message && message == host->call_message) {
+    if (result && host->call_message && message == host->call_message) {
         // Only a call queued by run_on_window_thread runs; the message carries no data.
         if (wparam == kCallSignature && current_thread_id() == host->thread) {
             auto* call = static_cast<WindowCall*>(
@@ -767,7 +767,7 @@ bool uia_host_window_message(UiaProviderHost* host, UINT message, WPARAM wparam,
         *result = 0;
         return true;
     }
-    if (message != WM_GETOBJECT || !host || !result || !host->connected)
+    if (message != WM_GETOBJECT || !result || !host->connected)
         return false;
     if (static_cast<long>(lparam) != kUiaRootObjectId)
         return false;
@@ -835,7 +835,7 @@ bool uia_host_raise_property(UiaProviderHost* host, u64 key, const UiAccessPrope
 
 bool uia_host_raise_notification(UiaProviderHost* host, u64 key, UiaNotificationKind kind,
                                  UiaNotificationProcessing processing, Utf8View text, Utf8View activity) noexcept {
-    if (!host || !host->runtime || !text.bytes)
+    if (!text.bytes)
         return false;
     auto* element = event_element(host, key);
     if (!element)
@@ -853,7 +853,7 @@ bool uia_host_raise_notification(UiaProviderHost* host, u64 key, UiaNotification
 }
 
 void uia_host_shutdown(UiaProviderHost* host) noexcept {
-    if (!host || !host->connected)
+    if (!host->connected)
         return;
     if (host->runtime) {
         if (host->window)

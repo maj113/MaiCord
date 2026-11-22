@@ -14,17 +14,15 @@ HDROP drop_of(const DroppedFiles* files) noexcept {
 } // namespace
 
 u32 dropped_files_count(const DroppedFiles* files) noexcept {
-    return files ? DragQueryFileW(drop_of(files), 0xFFFFFFFFu, nullptr, 0) : 0;
+    return DragQueryFileW(drop_of(files), 0xFFFFFFFFu, nullptr, 0);
 }
 
 u32 dropped_files_path_length(const DroppedFiles* files, u32 index) noexcept {
-    return files ? DragQueryFileW(drop_of(files), index, nullptr, 0) : 0;
+    return DragQueryFileW(drop_of(files), index, nullptr, 0);
 }
 
 // The system writes a terminator after the path, so the path must be shorter than `output`.
 u32 dropped_files_path(const DroppedFiles* files, u32 index, const Slice<wchar_t>& output) noexcept {
-    if (!files || !output.data || !output.count)
-        return 0;
     const u32 units = DragQueryFileW(drop_of(files), index, nullptr, 0);
     if (!units || units >= output.count)
         return 0;
@@ -32,8 +30,7 @@ u32 dropped_files_path(const DroppedFiles* files, u32 index, const Slice<wchar_t
 }
 
 void dropped_files_release(DroppedFiles* files) noexcept {
-    if (files)
-        DragFinish(drop_of(files));
+    DragFinish(drop_of(files));
 }
 
 } // namespace maicord

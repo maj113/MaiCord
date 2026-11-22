@@ -120,7 +120,8 @@ MAICORD_TEST_ENTRY(maicord_capture_probe_entry) {
            clock_monotonic_milliseconds() < deadline)
         thread_sleep(50);
     thread_sleep(2000);
-    capture_stop(capture);
+    if (capture)
+        capture_stop(capture);
     test_write_metric("frames: ", static_cast<u64>(g_video.frames));
     test_write_metric("width: ", g_video.width);
     test_write_metric("height: ", g_video.height);

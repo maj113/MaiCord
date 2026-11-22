@@ -30,7 +30,7 @@ and user-verification flows, `ACTION_TIMEOUT` pacing, platform authenticators) i
   (`wake_begin_webauthn`, `b` 0 begin, 1 PIN, 2 done, into `application_login_webauthn_progress`).
 - The ceremony is one worker thread (a static `Ceremony`): it hashes the client data (SHA-256 of `webauthn_mfa_write_client_data`),
   then `fido2::run` lists keys with `fido_dev_info_manifest` (hidraw; it looks again every 250 ms while none is plugged in, until the
-  request's timeout, 120 s when it has none), opens each and calls `fido_dev_get_assert` with the relying party, the client data
+  request's timeout, 60 s when the server gives none), opens each and calls `fido_dev_get_assert` with the relying party, the client data
   hash, every allowed credential and user verification as asked (required: true, discouraged: false, preferred: left to the key).
 - Outcomes (`fido2::Outcome`): a PIN request (`FIDO_ERR_PIN_REQUIRED`, or `FIDO_ERR_PIN_INVALID` with the attempts
   `fido_dev_get_retry_count` reports) is asked through the hook, which posts a wake with `b = kWebAuthnWakePin` and waits for

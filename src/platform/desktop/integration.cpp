@@ -192,8 +192,6 @@ bool segment_is(ConstSlice<wchar_t> text, u32 first, u32 last, const wchar_t* li
 } // namespace
 
 bool desktop_launch_parse(ConstSlice<wchar_t> line, DesktopLaunch* launch) noexcept {
-    if (!launch)
-        return false;
     // The URL is read only up to url_units: the 4.4 KB buffer needs no clear.
     launch->startup = false;
     launch->url_present = false;
@@ -284,8 +282,6 @@ bool desktop_launch_parse(ConstSlice<wchar_t> line, DesktopLaunch* launch) noexc
 }
 
 bool desktop_link_parse(ConstSlice<wchar_t> url, DesktopLinkTarget* target) noexcept {
-    if (!target)
-        return false;
     reset_value(target);
     if (!url.data || url.count > kDesktopUrlCapacity || !prefix_folded(url, 0, L"discord:"))
         return false;
@@ -466,19 +462,12 @@ bool desktop_protocol_set(const DesktopRegistryScope& s, ConstSlice<wchar_t> exe
 }
 
 HANDLE desktop_instance_mutex(const wchar_t* name, bool* existed) noexcept {
-    if (existed)
-        *existed = false;
-    if (!name || !*name)
-        return nullptr;
     const HANDLE mutex = CreateMutexW(nullptr, TRUE, name);
-    if (mutex && existed)
-        *existed = thread_last_error() == ERROR_ALREADY_EXISTS;
+    *existed = mutex && thread_last_error() == ERROR_ALREADY_EXISTS;
     return mutex;
 }
 
 HANDLE desktop_instance_publish(const wchar_t* name, HWND window) noexcept {
-    if (!name || !*name || !window)
-        return nullptr;
     const HANDLE mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0,
                                               sizeof(PublishedWindow), name);
     if (!mapping)
@@ -495,8 +484,6 @@ HANDLE desktop_instance_publish(const wchar_t* name, HWND window) noexcept {
 }
 
 bool desktop_instance_name(const wchar_t* kind, ConstSlice<wchar_t> profile, wchar_t* out, u32 capacity) noexcept {
-    if (!kind || !out || !profile.data || !profile.count)
-        return false;
     // FNV-1a over the case-folded path; stable across processes.
     u64 hash = kHash64Seed;
     for (u32 i = 0; i < profile.count; ++i) {
@@ -510,8 +497,6 @@ bool desktop_instance_name(const wchar_t* kind, ConstSlice<wchar_t> profile, wch
 
 DesktopForwardResult desktop_instance_forward(const wchar_t* name, const DesktopLaunch& launch,
                                               u32 timeout_ms) noexcept {
-    if (!name || !*name)
-        return DesktopForwardResult::no_window;
     const HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, name);
     if (!mapping)
         return DesktopForwardResult::no_window;
@@ -544,7 +529,7 @@ DesktopForwardResult desktop_instance_forward(const wchar_t* name, const Desktop
 }
 
 bool desktop_instance_receive(const COPYDATASTRUCT* data, DesktopForwardMessage* message) noexcept {
-    if (!data || !message || data->dwData != kDesktopForwardMagic || !data->lpData ||
+    if (data->dwData != kDesktopForwardMagic || !data->lpData ||
         data->cbData < kForwardHeaderBytes || data->cbData > sizeof(ForwardPayload))
         return false;
     const auto* bytes = static_cast<const u8*>(data->lpData);

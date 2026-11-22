@@ -57,10 +57,6 @@ void test_file_drop(void (*check)(bool, const char*) noexcept) noexcept {
         "drop cancellation either wins before publication or observes already complete result");
     check(reap(&picker) && !picker.runtime && !picker.thread && !picker.notification,
         "cancelled file drop leaves no retained worker handles");
-    drop = make({paths, 1});
-    check(native_file_picker_take_drop(nullptr, drop, 1) == NativeFilePickerError::invalid_input &&
-        dropped_files_count(drop) == 1,
-        "invalid file drop owner preserves caller ownership");
-    dropped_files_release(drop); DeleteFileW(filename);
+    DeleteFileW(filename);
 }
 }

@@ -463,8 +463,7 @@ void test_paths_and_text() noexcept {
     check(!key_from_path(kRootPath, &key) && is_root_path(kRootPath) && !is_root_path(path), "the root path");
     check(!key_from_path("/org/a11y/atspi/accessible/0123", &key) &&
               !key_from_path("/org/a11y/atspi/accessible/0123456789abcdeg", &key) &&
-              !key_from_path("/org/a11y/atspi/accessible/0123456789abcdef0", &key) && !key_from_path("/x", &key) &&
-              !key_from_path(nullptr, &key),
+              !key_from_path("/org/a11y/atspi/accessible/0123456789abcdef0", &key) && !key_from_path("/x", &key),
           "malformed paths are refused");
 
     const Utf8View text = utf8_literal("h\xC3\xA9llo w\xF0\x9F\x98\x80rld");

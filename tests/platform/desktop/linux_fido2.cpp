@@ -643,7 +643,6 @@ void test_ceremony() noexcept {
     SecureBuffer credential{};
     credential.data = storage;
     credential.capacity = sizeof(storage);
-    credential.locked = true;
     const WebAuthnCeremonyResult finished = webauthn_ceremony_finish(&credential);
     check(finished.ok() && credential.bytes > 100 &&
               contains(reinterpret_cast<const char*>(storage), credential.bytes, R"("id":"Y3JlZC1pZC0x")") &&
@@ -873,7 +872,6 @@ void test_creation_ceremony() noexcept {
     SecureBuffer credential{};
     credential.data = storage;
     credential.capacity = sizeof(storage);
-    credential.locked = true;
 
     // A "none" attestation: the credential holds an attestation object without the statement and the AAGUID.
     forget(Mode::plain);

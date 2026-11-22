@@ -248,8 +248,6 @@ void path_for_key(u64 key, char (&path)[kPathBytes]) noexcept {
 }
 
 bool key_from_path(const char* path, u64* key) noexcept {
-    if (!path)
-        return false;
     for (u32 i = 0; i < kPrefixBytes; ++i)
         if (path[i] != kPathPrefix[i])
             return false;
@@ -267,7 +265,7 @@ bool key_from_path(const char* path, u64* key) noexcept {
 }
 
 bool is_root_path(const char* path) noexcept {
-    return path && c_string_equal(path, kRootPath);
+    return c_string_equal(path, kRootPath);
 }
 
 u32 text_character_count(Utf8View text) noexcept {

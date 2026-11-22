@@ -105,7 +105,7 @@ struct ScreenCapture;
 // Starts capturing on a thread of its own; frames follow as the source changes (a still screen sends none). Null when
 // nothing could start (the reason is logged); otherwise every outcome reaches `ended`.
 ScreenCapture* capture_start(const CaptureOptions& options, const CaptureSink& sink) noexcept;
-// Joins the thread; no callback runs after it returns. Null is fine.
+// Joins the thread of a capture capture_start made; no callback runs after it returns.
 void capture_stop(ScreenCapture* capture) noexcept;
 
 } // namespace maicord

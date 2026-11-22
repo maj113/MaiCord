@@ -9,11 +9,9 @@
 
 namespace maicord::font_locator {
 
-// `units` as NUL-terminated UTF-8 in `output`; the byte count, or 0 when the name is empty, malformed, holds a NUL
-// or does not fit.
+// `units` (not empty) as NUL-terminated UTF-8 in `output`; the byte count, or 0 when the name is malformed, holds a
+// NUL or does not fit.
 inline u32 utf16_to_utf8(ConstSlice<u16> units, char* output, u32 capacity) noexcept {
-    if (!units.data || units.count == 0 || capacity < 5)
-        return 0;
     u32 length = 0;
     for (u32 i = 0; i < units.count; ++i) {
         u32 scalar = units.data[i];

@@ -31,11 +31,10 @@ Payload reference_payload(u64 key) noexcept {
 }
 
 // Every event is org.a11y.atspi.Event.<class> / <Name>(siiva{sv}): detail, two numbers, the payload, and no properties.
+// Only server_publish and server_announce get here, after they find the bus connected and the root embedded.
 void emit(const char* path, const char* interface, const char* member, const char* detail, i32 detail1, i32 detail2,
           const Payload& payload) noexcept {
     Server& s = g_server;
-    if (!s.bus || !s.embedded)
-        return;
     Builder b;
     builder_init(&b);
     builder_string(&b, detail);

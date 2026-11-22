@@ -170,7 +170,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         // WM_WINDOWPOSCHANGED lets DWM display the old width at the new origin for one frame when dragging the
         // left edge.
         result = DefWindowProcW(window, message, wparam, lparam);
-        if (wparam && lparam)
+        if (wparam)
             deliver_provisional_resize(window, reinterpret_cast<const NCCALCSIZE_PARAMS*>(lparam)->rgrc[0]);
         return result;
     }
@@ -192,21 +192,20 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
     switch (event.type) {
     case EventType::size_limits:
         if (answer.handled) {
+            // The sink answers the smallest client; the track size is the window around it.
             auto* limits = reinterpret_cast<MINMAXINFO*>(lparam);
-            if (limits) {
-                // The sink answers the smallest client; the track size is the window around it.
-                u32 width = 0, height = 0;
-                frame_outer_size(window, answer.width_px, answer.height_px, &width, &height);
-                limits->ptMinTrackSize.x = maximum(limits->ptMinTrackSize.x, static_cast<LONG>(width));
-                limits->ptMinTrackSize.y = maximum(limits->ptMinTrackSize.y, static_cast<LONG>(height));
-            }
+            u32 width = 0, height = 0;
+            frame_outer_size(window, answer.width_px, answer.height_px, &width, &height);
+            limits->ptMinTrackSize.x = maximum(limits->ptMinTrackSize.x, static_cast<LONG>(width));
+            limits->ptMinTrackSize.y = maximum(limits->ptMinTrackSize.y, static_cast<LONG>(height));
         }
         return 0;
-    case EventType::scale_changed:
-        if (const auto* suggested = reinterpret_cast<const RECT*>(lparam))
-            SetWindowPos(window, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
-                         suggested->bottom - suggested->top, SWP_NOACTIVATE | SWP_NOZORDER);
+    case EventType::scale_changed: {
+        const auto* suggested = reinterpret_cast<const RECT*>(lparam);
+        SetWindowPos(window, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
+                     suggested->bottom - suggested->top, SWP_NOACTIVATE | SWP_NOZORDER);
         return 0;
+    }
     case EventType::destroyed:
         PostQuitMessage(0);
         return 0;
@@ -229,12 +228,6 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
 bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions& options, WindowSink sink,
                          void* context, Window* out, const char** reason) noexcept {
     static constexpr wchar_t kClassName[] = L"MaiCordMainWindow";
-    const char* reported = "";
-    const char** failure = reason ? reason : &reported;
-    if (!out || !sink || info.client_width_dips == 0 || info.client_height_dips == 0) {
-        *failure = "window_request_invalid";
-        return false;
-    }
     g = {};
     g.sink = sink;
     g.context = context;
@@ -249,7 +242,7 @@ bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions&
     window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     window_class.lpszClassName = kClassName;
     if (!RegisterClassExW(&window_class)) {
-        *failure = "register_class_failed";
+        *reason = "register_class_failed";
         return false;
     }
     const DWORD extended_style = WS_EX_NOREDIRECTIONBITMAP | options.extra_extended_style;
@@ -266,7 +259,7 @@ bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions&
     } else {
         bounds = {0, 0, static_cast<LONG>(info.client_width_dips), static_cast<LONG>(info.client_height_dips)};
         if (!AdjustWindowRectExForDpi(&bounds, WS_OVERLAPPEDWINDOW, FALSE, extended_style, 96)) {
-            *failure = "adjust_initial_bounds_failed";
+            *reason = "adjust_initial_bounds_failed";
             return false;
         }
     }
@@ -280,7 +273,7 @@ bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions&
                                         y, bounds.right - bounds.left, bounds.bottom - bounds.top, nullptr, nullptr,
                                         instance, nullptr);
     if (!window) {
-        *failure = "create_window_failed";
+        *reason = "create_window_failed";
         return false;
     }
     win32_detail::set_main_window(window);
@@ -288,10 +281,6 @@ bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions&
         enable_dark_frame(window);
     *out = win32_window(window);
     return true;
-}
-
-bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context, Window* out) noexcept {
-    return win32_window_create(info, {}, sink, context, out, nullptr);
 }
 
 } // namespace maicord

@@ -353,7 +353,6 @@ bool capture_clipboard(ClipboardCapture* output) noexcept {
 }
 } // namespace
 void clipboard_attachment_note_oversize(ClipboardAttachmentOversize* oversize, ConstSlice<wchar_t> name, u64 bytes) noexcept {
-    if (!oversize) return;
     const u32 units = minimum<u32>(static_cast<u32>(name.count), 259);
     copy_bytes(oversize->name, name.data, units * sizeof(wchar_t));
     oversize->name[units] = 0; oversize->name_units = units; oversize->bytes = bytes;
@@ -382,9 +381,8 @@ void clipboard_capture_release(ClipboardCapture* capture) noexcept {
 void clipboard_attachment_shutdown() noexcept { if (ole_initialized) { OleUninitialize(); ole_initialized = false; } }
 DWORD clipboard_attachment_visit(ClipboardCapture* input, u32 maximum, u64 limit,
     ClipboardAttachmentVisitor visitor, void* context, u32* count, ClipboardAttachmentOversize* oversize) noexcept {
-    if (!input || !input->object || !maximum || !limit || !visitor || !count) return ERROR_INVALID_PARAMETER;
     IDataObject* object = nullptr; *count = 0;
-    if (oversize) reset_value(oversize);
+    reset_value(oversize);
     const DWORD sequence = input->sequence;
     const HRESULT result = CoGetInterfaceAndReleaseStream(input->object, __uuidof(IDataObject), reinterpret_cast<void**>(&object));
     reset_value(input);

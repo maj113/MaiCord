@@ -413,7 +413,7 @@ NotificationBackend notification_backend() noexcept {
 }
 
 bool notification_show(const NotificationRequest& request) noexcept {
-    if (!request.summary || !ensure_backend())
+    if (!ensure_backend())
         return false;
     Connection* c = session_bus();
     Entry* entry = take_entry(request.cookie);

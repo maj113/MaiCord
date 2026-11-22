@@ -321,7 +321,7 @@ void destroy(NativeFilePicker* picker) noexcept {
 }
 
 NativeFilePickerError initialize(NativeFilePicker* picker, u32 maximum_files) noexcept {
-    if (!picker || picker->runtime || picker->thread || picker->notification || !maximum_files ||
+    if (picker->runtime || picker->thread || picker->notification || !maximum_files ||
         maximum_files > kNativeFilePickerMaximumFiles)
         return NativeFilePickerError::invalid_input;
     reset_value(picker);
@@ -440,10 +440,9 @@ NativeFilePickerError native_file_picker_save_start(NativeFilePicker* picker, Wi
 }
 
 bool native_file_picker_save_selection(const NativeFilePicker* picker, NativeFileSaveSelection* output) noexcept {
-    if (output)
-        reset_value(output);
+    reset_value(output);
     const auto status = native_file_picker_status(picker);
-    if (!output || !picker || !picker->runtime || !status.ok())
+    if (!status.ok())
         return false;
     const auto* runtime = static_cast<const Runtime*>(picker->runtime);
     if (!runtime->save || !runtime->selected[0].count)
@@ -454,8 +453,6 @@ bool native_file_picker_save_selection(const NativeFilePicker* picker, NativeFil
 
 NativeFilePickerError native_file_picker_take_drop(NativeFilePicker* picker, DroppedFiles* drop,
                                                    u32 maximum_files) noexcept {
-    if (!drop)
-        return NativeFilePickerError::invalid_input;
     const auto initialized = initialize(picker, maximum_files);
     if (initialized != NativeFilePickerError::none)
         return initialized;
@@ -471,8 +468,6 @@ NativeFilePickerError native_file_picker_take_drop(NativeFilePicker* picker, Dro
 
 NativeFilePickerError native_file_picker_take_clipboard(NativeFilePicker* picker, ClipboardCapture* input,
                                                         u32 maximum_files, u64 maximum_bytes) noexcept {
-    if (!input || !maximum_bytes)
-        return NativeFilePickerError::invalid_input;
     const auto initialized = initialize(picker, maximum_files);
     if (initialized != NativeFilePickerError::none)
         return initialized;
@@ -525,7 +520,7 @@ UploadSource native_file_picker_source(const NativeFilePicker* picker, u32 index
 }
 
 ConstSlice<wchar_t> native_file_picker_oversize_name(const NativeFilePicker* picker) noexcept {
-    if (!picker || !picker->runtime ||
+    if (!picker->runtime ||
         static_cast<NativeFilePickerPhase>(read_acquire(&picker->phase)) != NativeFilePickerPhase::complete)
         return {};
     const auto& oversize = static_cast<const Runtime*>(picker->runtime)->oversize;
@@ -533,7 +528,7 @@ ConstSlice<wchar_t> native_file_picker_oversize_name(const NativeFilePicker* pic
 }
 
 NativeFilePickerResult native_file_picker_status(const NativeFilePicker* picker) noexcept {
-    if (!picker || !picker->runtime)
+    if (!picker->runtime)
         return {};
     const auto phase = static_cast<NativeFilePickerPhase>(read_acquire(&picker->phase));
     return phase == NativeFilePickerPhase::complete
@@ -550,14 +545,14 @@ ConstSlice<wchar_t> native_file_picker_path(const NativeFilePicker* picker, u32 
 
 bool native_file_picker_snapshot(const NativeFilePicker* picker, u32 index, FileSnapshot* output) noexcept {
     const auto status = native_file_picker_status(picker);
-    if (!output || !status.ok() || index >= status.count)
+    if (!status.ok() || index >= status.count)
         return false;
     *output = static_cast<const Runtime*>(picker->runtime)->snapshots[index];
     return true;
 }
 
 void native_file_picker_cancel(NativeFilePicker* picker) noexcept {
-    if (!picker || !picker->runtime)
+    if (!picker->runtime)
         return;
     auto* runtime = static_cast<Runtime*>(picker->runtime);
     if (InterlockedExchange(&runtime->cancelled, 1))
@@ -570,8 +565,6 @@ void native_file_picker_cancel(NativeFilePicker* picker) noexcept {
 }
 
 bool native_file_picker_release(NativeFilePicker* picker, u32 timeout_ms) noexcept {
-    if (!picker)
-        return false;
     if (!picker->runtime)
         return true;
     native_file_picker_cancel(picker);

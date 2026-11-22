@@ -75,8 +75,7 @@ void authenticator_data(const u8* encoded, u32 bytes, const u8** data, u32* coun
 bool copy_out(const u8* source, usize bytes, u8* destination, u32 capacity, u32* count) noexcept {
     if (bytes > capacity)
         return false;
-    if (bytes)
-        copy_bytes(destination, source, static_cast<u32>(bytes));
+    copy_bytes(destination, source, static_cast<u32>(bytes));
     *count = static_cast<u32>(bytes);
     return true;
 }
@@ -110,7 +109,7 @@ struct Operation {
 // One key: the call, with the PIN asked for when the key wants one.
 Step drive(Round* round, Device* device, const Operation& operation) noexcept {
     const Api& api = *round->api;
-    char pin[kMaximumPinBytes + 1] = {};
+    char pin[kMaximumPinBytes + 1];
     bool have_pin = false;
     bool wrong = false;
     i32 retries = -1;
@@ -254,9 +253,7 @@ Step ask_assertion(Round* round, Device* device, void* context) noexcept {
                     api.fido_assert_set_clientdata_hash(assertion, job.hash, 32) == kOk;
     for (u32 i = 0; prepared && i < request.credential_count; ++i) {
         const WebAuthnAllowedCredential& credential = request.credentials[i];
-        prepared = credential.id_bytes != 0 && credential.id_offset <= request.credential_id_bytes &&
-                   credential.id_bytes <= request.credential_id_bytes - credential.id_offset &&
-                   api.fido_assert_allow_cred(assertion, request.credential_ids + credential.id_offset,
+        prepared = api.fido_assert_allow_cred(assertion, request.credential_ids + credential.id_offset,
                                               credential.id_bytes) == kOk;
     }
     // Discouraged asks for no verification; required asks for it; preferred leaves the choice to the key.
@@ -353,9 +350,7 @@ Step ask_creation(Round* round, Device* device, void* context) noexcept {
                         api.fido_cred_set_uv(credential, verification) == kOk;
         for (u32 i = 0; prepared && i < request.credential_count; ++i) {
             const WebAuthnAllowedCredential& excluded = request.credentials[i];
-            prepared = excluded.id_bytes != 0 && excluded.id_offset <= request.credential_id_bytes &&
-                       excluded.id_bytes <= request.credential_id_bytes - excluded.id_offset &&
-                       api.fido_cred_exclude(credential, request.credential_ids + excluded.id_offset,
+            prepared = api.fido_cred_exclude(credential, request.credential_ids + excluded.id_offset,
                                              excluded.id_bytes) == kOk;
         }
         if (!prepared) {
@@ -366,7 +361,6 @@ Step ask_creation(Round* round, Device* device, void* context) noexcept {
         job.credential = credential;
         const Step step = drive(round, device, operation);
         api.fido_cred_free(&credential);
-        job.credential = nullptr;
         if (step != Step::unsupported)
             return step;
     }
@@ -470,18 +464,16 @@ const Api* library() noexcept {
 
 Outcome run(const Api& api, const WebAuthnMfaRequestOptions& request, const u8* client_data_hash, const Hooks& hooks,
             Result* result) noexcept {
-    clear_bytes(result, static_cast<u32>(sizeof(*result)));
     AssertionJob job{&request, client_data_hash, result, nullptr};
-    return search(api, hooks, clock_monotonic_milliseconds() + clamped_timeout(request.timeout_ms), &result->native,
-                  ask_assertion, &job, Outcome::assertion, Outcome::not_registered);
+    return search(api, hooks, clock_monotonic_milliseconds() + request.timeout_ms, &result->native, ask_assertion, &job,
+                  Outcome::assertion, Outcome::not_registered);
 }
 
 Outcome make(const Api& api, const WebAuthnMfaCreationOptions& creation, const u8* client_data_hash, const Hooks& hooks,
              MakeResult* result) noexcept {
-    clear_bytes(result, static_cast<u32>(sizeof(*result)));
     CreationJob job{&creation, client_data_hash, result, nullptr};
-    return search(api, hooks, clock_monotonic_milliseconds() + clamped_timeout(creation.request.timeout_ms),
-                  &result->native, ask_creation, &job, Outcome::created, Outcome::excluded);
+    return search(api, hooks, clock_monotonic_milliseconds() + creation.request.timeout_ms, &result->native,
+                  ask_creation, &job, Outcome::created, Outcome::excluded);
 }
 
 } // namespace maicord::fido2

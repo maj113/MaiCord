@@ -395,7 +395,7 @@ bool draw_cursor(const CursorApi& api, u8 code, u32 scale) noexcept {
 void apply_cursor_theme(u8 code) noexcept {
     PointerState& pointer = g.pointer;
     const CursorApi* api = cursor_api();
-    if (!api || !g.shm || !g.compositor)
+    if (!api || !g.shm)
         return;
     const u32 scale = integer_scale();
     char name[64];
@@ -552,10 +552,8 @@ void window_request_cursor_refresh(Window) noexcept {
 }
 
 bool window_pointer_position(Window, float* x_px, float* y_px) noexcept {
-    if (x_px)
-        *x_px = g.pointer.x;
-    if (y_px)
-        *y_px = g.pointer.y;
+    *x_px = g.pointer.x;
+    *y_px = g.pointer.y;
     return g.pointer.inside;
 }
 

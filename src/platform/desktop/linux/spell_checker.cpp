@@ -494,8 +494,6 @@ bool open_dictionary(SpellChecker* spell, Backend* backend) noexcept {
 } // namespace
 
 bool spell_checker_open(SpellChecker* spell) noexcept {
-    if (!spell)
-        return false;
     if (spell->checker)
         return true;
     if (spell->attempted)
@@ -606,8 +604,6 @@ bool spell_checker_ignore(SpellChecker* spell, Utf8View word) noexcept {
 }
 
 void spell_checker_release(SpellChecker* spell) noexcept {
-    if (!spell)
-        return;
     release_backend(spell);
     reset_value(spell);
 }

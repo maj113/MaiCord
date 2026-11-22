@@ -20,7 +20,7 @@ FrameHit hit_test(const WindowEvent& pointer_event) noexcept {
     query.pointer = pointer_event.pointer;
     WindowEventResult result{};
     sink_call(query, &result);
-    if (!result.handled || result.value < 0 || result.value > static_cast<i32>(FrameHit::nowhere))
+    if (!result.handled)
         return FrameHit::client;
     return static_cast<FrameHit>(result.value);
 }

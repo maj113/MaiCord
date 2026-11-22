@@ -98,10 +98,9 @@ bool split_description(const char* description, char (&with_style)[kDescriptionC
     for (u32 i = begin; i < end; ++i)
         with_style[i - begin] = description[i];
     with_style[end - begin] = 0;
-    while (trim_word(style_word) && end > begin) {
+    // Each trim leaves a word: `begin` is past the leading spaces.
+    while (trim_word(style_word)) {
     }
-    if (end == begin)
-        return false;
     for (u32 i = begin; i < end; ++i)
         family[i - begin] = description[i];
     family[end - begin] = 0;
@@ -356,15 +355,11 @@ bool default_fonts_set_portal(const char* interface_font, const char* monospace_
 }
 
 const wchar_t* default_font_family(DefaultFont role) noexcept {
-    if (static_cast<u32>(role) >= kRoleCount)
-        return nullptr;
     ensure();
     return g_state.names[static_cast<u32>(role)];
 }
 
 ConstSlice<u16> default_font_name(DefaultFont role) noexcept {
-    if (static_cast<u32>(role) >= kRoleCount)
-        return {};
     ensure();
     return {reinterpret_cast<const u16*>(g_state.names[static_cast<u32>(role)]), g_state.units[static_cast<u32>(role)]};
 }

@@ -213,8 +213,6 @@ void test_fallbacks(SystemFontLocator* locator) noexcept {
     SystemFontName families[8];
     // Latin: some family covers it.
     check(system_font_locator_fallbacks(locator, 'A', families, 8) >= 1, "fallback_latin");
-    check(system_font_locator_fallbacks(locator, 0x10FFFF + 1, families, 8) == 0, "fallback_out_of_range");
-    check(system_font_locator_fallbacks(locator, 'A', families, 0) == 0, "fallback_no_capacity");
     if (!strict_set())
         return;
     struct Case {
@@ -264,7 +262,6 @@ void test_defaults() noexcept {
         const wchar_t* family = default_font_family(static_cast<DefaultFont>(role));
         check(family && family[0], "default_every_role");
     }
-    check(default_font_family(DefaultFont::count) == nullptr, "default_invalid_role");
     check(!default_fonts_set_portal("Sans 10", "Monospace 10"), "default_portal_after_resolution");
     const wchar_t* emoji = default_font_family(DefaultFont::emoji);
     const Utf16 want = utf16("Noto Color Emoji");

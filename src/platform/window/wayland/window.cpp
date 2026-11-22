@@ -492,8 +492,6 @@ bool dispatch_until(bool (*done)() noexcept, u32 timeout_ms) noexcept {
 // until another one comes, so it is sent only when the surface's size changes; the next commit applies it.
 static void apply_opaque_region() noexcept {
     WindowState& window = g.window;
-    if (!window.surface || !g.compositor)
-        return;
     const i32 width = static_cast<i32>(window.logical_width);
     const i32 height = static_cast<i32>(window.logical_height);
     if (window.opaque_sent && width == window.opaque_width && height == window.opaque_height)

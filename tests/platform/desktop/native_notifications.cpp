@@ -95,7 +95,8 @@ void test_native_notifications(void (*check)(bool,const char*) noexcept) noexcep
         desktop_notification_show_state({DesktopNotificationError::invalid_input,static_cast<u32>(RPC_E_DISCONNECTED)})==ShowState::failed &&
         desktop_notification_show_state({DesktopNotificationError::closed,static_cast<u32>(CO_E_NOTINITIALIZED)})==ShowState::failed,
         "toast classifier never retries invalid payload, closed apartment, or denied identity");
-    const auto closed_show=desktop_notifications_show_once(nullptr,{});
+    DesktopNotifications unopened{};
+    const auto closed_show=desktop_notifications_show_once(&unopened,{});
     check(closed_show.state==ShowState::failed && !closed_show.result.ok() && !closed_show.native_show_attempted,
         "toast closed owner records zero actual Show calls without native execution");
     DesktopNotificationActivation target{0x123456789abcdef0,0xfedcba9876543210,~u64{0}},parsed{};

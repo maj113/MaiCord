@@ -201,7 +201,7 @@ const wl_data_offer_listener kOfferListener = {on_offer_mime, on_offer_source_ac
 bool read_offer(const OfferSlot* slot, u32 bit, u32 timeout_ms, u32 limit, u8** out, u32* bytes) noexcept {
     const char* mime = mime_name(bit);
     int fds[2];
-    if (!slot || !slot->offer || !mime || !make_pipe(fds))
+    if (!make_pipe(fds))
         return false;
     wl_data_offer_receive(slot->offer, mime, fds[1]);
     sys_close(fds[1]);  // libwayland sent its own copy
@@ -499,15 +499,15 @@ struct ClipboardCapture {
 };
 
 u32 dropped_files_count(const DroppedFiles* files) noexcept {
-    return files ? files->count : 0;
+    return files->count;
 }
 
 u32 dropped_files_path_length(const DroppedFiles* files, u32 index) noexcept {
-    return files && index < files->count ? files->length[index] : 0;
+    return files->length[index];
 }
 
 u32 dropped_files_path(const DroppedFiles* files, u32 index, const Slice<wchar_t>& output) noexcept {
-    if (!files || index >= files->count || files->length[index] > output.count)
+    if (files->length[index] > output.count)
         return 0;
     copy_bytes(output.data, files->characters + files->start[index], files->length[index] * sizeof(wchar_t));
     return files->length[index];
@@ -542,7 +542,7 @@ bool clipboard_write_utf8(const Utf8View& text) noexcept {
 bool clipboard_write_image(const u8* rgba, u32 width, u32 height, u32 stride, const Utf8View& source_url) noexcept {
     const u64 bound = png_encode_bound(width, height);
     const u64 workspace_bytes = png_encode_workspace_bytes(width, height);
-    if (!rgba || !bound || stride < width * 4)
+    if (!bound)
         return false;
     // The encoder takes tightly packed rows.
     const u64 packed_bytes = static_cast<u64>(width) * height * 4;

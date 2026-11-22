@@ -486,7 +486,7 @@ bool is_range(const void* unknown) noexcept {
 }
 
 void* range_create(UiaProviderHost* host, u64 key, u32 start, u32 end) noexcept {
-    if (!host || !host->connected)
+    if (!host->connected)
         return nullptr;
     auto* range = static_cast<TextRange*>(heap_allocate(sizeof(TextRange), true));
     if (!range)

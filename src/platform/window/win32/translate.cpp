@@ -242,8 +242,8 @@ bool win32_translate(HWND window, UINT message, WPARAM wparam, LPARAM lparam, Wi
             state |= state_maximized;
         u32 changed = state ^ g_window_state;
         g_window_state = state;
-        const auto* position = reinterpret_cast<const WINDOWPOS*>(lparam);
-        if (position && ((position->flags & SWP_NOSIZE) == 0 || (position->flags & SWP_FRAMECHANGED) != 0))
+        const auto& position = *reinterpret_cast<const WINDOWPOS*>(lparam);
+        if ((position.flags & SWP_NOSIZE) == 0 || (position.flags & SWP_FRAMECHANGED) != 0)
             changed |= state_geometry;
         event.window_state.changed = changed;
         event.window_state.state = state | (changed & state_geometry);
@@ -264,10 +264,9 @@ bool win32_translate(HWND window, UINT message, WPARAM wparam, LPARAM lparam, Wi
     case WM_DPICHANGED: {
         event.type = EventType::scale_changed;
         event.resize.scale_120 = scale_of_dpi(HIWORD(wparam));
-        if (const auto* suggested = reinterpret_cast<const RECT*>(lparam)) {
-            event.resize.width_px = static_cast<u32>(suggested->right - suggested->left);
-            event.resize.height_px = static_cast<u32>(suggested->bottom - suggested->top);
-        }
+        const auto& suggested = *reinterpret_cast<const RECT*>(lparam);
+        event.resize.width_px = static_cast<u32>(suggested.right - suggested.left);
+        event.resize.height_px = static_cast<u32>(suggested.bottom - suggested.top);
         break;
     }
     case WM_GETMINMAXINFO:

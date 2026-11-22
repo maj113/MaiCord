@@ -389,7 +389,7 @@ void keyboard_poll_repeat(u64 now_ms) noexcept {
     if (!key_repeat_fire(&keyboard.repeat, now_ms))
         return;
     const u32 evdev = keyboard.repeat.token;
-    if (!keyboard.state || evdev >= kMaxEvdev || !keyboard.down_key[evdev]) {
+    if (!keyboard.down_key[evdev]) {
         key_repeat_stop(&keyboard.repeat);
         return;
     }
