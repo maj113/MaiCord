@@ -192,8 +192,9 @@ bool activity_response(ApplicationProfile& p, const RestClientResponse& response
         return true;
     return profile_scene_layout(&p.scene, application_viewport_dips(), true) && repaint(true);
 }
-// Copies the store's note for the card (the store may change underneath).
-void load_note(ApplicationProfile& p) noexcept {
+// Copies the store's note for the card (the store may change underneath). Without `request` the note is not asked
+// for yet and shows as loading: a card that opens on its profile GET asks for the note once that GET is out.
+void load_note(ApplicationProfile& p, bool request = true) noexcept {
     auto& s = p.scene;
     const u64 user = p.data.user_id;
     s.hide_personal = application_streamer_hide_personal();
@@ -203,8 +204,8 @@ void load_note(ApplicationProfile& p) noexcept {
         s.note_loading = s.note_failed = false;
         return;
     }
-    bool loading = false;
-    const auto text = application_user_note(user, &loading);
+    bool loading = !request;
+    const auto text = request ? application_user_note(user, &loading) : Utf8View{};
     const u32 bytes = minimum<u32>(text.bytes, kUserNoteMaximumBytes);
     copy_bytes(p.note_display, text.data, bytes);
     s.note_text = {p.note_display, bytes};
@@ -730,7 +731,8 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
         p->scene.phase = ProfilePhase::ready;
     p->scene.effect = &p->effect;
     p->scene.effect_started_ms = 0;
-    load_note(*p);
+    // The profile GET goes out first: its bio and mutuals fill the card, the note only its Note field.
+    load_note(*p, !p->pending);
     p->scene.reduced_motion = application_reduced_motion();
     p->scene.media_dpi = static_cast<u16>(g_app.renderer.dpi);
     p->scene.measure = &g_app.account_ui->text_measure_cache;
@@ -1188,6 +1190,9 @@ bool application_profile_submit(u64 now) noexcept {
     }
     if (submit_busy(result, p->retry_at, now, 100))
         return true;
+    // The note a newly opened card held back (application_profile_open) follows its profile GET on the lane.
+    if (!roles && !effect)
+        load_note(*p);
     if (!result.ok()) {
         fail_pending_request(*p);
         return true;

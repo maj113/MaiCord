@@ -14,6 +14,7 @@
 #include "maicord/ui/widgets/activity_status.hpp"
 #include "maicord/ui/account/profile_media.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
+#include "maicord/ui/core/paint.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -899,6 +900,47 @@ void test_voice_card() noexcept {
     ++state.permission_mutations;
     ok = profile_scene_layout(&s, viewport, true);
     check(ok && !find(s, ProfileMediaKind::activity_card), "voice: a channel this account cannot see shows no card");
+    // Issue #30: a bot with a bio and an activity, in voice. The voice card peeks below the activity card and the
+    // other sections keep their place; the front card casts its low shadow on the peek, so the two read as stacked.
+    channel->actions = channel_action_view | channel_action_connect;
+    ++state.permission_mutations;
+    UserActivitySet listening{};
+    profile.user_appearance.bot = true;
+    profile.discriminator = 8158;
+    profile.mutual_guild_count = 2;
+    set_text(&profile.bio, utf8_literal("The most feature-rich Discord music (multi-)bot with support for sources such "
+                                        "as Spotify, Apple Music, Deezer and many more."));
+    ok = decode(utf8_literal(R"({"activities":[{"type":2,"name":"m!help"}]})"), &listening) &&
+         user_activity_upsert(&users.activities, listening);
+    s.voice_states = nullptr;
+    ok = ok && profile_scene_layout(&s, viewport, true);
+    const UiRect away_bio = rect(s, find_action(s, ProfileAction::view_bio)),
+                 away_card = rect(s, find(s, ProfileMediaKind::activity_card));
+    s.voice_states = &states;
+    ok = ok && profile_scene_layout(&s, viewport, true);
+    const UiRect front = rect(s, find(s, ProfileMediaKind::activity_card));
+    const auto* peek_part = find_action(s, ProfileAction::activity);
+    const UiRect peek = rect(s, peek_part);
+    check(ok && find_text(s, utf8_literal("caller#8158")) && find_text(s, utf8_literal("2 Mutual Servers")) &&
+              ui_rect_has_area(away_bio) && ui_rect_equal(rect(s, find_action(s, ProfileAction::view_bio)), away_bio) &&
+              ui_rect_equal(front, away_card) && count(s, ProfileMediaKind::activity_card) == 1 && peek_part &&
+              peek_part->look == ProfileLook::peek && peek.top == front.bottom - 8 && peek.left == front.left + 8,
+          "voice: a bot in voice keeps its tag, mutual servers, bio and card, with the voice card peeking below");
+    PaintStream paint{};
+    u32 shadows = 0;
+    bool after_peek = false;
+    if (paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1280, 720) &&
+        profile_scene_paint(s, kDefaultTheme, &paint))
+        for (u32 i = 0; i < paint.count; ++i) {
+            const auto& q = paint.quads[i];
+            after_peek |= q.left == peek.left && q.top == peek.top && q.bottom == peek.bottom;
+            shadows += after_peek && q.fill.red == 0 && q.fill.green == 0 && q.fill.blue == 0 && q.fill.alpha > 0 &&
+                       q.left < peek.left && q.right > peek.right && q.top < front.bottom &&
+                       q.bottom > front.bottom && q.bottom <= front.bottom + 5;
+        }
+    check(shadows >= 1, "voice: the front card's low shadow falls on the peek just below its edge");
+    paint_stream_release(&paint);
+    user_activity_release(&users.activities);
     profile_scene_release(&s);
 }
 

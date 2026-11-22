@@ -642,12 +642,21 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
             break;
         }
         case ProfileLook::peek: {
-            // Only the strip below the first card shows.
+            // Only the strip below the first card shows, under that card's low shadow (the official
+            // --shadow-low: 1 DIP down, 4 DIP falloff): four plates of the front card's bottom edge
+            // (8 DIP wider than the peek on each side), each 1 DIP wider and lower.
             const float cut = r.top + 8;
+            const bool light = s.themed ? !s.theme_dark : theme.appearance == ThemeAppearance::light;
+            const Color shadow =
+                ui_theme_color_alpha(light ? theme.tokens.overlay.shadow_soft : theme.tokens.overlay.shadow, .08f);
             ok = paint_stream_push_clip(paint, r.left, cut, r.right, r.bottom) &&
-                 paint_stream_push_rounded(paint, r, hot ? c.card_hover : c.card,
-                                           activity_radius) &&
-                 paint_stream_pop_clip(paint);
+                 paint_stream_push_rounded(paint, r, hot ? c.card_hover : c.card, activity_radius);
+            for (u32 i = 4; ok && i > 0; --i) {
+                const float grow = static_cast<float>(i), radius = activity_radius + grow;
+                ok = paint_stream_push_rounded(paint, r.left - 8 - grow, cut + 1 + grow - 2 * radius,
+                                               r.right + 8 + grow, cut + 1 + grow, shadow, radius);
+            }
+            ok = ok && paint_stream_pop_clip(paint);
             plate = no_plate;
             break;
         }

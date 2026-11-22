@@ -30,6 +30,8 @@
 namespace maicord::profile_runtime_test {
 using namespace app_detail;
 u32 failures, mutations, reads;
+// How often the card asked for a note, and how many profile reads it had sent by the last ask.
+u32 notes_asked, reads_at_note;
 u8 read_operation;
 u64 read_user, read_guild, request_id;
 RestClient rest;
@@ -368,6 +370,22 @@ void page_under_profile() noexcept {
     application_content_page_close();
     g_app.renderer.dpi = 0;
 }
+// Issue 30: a card that opens on its profile GET sends that GET before it asks for the user's note, so its bio and
+// mutual servers arrive one round trip sooner. The note still loads after it, and a cached card asks for it at once.
+void profile_before_note(const UiRect& anchor) noexcept {
+    auto& p = *g_app.profile;
+    const u32 asked = notes_asked, before = reads;
+    const bool held = application_profile_open(48, anchor) && p.scene.phase == ProfilePhase::loading &&
+                      notes_asked == asked && p.scene.note_loading;
+    const bool sent = application_profile_submit(800) && reads == before + 1 && read_operation == 0 && read_user == 48;
+    check(held && sent && notes_asked == asked + 1 && reads_at_note == before + 1,
+          "profile runtime: an opening card sends its profile GET before it asks for the note");
+    response(200, utf8_literal(R"({"user":{"id":"48","username":"bot"}})"));
+    check(p.scene.phase == ProfilePhase::ready && application_profile_close() && application_profile_open(48, anchor) &&
+              p.scene.phase == ProfilePhase::ready && notes_asked == asked + 2,
+          "profile runtime: a cached card asks for the note at once");
+    application_profile_close();
+}
 void run() noexcept {
     const bool initialized = setup();
     check(initialized, "profile runtime: real profile scene opens with an eighteen-role member snapshot");
@@ -623,6 +641,7 @@ void run() noexcept {
           "profile runtime: a Board game opens its game profile in place of the full profile");
     own_status(anchor);
     page_under_profile();
+    profile_before_note(anchor);
     application_profile_release();
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
@@ -754,6 +773,8 @@ bool application_user_menu_open(u64, UiRect, u64, UserMenuSource, ConstSlice<Pop
     return false;
 }
 Utf8View application_user_note(u64, bool* loading) noexcept {
+    ++profile_runtime_test::notes_asked;
+    profile_runtime_test::reads_at_note = profile_runtime_test::reads;
     if (loading)
         *loading = false;
     return {};
