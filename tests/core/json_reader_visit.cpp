@@ -265,6 +265,11 @@ void test_json_reader_visit(void (*check)(bool, const char*) noexcept) noexcept 
 
     check(ends_table(), "json ends table pairs the brackets and counts the levels");
     check(source_answers_like_scan(), "json scan source answers container scans like the scanner");
+    // A member that was never seen keeps a JsonValue{}: it is no object, array or scalar.
+    const JsonValue absent{};
+    check(absent.kind != JsonValueKind::object && absent.kind != JsonValueKind::array &&
+              absent.kind != JsonValueKind::string && absent.kind != JsonValueKind::null_value,
+          "json an absent value (JsonValue{}) has no kind");
 }
 
 } // namespace maicord

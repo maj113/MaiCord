@@ -62,7 +62,8 @@ WebAuthnMfaResult visit(const Document& document, const JsonValue& value, JsonMe
 
 // How a member is read: an object or array (the JsonValueKind values) or a string, kept as found, or a timeout (1 to
 // 600000 ms), boolean or COSE algorithm, converted as it is read.
-enum class MemberKind : u8 { object, array, string, timeout, flag, integer };
+enum class MemberKind : u8 { object = static_cast<u8>(JsonValueKind::object), array, string, timeout, flag, integer };
+static_assert(static_cast<u8>(MemberKind::array) == static_cast<u8>(JsonValueKind::array));
 
 // The kinds of an object's members, four bits each in list order.
 template <typename... Kinds> constexpr u32 member_kinds(Kinds... kinds) noexcept {

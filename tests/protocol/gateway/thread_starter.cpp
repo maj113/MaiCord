@@ -36,6 +36,13 @@ void test_thread_starter(Check check) noexcept {
     GatewayMessageEvent invalid{};
     check(!decode(utf8_literal(R"({"thread":{"name":"no id"}})"), &invalid, text, sizeof(text)),
           "thread starter: a thread without an id is rejected");
+    // thread_metadata is optional on a channel object (docs.discord.food): without it the thread still decodes.
+    GatewayMessageEvent bare{};
+    char bare_text[64]{};
+    check(decode(utf8_literal(R"({"thread":{"id":"90","name":"plain"}})"), &bare, bare_text, sizeof(bare_text)) &&
+              bare.thread.present && bare.thread.id == 90 && !bare.thread.archived &&
+              utf8_equal(bare.thread.name, utf8_literal("plain")),
+          "thread starter: a thread without thread_metadata decodes");
     // Discord allows 100 characters in a thread name: 100 four-byte characters are 400 bytes, all shown.
     char long_body[512];
     u32 at = 0;

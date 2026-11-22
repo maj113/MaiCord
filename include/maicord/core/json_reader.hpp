@@ -4,7 +4,9 @@
 
 namespace maicord {
 
+// `none` is first, so an absent member (a JsonValue{}) is never an object, array or scalar.
 enum class JsonValueKind : u8 {
+    none,
     object,
     array,
     string,

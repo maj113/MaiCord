@@ -514,7 +514,7 @@ bool user_activities_decode(const JsonIndexedDocument& doc, JsonValue presence, 
                             UserActivitySet* output, bool* has) noexcept {
     reset_value(output);
     JsonValue activities{};
-    const bool read = presence.source.data && presence.kind == JsonValueKind::object
+    const bool read = presence.kind == JsonValueKind::object
                           ? json_visit_indexed_object(doc, presence, 64, root_member, &activities).ok()
                           : presence.kind == JsonValueKind::null_value || !presence.source.data;
     return user_activities_decode_list(doc, read ? activities : JsonValue{}, user_id, output, has) && read;
