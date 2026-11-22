@@ -212,19 +212,6 @@ bool read_poll_metadata(Reader& reader, const GatewayMessagePollScratch* scratch
     return true;
 }
 
-// What a snapshot header says about its message fields. append_message_rich_metadata (dispatch.cpp) gives the rest:
-// present is 0 or 1, the mention count is within its maximum, and an absent snapshot is a zeroed header. It also
-// packs each mentioned user from a zeroed record with a nonzero id.
-bool snapshot_header_valid(const GatewayClientMessageSnapshotHeader& snapshot) noexcept {
-    constexpr u32 allowed = gateway_message_field_content | gateway_message_field_timestamp |
-                            gateway_message_field_edited_timestamp | gateway_message_field_flags |
-                            gateway_message_field_type | gateway_message_field_mentions |
-                            gateway_message_field_mention_roles | gateway_message_field_mention_everyone |
-                            gateway_message_field_attachments | gateway_message_field_embeds |
-                            gateway_message_field_sticker_items | gateway_message_field_components;
-    return (snapshot.fields & ~allowed) == 0;
-}
-
 } // namespace
 
 bool gateway_client_event_as_message_poll_vote(const GatewayClientEvent& event, ConstSlice<u8> payload,
@@ -323,7 +310,8 @@ bool skip_rich_descriptors(Reader& reader, const GatewayClientMessageRichHeader&
 }
 
 // The copied scalar rich header and its reference texts (author name, author avatar hash, content). A valid message
-// without rich data gives a zeroed header and empty texts.
+// without rich data gives a zeroed header and empty texts. A rich block can carry truncation marks only (a dropped
+// thread name): its header holds no reference or interaction.
 static bool message_rich_header(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                 GatewayClientMessageRichHeader* header, Utf8View (&reference)[3]) noexcept {
     GatewayMessageEvent message;
@@ -335,8 +323,6 @@ static bool message_rich_header(const GatewayClientEvent& event, ConstSlice<u8> 
         reference[0] = reference[1] = reference[2] = Utf8View{};
         return true;
     }
-    if (!rich_fields)
-        return false;
     u32 role_offset{}, user_offset{}, cursor{};
     if (!message_payload_offsets(event, payload, &role_offset, &user_offset, &cursor))
         return false;
@@ -409,9 +395,9 @@ static bool unpack_message_rich_metadata(Reader& reader, u32 rich_fields,
 
     // append_message_rich_metadata (dispatch.cpp) writes each record below from a zeroed one and its flag and state
     // bytes from booleans. The decoders (message_rich_attachments.cpp, message_rich_embeds.cpp) give nonzero ids,
-    // reaction counts within the count, sticker formats 1 to 4, known embed types, embed fields in embed order,
-    // components in tree order with nonzero types and min <= max. They do not keep a reaction name that is too long:
-    // a reaction can arrive with no emoji, and a media component can reuse its accent colour for its size.
+    // reactions with an id or a name and counts within the count, sticker formats 1 to 4, known embed types, embed
+    // fields in embed order, components in tree order with nonzero types and min <= max, and an accent colour within
+    // 24 bits (a media item's size is no colour).
     for (u32 index = 0; index < header.reaction_count; ++index) {
         GatewayClientMessageReactionMutation packed;
         if (!read_packed(reader, &packed)) {
@@ -427,9 +413,6 @@ static bool unpack_message_rich_metadata(Reader& reader, u32 rich_fields,
         destination.me_burst = (packed.flags & 2u) != 0;
         destination.animated = (packed.flags & 4u) != 0;
         unpack_texts(reader, &packed.name, &destination.name, 1);
-        if (destination.emoji_id == 0 && destination.name.bytes == 0) {
-            return false;
-        }
     }
     for (u32 index = 0; index < header.attachment_count; ++index) {
         GatewayClientMessageAttachmentMutation packed;
@@ -494,7 +477,7 @@ static bool unpack_message_rich_metadata(Reader& reader, u32 rich_fields,
     }
     for (u32 index = 0; index < header.component_count; ++index) {
         GatewayClientMessageComponentMutation packed;
-        if (!read_packed(reader, &packed) || ((packed.flags & 2u) != 0 && packed.accent_color > 0xFFFFFFu)) {
+        if (!read_packed(reader, &packed)) {
             return false;
         }
         GatewayMessageComponent& destination = rich_scratch.components[index];
@@ -525,7 +508,8 @@ static bool unpack_message_rich_metadata(Reader& reader, u32 rich_fields,
         return false;
     if (rich_fields & gateway_message_field_message_snapshots) {
         GatewayClientMessageSnapshotHeader snapshot;
-        if (!read_packed(reader, &snapshot) || !snapshot_header_valid(snapshot) ||
+        // decode_snapshot (message_rich.cpp) refuses fields outside the documented snapshot message.
+        if (!read_packed(reader, &snapshot) ||
             snapshot.mention_user_count > rich_scratch.snapshot.mention_users.count)
             return false;
         GatewayMessageEvent body{};
@@ -594,12 +578,13 @@ bool gateway_client_event_as_message(const GatewayClientEvent& event, const Cons
     if (!message || !gateway_client_event_as_message(event, payload, message))
         return false;
     // A message without rich fields or truncations has no rich block (append_message_rich_metadata, dispatch.cpp).
+    // A block with truncation marks only (a dropped thread name) holds a header and no arrays.
     // message_payload_offsets proves that the rich block ends the payload.
     const u32 fields = event.message.fields & kGatewayMessageRichFieldMask;
     if (!event.message.rich_payload_bytes)
         return true;
     u32 role_offset = 0, user_offset = 0, cursor = 0;
-    if (!fields || !message_payload_offsets(event, payload, &role_offset, &user_offset, &cursor))
+    if (!message_payload_offsets(event, payload, &role_offset, &user_offset, &cursor))
         return false;
     Reader reader{payload.data, payload.count, payload.count, cursor};
     return unpack_message_rich_metadata(reader, fields, scratch, message);
@@ -622,7 +607,7 @@ static bool snapshot_user_offsets(const GatewayClientEvent& event, ConstSlice<u8
     GatewayClientMessageSnapshotHeader snapshot;
     // The message decoder keeps the mention names within their maximum and the ids distinct.
     if (!read_packed(reader, &outer) || !skip_rich_descriptors(reader, outer, event.message.fields) ||
-        !read_packed(reader, &snapshot) || !snapshot_header_valid(snapshot))
+        !read_packed(reader, &snapshot))
         return false;
     *users = reader.at;
     *count = snapshot.mention_user_count;

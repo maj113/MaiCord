@@ -912,10 +912,12 @@ GatewayEventDecodeResult decode_components(JsonValue array, const JsonIndexedDoc
             // attachment:// names resolve against the message's files.
             if (destination.url.bytes != 0 && !rich_url_valid(destination.url, true))
                 return decode_failure(GatewayEventDecodeError::invalid_data, indirect_url.source_offset);
-            // Media items reuse accent_color for their size: width << 16 | height.
+            // Media items reuse accent_color for their size: width << 16 | height. It is no colour then.
             if ((destination.type == gateway_component_thumbnail || destination.type == gateway_component_gallery_item) &&
-                url.width && url.height)
+                url.width && url.height) {
                 destination.accent_color = url.width << 16 | url.height;
+                destination.has_accent_color = false;
+            }
         }
         if ((parsed.seen & component_seen_children) != 0 &&
             !queue_component_children(parsed.children, scratch, maximum_depth, capacity, destination_index, 0,

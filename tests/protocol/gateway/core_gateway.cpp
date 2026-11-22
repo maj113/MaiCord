@@ -2565,19 +2565,6 @@ void test_gateway_message_events() noexcept {
             routed_message.reactions[0].burst_count == 1 && routed_message.reactions[0].me &&
             routed_message.reactions[0].me_burst && routed_message.reactions[0].animated,
             "gateway_custom_null_name_full_snapshot_create_update_survives_owned_transport");
-        if (snapshot_ok) {
-            const u32 reaction_offset = routed_event.message.transient_bytes +
-                static_cast<u32>(sizeof(GatewayClientMessageRichHeader));
-            GatewayClientMessageReactionMutation packed_snapshot_reaction{};
-            memcpy(&packed_snapshot_reaction, rich_owned_payload + reaction_offset,
-                sizeof(packed_snapshot_reaction));
-            packed_snapshot_reaction.emoji_id = 0;
-            memcpy(rich_owned_payload + reaction_offset, &packed_snapshot_reaction,
-                sizeof(packed_snapshot_reaction));
-            expect(!gateway_client_event_as_message(routed_event, snapshot_owned,
-                rich_scratch, &routed_message),
-                "gateway_packed_full_snapshot_empty_unicode_identity_rejected");
-        }
     }
     constexpr Utf8View invalid_deleted_custom_snapshots[] = {
         utf8_literal(R"({"op":0,"d":{"id":"900","channel_id":"7","reactions":[{"count":1,"me":false,"emoji":{"id":null,"name":null}}]},"t":"MESSAGE_UPDATE"})"),

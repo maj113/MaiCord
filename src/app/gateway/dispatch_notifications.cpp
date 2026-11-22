@@ -25,15 +25,19 @@ bool append_message_metadata(Slice<char> output, const GatewayMessageEvent& mess
     copy_bytes(output.data + cursor, message.member_roles.data, static_cast<u32>(member_role_bytes));
     cursor += static_cast<u32>(member_role_bytes);
     for (u32 index = 0; index < message.mention_users.count; ++index) {
+        // A mention without a username or global name (the decoder accepts it, as for snapshot mentions) keeps an
+        // empty name at offset 0.
         const GatewayMessageNamedUser& user = message.mention_users[index];
-        if (user.id == 0 || !user.name.data || user.name.bytes > kGatewayMessageUserNameMaximumBytes ||
-            user.name.data < output.data || user.name.data > output.data + message.transient_bytes ||
-            user.name.bytes > static_cast<u32>(output.data + message.transient_bytes - user.name.data)) {
+        const bool named = user.name.bytes != 0;
+        if (user.id == 0 || user.name.bytes > kGatewayMessageUserNameMaximumBytes ||
+            (named && (!user.name.data || user.name.data < output.data ||
+                       user.name.data > output.data + message.transient_bytes ||
+                       user.name.bytes > static_cast<u32>(output.data + message.transient_bytes - user.name.data)))) {
             return false;
         }
         GatewayClientNamedUserMutation packed{};
         packed.id = user.id;
-        packed.name_offset = static_cast<u32>(user.name.data - output.data);
+        packed.name_offset = named ? static_cast<u32>(user.name.data - output.data) : 0;
         packed.name_bytes = static_cast<u16>(user.name.bytes);
         copy_bytes(output.data + cursor, &packed, static_cast<u32>(sizeof(packed)));
         cursor += sizeof(packed);

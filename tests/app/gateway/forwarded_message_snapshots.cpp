@@ -338,5 +338,15 @@ void test_forwarded_message_snapshots(void (*check)(bool, const char*) noexcept)
     check(fields_written &&
               !decode_audio_fields({reinterpret_cast<const char*>(fields), field_writer.used}),
           "audio waveform rejects 257 samples even when Base64 still fits the 344-byte encoded limit");
+
+    // The decoder refuses or normalizes the shapes the mailbox readers cannot show, so both agree.
+    constexpr auto snapshot_poll = utf8_literal(
+        R"({"id":"900","channel_id":"7","author":{"id":"11"},"content":"","timestamp":"2026-01-01T00:00:00Z","message_snapshots":[{"message":{"content":"x","poll":{"question":{"text":"q"},"answers":[]}}}]})");
+    check(!decode(snapshot_poll, &event).ok(), "snapshot with a field outside the documented snapshot message is refused");
+    constexpr auto media_size = utf8_literal(
+        R"({"id":"900","channel_id":"7","author":{"id":"11"},"content":"","timestamp":"2026-01-01T00:00:00Z","flags":32768,"components":[{"type":12,"items":[{"media":{"url":"https://example.com/a.png","width":640,"height":480},"accent_color":5}]}]})");
+    check(decode(media_size, &event).ok() && event.components.count == 2 &&
+              event.components[1].accent_color == (640u << 16 | 480u) && !event.components[1].has_accent_color,
+          "a media item's size in accent_color is no colour");
 }
 } // namespace maicord

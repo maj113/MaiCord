@@ -4,6 +4,7 @@
 #include "maicord/app/chat/messages/event_pump.hpp"
 #include "maicord/app/chat/messages/history_sync.hpp"
 #include "maicord/model/chat/message_reconcile.hpp"
+#include "maicord/model/chat/message_rich_store.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/member_store.hpp"
@@ -59,6 +60,63 @@ bool apply(Utf8View json) noexcept {
         return false;
     const auto result = message_event_pump_consume(&fixture.pump, event, payload);
     return result.ok() && result.kind == MessageEventPumpConsumeKind::applied && result.repaint;
+}
+// A message from which a thread was started carries the thread object. A thread name longer than the decoder keeps
+// (here 50 three-byte characters, 150 bytes) is dropped with a truncation mark, and the message has no other rich
+// data: the timeline with a rich store must still show the message.
+void thread_name_message() noexcept {
+    static MessageRecord records[2];
+    static u32 order[2], heights[2];
+    static u64 sums[2];
+    static u8 text[1024];
+    static MessageRichRecord rich_records[2];
+    static u16 rich_order[2];
+    static u8 rich_text[1024];
+    static MessageStore store;
+    static MessageRichStore rich;
+    static UiVariableList list;
+    static MessageTimeline timeline;
+    char wire[1024]{};
+    u32 used = 0;
+    const auto add = [&](const char* part) noexcept {
+        while (*part && used + 1 < sizeof(wire)) wire[used++] = *part++;
+    };
+    add(R"({"op":0,"t":"MESSAGE_CREATE","s":20,"d":{"id":"600","channel_id":"7","author":{"id":"41","username":"a"},)"
+        R"("content":"start","timestamp":"2026-10-04T12:00:00Z","flags":32,"thread":{"id":"600","type":11,)"
+        R"("guild_id":"9","parent_id":"7","name":")");
+    for (u32 i = 0; i < 50; ++i) add("\xE7\xB7\x9A");
+    add(R"(","thread_metadata":{"archived":false}}}})");
+    GatewayClientEvent event{};
+    ConstSlice<u8> payload{};
+    u64 ids[1]{};
+    const bool ready =
+        message_store_initialize(&store, {records, 2}, {order, 2}, {text, sizeof(text)}) &&
+        message_rich_store_initialize(&rich, {rich_records, 2}, {rich_order, 2}, {rich_text, sizeof(rich_text)}) &&
+        ui_variable_list_initialize(&list, {heights, 2}, {sums, 2}, 0, 100) &&
+        message_timeline_initialize(&timeline, &store, &list, 100, 100, true) &&
+        message_timeline_bind_rich_store(&timeline, &rich);
+    check(ready && route({wire, used}, &event, &payload) &&
+              message_timeline_apply(&timeline, event, payload, {ids, 1}).ok() && message_store_find(store, 600).ok(),
+          "thread name: a message whose thread name the decoder drops still appears in the timeline");
+    // A unicode reaction whose name the decoder cannot keep (129 bytes) is refused at the route, not packed without
+    // an emoji for the reader to reject.
+    used = 0;
+    add(R"({"op":0,"t":"MESSAGE_CREATE","s":21,"d":{"id":"601","channel_id":"7","author":{"id":"41","username":"a"},)"
+        R"("content":"r","timestamp":"2026-10-04T12:00:00Z","reactions":[{"count":1,"emoji":{"id":null,"name":")");
+    for (u32 i = 0; i < 129; ++i) add("a");
+    add(R"("}}]}})");
+    check(!route({wire, used}, &event, &payload), "reaction: an unkept unicode emoji name refuses the message at the route");
+    // A mention with no username or global name is packed with an empty name, as a snapshot mention is.
+    used = 0;
+    add(R"({"op":0,"t":"MESSAGE_CREATE","s":22,"d":{"id":"602","channel_id":"7","author":{"id":"41","username":"a"},)"
+        R"("content":"m","timestamp":"2026-10-04T12:00:00Z","mentions":[{"id":"43"}]}})");
+    u64 mention_id = 0;
+    Utf8View mention_name{};
+    check(route({wire, used}, &event, &payload) && message_timeline_apply(&timeline, event, payload, {ids, 1}).ok() &&
+              message_store_find(store, 602).ok() &&
+              gateway_client_event_message_mention_user_at(event, payload, 0, &mention_id, &mention_name) &&
+              mention_id == 43 && !mention_name.bytes,
+          "mention: a nameless mention routes and its message appears in the timeline");
 }
 void run() noexcept {
     check(
@@ -274,6 +332,7 @@ void run() noexcept {
               resident(500)->type == 0,
           "pinned state: explicit zero message type clears retained type rather than treating zero as "
           "omitted");
+    thread_name_message();
 }
 } // namespace maicord::message_pinned_state_test
 extern "C" __declspec(noreturn) void WINAPI maicord_message_pinned_state_entry() noexcept {

@@ -425,9 +425,11 @@ GatewayEventDecodeResult decode_reactions(JsonValue array, const JsonIndexedDocu
         destination.me = reaction.me;
         destination.me_burst = reaction.me_burst;
         destination.animated = emoji.animated;
+        // bounded_string drops a name too long for the text; a unicode emoji without its name has nothing to show.
         if (!emoji.name_null &&
             (emoji.name.encoded.bytes == 0 ||
-             !bounded_string(emoji.name, kGatewayMessageUserNameMaximumBytes, text, &destination.name))) {
+             !bounded_string(emoji.name, kGatewayMessageUserNameMaximumBytes, text, &destination.name) ||
+             (!destination.emoji_id && !destination.name.bytes))) {
             return decode_failure(GatewayEventDecodeError::invalid_data, reaction.emoji.source_offset);
         }
     }

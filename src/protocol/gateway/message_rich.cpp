@@ -229,8 +229,17 @@ GatewayEventDecodeResult decode_snapshot(JsonValue value, const JsonIndexedDocum
         result = decode_components(child.components, document, maximum_depth, body_text, media, &body);
     if (!result.ok())
         return result;
-    // A forwarded snapshot never carries its source's thread.
+    // A forwarded snapshot never carries its source's thread. The documented snapshot message holds only the fields
+    // below (docs.discord.food, Snapshot Message Structure); another one is no snapshot this client can show.
+    constexpr u32 snapshot_fields = gateway_message_field_content | gateway_message_field_timestamp |
+                                    gateway_message_field_edited_timestamp | gateway_message_field_flags |
+                                    gateway_message_field_type | gateway_message_field_mentions |
+                                    gateway_message_field_mention_roles | gateway_message_field_mention_everyone |
+                                    gateway_message_field_attachments | gateway_message_field_embeds |
+                                    gateway_message_field_sticker_items | gateway_message_field_components;
     body.fields |= static_cast<u32>(child.seen) & ~static_cast<u32>(gateway_message_field_thread);
+    if (body.fields & ~snapshot_fields)
+        return decode_failure(GatewayEventDecodeError::invalid_data);
     *output = {body.content,
                body.timestamp_ms,
                body.edited_timestamp_ms,
