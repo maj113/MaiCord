@@ -3,6 +3,7 @@
 #include "../shell/content_input.hpp"
 #include "../guild/invite.hpp"
 #include "../shell/state.hpp"
+#include "../shell/window_state.hpp"
 #include "taskbar_attention.hpp"
 #include "../packages/packages.hpp"
 #include "../voice/voice.hpp"
@@ -47,12 +48,14 @@ struct Desktop {
 #if defined(_WIN32)
     SystemTray tray;
     HANDLE mutex, published;
-    wchar_t tooltip[128];
-    bool owns_mutex, tray_initialized;
+    // The icon reported a double click's second press: the release after it (NIN_SELECT) ends the same gesture.
+    bool owns_mutex, tray_initialized, tray_double_press;
 #else
     // The last state handed to the notification-area item, to send it again only when it changed.
     TrayInput tray_input;
     TrayIconPalette tray_palette;
+    // When the last Activate acted: the host sends one per click, also for each click of a double click.
+    u64 tray_activate_ms;
     bool tray_started, tray_sent, instance_checked;
 #endif
     bool quit_requested, link_pending, window_icons_set;
@@ -134,23 +137,16 @@ void tick_tray(u64 now_ms) noexcept {
     const auto input = tray_input();
     const auto colors = application_tray_palette();
     update_window_icons(colors);
-    auto plan = tray_plan(&g_desktop.tray.model, input, true);
-    wchar_t tooltip[128];
-    tray_tooltip(input, tooltip, 128);
-    u32 n = 0;
-    while (tooltip[n] && tooltip[n] == g_desktop.tooltip[n])
-        ++n;
-    if (tooltip[n] != g_desktop.tooltip[n]) {
-        copy_bytes(g_desktop.tooltip, tooltip, sizeof(tooltip));
-        plan.update = !plan.add;
-    }
+    const auto plan = tray_plan(&g_desktop.tray.model, input, true);
     if (!plan.add && !plan.update && same_palette(colors, g_desktop.tray.palette))
         return;
-    if (!system_tray_apply(&g_desktop.tray, plan, colors, g_desktop.tooltip, maximum(g_app.renderer.dpi, 96u))) {
-        // Explorer may not be up yet (startup); TaskbarCreated also re-adds it.
+    // The tooltip names the icon state (and for unread, whether it has mentions: the count badge against the dot),
+    // so a new tooltip always comes with a plan that adds or updates the icon.
+    wchar_t tooltip[128];
+    tray_tooltip(input, tooltip, 128);
+    // Explorer may not be up yet (startup); TaskbarCreated also re-adds it.
+    if (!system_tray_apply(&g_desktop.tray, plan, colors, tooltip, maximum(g_app.renderer.dpi, 96u)))
         g_desktop.tray_retry_ms = now_ms + 5'000;
-        g_desktop.tooltip[0] = 0;
-    }
 }
 #endif
 inline bool tray_visible() noexcept {
@@ -163,6 +159,18 @@ inline bool tray_visible() noexcept {
 void reveal() noexcept {
     desktop_window_reveal(g_app.window);
     application_request_frame();
+}
+// The one hide to the notification area: the close button's (application_desktop_close_to_tray) and the icon's.
+void hide_to_tray() noexcept {
+    window_show(g_app.window, ShowMode::hide);
+}
+// A click on the notification-area icon at `now_ms` hides the window in use (application_window_tray_click); false
+// leaves the reveal of any other window to the caller.
+bool tray_click_hides(u64 now_ms) noexcept {
+    if (application_window_tray_click(tray_visible(), now_ms) != DesktopTrayClick::hide)
+        return false;
+    hide_to_tray();
+    return true;
 }
 inline void tray_command(u32 command) noexcept {
     switch (command) {
@@ -188,11 +196,23 @@ inline void tray_command(u32 command) noexcept {
 #if defined(_WIN32)
 void tray_event(UINT event) noexcept {
     switch (event) {
-    case NIN_SELECT:
-    case NIN_KEYSELECT:
-    case WM_LBUTTONUP:
+    // NOTIFYICON_VERSION_4: a click is NIN_SELECT (after its WM_LBUTTONUP), a keyboard selection NIN_KEYSELECT. A double
+    // click is down, up, NIN_SELECT, WM_LBUTTONDBLCLK, up, NIN_SELECT: its first click acts for the gesture.
+    case WM_LBUTTONDOWN:
+        g_desktop.tray_double_press = false;
+        break;
     case WM_LBUTTONDBLCLK:
-        reveal();
+        g_desktop.tray_double_press = true;
+        break;
+    case NIN_SELECT:
+        if (g_desktop.tray_double_press) {
+            g_desktop.tray_double_press = false;
+            break;
+        }
+        [[fallthrough]];
+    case NIN_KEYSELECT:
+        if (!tray_click_hides(clock_monotonic_milliseconds()))
+            reveal();
         break;
     case WM_CONTEXTMENU: {
         TrayMenuItem items[kTrayMenuItems];
@@ -221,8 +241,17 @@ void reveal_activated(const char* token) noexcept {
 // host draws the menu itself and sends the chosen command.
 void on_tray(void*, const dbus::TrayEvent& event) noexcept {
     switch (event.kind) {
-    // A middle click opens the window too, as in the official client (Chromium's tray item).
-    case dbus::TrayEventKind::activate:
+    case dbus::TrayEventKind::activate: {
+        // A second Activate within the double-click time is the second click of a double click: the first acted.
+        const u64 now_ms = clock_monotonic_milliseconds();
+        if (now_ms - g_desktop.tray_activate_ms < platform_settings_read().double_click_ms)
+            break;
+        g_desktop.tray_activate_ms = now_ms;
+        if (!tray_click_hides(now_ms))
+            reveal_activated(event.activation_token);
+        break;
+    }
+    // A middle click opens the window, as in the official client (Chromium's tray item).
     case dbus::TrayEventKind::secondary_activate:
         reveal_activated(event.activation_token);
         break;
@@ -474,7 +503,6 @@ void application_desktop_tick(u64 now_ms) noexcept {
 bool application_desktop_window_message(UINT message, WPARAM, LPARAM lparam, LRESULT* result) noexcept {
     if (g_desktop.tray_initialized && system_tray_shell_restarted(&g_desktop.tray, message)) {
         g_desktop.tray_retry_ms = 0;
-        g_desktop.tooltip[0] = 0;
         application_request_frame();
         *result = 0;
         return true;
@@ -511,7 +539,7 @@ bool application_desktop_close_to_tray() noexcept {
     if (dbus::logout_in_progress())
         return false;
 #endif
-    window_show(g_app.window, ShowMode::hide);
+    hide_to_tray();
     return true;
 }
 

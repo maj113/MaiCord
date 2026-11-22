@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
+#include "maicord/platform/desktop/integration.hpp"
 #include "maicord/platform/window/window.hpp"
 
 namespace maicord::app_detail {
@@ -18,6 +19,8 @@ struct ApplicationWindowState {
     u32 dpi;
     i32 client_width;
     i32 client_height;
+    // clock_monotonic_milliseconds() when the window last lost the activation.
+    u64 deactivated_ms;
 };
 inline ApplicationWindowState g_window_state{};
 
@@ -30,6 +33,13 @@ inline void application_window_observe_position(Window window) noexcept {
     const WindowMetrics client = window_metrics(window);
     g_window_state.client_width = static_cast<i32>(client.width_px);
     g_window_state.client_height = static_cast<i32>(client.height_px);
+}
+
+// Reads the activation an activation_changed event reports, at `now_ms`.
+inline void application_window_observe_activation(bool gained, u64 now_ms) noexcept {
+    g_window_state.foreground = gained;
+    if (!gained)
+        g_window_state.deactivated_ms = now_ms;
 }
 
 inline bool application_window_minimized() noexcept {
@@ -54,6 +64,11 @@ inline bool application_window_keyboard_focus() noexcept {
 // background, minimized or tray-hidden window is unfocused.
 inline bool application_window_focused() noexcept {
     return g_window_state.foreground && application_window_shown();
+}
+// What a click on the notification-area icon at `now_ms` does to this window (desktop_tray_click).
+inline DesktopTrayClick application_window_tray_click(bool tray_visible, u64 now_ms) noexcept {
+    return desktop_tray_click(tray_visible, g_window_state.visible, g_window_state.minimized, g_window_state.foreground,
+                              now_ms - g_window_state.deactivated_ms);
 }
 // The window's DPI; zero while the system cannot tell.
 inline u32 application_window_dpi(Window window) noexcept {

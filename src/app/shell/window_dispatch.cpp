@@ -114,7 +114,7 @@ inline void observe_window_state(const WindowEvent& event) noexcept {
             application_window_observe_position(g_app.window);
         break;
     case EventType::activation_changed:
-        g_window_state.foreground = event.focus.gained;
+        application_window_observe_activation(event.focus.gained, clock_monotonic_milliseconds());
         break;
     case EventType::focus_changed:
         g_window_state.keyboard_focus = event.focus.gained;

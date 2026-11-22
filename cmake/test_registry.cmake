@@ -602,6 +602,12 @@ maicord_test(MaiCordStartupRecordTests ENTRY maicord_startup_record_entry
             maicord_media_codec maicord_window_null maicord_core
         INCLUDES tests
     TIMEOUT 10 ENVIRONMENT XDG_CURRENT_DESKTOP=KDE GDMSESSION=plasma TEST maicord_startup_record)
+# A click on the notification-area icon: the window in use hides to the tray, any other comes to the front.
+maicord_test(MaiCordTrayClickTests ENTRY maicord_tray_click_entry
+    SOURCES tests/app/shell/tray_click.cpp
+    INCLUDES src/app
+    LIBS maicord_window_null maicord_core kernel32
+    TIMEOUT 10 TEST maicord_tray_click)
 if(MAICORD_LINUX)
     # Tests of the application libraries on Linux: the updater's signed-manifest,
     # artifact, acceptance, preparation and package pipeline, which the Windows suite runs inside its native-extension

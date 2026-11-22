@@ -113,6 +113,19 @@ constexpr DesktopCloseAction desktop_close_action(bool minimize_to_tray, bool tr
                                                   bool quit_requested) noexcept {
     return minimize_to_tray && tray_visible && !quit_requested ? DesktopCloseAction::hide : DesktopCloseAction::quit;
 }
+// Tray icon click policy: the window in use hides to the notification area, and any other window (hidden, minimized
+// or behind other windows) comes to the front. "In use" means shown, not minimized and active when the click began.
+// On Windows a press on the notification area activates the taskbar before the click arrives: a window that lost the
+// activation at most kDesktopTrayClickActiveMs before the click (`inactive_ms`) was active for it, as Telegram Desktop
+// decides (kKeepActiveForTrayIcon). The window hides only while the icon shows, so a hidden window stays reachable.
+enum class DesktopTrayClick : u8 { reveal, hide };
+inline constexpr u64 kDesktopTrayClickActiveMs = 500;
+constexpr DesktopTrayClick desktop_tray_click(bool tray_visible, bool visible, bool minimized, bool active,
+                                              u64 inactive_ms) noexcept {
+    return tray_visible && visible && !minimized && (active || inactive_ms <= kDesktopTrayClickActiveMs)
+               ? DesktopTrayClick::hide
+               : DesktopTrayClick::reveal;
+}
 // ShowWindow commands as <Windows.h> defines them (checked in integration.cpp).
 inline constexpr int kDesktopShowHide = 0;              // SW_HIDE
 inline constexpr int kDesktopShowMinimizedNoActive = 7; // SW_SHOWMINNOACTIVE
