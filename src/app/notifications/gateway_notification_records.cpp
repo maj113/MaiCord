@@ -8,40 +8,31 @@ namespace maicord {
 
 bool gateway_client_notification_entry(const GatewayClientEvent& e, ConstSlice<u8> p,
                                        MessageNotificationGuildSetting* out) noexcept {
-    // The exact size bounds the count: a u32 count times the record size cannot wrap the 64-bit sum.
-    if (!out || e.dispatch_kind != GatewayClientDispatchKind::notification_settings_entry ||
-        e.dispatch_payload_bytes != p.count || !p.data ||
-        p.count != sizeof(*out) + e.notification.override_count * sizeof(MessageNotificationOverride))
+    // The worker writes the setting, then override_count overrides, and decodes level and fields within range.
+    if (e.dispatch_payload_bytes != p.count || !p.data)
         return false;
-    MessageNotificationGuildSetting row{};
-    copy_bytes(&row, p.data, sizeof(row));
-    if (row.guild_id != e.notification.guild_id || row.setting.fields & ~kMessageNotificationGuildFields ||
-        static_cast<u8>(row.setting.level) > 3 || row.incomplete)
-        return false;
-    *out = row;
+    copy_bytes(out, p.data, sizeof(*out));
     return true;
 }
-bool gateway_client_notification_override_at(const GatewayClientEvent& e, ConstSlice<u8> p, u32 at,
+bool gateway_client_notification_override_at(ConstSlice<u8> p, u32 at,
                                              MessageNotificationOverride* out) noexcept {
-    MessageNotificationGuildSetting guild{};
-    if (!out || at >= e.notification.override_count || !gateway_client_notification_entry(e, p, &guild))
-        return false;
+    // The caller read the entry first and asks for at < override_count. Only the fields can still be out of
+    // range: an override may carry hide_muted_channels.
     MessageNotificationOverride row{};
-    copy_bytes(&row, p.data + sizeof(guild) + at * sizeof(row), sizeof(row));
-    if (!row.channel_id || row.guild_id != guild.guild_id || row.setting.fields & ~kMessageNotificationChannelFields ||
-        static_cast<u8>(row.setting.level) > 3)
+    copy_bytes(&row, p.data + sizeof(MessageNotificationGuildSetting) + at * sizeof(row), sizeof(row));
+    if (row.setting.fields & ~kMessageNotificationChannelFields)
         return false;
     *out = row;
     return true;
 }
 bool gateway_client_notification_sidecar(ConstSlice<u8> p, GatewayClientNotificationSidecar* out,
                                          ConstSlice<u8>* records) noexcept {
-    if (!out || !records || !p.data || p.count < sizeof(*out))
+    if (!p.data || p.count < sizeof(*out))
         return false;
     GatewayClientNotificationSidecar h{};
     copy_bytes(&h, p.data, sizeof(h));
-    if (p.count != sizeof(h) + h.thread_count * sizeof(GatewayClientNotificationThreadRecord) ||
-        h.flags & ~(127u | gateway_notification_channel_age_baseline_complete) || h.gates & ~h.known_gates)
+    // The worker sets only known flags, and each gate bit with its known bit.
+    if (p.count != sizeof(h) + h.thread_count * sizeof(GatewayClientNotificationThreadRecord))
         return false;
     *out = h;
     *records = {p.data + sizeof(h), p.count - static_cast<u32>(sizeof(h))};
@@ -49,20 +40,19 @@ bool gateway_client_notification_sidecar(ConstSlice<u8> p, GatewayClientNotifica
 }
 bool gateway_client_notification_thread_at(ConstSlice<u8> p, u32 at,
                                            GatewayClientNotificationThreadRecord* out) noexcept {
-    if (!out || !p.data || p.count % sizeof(*out) || at >= p.count / sizeof(*out))
-        return false;
+    // p holds the rows of a sidecar read above, and at < its thread_count. The worker writes only the two
+    // flags, a zero reserved byte, and each gate bit with its known bit.
     GatewayClientNotificationThreadRecord row{};
     copy_bytes(&row, p.data + at * sizeof(row), sizeof(row));
     if (!row.thread.guild_id || !row.thread.thread_id ||
-        row.flags & ~(gateway_notification_thread_remove | gateway_notification_channel_metadata) ||
-        row.reserved || row.thread.setting.fields & ~kMessageNotificationChannelFields || row.gates & ~row.known_gates)
+        row.thread.setting.fields & ~kMessageNotificationChannelFields)
         return false;
     *out = row;
     return true;
 }
 bool gateway_client_notification_trim(const GatewayClientEvent& e, ConstSlice<u8> p,
                                       GatewayClientEvent* out, ConstSlice<u8>* normal) noexcept {
-    if (!out || !normal || e.dispatch_payload_bytes != p.count || (!p.data && p.count))
+    if (e.dispatch_payload_bytes != p.count || (!p.data && p.count))
         return false;
     const bool applicable = e.dispatch_kind == GatewayClientDispatchKind::guild_create ||
                             e.dispatch_kind == GatewayClientDispatchKind::guild_update ||

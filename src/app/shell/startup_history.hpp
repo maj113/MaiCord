@@ -11,8 +11,8 @@ namespace maicord::app_detail {
 // when the selection matches and no newer message is known, else it is dropped
 // and the normal request follows.
 
-// Worker start: requests the channel memory's latest channel; no-op without
-// a remembered channel or a started account instance.
+// Worker start (after the account instance started): requests the channel
+// memory's latest channel; no-op without a remembered channel.
 void application_startup_history_begin(u64 profile_id) noexcept;
 // Submits the latest-page query for channel_id on the current account instance.
 bool application_startup_history_submit(u64 channel_id) noexcept;

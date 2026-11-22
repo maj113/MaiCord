@@ -386,7 +386,7 @@ bool insert_command_mention(const MessageTextHit& hit) noexcept {
     u32 separator = source.bytes;
     while (separator > 2 && source.data[separator - 1] != ':')
         --separator;
-    if (!source.data || source.bytes < 6 || source.data[0] != '<' || source.data[1] != '/' || separator <= 3 ||
+    if (source.bytes < 6 || source.data[0] != '<' || source.data[1] != '/' || separator <= 3 ||
         source.data[source.bytes - 1] != '>')
         return true;
     u64 command_id = 0;
@@ -702,8 +702,7 @@ bool activate_focused_navigation() noexcept {
     if (guild && guild_folder_row_id(id))
         return application_guild_folders_toggle(id) || true;
     // A pinned conversation in the rail opens like its conversation row.
-    const bool conversation = guild && id && g_app.account_ui &&
-                              chat_state_store_find_channel(g_app.account_ui->chat_state, id);
+    const bool conversation = guild && id && chat_state_store_find_channel(g_app.account_ui->chat_state, id);
     return !id || select_navigation(guild && !conversation, id, conversation);
 }
 

@@ -108,8 +108,6 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
     check(!ui_tooltip_offer(&scene, invalid_anchor, viewport, UiTooltipTrigger::pointer, 1700, kTooltipStyle) &&
               !ui_tooltip_next_wake(scene),
           "tooltip: raw NaN anchor cannot become valid through viewport intersection");
-    check(!ui_tooltip_offer(&scene, target, viewport, static_cast<UiTooltipTrigger>(2), 1700, kTooltipStyle),
-          "tooltip: invalid trigger cannot schedule a wake");
     UiTooltipStyle extreme = kTooltipStyle;
     extreme.padding_x = 0;
     extreme.margin = 32;
@@ -294,9 +292,7 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
               commands[1].color.red == kDefaultTheme.tokens.text.muted.red &&
               commands[1].horizontal_alignment == UiTextAlignment::start,
           "tooltip card: a bold title over muted subtitles, start-aligned");
-    card.bold = {names, 1};
-    ui_tooltip_offer(&scene, card, viewport, UiTooltipTrigger::pointer, 6600, kTooltipStyle);
-    check(!scene.visible && !scene.pending, "tooltip card: bold runs are the label layout's alone");
+    ui_tooltip_clear(&scene);
     // Rows ("+N"'s other games): each line beside the host's 24 DIP picture, 8 apart, rows 4 apart.
     const MediaAssetKey pictures[]{media_asset_custom_emoji(1, false), media_asset_custom_emoji(2, false)};
     UiTooltipTarget rows{{target.key.owner, 7, 10, 1, 0x500}, {12, 12, 44, 44}, utf8_literal("Six\nSeven")};
@@ -316,9 +312,5 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
               commands[1].rectangle.left == scene.rectangle.left + padding_x + 32 &&
               commands[1].rectangle.top == scene.rectangle.top + padding_y + 28,
           "tooltip rows: each line leads with its picture's square");
-    card.bold = {};
-    card.row_media = {pictures, 2};
-    ui_tooltip_offer(&scene, card, viewport, UiTooltipTrigger::pointer, 7600, kTooltipStyle);
-    check(!scene.visible && !scene.pending, "tooltip rows: pictures belong to the rows layout alone");
 }
 } // namespace maicord

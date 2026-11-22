@@ -1,6 +1,4 @@
 #include "maicord/app/update/prepare.hpp"
-#include "maicord/core/byte_range.hpp"
-
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
@@ -11,55 +9,14 @@ UpdatePreparationResult failure(UpdatePreparationError error, UpdatePreparationP
     result.phase = phase;
     return result;
 }
-inline bool disjoint(ConstSlice<ConstSlice<u8>> ranges) noexcept {
-    for (u32 i = 0; i < ranges.count; ++i) {
-        if (!byte_range_valid(ranges[i])) return false;
-        for (u32 j = 0; j < i; ++j) {
-            // Indices 2..3 are borrowed, immutable path views that may share
-            // backing storage without mutation.
-            const bool readonly_paths = i >= 2 && i <= 3 && j >= 2 && j <= 3;
-            if (!readonly_paths && byte_ranges_overlap(ranges[i], ranges[j])) return false;
-        }
-    }
-    return true;
-}
-inline bool fresh(const UpdatePreparationContext& context) noexcept {
-    // Explicit release zeroes both owners. Refuse stale caller state as well as
-    // live handles so callers cannot accidentally reuse a half-prepared context.
-    if (context.acceptance.lock || context.acceptance.path_characters || context.acceptance.record_present ||
-        context.artifact.file || context.artifact.bytes || context.artifact.version) return false;
-    for (const auto& channel : context.acceptance.state.channels) {
-        if (channel.highest_version || channel.present) return false;
-        for (auto byte : channel.manifest_sha256) if (byte) return false;
-    }
-    for (auto character : context.acceptance.path) if (character) return false;
-    for (auto byte : context.artifact.sha256) if (byte) return false;
-    for (auto byte : context.artifact.manifest_sha256) if (byte) return false;
-    return true;
-}
 } // namespace
 
 UpdatePreparationResult update_prepare_artifact(UpdatePreparationContext* context,
     const UpdatePreparationRequest& request, const P256Key& key, KdfSha256Workspace& workspace,
     UpdateManifestPolicy* policy, Slice<u32> scratch) noexcept {
-    if (!context || !policy || !request.acceptance_path.data || !request.acceptance_path.count ||
-        request.acceptance_path.count > kUpdateAcceptanceMaximumPathCharacters - 5 ||
-        !request.artifact_path.data || !request.artifact_path.count || request.artifact_path.count > kUpdateArtifactMaximumPathCharacters ||
-        !request.document.data || !request.document.bytes || request.document.bytes > kUpdateManifestMaximumBytes ||
-        !request.signature.data || request.signature.count != 64 || !scratch.data || !scratch.count ||
-        scratch.count > ~u32{0} / sizeof(u32))
-        return failure(UpdatePreparationError::invalid_input, UpdatePreparationPhase::input);
-    const ConstSlice<u8> ranges[]{
-        {reinterpret_cast<const u8*>(context), sizeof(*context)},
-        {reinterpret_cast<const u8*>(&request), sizeof(request)},
-        {reinterpret_cast<const u8*>(request.acceptance_path.data), request.acceptance_path.count * static_cast<u32>(sizeof(wchar_t))},
-        {reinterpret_cast<const u8*>(request.artifact_path.data), request.artifact_path.count * static_cast<u32>(sizeof(wchar_t))},
-        {reinterpret_cast<const u8*>(request.document.data), request.document.bytes}, request.signature,
-        {reinterpret_cast<const u8*>(&key), sizeof(key)},
-        {reinterpret_cast<const u8*>(&workspace), sizeof(workspace)}, {workspace.storage.data, workspace.storage.capacity},
-        {reinterpret_cast<const u8*>(policy), sizeof(*policy)},
-        {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))}};
-    if (!disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])}) || !fresh(*context) ||
+    if (!request.acceptance_path.count || request.acceptance_path.count > kUpdateAcceptanceMaximumPathCharacters - 5 ||
+        !request.artifact_path.count || request.artifact_path.count > kUpdateArtifactMaximumPathCharacters ||
+        !request.document.bytes || request.document.bytes > kUpdateManifestMaximumBytes ||
         !key.handle || key.kind != P256Kind::ecdsa || !workspace.storage.data || !workspace.storage.capacity ||
         !policy->now_unix_seconds || !policy->maximum_artifact_bytes || !policy->maximum_validity_seconds ||
         policy->channel > UpdateChannel::preview)
@@ -89,8 +46,6 @@ UpdatePreparationResult update_prepare_artifact(UpdatePreparationContext* contex
 }
 
 UpdatePreparationResult update_preparation_release(UpdatePreparationContext* context) noexcept {
-    if (!context || !byte_range_valid({reinterpret_cast<const u8*>(context), sizeof(*context)}))
-        return failure(UpdatePreparationError::invalid_input, UpdatePreparationPhase::input);
     UpdatePreparationResult result{};
     result.artifact = update_artifact_release(&context->artifact);
     if (!result.artifact.ok()) {

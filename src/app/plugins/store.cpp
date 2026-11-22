@@ -150,7 +150,6 @@ mc_status kv_get(const PluginKeyValue& kv, mc_str key, void* output, u32 capacit
     *bytes = size;
     if (!value) return MC_E_NOT_FOUND;
     if (size > capacity) return MC_E_TRUNCATED;
-    if (size && !output) return MC_E_INVALID;
     copy_bytes(output, value, size);
     return MC_OK;
 }

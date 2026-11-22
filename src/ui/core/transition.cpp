@@ -25,14 +25,11 @@ void sample(UiOpacityTransition& transition, u64 now_ms) noexcept {
 } // namespace
 
 void ui_opacity_transition_reset(UiOpacityTransition* transition, float value) noexcept {
-    if (transition)
-        *transition = {0, normalized(value), normalized(value), normalized(value), 0, false};
+    *transition = {0, normalized(value), normalized(value), normalized(value), 0, false};
 }
 
 bool ui_opacity_transition_tick(UiOpacityTransition* transition, float requested, u64 now_ms,
                                 u32 duration_ms, bool reduced_motion, bool visible) noexcept {
-    if (!transition)
-        return false;
     const float previous = transition->value;
     const float target = normalized(requested);
     sample(*transition, now_ms);
@@ -161,8 +158,6 @@ bool ui_motion_style_valid(const UiMotionStyle& style) noexcept {
 
 void ui_motion_transition_reset(UiMotionTransition* transition, const UiMotionScope& scope_view, float value) noexcept {
     const UiMotionScope scope = scope_view; // *transition is cleared first
-    if (!transition)
-        return;
     reset_value(transition);
     if (motion_scope_valid(scope)) {
         transition->scope = scope;
@@ -170,14 +165,13 @@ void ui_motion_transition_reset(UiMotionTransition* transition, const UiMotionSc
     }
 }
 void ui_motion_transition_cancel(UiMotionTransition* transition) noexcept {
-    if (transition)
-        reset_value(transition);
+    reset_value(transition);
 }
 
 bool ui_motion_transition_tick(UiMotionTransition* transition, const UiMotionScope& scope_view, float requested,
                                u64 now_ms, const UiMotionStyle& requested_style, bool reduced_motion) noexcept {
     const UiMotionScope scope = scope_view; // *transition is written below
-    if (!transition || !motion_scope_matches(*transition, scope))
+    if (!motion_scope_matches(*transition, scope))
         return false;
     const float previous = transition->value;
     const float target = normalized(requested);
@@ -233,8 +227,6 @@ constexpr UiMotionScope kHoverScope{1, 1};
 }
 bool ui_motion_hover_tick(UiMotionHover* hover, u64 hovered_id, u64 now_ms, const UiMotionStyle& style,
                           bool reduced_motion) noexcept {
-    if (!hover)
-        return false;
     if (!hover->in.scope.owner)
         ui_motion_transition_reset(&hover->in, kHoverScope);
     if (!hover->out.scope.owner)

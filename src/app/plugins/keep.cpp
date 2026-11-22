@@ -221,14 +221,14 @@ bool keep_is_deleted(u64 message_id) noexcept {
 
 bool keep_info(u64 channel_id, u64 message_id, KeepInfo* info) noexcept {
     const Record* record = find(channel_id, message_id);
-    if (!record || !info) return false;
+    if (!record) return false;
     *info = {record->author_id, record->timestamp_ms, record->edited_ms, record->edit_count, record->deleted};
     return true;
 }
 
 bool keep_text(u64 channel_id, u64 message_id, u32 version, Utf8View* text) noexcept {
     const Record* record = find(channel_id, message_id);
-    if (!record || version > record->edit_count || !text) return false;
+    if (!record || version > record->edit_count) return false;
     *text = view(version ? record->edits[version - 1] : record->content);
     return true;
 }

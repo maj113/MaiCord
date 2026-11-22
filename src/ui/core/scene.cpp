@@ -71,7 +71,8 @@ bool add_node(UiScene* scene, UiSemantic semantic, UiWidgetHandle parent, const 
     const u16 admitted_flags =
         semantic >= UiSemantic::thread_header && semantic <= UiSemantic::thread_cancel ? ui_widget_none : flags;
     const u32 id = semantic_id(semantic);
-    const UiWidgetResult result = ui_widget_manager_add(
+    // Each semantic is added at most once per build, so its id is unique without a search.
+    const UiWidgetResult result = ui_widget_manager_add_prevalidated(
         &scene->widgets, parent,
         UiWidgetDesc{id, semantic_kind(semantic), admitted_flags,
                      UiLayoutNodeSpec{semantic_name(semantic), style, UiSize{}, id}});
@@ -483,7 +484,7 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
 } // namespace
 
 bool ui_scene_initialize_bootstrap(UiScene* scene) noexcept {
-    if (!scene || scene->storage.arena.base) {
+    if (scene->storage.arena.base) {
         return false;
     }
     reset_value<UiScene>(scene);
@@ -496,16 +497,13 @@ bool ui_scene_initialize_bootstrap(UiScene* scene) noexcept {
 }
 
 void ui_scene_release(UiScene* scene) noexcept {
-    if (!scene) {
-        return;
-    }
     ui_fixed_widget_storage_release(&scene->storage);
     reset_value<UiScene>(scene);
 }
 
 bool ui_scene_layout_with_metrics(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics,
                                   float width, float height) noexcept {
-    if (!scene || !ui_extent_valid(width) || !ui_extent_valid(height) || width <= 0.0f || height <= 0.0f ||
+    if (!ui_extent_valid(width) || !ui_extent_valid(height) || width <= 0.0f || height <= 0.0f ||
         view >= UiShellView::count || !shell_metrics_valid(metrics))
         return false;
     const u8 variant = shell_variant(metrics, width);

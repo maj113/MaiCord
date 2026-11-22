@@ -613,7 +613,7 @@ bool plugin_binding_set_host(PluginBinding* binding, u32 index, bool approved) n
 
 PluginLoadResult plugin_runtime_open(PluginRuntime* runtime, ConstSlice<wchar_t> plugins_directory,
                                      ConstSlice<wchar_t> data_directory, PluginCallLedger* ledger) noexcept {
-    if (!runtime || !data_directory.data || !data_directory.count || data_directory.count > 480)
+    if (data_directory.count > 480)
         return {PluginLoadError::invalid_argument, PluginDescriptorProblem::none, 0, 0};
     const PluginLoadResult pinned = plugin_directory_open(&runtime->directory, plugins_directory);
     if (!pinned.ok()) return pinned;
@@ -626,7 +626,6 @@ PluginLoadResult plugin_runtime_open(PluginRuntime* runtime, ConstSlice<wchar_t>
 }
 
 PluginLoadResult plugin_runtime_close(PluginRuntime* runtime) noexcept {
-    if (!runtime) return {PluginLoadError::invalid_argument, PluginDescriptorProblem::none, 0, 0};
     while (runtime->binding_count) {
         const u32 before = runtime->binding_count;
         plugin_runtime_disable(runtime, runtime->bindings[before - 1]);
@@ -640,7 +639,6 @@ PluginLoadResult plugin_runtime_close(PluginRuntime* runtime) noexcept {
 
 PluginEnableResult plugin_runtime_enable(PluginRuntime* runtime, ConstSlice<wchar_t> leaf, u64 approved_permissions,
                                          u32 approved_hosts, const u8* sha256) noexcept {
-    if (!runtime || !runtime->directory.ancestor_count) return enable_failed(PluginEnableError::invalid_argument);
     const CarryHold hold(runtime);
     const Carry& carry = hold.carry;
     if (runtime->binding_count == kPluginMaximumBindings) return enable_failed(PluginEnableError::capacity);
@@ -709,7 +707,6 @@ PluginEnableResult plugin_runtime_enable(PluginRuntime* runtime, ConstSlice<wcha
 }
 
 bool plugin_runtime_disable(PluginRuntime* runtime, PluginBinding* binding) noexcept {
-    if (!runtime || !binding) return false;
     u32 slot = 0;
     while (slot < runtime->binding_count && runtime->bindings[slot] != binding) ++slot;
     if (slot == runtime->binding_count) return false;
@@ -736,7 +733,6 @@ bool plugin_runtime_disable(PluginRuntime* runtime, PluginBinding* binding) noex
 }
 
 bool plugin_runtime_keep_state(PluginRuntime* runtime, const PluginBinding* binding) noexcept {
-    if (!runtime || !binding) return false;
     release_carry(*runtime);
     const mc_descriptor& d = *binding->image.descriptor;
     u8* copy = nullptr;
@@ -750,7 +746,6 @@ bool plugin_runtime_keep_state(PluginRuntime* runtime, const PluginBinding* bind
 }
 
 u64 plugin_runtime_poll(PluginRuntime* runtime, u64 now_ms) noexcept {
-    if (!runtime) return 0;
     for (u32 i = 0; i < runtime->binding_count; ++i) flush(*runtime->bindings[i], now_ms, false);
     for (u32 i = 0; i < runtime->binding_count; ++i) {
         PluginBinding* binding = runtime->bindings[i];

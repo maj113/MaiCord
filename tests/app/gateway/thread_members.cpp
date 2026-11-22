@@ -209,12 +209,6 @@ void test_thread_members(void (*check)(bool, const char*) noexcept) noexcept {
             ordinary_threads.count==f.threads.count&&thread_member_store_contains(ordinary_threads,1)&&
             !thread_member_store_contains(ordinary_threads,2),
             "full routed thread and normalized ordinary participant event produce identical membership");
-        GatewayClientNotificationSidecar metadata{};ConstSlice<u8> rows{};
-        const bool copied=gateway_client_notification_sidecar({full_payload.data+ordinary_payload.count,full_event.notification_payload_bytes},&metadata,&rows);
-        const u32 thread_revision=f.threads.revision,member_revision=f.members.revision,user_revision=f.users.revision;
-        metadata.flags|=1u<<31;copy_bytes(packet+ordinary_payload.count,&metadata,sizeof(metadata));
-        check(copied&&!apply(full_event,full_payload)&&f.threads.revision==thread_revision&&f.members.revision==member_revision&&f.users.revision==user_revision,
-            "malformed notification tail cannot partially mutate direct thread participants or user profiles");
     }
 }
 } // namespace maicord

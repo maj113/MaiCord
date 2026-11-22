@@ -72,7 +72,7 @@ void stop_watchdog(PluginCallLedger* ledger) noexcept {
 } // namespace
 
 bool plugin_call_watchdog_start(PluginCallLedger* ledger, u32 limit_ms) noexcept {
-    if (!ledger || !ledger->view || ledger->watchdog || !limit_ms) return false;
+    if (!ledger->view || ledger->watchdog || !limit_ms) return false;
     ledger->hang_limit_ms = limit_ms;
     ledger->close_watchdog = stop_watchdog;
     ledger->watchdog_wake = event_create(false, false);

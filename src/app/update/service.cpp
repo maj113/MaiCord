@@ -290,7 +290,7 @@ Utf8View update_service_error_text(UpdateServiceError e) noexcept {
 }
 
 UpdateServiceError update_service_initialize(UpdateService* s, const UpdateServiceConfig& config, const UpdatePaths& paths) noexcept {
-    if (!s || s->initialized) return SE::state;
+    if (s->initialized) return SE::state;
     clear_bytes(s, sizeof(*s));
     s->config = config; s->paths = paths;
     if (config.configured && (!kdf_sha256_initialize(&s->workspace).ok() ||
@@ -302,7 +302,7 @@ UpdateServiceError update_service_initialize(UpdateService* s, const UpdateServi
     return SE::none;
 }
 void update_service_release(UpdateService* s) noexcept {
-    if (!s || !s->initialized) return;
+    if (!s->initialized) return;
     release_work(s);
 #if !defined(_WIN32)
     const bool staged = s->staged.file != nullptr;
@@ -317,7 +317,7 @@ void update_service_release(UpdateService* s) noexcept {
 }
 
 UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& transport, UpdateChannel channel, u64 now) noexcept {
-    if (!s || !s->initialized || channel > UpdateChannel::preview) return failed(SE::state);
+    if (!s->initialized || channel > UpdateChannel::preview) return failed(SE::state);
     if (!s->config.configured) return failed(SE::configuration);
     const u64 floor = s->config.own_version;
     const u64 staged = s->staged.file ? s->staged.version : 0;
@@ -463,7 +463,7 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
 }
 
 const UpdateChangelog* update_service_cached_changelog(UpdateService* s, UpdateChannel channel) noexcept {
-    return s && s->initialized && s->changelog && s->config.configured && channel <= UpdateChannel::preview
+    return s->initialized && s->changelog && s->config.configured && channel <= UpdateChannel::preview
         ? changelog_held(s, channel) : nullptr;
 }
 
@@ -485,7 +485,7 @@ UpdateSwapResult update_swap(const UpdatePaths& paths) noexcept {
 #endif
 UpdateSwapResult update_service_swap(UpdateService* s) noexcept {
     UpdateSwapResult r{};
-    if (!s || !s->initialized || !s->staged.file) { r.error = UpdateSwapError::nothing_staged; return r; }
+    if (!s->initialized || !s->staged.file) { r.error = UpdateSwapError::nothing_staged; return r; }
     const u64 version = s->staged.version;
 #if !defined(_WIN32)
     // Sharing is advisory here: before the stage moves, prove it still holds the file that was verified.
@@ -527,13 +527,13 @@ UpdateChannel update_channel_load(const UpdatePaths& paths, UpdateChannel fallba
     return static_cast<UpdateChannel>(load_choice(paths.channel, static_cast<u8>(UpdateChannel::preview), static_cast<u8>(fallback)));
 }
 bool update_channel_save(const UpdatePaths& paths, UpdateChannel channel) noexcept {
-    return channel <= UpdateChannel::preview && save_choice(paths, false, static_cast<u8>(channel));
+    return save_choice(paths, false, static_cast<u8>(channel));
 }
 UpdateCheckInterval update_interval_load(const UpdatePaths& paths, UpdateCheckInterval fallback) noexcept {
     return static_cast<UpdateCheckInterval>(load_choice(paths.interval, kUpdateCheckIntervalCount - 1, static_cast<u8>(fallback)));
 }
 bool update_interval_save(const UpdatePaths& paths, UpdateCheckInterval interval) noexcept {
-    return static_cast<u32>(interval) < kUpdateCheckIntervalCount && save_choice(paths, true, static_cast<u8>(interval));
+    return save_choice(paths, true, static_cast<u8>(interval));
 }
 
 } // namespace maicord

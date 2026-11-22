@@ -2,8 +2,8 @@
 
 namespace maicord {
 bool ui_input_consume_key_tail(u32* held_key, const UiInputEvent& event) noexcept {
-    if (!held_key || !*held_key) return false;
     const u32 held = *held_key;
+    if (!held) return false;
     if (event.kind == UiInputKind::key_up && event.code == held) { *held_key = 0; return true; }
     if (event.kind == UiInputKind::key_down && event.code == held && !event.repeated) { *held_key = 0; return false; }
     return (event.kind == UiInputKind::key_down && event.code == held) ||

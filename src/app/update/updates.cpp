@@ -467,7 +467,6 @@ void flip_entry_bit(u64 (&bits)[2], u32 entry) noexcept { if (entry < 128) bits[
 
 bool application_updates_project_view(const ApplicationUpdatesView& v, u64 now, SettingBinding binding, ApplicationUpdatesText* text,
     UiSettingsControl* control, UiSettingsControlPresentation* presentation, u16* meter) noexcept {
-    if (!text || !control || !presentation) return false;
     if (meter) *meter = kUiSettingsNoMeter;
     const bool disabled = v.state == State::disabled;
     switch (binding) {

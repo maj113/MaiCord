@@ -127,7 +127,6 @@ bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
 
 UpdateChangelogError update_changelog_verify(Utf8View document, ConstSlice<u8> signature, const P256Key& trusted_key,
     KdfSha256Workspace& workspace, Slice<u32> scratch, UpdateChangelog* output) noexcept {
-    if (!output) return UpdateChangelogError::invalid_input;
     output->count = 0; output->version = 0; output->text_bytes = 0;
     if (!document.data || !document.bytes || document.bytes > kUpdateChangelogMaximumBytes || signature.count != 64 ||
         !trusted_key.handle || trusted_key.kind != P256Kind::ecdsa || !workspace.storage.data || !scratch.data || !scratch.count)

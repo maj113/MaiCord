@@ -165,7 +165,7 @@ void capture_authors(StartupShell* shell, const StartupShellStores& stores, cons
             continue;
         ++seen;
         add_user(shell, *stores.users, record->author_id);
-        if (!shell->guild_id || !stores.members || shell->author_count >= kStartupShellAuthorCapacity)
+        if (!shell->guild_id || shell->author_count >= kStartupShellAuthorCapacity)
             continue;
         bool known = false;
         for (u32 i = 0; i < shell->author_count && !known; ++i)
@@ -186,8 +186,6 @@ void capture_authors(StartupShell* shell, const StartupShellStores& stores, cons
 
 void startup_shell_capture(const StartupShellStores& stores, const MessageStore* messages,
                            StartupShell* shell) noexcept {
-    if (!shell || !stores.state || !stores.users)
-        return;
     StartupShell& s = *shell;
     const ChatStateStore& state = *stores.state;
     s.self_user_id = state.self_user_id;
@@ -231,8 +229,6 @@ void startup_shell_capture(const StartupShellStores& stores, const MessageStore*
 }
 
 bool startup_shell_apply(const StartupShell& s, const StartupShellStores& stores) noexcept {
-    if (!stores.state || !stores.users || !s.self_user_id)
-        return false;
     ChatStateStore& state = *stores.state;
     // Each upsert would select the restoration target as soon as it is
     // resident; the saved selection is placed once everything is in.
@@ -300,7 +296,7 @@ bool startup_shell_apply(const StartupShell& s, const StartupShellStores& stores
         if (user_store_upsert(stores.users, u.id, text(s, u.name), text(s, u.username)).ok())
             user_store_set_avatar(stores.users, u.id, text(s, u.avatar));
     }
-    for (u32 i = 0; i < s.author_count && s.guild_id && stores.members; ++i)
+    for (u32 i = 0; i < s.author_count && s.guild_id; ++i)
         guild_member_store_restore_display(stores.members, state, s.guild_id, s.authors[i].user_id,
                                            text(s, s.authors[i].nickname), s.authors[i].role_color);
     if (s.status_text.bytes || s.status_emoji.bytes) {

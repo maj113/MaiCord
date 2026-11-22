@@ -74,7 +74,7 @@ bool voice_tone(NotificationSoundAssetBank* bank,u32 index) noexcept {
 }
 bool notification_sound_asset_resolve(void* context,u32 id,NotificationAudioClip* clip) noexcept {
     auto* bank=static_cast<NotificationSoundAssetBank*>(context);
-    if(!bank || !clip || id<1 || id>kNotificationSoundClipCount) return false;
+    if(id<1 || id>kNotificationSoundClipCount) return false;
     const u32 index=id-1;
     if(bank->failed_mask&(1u<<index)) return false;
     if(!bank->pcm[index] && index>=kNotificationSoundAssetCount && !voice_tone(bank,index)) return false;
@@ -108,7 +108,7 @@ bool notification_sound_asset_resolve(void* context,u32 id,NotificationAudioClip
 }
 bool notification_sound_asset_gain(void* context,float nominal,float* gain) noexcept {
     auto* bank=static_cast<NotificationSoundAssetBank*>(context);
-    if(!bank || !gain || !notification_audio_gain_valid(nominal)) return false;
+    if(!notification_audio_gain_valid(nominal)) return false;
     const LONG percent=ReadAcquire(&bank->output_percent);
     if(percent<0 || percent>200) return false;
     const float actual=(static_cast<float>(percent)/100.0f)*nominal;
@@ -116,11 +116,10 @@ bool notification_sound_asset_gain(void* context,float nominal,float* gain) noex
 }
 void notification_sound_assets_volume(NotificationSoundAssetBank* bank,u32 percent) noexcept {
     // The drain stores the volume on each turn of the main loop: write only a new value.
-    if(bank && percent<=200 && ReadAcquire(&bank->output_percent)!=static_cast<LONG>(percent))
+    if(percent<=200 && ReadAcquire(&bank->output_percent)!=static_cast<LONG>(percent))
         InterlockedExchange(&bank->output_percent,static_cast<LONG>(percent));
 }
 void notification_sound_assets_release(NotificationSoundAssetBank* bank) noexcept {
-    if(!bank) return;
     for(auto& pcm:bank->pcm) {if(pcm)pages_release(pcm);pcm=nullptr;}
     for(u32 i=0;i<kNotificationSoundClipCount;++i){bank->frames[i]=0;bank->rates[i]=0;}
     bank->failed_mask=0;

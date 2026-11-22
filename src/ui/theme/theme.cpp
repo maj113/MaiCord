@@ -26,7 +26,8 @@ __declspec(noinline) bool background_theme_valid(const BackgroundTheme& value) n
 }
 
 bool background_theme_parse_colors(Utf8View text, BackgroundTheme* output) noexcept {
-    if (!text.data || text.bytes > 128)
+    // An empty text parses no colour and fails the count check below.
+    if (text.bytes > 128)
         return false;
     BackgroundTheme next = *output;
     for (auto& color : next.colors)

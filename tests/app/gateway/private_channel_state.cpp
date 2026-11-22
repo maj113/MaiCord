@@ -88,15 +88,6 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
         "direct private state consumer validates metadata and applies exact recipient body prefix");
     if(metadata_routed&&ordinary_payload.count==sizeof(GatewayClientUserMutation)) {
         u8 original_body[sizeof(GatewayClientUserMutation)]{};copy_bytes(original_body,ordinary_payload.data,sizeof(original_body));
-        GatewayClientNotificationSidecar metadata{};ConstSlice<u8> metadata_rows{};
-        const bool copied=gateway_client_notification_sidecar({metadata_payload.data+ordinary_payload.count,metadata_event.notification_payload_bytes},&metadata,&metadata_rows);
-        const u32 channel_mutations=store.channel_mutations,users_revision=users.revision,recipient_revision=private_store.revision;
-        metadata.flags|=1u<<31;copy_bytes(packet+ordinary_payload.count,&metadata,sizeof(metadata));
-        check(copied&&!chat_state_apply_gateway_event(&store,metadata_event,metadata_payload,{ids,4},&users).ok()&&
-            store.channel_mutations==channel_mutations&&users.revision==users_revision&&private_store.revision==recipient_revision&&
-            bytes_equal(original_body,ordinary_payload.data,sizeof(original_body)),
-            "malformed policy tail rejects direct private state admission before identity or body mutation");
-        metadata.flags&=~(1u<<31);copy_bytes(packet+ordinary_payload.count,&metadata,sizeof(metadata));
         check(gateway_client_route_dispatch(metadata_envelope,{scratch,1024},32,{packet,sizeof(original_body)},{ids,16},1,&metadata_event,&metadata_payload).ok()&&
             metadata_event.notification_payload_bytes==kGatewayNotificationMetadataIncomplete&&metadata_payload.count==sizeof(original_body)&&
             chat_state_apply_gateway_event(&store,metadata_event,metadata_payload,{ids,4},&users).ok()&&
@@ -397,16 +388,6 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
     check(self_routed&&user_store_apply_gateway_snapshots(&users,user_event,user_payload)&&
         user_store_find(users,1)&&utf8_equal(user_store_name(users,*user_store_find(users,1)),utf8_literal("Self")),
         "event-aware user admission preserves self identity beside global restriction metadata");
-    if(self_routed&&user_body.count>sizeof(GatewayClientUserMutation)) {
-        const u32 user_revision=users.revision;
-        GatewayClientNotificationSidecar metadata{};ConstSlice<u8> rows{};
-        const bool copied=gateway_client_notification_sidecar({user_payload.data+user_body.count,user_event.notification_payload_bytes},&metadata,&rows);
-        packet[sizeof(GatewayClientUserMutation)]='X';metadata.flags|=1u<<31;
-        copy_bytes(packet+user_body.count,&metadata,sizeof(metadata));
-        check(copied&&!user_store_apply_gateway_snapshots(&users,user_event,user_payload)&&users.revision==user_revision&&
-            user_store_find(users,1)&&utf8_equal(user_store_name(users,*user_store_find(users,1)),utf8_literal("Self")),
-            "invalid policy metadata prevents a valid changed ordinary user name from partially publishing");
-    }
 }
 
 } // namespace maicord

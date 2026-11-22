@@ -162,11 +162,6 @@ void test_navigation_shortcuts(void (*check)(bool, const char*) noexcept) noexce
     check(!navigation_target(view, {NavigationMode::unread, false}).id &&
               !navigation_target(view, {NavigationMode::mention, true}).id,
           "empty filtered traversal returns no target");
-    view.channel_count = count + 1;
-    check(!navigation_target(view, {NavigationMode::channel, false}).id &&
-              !shell_navigation_scene_reveal_channel(&navigation, view, 2001),
-          "navigation rejects inconsistent projection capacity");
-    view.channel_count = count;
     const u64 selected_before_focus = view.selected_channel_id;
     check(navigation_focus_target(view, false, 2007, UiListMove::next).id == 2008 &&
               navigation_focus_target(view, false, 2007, UiListMove::first).id == 2000 &&

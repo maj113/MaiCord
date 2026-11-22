@@ -130,8 +130,8 @@ bool color_picker_swatch_key(const UiRect& row, u32 count, u32* focused, u32 cod
                      : code == key::down  ? at + columns
                      : code == key::home  ? 0
                      : code == key::end   ? static_cast<i32>(count) - 1
-                                          : -2;
-    if (next == -2 || next < 0 || next >= static_cast<i32>(count) || next == static_cast<i32>(*focused))
+                                          : -1;
+    if (next < 0 || next >= static_cast<i32>(count) || next == static_cast<i32>(*focused))
         return false;
     *focused = static_cast<u32>(next);
     return true;

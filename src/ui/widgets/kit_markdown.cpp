@@ -147,8 +147,7 @@ bool carve(UiMarkdown* block, const TextStyleSpan* source, u32 source_count) noe
 bool ui_markdown_parse(UiMarkdown* block, const Utf8View& source, u8 body_size, Slice<u32> scratch) noexcept {
     // The parser writes the upper half of the span storage; the parts' own spans fill the lower half.
     const u32 half = block->spans.count / 2;
-    if (source.bytes > kUiMarkdownSourceMaximum || source.bytes > block->text.count || source.bytes > scratch.count ||
-        half < 1 || block->parts.count < 1) {
+    if (source.bytes > kUiMarkdownSourceMaximum) {
         block->parsed = false;
         return false;
     }
@@ -228,8 +227,6 @@ UiTextCommand ui_markdown_command(UiMarkdown* block, u32 index, bool marker, UiT
                                   UiWidgetReference owner, const UiRect& rectangle, const UiRect& clip,
                                   const Color& color, const Color& muted, float fade) noexcept {
     UiTextCommand command{};
-    if (!block->parsed || index >= block->part_count)
-        return command;
     ui_markdown_height(block, ui_rect_width(rectangle), measure);
     const auto& part = block->parts[index];
     const bool item = part.marker != UiMarkdownMarker::none;

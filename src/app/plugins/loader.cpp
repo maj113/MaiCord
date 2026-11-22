@@ -1185,7 +1185,6 @@ static PluginLoadResult plugin_descriptor_check(const u8* base, const PluginImag
 }
 
 PluginLoadResult plugin_directory_open(PluginDirectory* directory, ConstSlice<wchar_t> absolute_path) noexcept {
-    if (!directory) return failure(PluginLoadError::invalid_argument);
     if (directory->ancestor_count) return failure(PluginLoadError::already_loaded);
     SystemError error = 0;
     if (directory_pin(directory, absolute_path, &error)) return success();
@@ -1196,7 +1195,6 @@ PluginLoadResult plugin_directory_open(PluginDirectory* directory, ConstSlice<wc
 }
 
 PluginLoadResult plugin_directory_close(PluginDirectory* directory) noexcept {
-    if (!directory) return failure(PluginLoadError::invalid_argument);
     SystemError error = 0;
     return directory_release(directory, &error) ? success() : failure(PluginLoadError::release, static_cast<DWORD>(error));
 }
@@ -1204,7 +1202,6 @@ PluginLoadResult plugin_directory_close(PluginDirectory* directory) noexcept {
 PluginLoadResult plugin_image_load(PluginImage* image, const PluginDirectory& directory,
                                    const ConstSlice<wchar_t>& leaf, u64 approved,
                                    const u8* sha256) noexcept {
-    if (!image || !leaf.data || !leaf.count) return failure(PluginLoadError::invalid_argument);
     if (image->module) return failure(PluginLoadError::already_loaded);
     reset_value(image);
     PinnedFile file{};
@@ -1245,7 +1242,6 @@ PluginLoadResult plugin_image_load(PluginImage* image, const PluginDirectory& di
 }
 
 PluginLoadResult plugin_image_unload(PluginImage* image) noexcept {
-    if (!image || !image->module) return failure(PluginLoadError::invalid_argument);
     SystemError error = 0;
     if (!image_free(image->module, &error)) return failure(PluginLoadError::release, static_cast<DWORD>(error));
 #if !defined(_WIN32)

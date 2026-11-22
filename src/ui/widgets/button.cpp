@@ -99,8 +99,7 @@ bool ui_button_icon_paint(PaintStream* paint, const UiWidgetManager& owner, UiWi
     disabled_ink.alpha *= .55f;
     ok = ok && ui_icon_paint(paint, icon, {x, y, x + extent, y + extent},
                              !enabled           ? (palette ? disabled_ink : theme.interactive)
-                             : pressed || hover ? normal
-                             : palette          ? normal
+                             : hover || palette ? normal
                              : selected         ? ui_icon_role_color(theme, UiIconRole::accent)
                                                 : idle);
     return paint_stream_pop_clip(paint) && ok;

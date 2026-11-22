@@ -202,7 +202,8 @@ bool custom_keybinds_add(CustomKeybinds*, CustomKeybind, CustomKeybindError* err
 bool custom_keybinds_remove(CustomKeybinds*, u32 index) noexcept;
 // Index of the keybind using the chord, or kCustomKeybindMaximum.
 u32 custom_keybinds_find(const CustomKeybinds&, ShortcutChord) noexcept;
-// Little-endian record with a checksum; decode leaves the output untouched on failure.
+// Little-endian record with a checksum; decode leaves the output untouched on failure. Encode takes a set
+// custom_keybinds_add built and kCustomKeybindsMaximumBytes of output.
 u32 custom_keybinds_encode(const CustomKeybinds&, Slice<u8> output) noexcept;
 bool custom_keybinds_decode(ConstSlice<u8> record, CustomKeybinds*) noexcept;
 bool custom_keybinds_load_file(const wchar_t* path, CustomKeybinds*) noexcept;

@@ -123,7 +123,7 @@ float ui_quick_switcher_scene_scroll_maximum(const UiQuickSwitcherScene& s) noex
 }
 bool ui_quick_switcher_scene_update(UiQuickSwitcherScene* s, const UiQuickSwitcherSource* source,
     const UiQuickSwitcherContent* content, const UiRect& viewport) noexcept {
-    if (!s || !content || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 240 ||
+    if (!ui_rect_valid(viewport) || ui_rect_width(viewport) < 240 ||
         ui_rect_height(viewport) < 224 || content->phase > UiQuickSwitcherPhase::unavailable ||
         !utf8_validate(content->edit.text).valid || content->edit.anchor > content->edit.text.bytes ||
         content->edit.caret > content->edit.text.bytes || !utf8_validate(content->heading).valid ||
@@ -209,7 +209,7 @@ UiQuickSwitcherTarget ui_quick_switcher_scene_selected(const UiQuickSwitcherScen
     return current(s) ? row_target(s, s.selected) : UiQuickSwitcherTarget{};
 }
 bool ui_quick_switcher_scene_scroll(UiQuickSwitcherScene* s, float offset) noexcept {
-    if (!s || !current(*s) || !is_finite(offset)) return false;
+    if (!current(*s) || !is_finite(offset)) return false;
     offset = minimum(maximum(0.f, offset), ui_quick_switcher_scene_scroll_maximum(*s));
     if (offset == s->scroll_dips) return true;
     cancel_row_capture(*s); s->scroll_dips = offset;
@@ -217,7 +217,7 @@ bool ui_quick_switcher_scene_scroll(UiQuickSwitcherScene* s, float offset) noexc
     ++s->revision; return true;
 }
 bool ui_quick_switcher_scene_select(UiQuickSwitcherScene* s, u32 index, bool reveal) noexcept {
-    if (!s || !current(*s) || index >= s->accepted_count || !s->accepted[index].enabled) return false;
+    if (!current(*s) || index >= s->accepted_count || !s->accepted[index].enabled) return false;
     const u32 previous = s->selected; s->selected = index;
     if (reveal) {
         const float top = index * kUiQuickSwitcherRowHeight, bottom = top + kUiQuickSwitcherRowHeight;
@@ -229,7 +229,7 @@ bool ui_quick_switcher_scene_select(UiQuickSwitcherScene* s, u32 index, bool rev
     return true;
 }
 bool ui_quick_switcher_scene_move(UiQuickSwitcherScene* s, UiQuickSwitcherMove move) noexcept {
-    if (!s || !current(*s) || move > UiQuickSwitcherMove::page_previous || !s->accepted_count) return false;
+    if (!current(*s) || move > UiQuickSwitcherMove::page_previous || !s->accepted_count) return false;
     const bool reverse = move == UiQuickSwitcherMove::previous || move == UiQuickSwitcherMove::page_previous || move == UiQuickSwitcherMove::last;
     u32 step = move == UiQuickSwitcherMove::page_next || move == UiQuickSwitcherMove::page_previous
         ? maximum(1u, static_cast<u32>(ui_rect_height(s->body) / kUiQuickSwitcherRowHeight)) : 1u;
@@ -246,8 +246,8 @@ bool ui_quick_switcher_scene_move(UiQuickSwitcherScene* s, UiQuickSwitcherMove m
     return false;
 }
 bool ui_quick_switcher_scene_set_hover(UiQuickSwitcherScene* s, float x, float y, bool* changed) noexcept {
-    if (changed) *changed = false;
-    if (!s || !current(*s)) return false;
+    *changed = false;
+    if (!current(*s)) return false;
     const auto hit = ui_widget_manager_hit_test(s->widgets, x, y);
     const auto before = s->widgets.hovered; const u32 selected = s->selected;
     if (!ui_widget_manager_hover(&s->widgets, hit)) return false;
@@ -255,13 +255,13 @@ bool ui_quick_switcher_scene_set_hover(UiQuickSwitcherScene* s, float x, float y
     if (target.action == UiQuickSwitcherAction::activate) ui_quick_switcher_scene_select(s, target.index, false);
     const bool delta = !ui_widget_handle_matches(before, hit) && (before.generation || hit.generation);
     if (delta) ++s->revision;
-    if (changed) *changed = delta || selected != s->selected;
+    *changed = delta || selected != s->selected;
     return true;
 }
 
 bool ui_quick_switcher_scene_media(const UiQuickSwitcherScene& s, u32 slot, const ChatStateStore* state,
                                    UiQuickSwitcherMedia* output) noexcept {
-    if (!output || !current(s) || slot >= s.count || slot >= kUiQuickSwitcherVisibleRows)
+    if (!current(s) || slot >= s.count) // layout() keeps count within kUiQuickSwitcherVisibleRows
         return false;
     const auto& row = s.visible[slot];
     MediaAssetKey key{};
@@ -288,7 +288,7 @@ bool ui_quick_switcher_scene_media(const UiQuickSwitcherScene& s, u32 slot, cons
 }
 
 UiRect ui_quick_switcher_scene_status_rectangle(const UiQuickSwitcherScene& s, u32 slot) noexcept {
-    if (!current(s) || slot >= s.count || slot >= kUiQuickSwitcherVisibleRows)
+    if (!current(s) || slot >= s.count)
         return {};
     const auto& row = s.visible[slot];
     if ((row.kind != UiQuickSwitcherKind::user && row.kind != UiQuickSwitcherKind::private_channel) ||
@@ -302,7 +302,7 @@ bool ui_quick_switcher_scene_presence_paint(const UiQuickSwitcherScene& s, const
                                             PaintStream* out) noexcept {
     if (!current(s))
         return true;
-    if (!out || !paint_stream_push_clip(out, s.body))
+    if (!paint_stream_push_clip(out, s.body))
         return false;
     bool ok = true;
     for (u32 i = 0; ok && i < s.count; ++i) {

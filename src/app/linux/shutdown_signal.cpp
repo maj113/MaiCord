@@ -12,7 +12,7 @@
 namespace maicord::app_detail {
 namespace {
 
-int g_descriptor = -1;
+int g_descriptor; // read only after the install opened it: the loop waits on it only then
 Waitable g_waitable{};
 
 constexpr u64 signal_bit(int number) noexcept {
@@ -22,8 +22,6 @@ constexpr u64 signal_bit(int number) noexcept {
 } // namespace
 
 void application_shutdown_signals_install() noexcept {
-    if (g_descriptor >= 0)
-        return;
     const u64 mask = signal_bit(kSignalHangup) | signal_bit(kSignalInterrupt) | signal_bit(kSignalTerminate);
     // Without the descriptor the signals keep their default action: never block what nothing reads.
     const long descriptor = sys_signalfd(-1, &mask, kSignalfdNonBlock | kSignalfdCloseOnExec);
@@ -42,8 +40,6 @@ Waitable application_platform_quit_signal() noexcept {
 }
 
 bool application_platform_quit_requested() noexcept {
-    if (g_descriptor < 0)
-        return false;
     bool arrived = false;
     u8 record[kSignalfdRecordBytes];
     // Everything pending is one request; a second signal while the application is already quitting changes nothing.

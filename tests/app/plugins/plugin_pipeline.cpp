@@ -227,8 +227,6 @@ void test_hooks(PluginRuntime* runtime, const Root& root) noexcept {
 
     // Events: batches, kinds, text limits and overflow.
     check(plugin_events_interest() == MC_EVENT_KINDS, "the events interest is the plugin's filter");
-    check(!plugin_events_push(event(MC_EVENT_KIND_COUNT)) && !plugin_events_push(event(MC_EVENT_OVERFLOW)),
-          "an unknown kind is never queued");
     check(plugin_events_push(event(MC_EVENT_TYPING)) && plugin_events_push(event(MC_EVENT_PRESENCE, MC_PRESENCE_IDLE)) &&
               plugin_events_push(event(MC_EVENT_RELATIONSHIP_ADD, 1)) && plugin_events_pending() &&
               state.batches == 0,

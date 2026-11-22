@@ -252,8 +252,6 @@ void application_surface_motion_retire(RendererLayerSurface surface) noexcept {
 }
 
 bool application_surface_motion_exit(RendererLayerSurface surface, void (*close)() noexcept) noexcept {
-    if (static_cast<u32>(surface) >= kApplicationSurfaceMotionCount || !close)
-        return false;
     auto& slot = g_app.surface_motion.slots[static_cast<u32>(surface)];
     if (slot.close)
         return true;
@@ -294,8 +292,7 @@ float application_motion_tick(UiMotionTransition* transition, const UiMotionScop
 bool application_motion_hover_tick(UiMotionHover* hover, u64 hovered_id, u64 now_ms,
                                    const UiMotionStyle& style) noexcept {
     const bool changed = ui_motion_hover_tick(hover, hovered_id, now_ms, style, !host_motion_allowed());
-    if (hover)
-        application_motion_schedule(ui_motion_hover_next_wake(*hover));
+    application_motion_schedule(ui_motion_hover_next_wake(*hover));
     return changed;
 }
 

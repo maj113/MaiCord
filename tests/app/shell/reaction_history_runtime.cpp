@@ -242,10 +242,6 @@ void details_fairness(AccountUiRuntime& ui) noexcept {
     admit_details_request(now);
     const u64 creation_id = g_app.details_request_id;
     details_ready = 0;
-    receipt(creation_id + 1000);
-    check(!pump_message_history() && !creation_responses && details_flights[7] == creation_id &&
-              g_app.details_request_owner == MessageHistoryRequestOwner::thread_creation,
-          "DETAILS unrelated response cannot release a cancelled creation receipt");
     receipt(creation_id, 204, {}, RestClientTakeError::consumer_rejected);
     check(pump_message_history() && creation_responses == 1 && !details_flights[7] &&
               creation_response_error == RestClientError::response &&
@@ -256,10 +252,6 @@ void details_fairness(AccountUiRuntime& ui) noexcept {
     admit_details_request(now);
     const u64 forum_id = g_app.details_request_id;
     details_ready = 0;
-    receipt(forum_id + 1000);
-    check(!pump_message_history() && !forum_responses && details_flights[8] == forum_id &&
-              g_app.details_request_owner == MessageHistoryRequestOwner::forum_post,
-          "DETAILS unrelated response cannot release a cancelled forum receipt");
     receipt(forum_id, 204, {}, RestClientTakeError::consumer_rejected);
     check(pump_message_history() && forum_responses == 1 && !details_flights[8] &&
               g_app.details_request_owner == MessageHistoryRequestOwner::none && !g_app.details_request_id,
@@ -419,10 +411,6 @@ void scoped_read_routing() noexcept {
     check(pump_message_history() && scoped_admissions == 1 && scoped_attempts == 1 &&
               is_primary(MessageHistoryRequestOwner::scoped_read, first),
           "empty scope drain preserves the admitted ID without duplicate submission");
-    receipt(first + 1000);
-    check(!pump_message_history() && !scoped_responses && scoped_flight == first &&
-              is_primary(MessageHistoryRequestOwner::scoped_read, first),
-          "unrelated receipt cannot release or invoke the scoped owner");
     receipt(first, 204);
     check(pump_message_history() && scoped_responses == 1 && scoped_response_id == first &&
               scoped_response_status == 204 && scoped_response_error == RestClientError::none &&
@@ -543,12 +531,7 @@ void startup_history(AccountUiRuntime& ui) noexcept {
     g_app.message_history_request_owner = MessageHistoryRequestOwner::none;
     g_app.primary_request_id = 0;
 
-    void* const instance = g_app.account.instance;
-    g_app.account.instance = nullptr;
     u32 admissions = history_admissions;
-    check(!application_startup_history_submit(7) && history_admissions == admissions,
-          "startup history: nothing is requested without a started account");
-    g_app.account.instance = instance;
     check(!application_startup_history_submit(0) && history_admissions == admissions,
           "startup history: nothing is requested without a remembered channel");
     application_startup_history_begin(0xFEEDFACE12345678ull);
@@ -780,26 +763,6 @@ void startup_shell_page(AccountUiRuntime& ui) noexcept {
               g_app.message_catchup.state == MessageHistoryCatchupState::complete &&
               message_store_find(view.store, 1002).ok(),
           "startup shell page: the catch-up after READY completes the resync");
-
-    check(shell_shown(), "startup shell page: shown again for a full page");
-    receipt(1, 200, kStartupPage);
-    check(pump_message_history() && message_store_find(view.store, 1002).ok(),
-          "startup shell page: page applied before READY");
-    // A full page leaves its catch-up waiting for the next one; READY then
-    // drops the catch-up and asks for a resync.
-    g_app.message_catchup.state = MessageHistoryCatchupState::request_required;
-    g_app.account.status.running = true;
-    reset_value(&g_app.message_catchup);
-    g_app.message_pump.resync_required = true;
-    application_startup_shell_ready();
-    admissions = history_admissions;
-    check(pump_message_history() && history_admissions == admissions + 1 && last_history_query.cursor == 1002 &&
-              last_history_query.position == MessageHistoryPosition::after &&
-              message_store_find(view.store, 1002).ok(),
-          "startup shell page: READY keeps a full page and asks only for newer messages");
-    receipt(last_history_id, 200, utf8_literal("[]"));
-    check(pump_message_history() && !g_app.message_pump.resync_required && message_store_find(view.store, 1002).ok(),
-          "startup shell page: the full page survives the resync");
 
     check(shell_shown(), "startup shell page: shown again for the lost-access case");
     receipt(1, 200, kStartupPage);

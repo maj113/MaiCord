@@ -17,11 +17,8 @@
 namespace maicord {
 namespace {
 
-NavigationViewResult view_error(NavigationView* view,
-                                       NavigationViewError error) noexcept {
-    if (view) {
-        ++view->rejected;
-    }
+NavigationViewResult view_error(NavigationView* view, NavigationViewError error) noexcept {
+    ++view->rejected;
     return NavigationViewResult{0, 0, error, false};
 }
 
@@ -388,7 +385,7 @@ bool navigation_view_initialize(NavigationView* view, const Slice<GuildViewRow>&
                                 const Slice<ChannelViewRow>& channel_rows, const Slice<u16>& channel_scratch,
                                 const Slice<u8>& channel_visibility_scratch,
                                 const Slice<ChannelSortKey>& channel_sort_keys) noexcept {
-    if (!view || !guild_rows.data || guild_rows.count == 0 || !channel_rows.data ||
+    if (!guild_rows.data || guild_rows.count == 0 || !channel_rows.data ||
         channel_rows.count == 0 || !channel_scratch.data || channel_scratch.count != channel_rows.count ||
         !channel_visibility_scratch.data || channel_visibility_scratch.count == 0 ||
         channel_visibility_scratch.count > 65'535 || guild_rows.count > 65'535 ||
@@ -410,11 +407,11 @@ bool navigation_view_initialize(NavigationView* view, const Slice<GuildViewRow>&
 
 NavigationViewResult navigation_view_rebuild(NavigationView* view,
                                                             const ChatStateStore& state) noexcept {
-    if (!view || !view->guild_rows || !view->channel_rows || !view->channel_scratch ||
+    if (!view->guild_rows || !view->channel_rows || !view->channel_scratch ||
         !view->channel_visibility_scratch || !view->channel_sort_keys || !state.guilds || !state.channels ||
         !state.guild_order || !state.channel_order || state.guild_count > view->guild_capacity ||
         chat_state_store_channel_slot_bound(state) > view->channel_visibility_capacity) {
-        return view_error(view, state.guild_count > (view ? view->guild_capacity : 0)
+        return view_error(view, state.guild_count > view->guild_capacity
                                     ? NavigationViewError::guild_capacity
                                     : NavigationViewError::invalid_input);
     }
@@ -721,8 +718,6 @@ const ChannelViewRow* navigation_view_find_channel(const NavigationView& view,
 }
 
 bool navigation_view_refresh_voice(NavigationView* view) noexcept {
-    if (!view || view->channel_count > view->channel_capacity || (view->channel_count && !view->channel_rows))
-        return false;
     bool changed = false;
     for (u32 i = 0; i < view->channel_count; ++i) {
         auto& row = view->channel_rows[i];

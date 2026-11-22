@@ -42,6 +42,7 @@ struct CatalogJobResult {
     u64 retry_at_unix;   // check: a rate limit's retry time
 };
 
+// The service's own options (application_catalog_initialize checked them), its host's two functions included.
 struct CatalogWorkerOptions {
     ConstSlice<wchar_t> base;
     Utf8View repository;
@@ -63,7 +64,8 @@ bool catalog_worker_take(CatalogJobResult*) noexcept;
 void catalog_worker_progress(u64* bytes, u64* total) noexcept;
 void catalog_worker_free(void* memory) noexcept;
 
-// <base>\<relative>, NUL-terminated; characters written or 0. Linux writes the separators as '/'.
+// <base>\<relative> (base: the service's, 1 to 479 characters), NUL-terminated; characters written or 0. Linux writes
+// the separators as '/'.
 u32 catalog_path(const ConstSlice<wchar_t>& base, const wchar_t* relative, wchar_t (&output)[600]) noexcept;
 // The file extension of a native plugin on this system: a DLL, or a shared object.
 #if defined(_WIN32)

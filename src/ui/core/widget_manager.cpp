@@ -136,7 +136,7 @@ bool ui_widget_manager_reserve(UiWidgetManager* manager, u32 required_count) noe
 
 bool ui_widget_manager_set_measure_callback(UiWidgetManager* manager, UiLayoutMeasureCallback callback,
                                             void* context) noexcept {
-    return manager && ui_layout_engine_set_measure_callback(&manager->layout, callback, context);
+    return ui_layout_engine_set_measure_callback(&manager->layout, callback, context);
 }
 
 UiWidgetResult ui_widget_manager_add(UiWidgetManager* manager, UiWidgetHandle parent,
@@ -226,8 +226,9 @@ UiLayoutResult ui_widget_manager_layout_rectangle(UiWidgetManager* manager, cons
     return result;
 }
 
+// Initialize and reset never leave a zero generation, so a zero (invalid) handle generation fails the compare.
 const UiWidget* ui_widget_manager_resolve(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept {
-    if (handle.generation == 0 || handle.generation != manager.generation || handle.slot >= manager.count) {
+    if (handle.generation != manager.generation || handle.slot >= manager.count) {
         return nullptr;
     }
     return &manager.storage[handle.slot];
@@ -279,8 +280,6 @@ bool ui_widget_manager_focus(UiWidgetManager* manager, UiWidgetHandle handle) no
 }
 
 bool ui_widget_manager_context_anchor(const UiWidgetManager& manager, UiRect* anchor) noexcept {
-    if (!anchor)
-        return false;
     reset_value(anchor);
     const auto* widget = ui_widget_manager_resolve(manager, manager.focused);
     if (!widget || !widget_focusable(manager, *widget))
@@ -331,8 +330,6 @@ bool ui_widget_manager_input_enabled(const UiWidgetManager& manager, UiWidgetHan
 }
 
 bool ui_widget_manager_reconcile_input(UiWidgetManager* manager) noexcept {
-    if (!manager)
-        return false;
     bool changed = false;
     const auto reconcile = [&](UiWidgetHandle* handle, u16 required) noexcept {
         if (!handle->generation)

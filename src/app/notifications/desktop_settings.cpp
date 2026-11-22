@@ -29,8 +29,6 @@ void observe(bool force) noexcept {
 } // namespace
 
 bool application_desktop_settings_project(SettingBinding binding, UiSettingsControl* control) noexcept {
-    if (!control)
-        return false;
     switch (binding) {
     case SettingBinding::open_on_startup:
         observe(false);

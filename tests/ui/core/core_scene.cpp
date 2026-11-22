@@ -2469,12 +2469,6 @@ void test_popup_scene() noexcept {
            "popup_suggestion_close_reopen_and_channel_replacement_start_fresh_lifetimes");
     popup_scene_close(&command_scene);
 
-    expect(popup_scene_open(nullptr, PopupKind::context_menu, 44, {items, 3}, anchor,
-                            viewport, 180.0f).error == PopupSceneError::invalid_input &&
-               popup_scene_open(&scene, static_cast<PopupKind>(255), 44, {items, 3}, anchor,
-                                viewport, 180.0f).error == PopupSceneError::invalid_input,
-           "popup_invalid_scene_and_unknown_kind_fail_without_mutating_tree");
-
     const PopupItem autocomplete_items[] = {
         PopupItem{utf8_literal("first"), 21, popup_item_enabled, 0},
         PopupItem{utf8_literal("second"), 22, popup_item_enabled, 0},
@@ -2655,10 +2649,6 @@ void test_popup_scene() noexcept {
                popup_scene_page_selection(&long_scene, true, &long_changed) && long_changed &&
                long_scene.selected_index < kPopupQuickReactionCount,
            "popup_context_paging_treats_overlapping_quick_reactions_as_one_logical_strip");
-    expect(!popup_scene_page_selection(&command_scene, false, &long_changed) &&
-               !popup_scene_page_selection(nullptr, false, &long_changed) &&
-               !popup_scene_page_selection(&long_scene, false, nullptr),
-           "popup_paging_rejects_inactive_scene_and_missing_arguments");
     PaintStream long_paint{};
     paint_stream_reset(&long_paint, long_viewport.right, long_viewport.bottom);
     const bool long_presented = popup_presentation_build(long_scene, kDefaultTheme, &long_paint);

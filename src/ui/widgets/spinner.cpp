@@ -34,8 +34,6 @@ u64 ui_spinner_next_wake(u64 now_ms, bool visible, bool reduced_motion) noexcept
     return now_ms > ~u64{0} - delay ? 0 : now_ms + delay;
 }
 bool ui_spinner_clock_tick(UiSpinnerClock* clock, u64 now_ms, bool visible, bool reduced_motion) noexcept {
-    if (!clock)
-        return false;
     const u8 phase = visible ? ui_spinner_phase(now_ms, reduced_motion) : 0;
     const bool changed = visible && (!clock->visible || clock->phase != phase);
     clock->phase = phase;

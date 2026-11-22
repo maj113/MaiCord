@@ -123,7 +123,7 @@ bool ui_shortcuts_scene_current(const UiShortcutsScene& s) noexcept {
     return current(s);
 }
 bool ui_shortcuts_scene_update(UiShortcutsScene* s, const UiShortcutsContent* content, UiRect viewport) noexcept {
-    if (!s || !content || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 240 ||
+    if (!ui_rect_valid(viewport) || ui_rect_width(viewport) < 240 ||
         ui_rect_height(viewport) < 240 || content->rows.count > kUiShortcutsMaximumRows ||
         (content->rows.count && !content->rows.data) || !valid_view(content->title, 128) ||
         !valid_view(content->query, 256) || !valid_view(content->placeholder, 128) || !valid_view(content->empty, 256))
@@ -176,7 +176,7 @@ UiShortcutsTarget ui_shortcuts_scene_hit_test(const UiShortcutsScene& s, float x
     return ui_rect_contains(s.body, x, y) ? UiShortcutsTarget::body : UiShortcutsTarget::none;
 }
 bool ui_shortcuts_scene_scroll(UiShortcutsScene* s, float delta) noexcept {
-    if (!s || !current(*s))
+    if (!current(*s))
         return false;
     const float next = minimum(maximum(0.f, s->scroll + delta), scroll_limit(*s));
     if (next == s->scroll)
@@ -186,9 +186,8 @@ bool ui_shortcuts_scene_scroll(UiShortcutsScene* s, float delta) noexcept {
     return true;
 }
 bool ui_shortcuts_scene_set_hover(UiShortcutsScene* s, float x, float y, bool* changed) noexcept {
-    if (changed)
-        *changed = false;
-    return s && current(*s) && ui_scene_hover(&s->widgets, &s->revision, x, y, changed);
+    *changed = false;
+    return current(*s) && ui_scene_hover(&s->widgets, &s->revision, x, y, changed);
 }
 bool ui_shortcuts_scene_row(const UiShortcutsScene& s, u32 index, UiRect* rectangle) noexcept {
     if (!current(s) || index >= s.row_count)
@@ -196,8 +195,7 @@ bool ui_shortcuts_scene_row(const UiShortcutsScene& s, u32 index, UiRect* rectan
     const auto r = absolute(s, index);
     if (r.bottom <= s.body.top || r.top >= s.body.bottom)
         return false;
-    if (rectangle)
-        *rectangle = r;
+    *rectangle = r;
     return true;
 }
 bool ui_shortcuts_scene_paint(const UiShortcutsScene& s, const Theme& t, PaintStream* out) noexcept {

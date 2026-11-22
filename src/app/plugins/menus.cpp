@@ -178,7 +178,7 @@ PluginMenuTarget plugin_target(const ApplicationPluginMenu& menu, PluginMenuKind
         target.user_id = menu.surface == Surface::channel ? menu.recipient_id : menu.user_id;
         target.guild_id = menu.guild_id;
         target.channel_id = menu.surface == Surface::channel ? menu.channel_id : 0;
-        if (target.user_id && g_app.account_ui && target.user_id == g_app.account_ui->chat_state.self_user_id)
+        if (target.user_id && target.user_id == g_app.account_ui->chat_state.self_user_id)
             target.flags = kPluginMenuTargetOwn;
         break;
     case PluginMenuKind::channel:
@@ -297,7 +297,7 @@ void application_plugins_account_scope_invalidated() noexcept {
 }
 u32 application_plugins_menu_items(Surface surface, u64 id, Slice<PopupItem> output, u64 guild_id,
                                    const ApplicationPluginMenuExtra* extra) noexcept {
-    if (!output.data || !output.count || !menus_present()) return 0;
+    if (!menus_present()) return 0;
     // Dismiss an earlier borrowing menu before replacing its labels: a failed
     // open could otherwise leave old rows pointing at new copies.
     if (g_menu.count && (g_menu.bound || popup_borrows_plugin_items()) && g_app.popup_scene.active && !dismiss_popup())

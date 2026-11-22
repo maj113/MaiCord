@@ -89,7 +89,7 @@ bool viewer_available() noexcept {
 }
 bool widget_target(const UiWidgetManager& manager, UiWidgetHandle handle, u64 scope, u64 identity,
                    u64 revision, u32 action, const Utf8View& label, UiTooltipTarget* target) noexcept {
-    if (!target || !label.bytes || !ui_widget_manager_input_enabled(manager, handle))
+    if (!label.bytes || !ui_widget_manager_input_enabled(manager, handle))
         return false;
     const auto* node = ui_widget_manager_layout_node(manager, handle);
     if (!node)
@@ -357,7 +357,7 @@ bool app_check_target(UiPoint point, u64 scope, UiTooltipTarget* target) noexcep
 char g_edited_label[kMessageMarkdownTimestampMaximumBytes];
 bool edited_target(UiPoint point, u64 scope, UiTooltipTarget* target) noexcept {
     const auto& renderer = g_app.renderer;
-    if (application_friends_active() || !g_app.account_ui)
+    if (application_friends_active())
         return false;
     const auto hit = renderer_edited_label_hit_test(renderer, point.x, point.y);
     if (!hit.valid)
@@ -385,7 +385,7 @@ bool edited_target(UiPoint point, u64 scope, UiTooltipTarget* target) noexcept {
 char g_game_label[6 + kGuildAdminGameNameBytes];
 bool game_mention_target(UiPoint point, u64 scope, UiTooltipTarget* target, UiTooltipStyle* style) noexcept {
     const auto* text = g_app.renderer.content_text;
-    if (application_friends_active() || !g_app.account_ui || !text || !g_app.renderer.game_store)
+    if (application_friends_active() || !text || !g_app.renderer.game_store)
         return false;
     for (u32 i = text->content_hit_region_count; i; --i) {
         const TextHitRegion& region = text->content_hit_regions[i - 1];
@@ -774,9 +774,7 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
                !application_window_minimized() && (!keyboard || g_app.keyboard_focus_visible) &&
                settings_target(point, keyboard, scope, target);
     // Check current host ownership before touching any old scene descriptor.
-    if (!content_available() || window_pointer_captured(g_app.window))
-        return false;
-    if (!scope)
+    if (!content_available() || window_pointer_captured(g_app.window) || !scope)
         return false;
     if (renderer_theme_editor_visible(g_app.renderer))
         return (!keyboard || g_app.keyboard_focus_visible) &&

@@ -1137,7 +1137,7 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
     check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&setting,&setting_payload, gateway_test_message_scratch()).ok()&&
         setting.dispatch_kind==GatewayClientDispatchKind::notification_settings_entry&&setting.notification.version==5,"live full notification entry projection");
     MessageNotificationGuildSetting guild_setting{};MessageNotificationOverride channel_setting{};
-    check(gateway_client_notification_entry(setting,setting_payload,&guild_setting)&&gateway_client_notification_override_at(setting,setting_payload,0,&channel_setting)&&
+    check(gateway_client_notification_entry(setting,setting_payload,&guild_setting)&&gateway_client_notification_override_at(setting_payload,0,&channel_setting)&&
         guild_setting.guild_id==8&&guild_setting.setting.hide_muted_channels&&(guild_setting.setting.fields&notification_hide_muted)&&
         channel_setting.channel_id==20&&channel_setting.setting.level==MessageNotificationLevel::mentions,
         "copied settings record accessors keep the guild's hide_muted_channels");

@@ -103,7 +103,7 @@ u32 startup_shell_encode(const StartupShell& shell, Slice<u8> output) noexcept {
     sections(const_cast<StartupShell&>(shell), list);
     const u32 prefix = prefix_bytes(shell);
     const u32 total = body_bytes(list, prefix);
-    if (!output.data || !total || total > output.count || total > kStartupShellPlaintextBytes)
+    if (!total)
         return 0;
     copy_bytes(output.data, &shell, prefix);
     u32 used = prefix;
@@ -115,11 +115,9 @@ u32 startup_shell_encode(const StartupShell& shell, Slice<u8> output) noexcept {
 }
 
 bool startup_shell_decode(ConstSlice<u8> input, StartupShell* shell) noexcept {
-    if (!shell || !input.data)
-        return false;
     StartupShell& s = *shell;
     const u32 prefix = prefix_bytes(s);
-    if (input.count < prefix || input.count > kStartupShellPlaintextBytes)
+    if (input.count < prefix)
         return false;
     copy_bytes(&s, input.data, prefix);
     Section list[kSections];
@@ -159,8 +157,6 @@ bool startup_shell_decode(ConstSlice<u8> input, StartupShell* shell) noexcept {
 }
 
 bool startup_shell_key_create(StartupShellKey* key, u64 profile_id) noexcept {
-    if (!key || key->aead.storage.data || !profile_id)
-        return false;
     SecureBuffer secret{};
     bool ok = secure_buffer_initialize(&secret, kKeyBytes).ok() &&
               secure_random_fill({secret.data, kKeyBytes}).ok();
@@ -184,21 +180,14 @@ bool startup_shell_key_create(StartupShellKey* key, u64 profile_id) noexcept {
 }
 
 void startup_shell_key_release(StartupShellKey* key) noexcept {
-    if (!key)
-        return;
     aes_gcm_release(&key->aead);
     secure_clear_bytes(key, sizeof(*key));
 }
 
 u32 startup_shell_seal(const StartupShellKey& key, ConstSlice<u8> plaintext, Slice<u8> output) noexcept {
     const u32 wrapped = key.wrapped_bytes;
-    if (!key.aead.storage.data || !key.profile_id || !wrapped || wrapped > kStartupShellWrappedKeyBytes ||
-        !plaintext.data || !plaintext.count || plaintext.count > kStartupShellPlaintextBytes || !output.data)
-        return 0;
     const u32 aad_bytes = kHeaderBytes + wrapped + kAesGcmNonceBytes;
     const u32 total = aad_bytes + plaintext.count + kAesGcmTagBytes;
-    if (output.count < total)
-        return 0;
     u8* header = output.data;
     copy_bytes(header, kMagic, 4);
     byte_store_le32(header + 4, kStartupShellVersion);
@@ -219,17 +208,15 @@ StartupShellOpenError startup_shell_open(ConstSlice<u8> image, u64 profile_id, u
                                          StartupShellKey* key, Slice<u8> plaintext,
                                          StartupShell* shell) noexcept {
     using E = StartupShellOpenError;
-    if (!key || !shell || !plaintext.data || !image.data || image.count < kHeaderBytes ||
-        !bytes_equal(image.data, kMagic, 4))
+    if (image.count < kHeaderBytes || !bytes_equal(image.data, kMagic, 4))
         return E::format;
     if (byte_load_le32(image.data + 4) != kStartupShellVersion)
         return E::version;
-    if (!profile_id || byte_load_le64(image.data + 8) != profile_id)
+    if (byte_load_le64(image.data + 8) != profile_id)
         return E::account;
     const u32 wrapped = byte_load_le32(image.data + 16);
     const u32 ciphertext = byte_load_le32(image.data + 20);
-    if (!wrapped || wrapped > kStartupShellWrappedKeyBytes || !ciphertext ||
-        ciphertext > kStartupShellPlaintextBytes || ciphertext > plaintext.count ||
+    if (!wrapped || wrapped > kStartupShellWrappedKeyBytes || !ciphertext || ciphertext > kStartupShellPlaintextBytes ||
         image.count != kHeaderBytes + wrapped + kAesGcmNonceBytes + ciphertext + kAesGcmTagBytes)
         return E::format;
     if (!key->aead.storage.data || key->profile_id != profile_id) {
@@ -273,8 +260,6 @@ StartupShellOpenError startup_shell_open(ConstSlice<u8> image, u64 profile_id, u
 
 StartupShellOpenError startup_shell_load_file(const wchar_t* path, u64 profile_id, u64 now_unix_ms,
                                               StartupShellKey* key, StartupShell* shell) noexcept {
-    if (!path || !shell)
-        return StartupShellOpenError::format;
     const FileHandle file = file_open(path, {FileAccess::read, FileCreate::existing, kFileShareRead | kFileShareDelete,
                                              kFileSequential});
     if (file == INVALID_HANDLE_VALUE)
@@ -306,8 +291,6 @@ StartupShellOpenError startup_shell_load_file(const wchar_t* path, u64 profile_i
 
 bool startup_shell_save_file(const wchar_t* path, StartupShellKey* key, const StartupShell& shell) noexcept {
     const u32 length = wide_length(path, kAccountProfileMaximumPathCharacters);
-    if (!length || !shell.profile_id)
-        return false;
     if (!key->aead.storage.data || key->profile_id != shell.profile_id) {
         startup_shell_key_release(key);
         if (!startup_shell_key_create(key, shell.profile_id))

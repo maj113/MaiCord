@@ -549,7 +549,6 @@ u32 member_name_nodes(u64 user_id, Slice<UiPluginSlotNode> output) noexcept {
 
 u32 slot_query(u32 surface, u64 channel_id, u64 message_id, u64 user_id, u64 guild_id,
                Slice<UiPluginSlotNode> output) noexcept {
-    if (!output.data || !output.count) return 0;
     u32 count = 0;
     switch (surface) {
     case kUiPluginSlotMessageAccessory:

@@ -137,7 +137,7 @@ void application_catalog_asset_release(CatalogAsset*) noexcept;
 bool application_catalog_record_unreviewed(CatalogKind, const Utf8View& slug, const u8 (&sha256)[32], const Utf8View& version) noexcept;
 bool application_catalog_forget(CatalogKind, const Utf8View& slug) noexcept;
 
-// What the service needs from the rest of the client. Tests supply their own.
+// What the service needs from the rest of the client, every function set. Tests supply their own.
 struct CatalogServiceHost {
     bool (*developer_mode)() noexcept;
     void (*toast)(Utf8View text, bool failure) noexcept;

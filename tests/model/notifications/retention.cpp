@@ -32,13 +32,16 @@ void fifo(void(*check)(bool,const char*)noexcept) noexcept {
     for(u32 i=21;i<65;++i){added=notification_retention_append(&f.owner,7,i);ordered=ordered&&added.ok()&&added.evicted&&added.evicted_ticket==i-20;}
     for(u32 i=0;i<20;++i)ordered=ordered&&ticket(f.owner,7,i,45+i);
     check(ordered,"retention: repeated FIFO ring wrap returns every oldest success exactly once");
-    check(notification_retention_discard_channel(&f.owner,7)==Error::none&&f.owner.count==0&&
+    notification_retention_discard_channel(&f.owner,7);
+    check(f.owner.count==0&&
         !notification_retention_room(&f.owner,7).exists,"retention: channel discard deletes metadata");
     for(u32 i=0;i<21;++i)added=notification_retention_append(&f.owner,9,123);
     check(added.ok()&&added.evicted&&added.evicted_ticket==123&&notification_retention_room(&f.owner,9).tickets==20,
         "retention: duplicate tickets occupy independent successful records and are not deduplicated");
-    check(notification_retention_discard_channel(&f.owner,9)==Error::none&&f.owner.count==0&&
-        notification_retention_discard_channel(&f.owner,99)==Error::none,"retention: discard and absent clear retire no unrelated records");
+    notification_retention_discard_channel(&f.owner,99);
+    const bool absent_kept=f.owner.count==1;
+    notification_retention_discard_channel(&f.owner,9);
+    check(absent_kept&&f.owner.count==0,"retention: discard and absent clear retire no unrelated records");
 }
 void validation(void(*check)(bool,const char*)noexcept) noexcept {
     Fixture f{},before{};
@@ -46,12 +49,8 @@ void validation(void(*check)(bool,const char*)noexcept) noexcept {
     notification_retention_append(&f.owner,1,11);notification_retention_append(&f.owner,2,22);
     copy_bytes(&before,&f,sizeof(f));
     u64 output[20]{};output[0]=71;
-    check(notification_retention_append(&f.owner,0,8).error==Error::invalid_input&&
-        notification_retention_discard_channel(&f.owner,0)==Error::invalid_input&&unchanged(f,before),
-        "retention: invalid operations are atomic and preserve existing successes");
-    check(!notification_retention_ticket(&f.owner,1,1,output)&&output[0]==71&&
-        !notification_retention_ticket(&f.owner,1,0,nullptr)&&unchanged(f,before),
-        "retention: an out-of-range ordinal or missing output yields no ticket");
+    check(!notification_retention_ticket(&f.owner,1,1,output)&&output[0]==71&&unchanged(f,before),
+        "retention: an out-of-range ordinal yields no ticket");
     NotificationRetention empty{};
     check(notification_retention_room(&empty,1).error==Error::full_channels&&
         notification_retention_append(&empty,1,2).error==Error::full_channels,
@@ -71,11 +70,11 @@ void mapping(void(*check)(bool,const char*)noexcept) noexcept {
     if(found!=5)return;
     for(u32 i=0;i<5;++i)notification_retention_append(&f.owner,colliders[i],100+i);
     bool correct=f.index[15]&&f.index[0]&&f.index[1]&&f.index[2]&&f.index[3];
-    correct=correct&&notification_retention_discard_channel(&f.owner,colliders[0])==Error::none;
+    notification_retention_discard_channel(&f.owner,colliders[0]);
     correct=correct&&ticket(f.owner,colliders[4],0,104)&&ticket(f.owner,colliders[1],0,101);
-    correct=correct&&notification_retention_discard_channel(&f.owner,colliders[2])==Error::none;
+    notification_retention_discard_channel(&f.owner,colliders[2]);
     correct=correct&&ticket(f.owner,colliders[1],0,101)&&ticket(f.owner,colliders[3],0,103)&&ticket(f.owner,colliders[4],0,104);
-    correct=correct&&notification_retention_discard_channel(&f.owner,colliders[4])==Error::none;
+    notification_retention_discard_channel(&f.owner,colliders[4]);
     correct=correct&&ticket(f.owner,colliders[1],0,101)&&ticket(f.owner,colliders[3],0,103)&&f.owner.count==2;
     check(correct,"retention: wrapped cluster head/middle/tail deletion repairs probes and dense swap-last indexes");
     f.reinitialize();
@@ -90,8 +89,8 @@ void mapping(void(*check)(bool,const char*)noexcept) noexcept {
     f.reinitialize();
     correct=true;
     for(u32 i=0;i<10000;++i){const u64 id=(u64(i+1)<<22)|5;
-        correct=correct&&notification_retention_append(&f.owner,id,i).ok()&&ticket(f.owner,id,0,i)&&
-            notification_retention_discard_channel(&f.owner,id)==Error::none&&f.owner.count==0;
+        correct=correct&&notification_retention_append(&f.owner,id,i).ok()&&ticket(f.owner,id,0,i);
+        notification_retention_discard_channel(&f.owner,id);correct=correct&&f.owner.count==0;
     }
     check(correct,"retention: over8192 same-low22-bit historical channels churn without tombstone exhaustion");
     notification_retention_append(&f.owner,~u64{0},812);notification_retention_append(&f.owner,u64{1}<<63,813);

@@ -57,9 +57,6 @@ void test_update_artifact(void (*check)(bool, const char*) noexcept) noexcept {
     u32 read = 0;
     check(file_read(artifact.file, read_back, sizeof(read_back), &read) && read == 3 && bytes_equal(read_back, abc, 3),
         "update artifact: retained verified file is positioned at zero for staging handoff");
-    const UpdateArtifact owned = artifact;
-    check(update_artifact_verify(file_path, approved, &artifact).error == UpdateArtifactError::invalid_input &&
-        bytes_equal(&artifact, &owned, sizeof(artifact)), "update artifact: an owned output handle cannot be overwritten or leaked");
     HANDLE peer_reader = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
     check(peer_reader != INVALID_HANDLE_VALUE, "update artifact: verified ownership permits compatible readers");
     if (peer_reader != INVALID_HANDLE_VALUE) CloseHandle(peer_reader);
@@ -137,17 +134,7 @@ void test_update_artifact(void (*check)(bool, const char*) noexcept) noexcept {
         "update artifact: relative, drive-relative, device and embedded-NUL paths fail before opening");
     check(update_artifact_verify({}, approved, &artifact).error == UpdateArtifactError::invalid_input &&
         update_artifact_verify({path, kUpdateArtifactMaximumPathCharacters + 1}, approved, &artifact).error == UpdateArtifactError::invalid_input &&
-        update_artifact_verify(file_path, approved, nullptr).error == UpdateArtifactError::invalid_input &&
-        update_artifact_release(nullptr).error == UpdateArtifactError::invalid_input &&
-        update_artifact_verify({reinterpret_cast<const wchar_t*>(~usize{0} - 1), 3}, approved, &artifact).error == UpdateArtifactError::invalid_input &&
-        bytes_equal(&artifact, &sentinel, sizeof(artifact)), "update artifact: null, oversized and wrapping arguments fail atomically");
-    const UpdateManifest original_plan = approved;
-    check(update_artifact_verify(file_path, approved, reinterpret_cast<UpdateArtifact*>(&approved)).error ==
-        UpdateArtifactError::invalid_input && bytes_equal(&approved, &original_plan, sizeof(approved)),
-        "update artifact: output cannot alias approved manifest identity or expectations");
-    check(update_artifact_verify({reinterpret_cast<const wchar_t*>(&artifact), 3}, approved, &artifact).error ==
-        UpdateArtifactError::invalid_input && bytes_equal(&artifact, &sentinel, sizeof(artifact)),
-        "update artifact: output cannot alias a borrowed path");
+        bytes_equal(&artifact, &sentinel, sizeof(artifact)), "update artifact: empty and oversized paths fail atomically");
 
     u8 block[1000];
     for (auto& value : block) value = 'a';

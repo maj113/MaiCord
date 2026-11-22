@@ -5,9 +5,6 @@
 
 namespace maicord::app_detail {
 namespace {
-bool valid_surface(RendererLayerSurface surface) noexcept {
-    return static_cast<u32>(surface) < kApplicationSurfaceMotionCount;
-}
 bool valid_key(RendererLayerSurface surface, const ApplicationSurfaceMotionKey& key) noexcept {
     return key.scene && (surface == RendererLayerSurface::gallery ? key.owner != 0 : key.lifetime != 0);
 }
@@ -22,7 +19,7 @@ bool stale_key(RendererLayerSurface surface, const ApplicationSurfaceMotionKey& 
 } // namespace
 
 void application_surface_motion_owner_initialize(ApplicationSurfaceMotionOwner* owner) noexcept {
-    if (!owner || owner->styles_initialized)
+    if (owner->styles_initialized)
         return;
     for (auto& slot : owner->slots)
         slot.style = kUiDefaultMotionStyle;
@@ -31,8 +28,6 @@ void application_surface_motion_owner_initialize(ApplicationSurfaceMotionOwner* 
 
 void application_surface_motion_owner_retire(ApplicationSurfaceMotionOwner* owner,
                                              RendererLayerSurface surface) noexcept {
-    if (!owner || !valid_surface(surface))
-        return;
     auto& slot = owner->slots[static_cast<u32>(surface)];
     ui_motion_transition_cancel(&slot.motion);
     reset_value(&slot.key);
@@ -42,8 +37,6 @@ void application_surface_motion_owner_retire(ApplicationSurfaceMotionOwner* owne
 float application_surface_motion_update(ApplicationSurfaceMotionOwner* owner, RendererLayerSurface surface,
                                         ApplicationSurfaceMotionKey key, u64 now_ms,
                                         bool animate) noexcept {
-    if (!owner || !valid_surface(surface))
-        return 1;
     application_surface_motion_owner_initialize(owner);
     auto& slot = owner->slots[static_cast<u32>(surface)];
     if (!valid_key(surface, key)) {
@@ -76,7 +69,7 @@ float application_surface_motion_update(ApplicationSurfaceMotionOwner* owner, Re
 u64 application_surface_motion_owner_next_wake(const ApplicationSurfaceMotionOwner& owner,
                                                RendererLayerSurface surface,
                                                ApplicationSurfaceMotionKey key) noexcept {
-    if (!valid_surface(surface) || !valid_key(surface, key))
+    if (!valid_key(surface, key))
         return 0;
     const auto& slot = owner.slots[static_cast<u32>(surface)];
     return application_surface_motion_same_key(slot.key, key)

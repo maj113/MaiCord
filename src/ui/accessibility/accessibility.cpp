@@ -226,9 +226,10 @@ void grow_group(WalkContext& context, u8 group, const UiAccessNode& member) noex
     }
 }
 
-void walk(WalkContext& context, u16 slot, u32 parent, bool leaf, u32 depth) noexcept {
+// The engine links only live slots and bounds the depth (kMaximumUiLayoutDepth), so the walk needs no bounds.
+void walk(WalkContext& context, u16 slot, u32 parent, bool leaf) noexcept {
     const auto& manager = *context.manager;
-    if (context.failed || slot >= manager.count || depth > kMaximumUiLayoutDepth)
+    if (context.failed)
         return;
     const UiLayoutNode& layout = manager.layout.storage[slot];
     const UiWidget& widget = manager.storage[slot];
@@ -238,9 +239,9 @@ void walk(WalkContext& context, u16 slot, u32 parent, bool leaf, u32 depth) noex
     u32* map = tree->slot_map.data + context.owner->slot_base;
     if (leaf) {
         map[slot] = parent;
-        for (u16 child = layout.first_child; child != kInvalidUiLayoutSlot && child < manager.count;
+        for (u16 child = layout.first_child; child != kInvalidUiLayoutSlot;
              child = manager.layout.storage[child].next_sibling)
-            walk(context, child, parent, true, depth + 1);
+            walk(context, child, parent, true);
         return;
     }
     const UiWidgetHandle handle{slot, manager.generation};
@@ -304,9 +305,9 @@ void walk(WalkContext& context, u16 slot, u32 parent, bool leaf, u32 depth) noex
         }
     }
     map[slot] = node;
-    for (u16 child = layout.first_child; child != kInvalidUiLayoutSlot && child < manager.count;
+    for (u16 child = layout.first_child; child != kInvalidUiLayoutSlot;
          child = manager.layout.storage[child].next_sibling)
-        walk(context, child, node, info.leaf && !info.transparent, depth + 1);
+        walk(context, child, node, info.leaf && !info.transparent);
     if (info.mount && !info.transparent && !context.failed)
         info.mount(info.mount_context, tree, node);
 }
@@ -486,7 +487,7 @@ u32 ui_access_add_widgets(UiAccessTree* tree, u32 parent, const UiWidgetManager&
     WalkContext context{tree, &manager, &scope, &owner, {}, {}, false};
     for (u32& group : context.groups)
         group = kUiAccessNone;
-    walk(context, 0, parent, false, 0);
+    walk(context, 0, parent, false);
     if (context.failed)
         return kUiAccessNone;
     return tree->count > first ? first : parent;
@@ -714,7 +715,6 @@ bool ui_access_needs_reveal(const UiAccessNode& node) noexcept {
 }
 
 u32 ui_access_hit_test(const UiAccessTree& tree, float x, float y) noexcept {
-
     if (!tree.count || !ui_rect_contains(tree.nodes[0].rectangle, x, y))
         return kUiAccessNone;
     u32 current = 0;
@@ -816,7 +816,7 @@ u32 ui_access_humanize(Utf8View debug_name, Slice<char> output) noexcept {
 
 bool ui_access_event_state_initialize(UiAccessEventState* state, Slice<UiAccessObservation> current,
                                       Slice<UiAccessObservation> previous) noexcept {
-    if (!state || !current.data || !previous.data || current.count != previous.count || !current.count)
+    if (!current.data || !previous.data || current.count != previous.count || !current.count)
         return false;
     reset_value<UiAccessEventState>(state);
     state->current = current;
@@ -825,7 +825,7 @@ bool ui_access_event_state_initialize(UiAccessEventState* state, Slice<UiAccessO
 }
 
 bool ui_access_plan_events(UiAccessEventState* state, const UiAccessTree& tree, UiAccessEventPlan* plan) noexcept {
-    if (!state || !plan || !tree.finished || !state->current.data)
+    if (!tree.finished || !state->current.data)
         return false;
     reset_value<UiAccessEventPlan>(plan);
     plan->focus_node = kUiAccessNone;
@@ -1090,8 +1090,6 @@ u32 ui_access_text_align(const Utf8View& text, u32 offset) noexcept {
 }
 
 void ui_access_text_expand(const Utf8View& text, UiAccessTextUnit unit, u32* start, u32* end) noexcept {
-    if (!start || !end)
-        return;
     u32 position = ui_access_text_align(text, *start);
     auto boundaries = boundary_scan(text, unit);
     u32 first = 0, last = text.bytes;
@@ -1142,8 +1140,6 @@ i32 ui_access_text_move_endpoint(const Utf8View& text, UiAccessTextUnit unit, i3
 }
 
 i32 ui_access_text_move(Utf8View text, UiAccessTextUnit unit, i32 count, u32* start, u32* end) noexcept {
-    if (!start || !end)
-        return 0;
     if (*start == *end) {
         const i32 moved = ui_access_text_move_endpoint(text, unit, count, start);
         *end = *start;
@@ -1175,7 +1171,7 @@ i32 ui_access_text_move(Utf8View text, UiAccessTextUnit unit, i32 count, u32* st
 
 bool ui_access_announce_admit(UiAccessAnnouncer* announcer, Utf8View text, UiAccessPoliteness politeness,
                               u64 now_ms) noexcept {
-    if (!announcer || !text.bytes)
+    if (!text.bytes)
         return false;
     const u64 stamp = now_ms + 1; // zero marks an empty slot
     const u64 hash = hash64_bytes(kHash64Seed, text.data, text.bytes);
@@ -1207,13 +1203,10 @@ bool ui_access_announce_admit(UiAccessAnnouncer* announcer, Utf8View text, UiAcc
 // Throttling
 
 void ui_access_throttle_mark_urgent(UiAccessThrottle* throttle) noexcept {
-    if (throttle)
-        throttle->urgent = true;
+    throttle->urgent = true;
 }
 
 UiAccessThrottleDecision ui_access_throttle_frame(UiAccessThrottle* throttle, u64 now_ms, bool listening) noexcept {
-    if (!throttle)
-        return UiAccessThrottleDecision::idle;
     if (!listening) {
         throttle->deferred = false;
         return UiAccessThrottleDecision::idle;

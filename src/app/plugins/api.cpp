@@ -19,11 +19,10 @@ bool notice_text(mc_str text, u32 maximum) noexcept {
 
 void MC_CALL api_log(mc_ctx* ctx, uint32_t level, mc_str text) noexcept {
     PluginBinding* binding = active(ctx);
-    const PluginRuntime* runtime = binding ? binding->runtime : nullptr;
-    if (!runtime || !runtime->log || !text.data || level > MC_LOG_ERROR) return;
+    if (!binding || !text.data || level > MC_LOG_ERROR) return;
     // Longer text is cut on a character boundary.
     const Utf8View view{text.data, utf8_truncated_length({text.data, text.bytes}, MC_LOG_TEXT_MAX)};
-    runtime->log(runtime->sink_context, binding->owner_id, level, view);
+    binding->runtime->log(binding->runtime->sink_context, binding->owner_id, level, view);
 }
 
 mc_status MC_CALL api_set_setting(mc_ctx* ctx, uint32_t index, const void* value, uint32_t bytes) noexcept {

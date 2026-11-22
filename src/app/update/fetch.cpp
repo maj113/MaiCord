@@ -139,7 +139,7 @@ bool update_provider_location(Utf8View host, ConstSlice<char> target, UpdateLoca
 }
 
 bool update_asset_location(Utf8View repository, UpdateChannel channel, UpdateAsset asset, u64 version, UpdateLocation* out) noexcept {
-    if (!out || !update_repository_valid(repository) || channel > UpdateChannel::preview ||
+    if (!update_repository_valid(repository) || channel > UpdateChannel::preview ||
         asset > UpdateAsset::changelog_signature) return false;
     u32 slash = 0;
     while (repository.data[slash] != '/') ++slash;
@@ -228,7 +228,7 @@ u32 update_artifact_name(u64 version, Slice<char> output) noexcept {
 #endif
 
 bool update_redirect_target(const UpdateLocation& current, ConstSlice<u8> location, UpdateLocation* next) noexcept {
-    if (!next || !location_valid(current) || !location.data || !location.count) return false;
+    if (!location_valid(current) || !location.data || !location.count) return false;
     UpdateHost host = current.host;
     u32 at = 0;
     if (location[0] != '/') {
@@ -347,10 +347,9 @@ UpdateFetchResult update_fetch(const UpdateTransport& transport, const UpdateLoc
 }
 
 u64 update_next_check(u64 now, u32 failures, u64 retry_at, u32 random, u64 interval) noexcept {
-    if (!interval) interval = kUpdateCheckIntervalSeconds;
     const u64 jitter = minimum<u64>(interval / 10, 3600);
     u64 delay;
-    if (!failures) delay = interval - jitter + (jitter ? random % (2 * jitter) : 0);
+    if (!failures) delay = interval - jitter + random % (2 * jitter);
     else {
         delay = failures > 20 ? interval : minimum<u64>(interval, kUpdateBackoffBaseSeconds << (failures - 1));
         delay += random % (delay / 4 + 1);
@@ -361,13 +360,12 @@ u64 update_next_check(u64 now, u32 failures, u64 retry_at, u32 random, u64 inter
 }
 
 void update_schedule_finish(UpdateSchedule* s, u64 now, u32 failures, u64 retry_at, u32 random, u64 interval) noexcept {
-    if (!s) return;
     s->checked_unix = now; s->retry_at_unix = retry_at; s->failures = failures;
     s->next_unix = update_next_check(now, failures, retry_at, random, interval);
 }
 void update_schedule_retarget(UpdateSchedule* s, u64 interval, u32 random) noexcept {
     // Until the first check has run, its startup deadline stands.
-    if (s && s->checked_unix) s->next_unix = update_next_check(s->checked_unix, s->failures, s->retry_at_unix, random, interval);
+    if (s->checked_unix) s->next_unix = update_next_check(s->checked_unix, s->failures, s->retry_at_unix, random, interval);
 }
 
 } // namespace maicord

@@ -292,7 +292,7 @@ const Color* ui_theme_color_get(const Theme& theme, UiThemeColor id) noexcept {
     return id < UiThemeColor::count ? &theme.base_lowest + static_cast<u32>(id) : nullptr;
 }
 bool ui_theme_color_set(Theme* theme, UiThemeColor id, const Color& color) noexcept {
-    if (!theme || !color_valid(color) || id >= UiThemeColor::count)
+    if (!color_valid(color) || id >= UiThemeColor::count)
         return false;
     (&theme->base_lowest)[static_cast<u32>(id)] = color;
     return true;
@@ -396,8 +396,6 @@ bool resolve_token(TokenResolution& r, u32 id) noexcept {
 }
 } // namespace
 UiThemeTokenResult ui_theme_tokens_resolve(Theme* theme, const UiThemeTokenSource* overrides) noexcept {
-    if (!theme)
-        return {UiThemeTokenError::invalid_input};
     TokenResolution r{theme, overrides, {}, {}, {}, {}};
     for (u32 i = 0; i < static_cast<u32>(UiThemeToken::count); ++i)
         if (!resolve_token(r, i))
@@ -419,7 +417,7 @@ float ui_theme_scale_value(const UiThemeScale& scale, UiThemeScaleToken id) noex
     return reinterpret_cast<const float*>(&scale)[static_cast<u8>(id)];
 }
 bool ui_theme_scale_set(UiThemeScale* scale, UiThemeScaleToken id, float input) noexcept {
-    if (!scale || id >= UiThemeScaleToken::count)
+    if (id >= UiThemeScaleToken::count)
         return false;
     const auto& descriptor = scales[static_cast<u8>(id)];
     if (!between(input, descriptor.minimum(), descriptor.maximum()))
@@ -431,8 +429,6 @@ ConstSlice<UiThemeMotionDescriptor> ui_theme_motion_descriptors() noexcept {
     return {motions, static_cast<u32>(UiThemeMotionToken::count)};
 }
 UiMotionStyle* ui_theme_motion_slot(UiThemeMotion* motion, UiThemeMotionToken id) noexcept {
-    if (!motion)
-        return nullptr;
     switch (id) {
 #define MAICORD_THEME_MOTION(name, duration, curve)                                                        \
     case UiThemeMotionToken::name:                                                                         \
@@ -481,7 +477,7 @@ bool readable_over(const Color& foreground, const Color& first, const Color& sec
 } // namespace
 bool ui_theme_gradient_emphasis(const Theme& theme, UiThemeEmphasis* output) noexcept {
     Color stops[5]{};
-    if (!output || !ui_background_palette(theme, stops))
+    if (!ui_background_palette(theme, stops))
         return false;
     // Hue: the most chromatic stop (OKLab), so muted ramps borrow their accent
     // from the one colour that carries it.
@@ -541,7 +537,7 @@ bool ui_theme_gradient_emphasis(const Theme& theme, UiThemeEmphasis* output) noe
 }
 bool ui_theme_resolve_emphasis(Theme* theme) noexcept {
     UiThemeEmphasis derived{};
-    if (!theme || !ui_theme_gradient_emphasis(*theme, &derived))
+    if (!ui_theme_gradient_emphasis(*theme, &derived))
         return false;
     // Table defaults over the current palette identify untouched values.
     TokenResolution defaults{theme, nullptr, {}, {}, {}, {}};
@@ -584,13 +580,13 @@ ConstSlice<UiThemeMetricDescriptor> ui_theme_metric_descriptors() noexcept {
 THEME_METRICS(METRIC_SLOT)
 #undef METRIC_SLOT
 bool ui_theme_metric_get(const UiThemeMetrics& value, UiThemeMetric id, float* output) noexcept {
-    if (!output || id >= UiThemeMetric::count)
+    if (id >= UiThemeMetric::count)
         return false;
     *output = reinterpret_cast<const float*>(&value)[static_cast<u8>(id)];
     return true;
 }
 bool ui_theme_metric_set(UiThemeMetrics* output, UiThemeMetric id, float value) noexcept {
-    if (!output || id >= UiThemeMetric::count)
+    if (id >= UiThemeMetric::count)
         return false;
     const auto& descriptor = metrics[static_cast<u8>(id)];
     if (!between(value, descriptor.minimum(), descriptor.maximum()))
@@ -660,7 +656,7 @@ float ui_theme_text_size(const UiThemeTypography& typography, float em, u32 flag
 UiThemeStylesResult ui_theme_styles_apply(UiResolvedThemeStyles* output,
                                           const UiThemeTypography& typography,
                                           const UiThemeMetrics& value) noexcept {
-    if (!output || !ui_theme_typography_valid(typography) || !ui_theme_metrics_valid(value))
+    if (!ui_theme_typography_valid(typography) || !ui_theme_metrics_valid(value))
         return {UiThemeStylesError::invalid_input};
     u32 changes = ui_theme_style_none;
     if (!output->ready || !ui_theme_typography_equal(output->typography, typography))

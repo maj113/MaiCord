@@ -197,7 +197,7 @@ CatalogIndexResult catalog_index_verify(Utf8View document, ConstSlice<u8> signat
 bool catalog_slug_valid(Utf8View text) noexcept;
 // "MAJOR.MINOR.PATCH" (each 0..999, no leading zeros) as major*1e6+minor*1e3+patch; false otherwise.
 bool catalog_version_code(Utf8View text, u64* code) noexcept;
-// "files/<sha256>.dll|json|mcfx" (a path below the catalog base); returns the bytes written.
+// "files/<sha256>.dll|json|mcfx" (a path below the catalog base) into at least 75 bytes; returns the bytes written.
 u32 catalog_file_name(CatalogKind kind, const u8 (&sha256)[32], Slice<char> output) noexcept;
 // The index of slug among items of kind, or ~0u.
 u32 catalog_index_find(const CatalogIndex& index, CatalogKind kind, const Utf8View& slug) noexcept;

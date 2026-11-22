@@ -7,6 +7,7 @@
 #include "../shell/toast.hpp"
 #include "../shell/window_state.hpp"
 #include "maicord/app/net/file_persistence.hpp"
+#include "maicord/app/packages/link.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/decimal.hpp"
@@ -327,8 +328,7 @@ bool installed_name(const wchar_t* name, const char* slug) noexcept {
     for (u32 i = 0; i < slug_bytes; ++i)
         if (name[i] != static_cast<wchar_t>(slug[i]))
             return false;
-    if (name[slug_bytes] != L'-' || wide_length(name + slug_bytes + 17, 8) != 5 ||
-        !bytes_equal(name + slug_bytes + 17, L".mcfx", 6 * sizeof(wchar_t)))
+    if (name[slug_bytes] != L'-' || !bytes_equal(name + slug_bytes + 17, L".mcfx", 5 * sizeof(wchar_t)))
         return false;
     for (u32 i = 0; i < 16; ++i) {
         const wchar_t c = name[slug_bytes + 1 + i];
@@ -1248,8 +1248,7 @@ EffectCost application_effects_cost(u64 identity) noexcept {
 }
 
 void application_effects_deactivate(const char* slug, u32 slug_bytes) noexcept {
-    if (!slug || !slug_bytes || slug_bytes > kMcfxSlugBytes)
-        return;
+    static_assert(kPackageSlugMaximumBytes == kMcfxSlugBytes); // every caller passes a package_slug_valid slug
     char text[kMcfxSlugBytes + 1]{};
     copy_bytes(text, slug, slug_bytes);
     load_state();
@@ -1267,8 +1266,6 @@ void application_effects_deactivate(const char* slug, u32 slug_bytes) noexcept {
 }
 
 bool application_effects_remove(const char* slug, u32 slug_bytes) noexcept {
-    if (!slug || !slug_bytes || slug_bytes > kMcfxSlugBytes)
-        return false;
     char text[kMcfxSlugBytes + 1]{};
     copy_bytes(text, slug, slug_bytes);
     load_state();

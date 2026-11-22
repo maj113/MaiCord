@@ -4,8 +4,6 @@
 namespace maicord {
 bool paint_stream_push_focus(PaintStream* stream, const UiWidgetManager& owner,
                              const Color& color) noexcept {
-    if (!stream)
-        return false;
     UiRect bounds{};
     if (!ui_widget_manager_context_anchor(owner, &bounds))
         return true;
@@ -18,7 +16,7 @@ bool paint_stream_push_focus(PaintStream* stream, const UiWidgetManager& owner,
 }
 
 bool paint_stream_initialize(PaintStream* stream, u32 initial_capacity) noexcept {
-    if (!stream || stream->quad_storage.arena.base || stream->quads || initial_capacity == 0 ||
+    if (stream->quad_storage.arena.base || stream->quads || initial_capacity == 0 ||
         initial_capacity > kMaxPaintQuads ||
         !stable_storage_initialize(&stream->quad_storage, kMaxPaintQuads, initial_capacity,
                                    sizeof(PaintQuad), alignof(PaintQuad))) {
@@ -42,7 +40,7 @@ void paint_stream_release(PaintStream* stream) noexcept {
 }
 
 bool paint_stream_reset(PaintStream* stream, float right, float bottom) noexcept {
-    if (!stream || (!stream->quads && !paint_stream_initialize(stream))) {
+    if (!stream->quads && !paint_stream_initialize(stream)) {
         return false;
     }
     stream->count = 0;
@@ -60,13 +58,11 @@ bool paint_stream_reset(PaintStream* stream, float right, float bottom) noexcept
 }
 
 bool paint_stream_push_clip(PaintStream* stream, const UiRect& rectangle) noexcept {
-    if (!stream || !(paint_coordinate_valid(rectangle.left) & paint_coordinate_valid(rectangle.top) &
-                     paint_coordinate_valid(rectangle.right) & paint_coordinate_valid(rectangle.bottom)) ||
+    if (!(paint_coordinate_valid(rectangle.left) & paint_coordinate_valid(rectangle.top) &
+          paint_coordinate_valid(rectangle.right) & paint_coordinate_valid(rectangle.bottom)) ||
         stream->clip_depth == 0 || stream->clip_depth >= kMaxPaintClipDepth ||
         stream->clip_count >= kMaxPaintClips) {
-        if (stream) {
-            ++stream->rejected;
-        }
+        ++stream->rejected;
         return false;
     }
     const PaintClip& parent = stream->clips[stream->clip_stack[stream->clip_depth - 1]];
@@ -100,8 +96,6 @@ bool paint_stream_pop_clip(PaintStream* stream) noexcept {
 }
 
 u32 paint_stream_seal(PaintStream* stream) noexcept {
-    if (!stream)
-        return 0;
     stream->sealed_batches = stream->batch_count;
     return stream->batch_count;
 }
@@ -111,14 +105,12 @@ bool paint_stream_push_rounded_border(PaintStream* stream, const UiRect& rectang
     const float left = rectangle.left, top = rectangle.top, right = rectangle.right, bottom = rectangle.bottom;
     // The value checks combine with `&` (NaN fails every compare): coordinates in range, the radius and border
     // width in [0, range].
-    if (!stream || !stream->quads ||
+    if (!stream->quads ||
         !(paint_coordinate_valid(left) & paint_coordinate_valid(top) & paint_coordinate_valid(right) &
           paint_coordinate_valid(bottom) & (radius >= 0.0f) & (radius <= kMaximumPaintCoordinate) &
           (border_width >= 0.0f) & (border_width <= kMaximumPaintCoordinate)) ||
         stream->clip_depth == 0) {
-        if (stream) {
-            ++stream->rejected;
-        }
+        ++stream->rejected;
         return false;
     }
     if (left >= right || top >= bottom) {
@@ -194,8 +186,8 @@ bool paint_stream_push(PaintStream* stream, float left, float top, float right, 
 
 bool paint_stream_push_line(PaintStream* stream, UiPoint a, UiPoint b, float width,
                             const Color& color) noexcept {
-    if (!stream || !(paint_coordinate_valid(a.x) & paint_coordinate_valid(a.y) & paint_coordinate_valid(b.x) &
-                     paint_coordinate_valid(b.y) & (width > 0) & (width <= kMaximumPaintCoordinate)))
+    if (!(paint_coordinate_valid(a.x) & paint_coordinate_valid(a.y) & paint_coordinate_valid(b.x) &
+          paint_coordinate_valid(b.y) & (width > 0) & (width <= kMaximumPaintCoordinate)))
         return false;
     const float r = width * .5f, pad = r + 1;
     const u32 first = stream->count;
@@ -214,10 +206,8 @@ bool paint_stream_push_line(PaintStream* stream, UiPoint a, UiPoint b, float wid
 
 bool paint_stream_push_edge_strip(PaintStream* stream, const UiRect& shape, float width, const Color& color,
                                   float radius) noexcept {
-    if (!stream ||
-        !((width > 0) & (width <= kMaximumPaintCoordinate) & (radius >= 0) & (radius <= kMaximumPaintCoordinate))) {
-        if (stream)
-            ++stream->rejected;
+    if (!((width > 0) & (width <= kMaximumPaintCoordinate) & (radius >= 0) & (radius <= kMaximumPaintCoordinate))) {
+        ++stream->rejected;
         return false;
     }
     const u32 before = stream->count;
@@ -235,9 +225,8 @@ bool paint_stream_push_edge_strip(PaintStream* stream, const UiRect& shape, floa
 
 bool paint_stream_push_banner_glow(PaintStream* stream, const UiRect& rectangle, const Color& outer, const Color& inner,
                                    float radius, float gradient_height) noexcept {
-    if (!stream || !paint_coordinate_valid(gradient_height) || !(gradient_height > 0)) {
-        if (stream)
-            ++stream->rejected;
+    if (!paint_coordinate_valid(gradient_height) || !(gradient_height > 0)) {
+        ++stream->rejected;
         return false;
     }
     const u32 before = stream->count;
@@ -253,7 +242,7 @@ bool paint_stream_push_banner_glow(PaintStream* stream, const UiRect& rectangle,
 }
 
 bool paint_stream_push_sv_square(PaintStream* stream, const UiRect& rectangle, const Color& hue, float radius) noexcept {
-    const u32 before = stream ? stream->count : 0;
+    const u32 before = stream->count;
     if (!paint_stream_push_rounded(stream, rectangle, hue, radius))
         return false;
     if (stream->count != before)
@@ -262,7 +251,7 @@ bool paint_stream_push_sv_square(PaintStream* stream, const UiRect& rectangle, c
 }
 
 bool paint_stream_push_hue_strip(PaintStream* stream, const UiRect& rectangle, float radius) noexcept {
-    const u32 before = stream ? stream->count : 0;
+    const u32 before = stream->count;
     if (!paint_stream_push_rounded(stream, rectangle, {1, 1, 1, 1}, radius))
         return false;
     if (stream->count != before)
@@ -272,7 +261,7 @@ bool paint_stream_push_hue_strip(PaintStream* stream, const UiRect& rectangle, f
 
 bool paint_stream_push_palette_gradient(PaintStream* stream, const UiRect& rectangle, const BackgroundTheme& theme,
                                         float radius) noexcept {
-    if (!stream || !background_theme_valid(theme))
+    if (!background_theme_valid(theme))
         return false;
     Color from = color_from_rgb24(theme.colors[0]);
     if (theme.color_count == 1)
@@ -308,7 +297,7 @@ bool paint_stream_push_palette_gradient(PaintStream* stream, const UiRect& recta
 
 bool paint_stream_push_gradient(PaintStream* stream, const UiRect& rectangle, const Color& first, const Color& last,
                                 float radius) noexcept {
-    const u32 before = stream ? stream->count : 0;
+    const u32 before = stream->count;
     if (!paint_stream_push_rounded(stream, rectangle, first, radius))
         return false;
     if (stream->count != before) {

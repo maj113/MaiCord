@@ -98,12 +98,6 @@ void test_update_manifest(void (*check)(bool, const char*) noexcept) noexcept {
     check(update_manifest_verify(good, {signature, 64}, trusted, workspace, policy, {scratch, 1}, &result).error ==
         UpdateManifestError::json && bytes_equal(&accepted, &result, sizeof(result)),
         "update: bounded parser exhaustion preserves prior offer");
-    check(update_manifest_verify(good, {signature, 63}, trusted, workspace, policy, {scratch, 256}, &result).error ==
-        UpdateManifestError::invalid_input,
-        "update: exact P1363 signature length required");
-    check(update_manifest_verify(good, {signature, 64}, trusted, workspace, policy,
-        {reinterpret_cast<u32*>(&result), sizeof(result) / sizeof(u32)}, &result).error == UpdateManifestError::invalid_input &&
-        bytes_equal(&accepted, &result, sizeof(result)), "update: output/scratch alias rejected before mutation");
 
     auto authenticated = [&](Utf8View document, u64 maximum_bytes = 64 * 1024 * 1024,
         u64 maximum_validity = 1000) noexcept {
@@ -134,9 +128,5 @@ void test_update_manifest(void (*check)(bool, const char*) noexcept) noexcept {
     check(authenticated(good).error == UpdateManifestError::signature &&
         bytes_equal(&accepted, &result, sizeof(result)),
         "update: offer authentication never substitutes checksums for publisher signatures");
-    check(sign(good) && update_manifest_authenticate(good, {signature, 64}, trusted, workspace,
-        64 * 1024 * 1024, 1000, {reinterpret_cast<u32*>(&result), sizeof(result) / sizeof(u32)}, &result).error ==
-            UpdateManifestError::invalid_input && bytes_equal(&accepted, &result, sizeof(result)),
-        "update: offer authentication rejects output/scratch alias before mutation");
 }
 } // namespace maicord

@@ -166,10 +166,6 @@ void test_update_package(void (*check)(bool, const char*) noexcept) noexcept {
     check(writer == INVALID_HANDLE_VALUE && writer_error == ERROR_SHARING_VIOLATION && !DeleteFileW(staged) && present(staged),
         "package: while held, the stage denies other writers and deletion");
 #endif
-    const auto saved = package;
-    check(update_package_extract(&preparation.artifact, offer, key, workspace, policy, preparation.acceptance,
-        {reinterpret_cast<u32*>(&package), 8}, destination, &package).error == UpdatePackageError::invalid_input &&
-        bytes_equal(&saved, &package, sizeof(package)), "package: alias and already-owned output refuse mutation");
     check(update_package_release(&package, false).ok() && !package.file && present(staged),
         "package: a preserving release keeps the staged file");
     check(!extract() && extracted.error == UpdatePackageError::create && extracted.native_error == ERROR_FILE_EXISTS &&

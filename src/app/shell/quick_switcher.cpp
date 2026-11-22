@@ -74,7 +74,7 @@ QuickSwitcherSources sources() noexcept {
 }
 bool available() noexcept {
     const auto s = scope();
-    return !(application_downloads_active() || (g_app.renderer.message_forward_scene && g_app.renderer.message_forward_scene->active)) && g_app.renderer_ready && g_app.account_ui && g_app.account.instance && !g_app.account.stop_failed &&
+    return !(application_downloads_active() || (g_app.renderer.message_forward_scene && g_app.renderer.message_forward_scene->active)) && g_app.renderer_ready && g_app.account.instance && !g_app.account.stop_failed &&
         s.account_serial && s.profile_key && s.self_user_id && !g_app.login.visible &&
         !(g_app.renderer.text_form && g_app.renderer.text_form->scene && g_app.renderer.text_form->scene->active) &&
         !application_theme_editor_active() &&
@@ -128,7 +128,7 @@ bool toggle_pick(ApplicationQuickSwitcher& q, u64 user) noexcept {
     if (index < q.picked_count) {
         q.picked[index] = q.picked[--q.picked_count];
         q.picked[q.picked_count] = 0;
-    } else if (q.picked_count < q.picker_limit && q.picked_count < kPrivateChannelRecipientMaximum) {
+    } else if (q.picked_count < q.picker_limit) {
         q.picked[q.picked_count++] = user;
         if (q.edit.bytes) message_composer_clear(&q.edit);
     } else return true;
@@ -253,7 +253,7 @@ void application_quick_switcher_release() noexcept {
 void application_quick_switcher_note_channel(u64 channel) noexcept {
     recent_scope();
     const auto bank_scope = scope();
-    if (!channel || !g_app.account_ui || !g_app.account.instance || g_app.account.stop_failed ||
+    if (!channel || !g_app.account.instance || g_app.account.stop_failed ||
         !bank_scope.account_serial || !bank_scope.profile_key || !bank_scope.self_user_id) return;
     const auto* record = chat_state_store_find_channel(g_app.account_ui->chat_state, channel);
     if (!record) return;
@@ -345,7 +345,7 @@ bool application_quick_switcher_open() noexcept {
     return application_composer_text_input_synchronize() && application_request_frame();
 }
 bool application_quick_switcher_open_picker(u64 channel_id) noexcept {
-    if (!available() || !g_app.account_ui) return true;
+    if (!available()) return true;
     const u32 limit = channel_id ? private_channel_capacity_left(g_app.account_ui->chat_state, channel_id)
                                  : kPrivateChannelRecipientMaximum;
     if (!limit) return true;

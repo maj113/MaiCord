@@ -181,6 +181,5 @@ bool ui_layout_engine_set_scroll(UiLayoutEngine* engine, UiLayoutNodeHandle hand
                                  UiPoint offset) noexcept;
 const UiLayoutNode* ui_layout_engine_resolve(const UiLayoutEngine& engine,
                                              UiLayoutNodeHandle handle) noexcept;
-UiLayoutNode* ui_layout_engine_resolve(UiLayoutEngine* engine, UiLayoutNodeHandle handle) noexcept;
 
 } // namespace maicord

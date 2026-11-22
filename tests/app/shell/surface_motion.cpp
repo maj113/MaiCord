@@ -154,10 +154,6 @@ void run() noexcept {
     host.synchronize(800);
     check(host.opacity[2] == 1 && !host.next_wake(),
           "surface motion: exhausted monotonic lifetime settles rather than wrapping scope identity");
-    check(application_surface_motion_update(&host.owner, static_cast<RendererLayerSurface>(255),
-                                            {1, 1, 1, 1}, 900, true) == 1 &&
-              application_surface_motion_update(nullptr, gallery, {1, 1, 0, 0}, 900, true) == 1,
-          "surface motion: invalid surface or missing owner cannot index outside the bounded slots");
     ApplicationSurfaceMotionOwner immediate{};
     application_surface_motion_owner_initialize(&immediate);
     immediate.slots[0].style = {0, UiMotionCurve::linear};

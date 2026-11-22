@@ -52,7 +52,7 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
         g_app.pane_resize = pane; layouts = text_updates = 0;
         for (u32 i = 0; i < 1000; ++i) {
             const u32 x = pane == PaneResizeKind::channels ? 260 + i % 70 : 520 + i % 70;
-            check(handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(x)), static_cast<float>(static_cast<i16>(300)), window_test::button_bit(PointerButton::left))), "pane drag accepts pointer sample");
+            handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(x), 300.f, window_test::button_bit(PointerButton::left)));
         }
         const float channel = g_app.channel_pane_width, member = g_app.member_pane_width;
         check(!layouts && !text_updates && g_app.pane_layout_pending && g_app.frame_pending, "pointer burst schedules presentation without synchronous layout");
@@ -101,12 +101,12 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
     constexpr float channel_maximum = 236.f;
     g_app.channel_pane_width = 200; g_app.pane_resize_origin_width = 200; g_app.pane_widths_persist_pending = false;
     g_app.pane_resize = PaneResizeKind::channels;
-    check(handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(4000)), static_cast<float>(static_cast<i16>(300)), window_test::button_bit(PointerButton::left))) && g_app.channel_pane_width == channel_maximum &&
-              handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(0)), static_cast<float>(static_cast<i16>(300)), window_test::button_bit(PointerButton::left))) &&
-              g_app.channel_pane_width == kUiSplitterMinimumPaneDips &&
-              handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(static_cast<int>(rail) + 190)), static_cast<float>(static_cast<i16>(300)), window_test::button_bit(PointerButton::left))) &&
-              g_app.channel_pane_width == 190.f,
-          "channel splitter (thread browser left edge) clamps between its minimum and the live maximum");
+    handle_pane_resize_drag(window_test::pointer_move(4000.f, 300.f, window_test::button_bit(PointerButton::left)));
+    check(g_app.channel_pane_width == channel_maximum, "channel splitter clamps at the live maximum");
+    handle_pane_resize_drag(window_test::pointer_move(0.f, 300.f, window_test::button_bit(PointerButton::left)));
+    check(g_app.channel_pane_width == kUiSplitterMinimumPaneDips, "channel splitter clamps at its minimum");
+    handle_pane_resize_drag(window_test::pointer_move(rail + 190.f, 300.f, window_test::button_bit(PointerButton::left)));
+    check(g_app.channel_pane_width == 190.f, "channel splitter (thread browser left edge) follows the pointer");
     check(cancel_pane_resize() && g_app.pane_resize == PaneResizeKind::none && g_app.channel_pane_width == 200.f &&
               !g_app.pane_widths_persist_pending && !cancel_pane_resize(),
           "Escape restores the drag's origin width without persisting");
@@ -116,11 +116,12 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
     g_app.pane_resize = PaneResizeKind::members;
     // The member list's left edge follows the pointer: 800 - 610 DIP.
     constexpr float member_expected = 190.f;
-    check(handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(610)), static_cast<float>(static_cast<i16>(300)), window_test::button_bit(PointerButton::left))) &&
-              g_app.member_pane_width == member_expected &&
-              handle_pane_resize_drag(window_test::pointer_move(static_cast<float>(static_cast<i16>(500)), static_cast<float>(static_cast<i16>(300)), 0)) && g_app.pane_resize == PaneResizeKind::none &&
-              g_app.pane_widths_persist_pending && g_app.member_pane_width == member_expected,
-          "member splitter follows the pointer and a button-less move ends the drag with one pending save");
+    handle_pane_resize_drag(window_test::pointer_move(610.f, 300.f, window_test::button_bit(PointerButton::left)));
+    check(g_app.member_pane_width == member_expected, "member splitter follows the pointer");
+    handle_pane_resize_drag(window_test::pointer_move(500.f, 300.f, 0));
+    check(g_app.pane_resize == PaneResizeKind::none && g_app.pane_widths_persist_pending &&
+              g_app.member_pane_width == member_expected,
+          "a button-less move ends the drag with one pending save");
     g_app.pane_widths_persist_pending = false; g_app.pane_layout_pending = false; layouts = text_updates = 0;
     g_app.pane_layout_pending = true; fail_layout = true;
     check(!apply_pending_pane_layout() && g_app.pane_layout_pending, "failed pane layout remains pending");

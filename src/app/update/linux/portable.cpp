@@ -33,8 +33,6 @@ bool marker_first_line(const wchar_t* marker) noexcept {
 } // namespace
 
 u32 update_portable_marker_path(ConstSlice<wchar_t> executable, wchar_t* output, u32 capacity) noexcept {
-    if (!executable.data || !output)
-        return 0;
     u32 directory = executable.count;
     while (directory && executable[directory - 1] != L'/')
         --directory;
@@ -77,7 +75,7 @@ bool update_portable_install(ConstSlice<wchar_t> executable) noexcept {
 
 static bool update_appimage_install(ConstSlice<wchar_t> image) noexcept {
     FileStat stat{};
-    return image.count && file_path_stat(image.data, &stat) && stat.kind == FileKind::regular &&
+    return file_path_stat(image.data, &stat) && stat.kind == FileKind::regular &&
            directory_writable(image.data, image.count);
 }
 

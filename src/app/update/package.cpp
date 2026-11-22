@@ -221,7 +221,7 @@ UpdatePackageResult update_package_extract(UpdateArtifact* source, const UpdateP
     const UpdateAcceptanceTransaction& acceptance, Slice<u32> scratch, ConstSlice<wchar_t> destination,
     UpdatePackage* output) noexcept {
     UpdateManifest manifest{};
-    const auto admitted = package_detail::admit(source, offer, key, workspace, policy, acceptance, scratch, destination, output, &manifest);
+    const auto admitted = package_detail::admit(source, offer, key, workspace, policy, acceptance, scratch, destination, &manifest);
     if (!admitted.ok()) return admitted;
     Reader reader{source->file, source->bytes, {}};
     Member member{}; UpdatePackage candidate{};
@@ -254,7 +254,7 @@ UpdatePackageResult update_package_extract(UpdateArtifact* source, const UpdateP
 }
 
 UpdatePackageResult update_package_release(UpdatePackage* package, bool discard) noexcept {
-    if (!package || package->file == INVALID_HANDLE_VALUE) return invalid();
+    if (package->file == INVALID_HANDLE_VALUE) return invalid();
     UpdatePackageResult status{};
     if (package->file) {
         if ((discard && !file_mark_delete_on_close(package->file)) || !file_close(package->file)) {

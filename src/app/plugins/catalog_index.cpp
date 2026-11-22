@@ -2,7 +2,6 @@
 #include "maicord/app/plugins/http.hpp"
 #include "maicord/app/update/fetch.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"
@@ -819,18 +818,7 @@ CatalogIndexResult finish(CatalogIndex* output, E error) noexcept {
 CatalogIndexResult catalog_index_verify(Utf8View document, ConstSlice<u8> signature, ConstSlice<const P256Key*> keys,
                                         KdfSha256Workspace& workspace, u64 now, bool accept_expired, Slice<u32> scratch,
                                         CatalogIndex* output) noexcept {
-    if (!output || !document.data || !workspace.storage.data || !scratch.data || !scratch.count ||
-        scratch.count > ~u32{0} / sizeof(u32) || !now || !keys.count || !keys.data)
-        return {E::invalid_input};
-    const ConstSlice<u8> ranges[]{
-        {reinterpret_cast<const u8*>(document.data), document.bytes},
-        {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))},
-        {reinterpret_cast<const u8*>(output), static_cast<u32>(sizeof(*output))},
-        {workspace.storage.data, workspace.storage.capacity},
-        signature};
-    if (!byte_ranges_all_disjoint({ranges, 5})) return {E::invalid_input};
-    for (u32 i = 0; i < keys.count; ++i)
-        if (!keys[i] || !keys[i]->handle || keys[i]->kind != P256Kind::ecdsa) return {E::invalid_input};
+    if (!now) return {E::invalid_input};
     if (!document.bytes || document.bytes > kCatalogIndexMaximumBytes) return {E::size};
     const ConstSlice<u8> parts[]{
         {reinterpret_cast<const u8*>(kCatalogIndexSignatureDomain.data), kCatalogIndexSignatureDomain.bytes},
@@ -891,7 +879,6 @@ u32 catalog_file_name(CatalogKind kind, const u8 (&sha256)[32], Slice<char> outp
 #endif
     const Utf8View extension = name_list_at(extensions, static_cast<u32>(kind));
     const u32 bytes = 6 + 64 + 1 + extension.bytes;
-    if (!output.data || output.count < bytes || !extension.bytes) return 0;
     copy_bytes(output.data, "files/", 6);
     for (u32 i = 0; i < 32; ++i) {
         output.data[6 + i * 2] = ascii_hex_digit(sha256[i] >> 4);

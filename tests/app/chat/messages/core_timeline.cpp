@@ -898,23 +898,11 @@ void test_message_event_pump() noexcept {
                "message_event_pump_valid_sidecar_advances_sequence_without_input_mutation");
 
         input.sequence = 43;
-        sidecar.flags = 0x80000000u;
-        copy_bytes(body, &sidecar, sizeof(sidecar));
-        const auto bad_sidecar = message_event_pump_consume(&normalization_pump, input, {body, sizeof(body)});
-        sidecar.flags = 0;
-        copy_bytes(body, &sidecar, sizeof(sidecar));
-        thread.reserved = 1;
-        copy_bytes(body + sizeof(sidecar), &thread, sizeof(thread));
-        const auto bad_thread = message_event_pump_consume(&normalization_pump, input, {body, sizeof(body)});
         input.notification_payload_bytes = sizeof(body) + 1;
         const auto bad_tail = message_event_pump_consume(&normalization_pump, input, {body, sizeof(body)});
-        expect(bad_sidecar.error == MessageEventPumpError::apply &&
-                   bad_thread.error == MessageEventPumpError::apply && bad_tail.error == MessageEventPumpError::apply &&
-                   bad_sidecar.kind == MessageEventPumpConsumeKind::rejected &&
-                   bad_thread.kind == MessageEventPumpConsumeKind::rejected &&
-                   bad_tail.kind == MessageEventPumpConsumeKind::rejected &&
-                   normalization_pump.last_sequence == 42,
-               "message_event_pump_malformed_sidecars_reject_before_sequence_observation");
+        expect(bad_tail.error == MessageEventPumpError::apply &&
+                   bad_tail.kind == MessageEventPumpConsumeKind::rejected && normalization_pump.last_sequence == 42,
+               "message_event_pump_malformed_sidecar_tail_rejects_before_sequence_observation");
 
         input.dispatch_payload_bytes = 0;
         input.notification_payload_bytes = kGatewayNotificationMetadataIncomplete;

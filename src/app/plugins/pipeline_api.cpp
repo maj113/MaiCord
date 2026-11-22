@@ -83,7 +83,7 @@ mc_status MC_CALL api_composer_replace(mc_ctx* ctx, mc_str text) noexcept {
     if (!binding) return MC_E_INACTIVE;
     if (const mc_status gate = composer_gate(*binding); gate != MC_OK) return gate;
     // An empty text clears the draft.
-    if (!optional_text_ok(text, MC_ACTION_TEXT_MAX) || (text.bytes && !text.data)) return MC_E_INVALID;
+    if (!optional_text_ok(text, MC_ACTION_TEXT_MAX)) return MC_E_INVALID;
     return plugin_host_composer_replace(plugin_view(text));
 }
 

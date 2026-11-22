@@ -464,11 +464,11 @@ mc_status plugin_http_submit(PluginBinding* binding, const mc_http_request& requ
 }
 
 HANDLE plugin_http_notification(PluginRuntime* runtime) noexcept {
-    return runtime && runtime->http ? runtime->http->notify : nullptr;
+    return runtime->http ? runtime->http->notify : nullptr;
 }
 
 u32 plugin_http_deliver(PluginRuntime* runtime) noexcept {
-    PluginHttp* http = runtime ? runtime->http : nullptr;
+    PluginHttp* http = runtime->http;
     if (!http || !read_acquire(&http->done)) return 0;
     write_release(&http->done, 0);
     u32 delivered = 0;
@@ -509,7 +509,7 @@ u32 plugin_http_deliver(PluginRuntime* runtime) noexcept {
 }
 
 void plugin_http_cancel(PluginRuntime* runtime, const PluginBinding* binding, bool drop) noexcept {
-    PluginHttp* http = runtime ? runtime->http : nullptr;
+    PluginHttp* http = runtime->http;
     if (!http) return;
     bool woke = false;
     AcquireSRWLockExclusive(http->lock.native());
@@ -535,7 +535,7 @@ void plugin_http_cancel(PluginRuntime* runtime, const PluginBinding* binding, bo
 }
 
 void plugin_http_close(PluginRuntime* runtime) noexcept {
-    PluginHttp* http = runtime ? runtime->http : nullptr;
+    PluginHttp* http = runtime->http;
     if (!http) return;
     InterlockedExchange(&http->stopping, 1);
     AcquireSRWLockExclusive(http->lock.native());

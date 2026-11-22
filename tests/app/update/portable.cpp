@@ -59,9 +59,8 @@ void test_update_portable(void (*check)(bool, const char*) noexcept) noexcept {
     check(update_portable_marker_path(view(L"/MaiCord"), path, 256) == 18 && same(path, L"/.maicord-portable"),
           "portable: an executable in the root has the root's marker");
     check(update_portable_marker_path(view(L"MaiCord"), path, 256) == 0 &&
-              update_portable_marker_path({}, path, 256) == 0 &&
               update_portable_marker_path(view(L"/opt/MaiCord/MaiCord"), path, 20) == 0,
-          "portable: no directory, nothing, or no room gives no path");
+          "portable: no directory or no room gives no path");
 
     wchar_t root[1024];
     const DataPathResult made = cache_path(root, 1024, L"portable-install", true);

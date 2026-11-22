@@ -129,7 +129,8 @@ struct PluginImage {
 // regular, the user's and not writable by others.
 PluginLoadResult plugin_image_load(PluginImage*, const PluginDirectory&, const ConstSlice<wchar_t>& leaf,
                                    u64 approved_permissions, const u8* sha256 = nullptr) noexcept;
-// FreeLibrary or dlclose, and reset. The caller stopped the plugin and removed its hooks first.
+// FreeLibrary or dlclose, and reset, for an image that holds a plugin. The caller stopped the plugin and removed its
+// hooks first.
 PluginLoadResult plugin_image_unload(PluginImage*) noexcept;
 
 // A keybind setting value: 0 (unbound), or a virtual-key code with modifier bits that cannot be typing (Ctrl or

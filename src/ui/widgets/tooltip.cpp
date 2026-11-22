@@ -62,8 +62,7 @@ bool valid_emoji(const UiTooltipEmoji& emoji) noexcept {
                                    utf8_validate(emoji.glyph).valid));
 }
 bool valid_detail(Utf8View detail) noexcept {
-    return !detail.bytes ||
-           (detail.data && detail.bytes <= kUiTooltipMaximumDetailBytes && valid_label(detail));
+    return !detail.bytes || (detail.bytes <= kUiTooltipMaximumDetailBytes && valid_label(detail));
 }
 u8 icon_slot(UiIcon icon) noexcept {
     return icon < UiIcon::count ? static_cast<u8>(static_cast<u32>(icon) + 1) : u8{0};
@@ -359,13 +358,7 @@ bool ui_tooltip_offer(UiTooltipScene* scene, const UiTooltipTarget& target, UiRe
         !ui_rect_valid(viewport) || ui_rect_width(viewport) < 64 || ui_rect_height(viewport) < 48 ||
         !ui_rect_has_area(anchor) ||
         ui_rect_width(viewport) < style.margin * 2 + style.padding_x * 2 + 12 ||
-        ui_rect_height(viewport) <= style.margin * 2 + style.padding_y * 2 ||
-        target.placement > UiTooltipPlacement::right || trigger > UiTooltipTrigger::keyboard ||
-        target.layout > UiTooltipLayout::rows ||
-        (target.layout != UiTooltipLayout::label &&
-         (target.bold.count || target.detail.bytes || media_asset_key_valid(target.emoji.media) ||
-          target.emoji.glyph.bytes || target.emoji.icon < UiIcon::count)) ||
-        (target.layout != UiTooltipLayout::rows && target.row_media.count))
+        ui_rect_height(viewport) <= style.margin * 2 + style.padding_y * 2)
         return ui_tooltip_clear(scene);
     const bool same = (scene->pending || scene->visible) && ui_tooltip_key_equal(scene->key, target.key) &&
                       scene->trigger == trigger;

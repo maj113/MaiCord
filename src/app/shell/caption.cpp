@@ -695,7 +695,7 @@ bool application_caption_release(FrameHit hit) noexcept {
     if (pressed == UiCaptionPart::none && part == UiCaptionPart::none)
         return false;
     set_hover(part, UiCaptionPart::none);
-    if (part != UiCaptionPart::none && part == pressed)
+    if (part == pressed)
         application_caption_command(part);
     return true;
 }

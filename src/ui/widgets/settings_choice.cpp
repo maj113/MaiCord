@@ -38,13 +38,13 @@ u32 ui_settings_choice_items(const UiSettingsControl& control, u32 first, Slice<
     return used;
 }
 bool ui_settings_choice_page(u32 count, u32 first, bool previous, u32* next_first) noexcept {
-    if (!next_first || !count || count > kUiSettingsChoiceMaximum || first >= count || first % kUiSettingsChoiceWindow) return false;
+    if (count > kUiSettingsChoiceMaximum || first >= count || first % kUiSettingsChoiceWindow) return false;
     if (previous ? first == 0 : first + kUiSettingsChoiceWindow >= count) return false;
     *next_first = previous ? first - kUiSettingsChoiceWindow : first + kUiSettingsChoiceWindow;
     return true;
 }
 bool ui_settings_choice_selected(const UiSettingsControl& control, u32 first, u32 action, u32* selected) noexcept {
-    if (!selected || !valid(control, first) || action < kUiSettingsChoiceActionFirst) return false;
+    if (!valid(control, first) || action < kUiSettingsChoiceActionFirst) return false;
     const u32 index = action - kUiSettingsChoiceActionFirst;
     if (index < first || index >= first + minimum(kUiSettingsChoiceWindow, control.choices.count - first)) return false;
     *selected = index;

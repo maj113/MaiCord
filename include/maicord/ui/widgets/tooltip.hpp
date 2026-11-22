@@ -90,10 +90,10 @@ struct UiTooltipTarget {
     // With one, the label keeps to one line; an icon
     // then leads the label on its line and both lines centre.
     Utf8View detail;
-    // Any layout but label lists its parts one per line ('\n' between); it takes no bold, emoji or detail (a card's
-    // title is bold by itself).
+    // Any layout but label lists its parts one per line ('\n' between); the caller gives it no bold, emoji or detail
+    // (a card's title is bold by itself).
     UiTooltipLayout layout;
-    // Rows: each row's picture (an invalid key leaves its square empty).
+    // Rows only: each row's picture (an invalid key leaves its square empty).
     ConstSlice<MediaAssetKey> row_media;
 };
 struct UiTooltipScene {

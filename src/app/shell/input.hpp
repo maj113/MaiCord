@@ -45,11 +45,13 @@ inline bool client_event_dip(const WindowEvent& event, UiPoint* point) noexcept 
 }
 bool set_client_cursor(i32 pixel_x, i32 pixel_y) noexcept;
 bool handle_pane_resize_begin(const WindowEvent& event) noexcept;
-bool handle_pane_resize_drag(const WindowEvent& event) noexcept;
+// A move during a splitter drag: the pane follows the pointer; a move without the left button ends the drag.
+void handle_pane_resize_drag(const WindowEvent& event) noexcept;
 void end_pane_resize() noexcept;
 // Escape during a splitter drag restores the width it started from.
 bool cancel_pane_resize() noexcept;
 bool apply_pending_pane_layout() noexcept;
+// Shell, navigation and member hovers: pointer moves while the sign-in form is hidden (the dispatcher tests it).
 bool handle_shell_hover(const WindowEvent& event) noexcept;
 bool handle_navigation_hover(const WindowEvent& event) noexcept;
 bool handle_shell_click(const WindowEvent& event) noexcept;

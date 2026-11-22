@@ -1,5 +1,4 @@
 #include "maicord/app/update/artifact.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/platform/crypto/hash_stream.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/os/path.hpp"
@@ -50,15 +49,9 @@ struct Temporary {
 
 UpdateArtifactResult update_artifact_verify(ConstSlice<wchar_t> absolute_path,
     const UpdateManifest& approved, UpdateArtifact* output) noexcept {
-    if (!output || !absolute_path.data || !absolute_path.count ||
+    if (!absolute_path.data || !absolute_path.count ||
         absolute_path.count > kUpdateArtifactMaximumPathCharacters || !approved.version ||
         !approved.artifact_bytes || approved.artifact_bytes > kUpdateArtifactMaximumBytes)
-        return result(UpdateArtifactError::invalid_input);
-    const ConstSlice<u8> ranges[]{
-        {reinterpret_cast<const u8*>(absolute_path.data), absolute_path.count * static_cast<u32>(sizeof(wchar_t))},
-        {reinterpret_cast<const u8*>(&approved), sizeof(approved)},
-        {reinterpret_cast<const u8*>(output), sizeof(*output)}};
-    if (!byte_ranges_all_disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])}) || output->file)
         return result(UpdateArtifactError::invalid_input);
     if (!valid_path(absolute_path)) return result(UpdateArtifactError::path);
     wchar_t terminated[kUpdateArtifactMaximumPathCharacters + 1];
@@ -109,7 +102,6 @@ UpdateArtifactResult update_artifact_verify(ConstSlice<wchar_t> absolute_path,
 }
 
 UpdateArtifactResult update_artifact_release(UpdateArtifact* artifact) noexcept {
-    if (!artifact) return result(UpdateArtifactError::invalid_input);
     if (artifact->file && !file_close(artifact->file)) return result(UpdateArtifactError::release, thread_last_error());
     SecureZeroMemory(artifact, sizeof(*artifact));
     return result(UpdateArtifactError::none);

@@ -59,8 +59,7 @@ UiScrollbarGeometry ui_scrollbar_geometry(const UiRect& viewport, float scroll_d
     const float viewport_height = ui_rect_height(viewport);
     // Logical list length can exceed local layout bounds; the thumb still
     // occupies only the validated viewport. Reject nonfinite scalar inputs.
-    if (!ui_rect_valid_or_empty(viewport) || !ui_rect_has_area(viewport) ||
-        !ui_extent_valid(viewport_height) || !(content_height_dips > viewport_height)) {
+    if (!ui_rect_valid_or_empty(viewport) || !ui_rect_has_area(viewport) || !(content_height_dips > viewport_height)) {
         return result;
     }
     constexpr float gutter = 12.0f;

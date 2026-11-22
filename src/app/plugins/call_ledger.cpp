@@ -49,7 +49,7 @@ inline u64 class_budget(const PluginCallLedger& ledger, PluginCallClass call_cla
 inline void read_marker(const u8* bytes, PluginCallMarker* leftover) noexcept {
     bool magic = true;
     for (u32 i = 0; i < 8; ++i) magic = magic && bytes[i] == kMagic[i];
-    if (!magic || bytes[20] != 1 || !leftover) return;
+    if (!magic || bytes[20] != 1) return;
     leftover->owner_id = byte_load_le64(bytes + 8);
     leftover->kind = bytes[16] <= static_cast<u8>(PluginCallKind::last) ? static_cast<PluginCallKind>(bytes[16])
                                                                         : PluginCallKind::none;
@@ -59,8 +59,8 @@ inline void read_marker(const u8* bytes, PluginCallMarker* leftover) noexcept {
 } // namespace
 
 bool plugin_call_ledger_open(PluginCallLedger* ledger, const wchar_t* path, PluginCallMarker* leftover) noexcept {
-    if (leftover) reset_value(leftover);
-    if (!ledger || ledger->view) return false;
+    reset_value(leftover);
+    if (ledger->view) return false;
     initialize_timing(ledger);
     if (!path) return true;
     HANDLE file = file_open(path, {FileAccess::read_write, FileCreate::open_always, kFileShareRead, kFileNoFollow});
@@ -115,7 +115,6 @@ PluginCallTicket plugin_call_begin(PluginCallLedger* ledger, u64 owner, PluginCa
 }
 
 void plugin_call_ledger_close(PluginCallLedger* ledger) noexcept {
-    if (!ledger) return;
     if (ledger->close_watchdog) ledger->close_watchdog(ledger);
     if (ledger->view) {
         store_idle(ledger->view);

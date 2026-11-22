@@ -47,10 +47,6 @@ bool label_is(ShortcutChord chord, Utf8View expected) noexcept {
 }
 
 void test_precedence(Check check) noexcept {
-    bool complete = true;
-    for (u32 action = 1; action < static_cast<u32>(ShortcutAction::count); ++action)
-        complete = complete && shortcut_definition(static_cast<ShortcutAction>(action));
-    check(complete, "shortcut registry: every implemented action has a definition");
     const ShortcutContext content{ShortcutFocus::content, true}, message{ShortcutFocus::message, true},
         composer{ShortcutFocus::composer, true}, typed{ShortcutFocus::composer, false}, text{ShortcutFocus::text, true};
     using A = ShortcutAction;
@@ -141,7 +137,6 @@ void test_custom(Check check) noexcept {
               custom_keybind_check(keybinds, {K::toggle_streamer_mode, {'S', C | L}}) == E::none &&
               utf8_equal(custom_keybind_action_label(K::toggle_streamer_mode), utf8_literal("Toggle Streamer Mode")) &&
               rejects({K::toggle_mute, {'Q', 0}}, E::needs_modifier) && rejects({K::push_to_talk, {'Q', C}}, E::invalid) &&
-              rejects({K::count, {'Q', C | L}}, E::invalid) &&
               rejects({K::toggle_mute, {key::shift, C}}, E::invalid) && rejects({K::toggle_mute, {}}, E::invalid) &&
               keybinds.count == 2,
           "custom keybinds: duplicates, built-in chords, typing keys and stored-elsewhere actions are refused");
@@ -172,10 +167,6 @@ void test_custom(Check check) noexcept {
     check(corrupt && version && !custom_keybinds_decode({record, bytes - 1}, &decoded) && decoded.count == 1 &&
               !custom_keybinds_decode({}, &decoded),
           "custom keybinds persistence: corrupt, other-version or truncated records leave the output untouched");
-    CustomKeybinds invalid{};
-    invalid.count = 1;
-    invalid.items[0] = {K::toggle_mute, {'M', C | H}};
-    check(!custom_keybinds_encode(invalid, {record, sizeof(record)}), "custom keybinds persistence: invalid sets are not written");
 
     wchar_t path[MAX_PATH + 32]{};
     const DWORD length = GetTempPathW(MAX_PATH, path);

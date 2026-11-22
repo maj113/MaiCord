@@ -321,7 +321,7 @@ void download(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     const Utf8View slug{job.slug, job.slug_bytes};
     const wchar_t* directory = job.item_kind == CatalogKind::plugin ? L"plugins" : job.item_kind == CatalogKind::theme ? L"themes" : L"effects";
     copy_bytes(r.sha256, job.blob.sha256, 32);
-    if (!relative_bytes || !ensure(w, directory, path) || !file_path(w, job.item_kind, slug, job.blob.sha256, path)) {
+    if (!ensure(w, directory, path) || !file_path(w, job.item_kind, slug, job.blob.sha256, path)) {
         r.error = CatalogError::storage;
         return;
     }
@@ -339,7 +339,7 @@ void download(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     r.error = fetch(w, net, {relative, relative_bytes}, job.blob.bytes, job.blob.bytes, &bytes, &count);
     if (r.error != CatalogError::none) return;
     if (!crypto.matches({bytes, count}, job.blob.sha256)) r.error = CatalogError::digest;
-    else if (job.item_kind != CatalogKind::plugin && (!w.validate_package || !w.validate_package(job.item_kind, {bytes, count}, slug)))
+    else if (job.item_kind != CatalogKind::plugin && !w.validate_package(job.item_kind, {bytes, count}, slug))
         r.error = CatalogError::package;
     else if (!write_file(path, {bytes, count})) r.error = CatalogError::storage;
     release(bytes);
@@ -347,7 +347,7 @@ void download(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
         .field("error", static_cast<u8>(r.error)).write(r.error == CatalogError::none ? LogLevel::info : LogLevel::warning);
     if (r.error != CatalogError::none || job.item_kind == CatalogKind::plugin) return;
     if (job.item_kind == CatalogKind::effect) package_prune(w.base, slug, job.blob.sha256);
-    if (w.library_changed) w.library_changed();
+    w.library_changed();
 }
 
 inline void trim_assets(const Worker& w) noexcept {
@@ -499,7 +499,6 @@ u32 worker_main(void* parameter) noexcept {
 
 u32 catalog_path(const ConstSlice<wchar_t>& base, const wchar_t* relative,
                  wchar_t (&output)[600]) noexcept {
-    if (!base.data || !base.count || base.count >= 500) return 0;
     copy_bytes(output, base.data, base.count * 2);
     output[base.count] = 0;
     u32 length = base.count;
@@ -519,9 +518,6 @@ void catalog_plugin_leaf(const u8 (&sha256)[32], wchar_t (&leaf)[69]) noexcept {
 
 bool catalog_worker_start(const CatalogWorkerOptions& options) noexcept {
     if (g_worker) return true;
-    if (!options.base.count || options.base.count >= 480 || options.repository.bytes > kUpdateRepositoryMaximumBytes ||
-        options.keys.count > 2)
-        return false;
     auto* w = commit_pages<Worker>();
     if (!w) return false;
     copy_bytes(w->base, options.base.data, options.base.count * 2);

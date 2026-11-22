@@ -78,7 +78,7 @@ Color ui_notice_band_ink(const UiNoticeBand& band, const Theme& theme) noexcept 
 
 bool ui_notice_band_paint(PaintStream* stream, const UiNoticeBand& band, const UiNoticeBandGeometry& g,
                           const Theme& theme) noexcept {
-    if (!stream || !ui_rect_has_area(g.band))
+    if (!ui_rect_has_area(g.band))
         return true;
     const auto& accent = theme.tokens.accent;
     const Color tint = band.kind == UiNoticeKind::warning ? accent.warning

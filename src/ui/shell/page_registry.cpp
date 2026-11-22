@@ -20,13 +20,12 @@ u32 find_index(const UiPageRegistry& registry, UiPageKey key) noexcept {
 } // namespace
 
 bool ui_page_registry_initialize(UiPageRegistry* registry, Slice<UiPage> storage) noexcept {
-    if (!registry || !storage.data || !storage.count) return false;
     *registry = {storage, 0, kUiPageNoSelection, 0};
     return true;
 }
 
 UiPageResult ui_page_registry_register(UiPageRegistry* registry, const UiPage& page) noexcept {
-    if (!registry || !registry->storage.data || !valid_key(page.key) || !page.label.data ||
+    if (!registry->storage.data || !valid_key(page.key) || !page.label.data ||
         !page.label.bytes || !utf8_validate(page.label).valid)
         return {UiPageError::invalid_argument, false};
     if (find_index(*registry, page.key) != kUiPageNoSelection)
@@ -39,7 +38,7 @@ UiPageResult ui_page_registry_register(UiPageRegistry* registry, const UiPage& p
 }
 
 UiPageResult ui_page_registry_select(UiPageRegistry* registry, UiPageKey key) noexcept {
-    if (!registry || !registry->storage.data || !valid_key(key))
+    if (!registry->storage.data || !valid_key(key))
         return {UiPageError::invalid_argument, false};
     const u32 index = find_index(*registry, key);
     if (index == kUiPageNoSelection) return {UiPageError::not_found, false};
@@ -50,7 +49,7 @@ UiPageResult ui_page_registry_select(UiPageRegistry* registry, UiPageKey key) no
 }
 
 bool ui_page_registry_clear(UiPageRegistry* registry) noexcept {
-    if (!registry || !registry->storage.data || !registry->count) return false;
+    if (!registry->storage.data || !registry->count) return false;
     for (u32 index = 0; index < registry->count; ++index) reset_value(&registry->storage[index]);
     registry->count = 0;
     registry->selected_index = kUiPageNoSelection;

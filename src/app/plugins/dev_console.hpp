@@ -35,7 +35,8 @@ const DevLine* application_dev_console_line(u32 index) noexcept;
 u32 application_dev_console_revision() noexcept;
 void application_dev_console_clear() noexcept;
 
-// The PluginRuntime sinks (sink_context is the PluginRuntime, which names the plugin by its owner id).
+// The PluginRuntime sinks (sink_context is the PluginRuntime, which names the plugin by its owner id). api_log
+// passes levels up to MC_LOG_ERROR only.
 void application_dev_console_log(void* runtime, u64 owner_id, u32 level, Utf8View text) noexcept;
 void application_dev_console_strike(void* runtime, u64 owner_id, PluginCallKind kind, u32 strike, u64 elapsed_us) noexcept;
 

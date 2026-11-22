@@ -557,7 +557,7 @@ bool application_plugin_surfaces_text_click(const MessageTextHit& hit) noexcept 
         return true;
     }
     UiPluginRenderDecoration decoration{};
-    if (!g_ui_plugin_render_query || !g_ui_plugin_render_query(record->id, record->revision, &decoration)) return false;
+    if (!g_ui_plugin_render_query(record->id, record->revision, &decoration)) return false;
     if (hit.target >= kUiPluginRenderCardTarget && decoration.has_card) {
         if (hit.target == kUiPluginRenderCardLinkTarget) {
             if (decoration.card.link.bytes) application_open_content_url(decoration.card.link);

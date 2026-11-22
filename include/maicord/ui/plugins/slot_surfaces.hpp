@@ -46,14 +46,15 @@ inline bool guild_rail_plugin_corner(const GuildRailScene& scene, u32 index, UiP
 }
 
 // A plugin tile at one end of the server list (end 1 above the servers, 2 after "Add a server"): its icon
-// rectangle (a rail tile, like Home) and the plugin's node, read from the query like every slot node.
+// rectangle (a rail tile, like Home) and the plugin's node, read from the query like every slot node. The index is
+// below kGuildRailPluginTiles.
 struct GuildRailPluginTile {
     UiRect tile;
     UiWidgetHandle widget;
     UiPluginSlotNode node;
 };
 inline bool guild_rail_plugin_tile(const GuildRailScene& scene, u32 end, u32 index, GuildRailPluginTile* out) noexcept {
-    if (!(end == 1 ? scene.materialized_top : scene.materialized_bottom) || index >= kGuildRailPluginTiles) return false;
+    if (!(end == 1 ? scene.materialized_top : scene.materialized_bottom)) return false;
     UiPluginSlotNode nodes[kGuildRailPluginTiles];
     const u32 count = ui_plugin_slot_toolbar(end == 1 ? kUiPluginSlotServerTop : kUiPluginSlotServerBottom,
                                              {nodes, kGuildRailPluginTiles});

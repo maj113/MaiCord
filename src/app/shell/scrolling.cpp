@@ -138,7 +138,7 @@ static UiScrollbarGeometry application_scrollbar_geometry(ScrollbarDragKind kind
 static bool apply_scrollbar_pointer(float pointer_y) noexcept {
     const ScrollbarDragKind kind = g_app.scrollbar_drag;
     const UiScrollbarGeometry geometry = application_scrollbar_geometry(kind);
-    if (kind == ScrollbarDragKind::none || !geometry.visible) {
+    if (!geometry.visible) {
         return false;
     }
     const float target =

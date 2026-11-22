@@ -56,13 +56,11 @@ void notification_retention_rebind(NotificationRetention* n,Slice<NotificationRe
     n->rows=rows;n->index=index;
 }
 NotificationRetentionRoom notification_retention_room(const NotificationRetention* n,u64 channel) noexcept {
-    if(!channel)return {Error::invalid_input};
     const auto located=find(*n,channel);
     if(located.exists)return {Error::none,n->rows[located.row].count,true};
     return {n->count<n->rows.count?Error::none:Error::full_channels};
 }
 NotificationRetentionAppend notification_retention_append(NotificationRetention* n,u64 channel,u64 ticket) noexcept {
-    if(!channel)return {Error::invalid_input};
     const auto located=find(*n,channel);
     if(!located.exists){
         if(n->count==n->rows.count)return {Error::full_channels};
@@ -76,15 +74,12 @@ NotificationRetentionAppend notification_retention_append(NotificationRetention*
     return {Error::none,evicted,true};
 }
 bool notification_retention_ticket(const NotificationRetention* n,u64 channel,u32 ordinal,u64* ticket) noexcept {
-    if(!channel || !ticket)return false;
     const auto located=find(*n,channel);
     if(!located.exists || ordinal>=n->rows[located.row].count)return false;
     *ticket=n->rows[located.row].tickets[ticket_index(n->rows[located.row],ordinal)];return true;
 }
-NotificationRetentionError notification_retention_discard_channel(NotificationRetention* n,u64 channel) noexcept {
-    if(!channel)return Error::invalid_input;
+void notification_retention_discard_channel(NotificationRetention* n,u64 channel) noexcept {
     const auto located=find(*n,channel);
     if(located.exists)erase(*n,located);
-    return Error::none;
 }
 } // namespace maicord

@@ -459,7 +459,7 @@ void picker_text(UiTextPen<>& text, const PopupScene& scene, u32 index, const Th
 
 bool popup_presentation_build(const PopupScene& scene, const Theme& theme, PaintStream* paint,
                               UiTextMeasureCache* measure) noexcept {
-    if (!paint || !scene.active || scene.item_count == 0 || scene.item_count > scene.items.count ||
+    if (!scene.active || scene.item_count == 0 || scene.item_count > scene.items.count ||
         scene.item_count > scene.rows.count) {
         return !scene.active;
     }
@@ -692,10 +692,8 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
 
 PopupMediaPresentationStatus popup_media_presentation_resolve(const PopupScene& scene, u32 index,
                                                               PopupMediaCommand* command) noexcept {
-    if (command) {
-        reset_value<PopupMediaCommand>(command);
-    }
-    if (!command || !scene.active || index >= scene.item_count || index >= scene.items.count) {
+    reset_value<PopupMediaCommand>(command);
+    if (!scene.active || index >= scene.item_count || index >= scene.items.count) {
         return PopupMediaPresentationStatus::invalid;
     }
     const PopupItem& item = scene.items[index];

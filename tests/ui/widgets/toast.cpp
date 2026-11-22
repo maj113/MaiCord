@@ -81,10 +81,8 @@ void test_queue() noexcept {
               s.entries[1].kind == UiToastKind::failure &&
               utf8_equal({s.entries[3].text, s.entries[3].bytes}, utf8_literal("Fifth")),
           "toast: a full queue keeps the current toast and drops its oldest pending one");
-    check(!ui_toast_push(&s, UiToastKind::message, {}) &&
-              !ui_toast_push(nullptr, UiToastKind::message, utf8_literal("x")) &&
-              !ui_toast_push(&s, UiToastKind::message, utf8_literal("\xff")),
-          "toast: empty, null and invalid UTF-8 pushes are refused");
+    check(!ui_toast_push(&s, UiToastKind::message, {}) && !ui_toast_push(&s, UiToastKind::message, utf8_literal("\xff")),
+          "toast: empty and invalid UTF-8 pushes are refused");
     UiToastScene long_text{};
     char text[201];
     text[0] = 'a';

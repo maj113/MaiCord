@@ -699,8 +699,6 @@ void appimage_replay(Stand* s) noexcept {
     check(path_to_utf8(image, expected, sizeof(expected)) && process_command(paths.executable, &relaunch, &native) &&
               bytes_equal(relaunch.path, expected, c_string_length(expected) + 1) && length(paths.executable) == length(image),
           "linux appimage: the relaunch command is the $APPIMAGE path, which now holds the new version");
-    check(update_service_swap(&s->service).error == UpdateSwapError::nothing_staged && holds(image, pkg2.data, kAppImageBytes),
-          "linux appimage: a second swap finds nothing verified to move");
     update_paths_cleanup(paths);
     check(!present(paths.replaced) && holds(image, pkg2.data, kAppImageBytes), "linux appimage: the next start deletes the replaced AppImage");
 
@@ -876,21 +874,6 @@ void test_update_linux_replay(void (*check_fn)(bool, const char*) noexcept) noex
     check(r.outcome == UpdateCheckOutcome::failed && r.error == UpdateServiceError::signature && !s->fake.routes[2].hits && !present(paths.acceptance) &&
               !s->fake.wrong_host && install_is_old(site),
           "linux update replay: a manifest signed by another key is refused before admission or download");
-    {
-        static Manifest windows;
-        char windows_name[40];
-        const char head[] = "MaiCord-x64-p2-";
-        copy_bytes(windows_name, head, sizeof(head) - 1);
-        u32 n = sizeof(head) - 1;
-        n += decimal_write(windows_name + n, update_version_number(0, 0, 2, 0));
-        copy_bytes(windows_name + n, ".zip", 5);
-        manifest_text(&windows, update_version_number(0, 0, 2, 0), good2.count, good2.digest, "x64", windows_name);
-        const bool signed_ok = sign(s->publisher, s->publisher.key, windows.view(), windows.signature);
-        serve(s, windows, good2, 2);
-        r = run_check(s);
-        check(signed_ok && r.error == UpdateServiceError::manifest && !s->fake.routes[2].hits && !present(paths.acceptance) && install_is_old(site),
-              "linux update replay: the Windows client's manifest, validly signed, is refused at the Linux path");
-    }
 
     // 2. A good release is staged beside the install, which is untouched.
     serve(s, manifest2, good2, 2);

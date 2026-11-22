@@ -428,7 +428,7 @@ bool shell_presentation_paint_reply_mention(const MessageComposerScene& scene, c
     // label tinted (link colour on, muted off), then a subtle divider.
     const auto* mention = message_composer_scene_layout_node(scene, MessageComposerControl::reply_mention);
     const auto icon = message_composer_scene_reply_mention_icon(scene);
-    if (!stream || !mention || !ui_rect_has_area(icon))
+    if (!mention || !ui_rect_has_area(icon))
         return false;
     const float divider = mention->rectangle.right + ui_theme_metrics(scene.theme_styles).composer_padding;
     const float middle = (icon.top + icon.bottom) * .5f;
@@ -452,7 +452,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                      ShellPresentationRegions* regions,
                                      const MessageComposerPresentationInput* composer_presentation,
                                      u64 visual_selected_channel_id, ShellTextMeasure measure) noexcept {
-    if (!stream || !regions || !ui_extent_valid(viewport_width) || !ui_extent_valid(viewport_height) ||
+    if (!ui_extent_valid(viewport_width) || !ui_extent_valid(viewport_height) ||
         viewport_width <= 0.0f || viewport_height <= 0.0f) {
         return false;
     }
@@ -1212,7 +1212,7 @@ bool shell_presentation_build_composer_overlay(const MessageComposerScene* scene
     if (scene && scene->active && scene->typing_dots && message_composer_scene_typing_label(*scene).bytes) {
         const auto* typing = message_composer_scene_layout_node(*scene, MessageComposerControl::typing_indicator);
         const UiRect row = typing ? typing_dots_box(*typing) : UiRect{};
-        const u32 first = paint ? paint->count : 0;
+        const u32 first = paint->count;
         if (typing && (!paint_stream_push_clip(paint, {typing->rectangle.left, typing->rectangle.top,
                                                        typing->rectangle.right,
                                                        typing->rectangle.bottom + kUiTypingLabelDrop}) ||
@@ -1268,8 +1268,6 @@ __declspec(noinline) bool shell_presentation_guild_banner_visible(const UiScene&
 bool shell_presentation_build_guild_banner_overlay(const UiScene& scene, const NavigationView* navigation,
                                                    const ShellNavigationScene* channel_scene, const Theme& theme,
                                                    PaintStream* stream, ShellTextMeasure measure) noexcept {
-    if (!stream)
-        return false;
     const UiLayoutNode* channels = ui_scene_node(scene, UiSemantic::channel_sidebar);
     const UiLayoutNode* header = ui_scene_node(scene, UiSemantic::channel_header);
     if (!channel_scene || channel_scene->banner_inset <= 0 || !channels || !header)
@@ -1300,12 +1298,8 @@ bool shell_presentation_build_guild_banner_overlay(const UiScene& scene, const N
 
 bool shell_presentation_build_member_status_overlay(const MemberListScene* member_scene, const Theme& theme,
                                                     PaintStream* stream) noexcept {
-    if (!stream || !member_scene) {
-        return member_scene == nullptr && stream != nullptr;
-    }
-    if (!member_scene->active) {
+    if (!member_scene || !member_scene->active)
         return true;
-    }
     if (!ui_rect_has_area(member_scene->viewport) ||
         !paint_stream_push_clip(stream, member_scene->viewport)) {
         return false;
@@ -1369,8 +1363,6 @@ bool shell_presentation_build_member_status_overlay(const MemberListScene* membe
 
 bool shell_presentation_build_guild_rail_overlay(const UiScene& scene, const GuildRailScene* guild_scene,
                                                  const Theme& theme, PaintStream* stream) noexcept {
-    if (!stream)
-        return false;
     const UiLayoutNode* guild = ui_scene_node(scene, UiSemantic::guild_rail);
     const UiLayoutNode* navigation = ui_scene_node(scene, UiSemantic::guild_navigation);
     if (!guild_scene || !guild_scene->active || !guild || !navigation)

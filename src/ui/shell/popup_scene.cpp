@@ -40,21 +40,10 @@ inline bool menu_avatar_column(const ConstSlice<PopupItem>& items) noexcept {
     return false;
 }
 
-bool storage_bytes(u32 capacity, usize* total_bytes) noexcept {
-    if (capacity == 0 || static_cast<usize>(capacity) > ~usize{0} / sizeof(PopupItem)) {
-        return false;
-    }
-    const usize item_bytes = static_cast<usize>(capacity) * sizeof(PopupItem);
-    const usize alignment_mask = alignof(PopupRowWidget) - 1;
-    if (item_bytes > ~usize{0} - alignment_mask) {
-        return false;
-    }
-    const usize row_offset = (item_bytes + alignment_mask) & ~alignment_mask;
-    if (static_cast<usize>(capacity) > (~usize{0} - row_offset) / sizeof(PopupRowWidget)) {
-        return false;
-    }
-    *total_bytes = row_offset + static_cast<usize>(capacity) * sizeof(PopupRowWidget);
-    return true;
+// Items, then rows at their alignment; a u32 count of either fits a 64-bit size.
+usize storage_bytes(u32 capacity) noexcept {
+    constexpr usize mask = alignof(PopupRowWidget) - 1;
+    return ((capacity * sizeof(PopupItem) + mask) & ~mask) + capacity * sizeof(PopupRowWidget);
 }
 
 bool materialize_owned_storage(PopupScene* scene) noexcept {
@@ -516,15 +505,14 @@ bool measure_row_text(UiTextMeasureCache* measure, const PopupScene& scene, Utf8
 
 bool popup_scene_initialize_owned(PopupScene* scene, u32 item_capacity, Slice<UiWidget> widgets,
                                   Slice<UiLayoutNode> layout_nodes) noexcept {
-    usize reserve_bytes = 0;
-    if (!scene || scene->owned_storage.base || !widgets.data || widgets.count < 2 || !layout_nodes.data ||
-        layout_nodes.count < widgets.count || !storage_bytes(item_capacity, &reserve_bytes)) {
+    if (item_capacity == 0 || scene->owned_storage.base || !widgets.data || widgets.count < 2 || !layout_nodes.data ||
+        layout_nodes.count < widgets.count) {
         return false;
     }
     reset_value<PopupScene>(scene);
     scene->selected_index = ~0u;
     if (!ui_widget_manager_initialize(&scene->widgets, widgets, layout_nodes) ||
-        !arena_initialize(&scene->owned_storage, reserve_bytes, 0, 4 * 1024, ArenaTag::ui)) {
+        !arena_initialize(&scene->owned_storage, storage_bytes(item_capacity), 0, 4 * 1024, ArenaTag::ui)) {
         reset_value<PopupScene>(scene);
         return false;
     }
@@ -533,15 +521,12 @@ bool popup_scene_initialize_owned(PopupScene* scene, u32 item_capacity, Slice<Ui
 }
 
 void popup_scene_release(PopupScene* scene) noexcept {
-    if (!scene) {
-        return;
-    }
     arena_release(&scene->owned_storage);
     reset_value<PopupScene>(scene);
 }
 
 bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyles* styles) noexcept {
-    if (!scene || (styles && !styles->ready))
+    if (styles && !styles->ready)
         return false;
     const u32 revision = styles ? styles->geometry_revision : 0;
     if (scene->theme_styles == styles && scene->theme_geometry_revision == revision)
@@ -555,7 +540,7 @@ bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyle
 }
 
 bool popup_scene_fit_content(PopupScene* scene, UiTextMeasureCache* measure, float maximum_width) noexcept {
-    if (!scene || !scene->active || !ui_coordinate_valid(maximum_width))
+    if (!scene->active || !ui_coordinate_valid(maximum_width))
         return false;
     const ConstSlice<PopupItem> items{scene->items.data, scene->item_count};
     if (!measure || scene->kind == PopupKind::autocomplete || popup_items_command_picker(items) ||
@@ -606,11 +591,10 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, con
                             const UiRect& anchor, const UiRect& viewport, float preferred_width, bool prefer_above,
                             float grid_scroll_fraction, float category_scroll_fraction, u32 source_revision,
                             const UiPopupFeedback* feedback, bool below_request) noexcept {
-    const u32 available_items =
-        scene && scene->items.data ? scene->items.count : (scene ? scene->owned_capacity : 0);
+    const u32 available_items = scene->items.data ? scene->items.count : scene->owned_capacity;
     const bool picker = items.data && items.count && popup_items_command_picker(items);
     const bool discovery = picker && picker_discovery(items);
-    if (!scene || kind == PopupKind::none || kind > PopupKind::settings_choice || owner_id == 0 ||
+    if (owner_id == 0 ||
         !items.data || items.count == 0 || items.count > available_items ||
         !ui_rect_valid_or_empty(anchor) || !ui_rect_valid_or_empty(viewport) ||
         !ui_rect_has_area(viewport) || !ui_coordinate_valid(preferred_width) ||
@@ -854,7 +838,7 @@ PopupSceneResult popup_scene_open_below(PopupScene* scene, PopupKind kind, u64 o
 }
 
 bool popup_scene_set_panel_material(PopupScene* scene, PopupPanelMaterial material) noexcept {
-    if (!scene || !scene->active || material > PopupPanelMaterial::gradient)
+    if (!scene->active || material > PopupPanelMaterial::gradient)
         return false;
     if (scene->panel_material != material) {
         scene->panel_material = material;
@@ -864,9 +848,6 @@ bool popup_scene_set_panel_material(PopupScene* scene, PopupPanelMaterial materi
 }
 
 bool popup_scene_close(PopupScene* scene) noexcept {
-    if (!scene) {
-        return false;
-    }
     const bool changed = scene->active;
     scene->active = false;
     scene->kind = PopupKind::none;
@@ -906,7 +887,7 @@ PopupHit popup_scene_hit_test(const PopupScene& scene, float x, float y) noexcep
 }
 
 bool popup_scene_set_hover(PopupScene* scene, float x, float y, bool* changed) noexcept {
-    if (!scene || !changed || !scene->active || !ui_coordinate_valid(x) || !ui_coordinate_valid(y)) {
+    if (!scene->active || !ui_coordinate_valid(x) || !ui_coordinate_valid(y)) {
         return false;
     }
     const PopupHit hit = popup_scene_hit_test(*scene, x, y);
@@ -927,7 +908,7 @@ bool popup_scene_set_hover(PopupScene* scene, float x, float y, bool* changed) n
 }
 
 bool popup_scene_move_selection(PopupScene* scene, i32 direction, bool* changed) noexcept {
-    if (!scene || !changed || !scene->active || direction == 0 || scene->item_count == 0) {
+    if (!scene->active || direction == 0 || scene->item_count == 0) {
         return false;
     }
     const u32 old = scene->selected_index;
@@ -949,7 +930,7 @@ bool popup_scene_move_selection(PopupScene* scene, i32 direction, bool* changed)
 }
 
 bool popup_scene_scroll(PopupScene* scene, float delta, bool* changed) noexcept {
-    if (!scene || !changed || !scene->active || !scrollable_menu(scene->kind) ||
+    if (!scene->active || !scrollable_menu(scene->kind) ||
         !ui_coordinate_valid(delta)) {
         return false;
     }
@@ -973,9 +954,7 @@ bool popup_scene_scroll(PopupScene* scene, float delta, bool* changed) noexcept 
 }
 
 bool popup_scene_page_selection(PopupScene* scene, bool reverse, bool* changed) noexcept {
-    if (!scene || !changed || !scene->active || !scene->item_count ||
-        scene->item_count > scene->items.count || scene->item_count > scene->rows.count ||
-        !scrollable_menu(scene->kind) || (scene->items[0].flags & popup_item_command_category))
+    if (scene->items[0].flags & popup_item_command_category)
         return false;
     const auto* panel = popup_scene_layout_node(*scene, scene->panel);
     if (!panel || !(panel->spec.style.flags & ui_layout_node_scroll_vertical))
@@ -1019,7 +998,7 @@ bool popup_scene_page_selection(PopupScene* scene, bool reverse, bool* changed) 
 }
 
 bool popup_scene_select_index(PopupScene* scene, u32 index, bool* changed) noexcept {
-    if (!scene || !changed || !scene->active || index >= scene->item_count ||
+    if (!scene->active || index >= scene->item_count ||
         !item_enabled(scene->items[index])) {
         return false;
     }
@@ -1093,7 +1072,7 @@ UiRect popup_feedback_slider(const PopupScene& scene) noexcept {
 }
 
 bool popup_scene_set_feedback_slider(PopupScene* scene, u16 value) noexcept {
-    if (!scene || !scene->active || scene->feedback.slider_count < 2 || value >= scene->feedback.slider_count ||
+    if (!scene->active || scene->feedback.slider_count < 2 || value >= scene->feedback.slider_count ||
         scene->feedback.slider_value == value)
         return false;
     scene->feedback.slider_value = value;
@@ -1102,7 +1081,7 @@ bool popup_scene_set_feedback_slider(PopupScene* scene, u16 value) noexcept {
 }
 
 bool popup_scene_set_feedback(PopupScene* scene, const Utf8View& text, bool error) noexcept {
-    if (!scene || !scene->active || !scene->feedback_reserved || text.bytes > 256 ||
+    if (!scene->active || !scene->feedback_reserved || text.bytes > 256 ||
         (!text.data && text.bytes) || !utf8_validate(text).valid)
         return false;
     if (!utf8_equal(scene->feedback.text, text) || scene->feedback.error != error) {
@@ -1114,11 +1093,8 @@ bool popup_scene_set_feedback(PopupScene* scene, const Utf8View& text, bool erro
 }
 
 bool popup_scene_resolve_item_layout(const PopupScene& scene, u32 index, PopupItemLayout* layout) noexcept {
-    if (layout) {
-        reset_value<PopupItemLayout>(layout);
-    }
-    if (!layout || !scene.active || index >= scene.item_count || index >= scene.items.count ||
-        index >= scene.rows.count || scene.rows[index].source_index != index) {
+    reset_value<PopupItemLayout>(layout);
+    if (index >= scene.item_count) {
         return false;
     }
     const UiLayoutNode* panel = popup_scene_layout_node(scene, scene.panel);
@@ -1158,8 +1134,7 @@ bool popup_scene_resolve_item_layout(const PopupScene& scene, u32 index, PopupIt
 
 bool popup_scene_menu_row_geometry(const PopupScene& scene, u32 index,
                                    UiMenuRowGeometry* geometry) noexcept {
-    if (!geometry || index >= scene.item_count || index >= scene.items.count ||
-        !popup_item_menu_row(scene.items[index])) {
+    if (index >= scene.item_count || !popup_item_menu_row(scene.items[index])) {
         return false;
     }
     PopupItemLayout layout{};

@@ -12,7 +12,7 @@ namespace maicord {
 
 #if !defined(_WIN32)
 bool app_icon_decode(u32 extent, u32* pixels) noexcept {
-    if (!pixels || !extent || extent > kAppIconLargestExtent)
+    if (!extent || extent > kAppIconLargestExtent)
         return false;
     tray_mark_render(tray_icon_brand_palette({}), extent, {pixels, extent * extent});
     for (u32 i = 0; i < extent * extent; ++i) {
@@ -27,7 +27,7 @@ bool app_icon_decode(u32 extent, u32* pixels) noexcept {
     constexpr u32 kLargest = kAppIconLargestExtent;
     u32 best = 0;
     const ConstSlice<u8> encoded = window_app_icon_png(extent, kLargest, &best);
-    if (!encoded.data || !pixels || !extent || extent > kLargest)
+    if (!encoded.data || !extent || extent > kLargest)
         return false;
     struct Scratch {
         PngImage png;

@@ -288,9 +288,6 @@ bool handle_pane_resize_begin(const WindowEvent& event) noexcept {
 }
 
 bool handle_shell_hover(const WindowEvent& event) noexcept {
-    if (g_app.login.visible) {
-        return false;
-    }
     const float x = client_dip_x(event);
     const float y = client_dip_y(event);
     if (pane_resize_hit(x, y) != PaneResizeKind::none)
@@ -337,9 +334,6 @@ bool handle_shell_hover(const WindowEvent& event) noexcept {
 }
 
 bool handle_navigation_hover(const WindowEvent& event) noexcept {
-    if (g_app.login.visible) {
-        return false;
-    }
     const float x = client_dip_x(event);
     const float y = client_dip_y(event);
     const UiWidgetHandle prior_guild = g_app.guild_rail_scene.widgets.hovered;
@@ -425,9 +419,8 @@ bool handle_shell_click(const WindowEvent& event) noexcept {
 
 bool handle_member_hover(const WindowEvent& event) noexcept {
     if (application_thread_browser_read_blocked()) return false;
-    if (!g_app.member_list_scene.active || g_app.login.visible) {
+    if (!g_app.member_list_scene.active)
         return false;
-    }
     const float x = client_dip_x(event);
     const float y = client_dip_y(event);
     const UiWidgetHandle prior = g_app.member_list_scene.widgets.hovered;

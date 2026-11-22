@@ -95,7 +95,7 @@ struct PluginRuntime {
     PluginDirectory directory;
     wchar_t data_directory[512];
     u32 data_directory_characters;
-    // Where plugin log lines go (sink_context is passed back); without a log sink they are dropped.
+    // Where plugin log lines go (sink_context is passed back). Required before a plugin that logs runs.
     void (*log)(void* context, u64 owner_id, u32 level, Utf8View text) noexcept;
     // A call that ran past its budget (the Developer console): strike counts toward kPluginCallOverrunLimit.
     void (*strike)(void* context, u64 owner_id, PluginCallKind kind, u32 strike, u64 elapsed_us) noexcept;
@@ -116,7 +116,6 @@ struct PluginRuntime {
 
 enum class PluginEnableError : u8 {
     none,
-    invalid_argument,
     capacity,         // kPluginMaximumBindings plugins are enabled
     load,             // see PluginEnableResult::load
     duplicate_owner,  // a plugin with this owner id is enabled
@@ -144,9 +143,10 @@ PluginLoadResult plugin_runtime_open(PluginRuntime*, ConstSlice<wchar_t> plugins
 // Disables every plugin and unpins the directory.
 PluginLoadResult plugin_runtime_close(PluginRuntime*) noexcept;
 
-// Loads leaf from the pinned directory, builds the plugin's state, settings and
-// hook lists, runs start and publishes its hooks. approved must contain every
-// permission the plugin needs (descriptor plus hooks); nothing stays behind on failure.
+// Loads leaf (a non-empty name) from the directory an open runtime pinned, builds the
+// plugin's state, settings and hook lists, runs start and publishes its hooks. approved
+// must contain every permission the plugin needs (descriptor plus hooks); nothing stays
+// behind on failure.
 // approved_hosts: bit i = the user approved descriptor.network[i] (http.hpp). A nonnull
 // sha256 must be the file's digest (plugin_image_load).
 PluginEnableResult plugin_runtime_enable(PluginRuntime*, ConstSlice<wchar_t> leaf, u64 approved_permissions,

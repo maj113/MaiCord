@@ -49,8 +49,8 @@ inline constexpr u32 kPluginEventCallsPerPass = 4; // per plugin; the rest waits
 // The union of the enabled plugins' EVENTS filters: MC_EVENT_BIT(kind) for every kind some
 // plugin wants. Translating an event nobody wants is wasted work.
 u64 plugin_events_interest() noexcept;
-// Queues an event for every subscriber whose filter wants its kind. Text over the slot is cut and
-// marked MC_EVENT_TRUNCATED. A plugin that falls kPluginEventSlots behind is told how many it lost.
+// Queues an event (of a kind plugin_events_interest() has) for every subscriber whose filter wants its kind. Text over
+// the slot is cut and marked MC_EVENT_TRUNCATED. A plugin that falls kPluginEventSlots behind is told how many it lost.
 bool plugin_events_push(const PluginEvent&) noexcept;
 // Delivers queued events in batches of MC_EVENT_BATCH_MAX; true while some plugin still has more.
 bool plugin_events_deliver() noexcept;

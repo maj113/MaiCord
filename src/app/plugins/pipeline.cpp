@@ -216,7 +216,7 @@ u64 plugin_events_interest() noexcept {
 }
 
 bool plugin_events_push(const PluginEvent& event) noexcept {
-    if (!g_ring || event.kind >= MC_EVENT_KIND_COUNT || !(g_interest & MC_EVENT_BIT(event.kind))) return false;
+    if (!g_ring) return false;
     EventSlot& slot = g_ring[g_head % kPluginEventSlots];
     ++g_head;
     slot.event = {event.kind, event.flags, event.guild_id, event.channel_id, event.message_id, event.user_id,

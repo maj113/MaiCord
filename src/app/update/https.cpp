@@ -198,7 +198,7 @@ UpdateTransportError https_exchange(UpdateHttpsTransport* t, const UpdateHttpReq
 
 UpdateTransportError update_http_read(UpdateHttpReader* r, const UpdateHttpRequest& request, UpdateHttpResponse* response,
     u8* buffer, u32* bytes, u32 capacity, bool closed, bool read_error_body) noexcept {
-    if (!r || !response || !buffer || !bytes || *bytes > capacity || !request.sink || !request.maximum_body_bytes) return E::invalid_input;
+    if (!response || !buffer || *bytes > capacity || !request.sink || !request.maximum_body_bytes) return E::invalid_input;
     if (r->complete) return *bytes ? E::http : E::none;
     if (!r->head_done) {
         for (;;) {

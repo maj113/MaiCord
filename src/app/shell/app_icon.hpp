@@ -9,7 +9,7 @@ inline constexpr u32 kAppIconLargestExtent = 64;
 // The program's icon at `extent` pixels as premultiplied BGRA rows. Windows: the executable's icon
 // (window_app_icon_png), the smallest stored PNG image at least that large, box-filtered down; it accepts PNGs with
 // 8-bit palette indices and palette alpha. Linux: the brand mark rendered at `extent` (tray_mark_render).
-// False for a missing or unsupported icon, null pixels or an invalid extent.
+// False for a missing or unsupported icon or an invalid extent.
 bool app_icon_decode(u32 extent, u32* pixels) noexcept;
 
 } // namespace maicord

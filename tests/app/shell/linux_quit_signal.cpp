@@ -31,8 +31,7 @@ u32 mask_in_thread(void* result) noexcept {
 
 void test_signals() noexcept {
     using namespace app_detail;
-    check(application_platform_quit_signal() == nullptr && !application_platform_quit_requested(),
-          "before the install there is no descriptor and nothing requested");
+    check(application_platform_quit_signal() == nullptr, "before the install there is no descriptor");
     application_shutdown_signals_install();
     const Waitable waitable = application_platform_quit_signal();
     check(waitable != nullptr, "the install opens the descriptor");

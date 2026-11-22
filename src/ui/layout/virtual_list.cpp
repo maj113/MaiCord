@@ -4,7 +4,7 @@
 namespace maicord {
 bool ui_scroll_reveal_units(u64 first, u64 extent, u64 total, u64 scroll_units,
                             u64 viewport_units, u64* result) noexcept {
-    if (!result || !viewport_units || !extent || first > total || extent > total - first) return false;
+    if (!viewport_units || !extent || first > total || extent > total - first) return false;
     const u64 last = first + extent;
     const u64 limit = total > viewport_units ? total - viewport_units : 0;
     u64 scroll = minimum(scroll_units, limit);
@@ -19,7 +19,8 @@ bool ui_scroll_reveal_units(u64 first, u64 extent, u64 total, u64 scroll_units,
 
 bool ui_variable_list_reveal(const UiVariableList& list, u32 index, u64 scroll_units,
                              u64 viewport_units, u64* result) noexcept {
-    if (!list.item_units || !list.fenwick || list.count > list.capacity || index >= list.count) return false;
+    // Only initialize gives a list items, and it requires both arrays: a count bound covers the storage.
+    if (index >= list.count) return false;
     return ui_scroll_reveal_units(ui_variable_list_prefix_units(list, index), list.item_units[index],
         list.total_units, scroll_units, viewport_units, result);
 }
@@ -137,14 +138,11 @@ bool ui_variable_list_initialize(UiVariableList* list, const Slice<u32>& item_un
 }
 
 u32 ui_variable_list_item_units(const UiVariableList& list, u32 index) noexcept {
-    return list.item_units && index < list.count ? list.item_units[index] : 0;
+    return index < list.count ? list.item_units[index] : 0;
 }
 
 u64 ui_variable_list_prefix_units(const UiVariableList& list,
                                   u32 exclusive_index) noexcept {
-    if (!list.fenwick) {
-        return 0;
-    }
     u32 index = minimum(exclusive_index, list.count);
     u64 result = 0;
     while (index != 0) {
@@ -156,7 +154,7 @@ u64 ui_variable_list_prefix_units(const UiVariableList& list,
 
 bool ui_variable_list_set_height(UiVariableList* list, u32 index,
                                  u32 item_units) noexcept {
-    if (!list || !list->item_units || !list->fenwick || index >= list->count || !valid_item_units(item_units))
+    if (!list || index >= list->count || !valid_item_units(item_units))
         return false;
     const u32 previous = list->item_units[index];
     if (previous == item_units) {
@@ -175,8 +173,8 @@ bool ui_variable_list_set_height(UiVariableList* list, u32 index,
 
 bool ui_variable_list_capture_anchor(const UiVariableList& list, u64 scroll_units,
                                      UiScrollAnchor* anchor) noexcept {
-    if (!anchor || !list.item_units || !list.fenwick || list.count == 0 ||
-        list.total_units == 0) {
+    // Every item has nonzero units, so a zero total is an empty list.
+    if (!anchor || list.total_units == 0) {
         if (anchor) {
             reset_value<UiScrollAnchor>(anchor);
         }
@@ -193,8 +191,7 @@ bool ui_variable_list_capture_anchor(const UiVariableList& list, u64 scroll_unit
 bool ui_variable_list_restore_anchor(const UiVariableList& list,
                                      const UiScrollAnchor& anchor,
                                      u64* scroll_units) noexcept {
-    if (!scroll_units || !anchor.valid || anchor.generation != list.generation ||
-        anchor.index >= list.count || !list.item_units || !list.fenwick) {
+    if (!scroll_units || !anchor.valid || anchor.generation != list.generation || anchor.index >= list.count) {
         return false;
     }
     const u32 height = list.item_units[anchor.index];
@@ -218,8 +215,7 @@ UiVariableRange ui_variable_list_buffered_range(const UiVariableList& list, u64 
 
 UiVariableRange ui_variable_list_range(const UiVariableList& list, u64 scroll_units,
                                        u64 viewport_units, u32 overscan) noexcept {
-    if (!list.item_units || !list.fenwick || list.count == 0 || list.total_units == 0 ||
-        viewport_units == 0) {
+    if (list.total_units == 0 || viewport_units == 0) {
         return UiVariableRange{};
     }
     scroll_units = minimum(scroll_units, list.total_units - 1);
@@ -237,7 +233,7 @@ UiVariableRange ui_variable_list_range(const UiVariableList& list, u64 scroll_un
 
 bool ui_variable_list_insert(UiVariableList* list, u32 index, u32 item_count,
                              u32 default_item_units, UiScrollAnchor* anchor) noexcept {
-    if (!list || !list->item_units || !list->fenwick || index > list->count || item_count == 0 ||
+    if (!list || index > list->count || item_count == 0 ||
         item_count > list->capacity - list->count || !valid_item_units(default_item_units))
         return false;
     const u16 previous_generation = list->generation;
@@ -257,7 +253,7 @@ bool ui_variable_list_insert(UiVariableList* list, u32 index, u32 item_count,
 
 bool ui_variable_list_remove(UiVariableList* list, u32 index, u32 item_count,
                              UiScrollAnchor* anchor) noexcept {
-    if (!list || !list->item_units || !list->fenwick || index >= list->count || item_count == 0 ||
+    if (!list || index >= list->count || item_count == 0 ||
         item_count > list->count - index)
         return false;
     const u16 previous_generation = list->generation;

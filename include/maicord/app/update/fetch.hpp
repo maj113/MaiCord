@@ -178,12 +178,12 @@ constexpr u64 update_check_interval_seconds(UpdateCheckInterval interval) noexce
     }
 }
 
-// Next automatic check: interval_seconds after success with jitter of 10%
-// (at most 1 h either way); otherwise exponential backoff from five minutes
-// up to interval_seconds with up to 25% jitter, never before a
-// server-requested retry time.
-u64 update_next_check(u64 now_unix, u32 consecutive_failures, u64 retry_at_unix, u32 random,
-    u64 interval_seconds = kUpdateCheckIntervalSeconds) noexcept;
+// Next automatic check: interval_seconds (a check interval's,
+// update_check_interval_seconds) after success with jitter of 10% (at most
+// 1 h either way); otherwise exponential backoff from five minutes up to
+// interval_seconds with up to 25% jitter, never before a server-requested
+// retry time.
+u64 update_next_check(u64 now_unix, u32 consecutive_failures, u64 retry_at_unix, u32 random, u64 interval_seconds) noexcept;
 
 // The first check after launch runs 5 to 15 s after the first frame is
 // presented.

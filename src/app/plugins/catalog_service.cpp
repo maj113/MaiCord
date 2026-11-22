@@ -118,9 +118,7 @@ ConstSlice<wchar_t> base() noexcept { return {g->base, g->base_characters}; }
 bool configured() noexcept { return g->key_count != 0 && g->repository_bytes != 0; }
 void bump() noexcept { ++g->view.revision; }
 Utf8View slug_of(const Operation& op) noexcept { return {op.slug, op.slug_bytes}; }
-void toast(CatalogError error) noexcept {
-    if (g->host.toast) g->host.toast(application_catalog_error_text(error), true);
-}
+void toast(CatalogError error) noexcept { g->host.toast(application_catalog_error_text(error), true); }
 
 bool save_state() noexcept {
     const auto saved = catalog_state_save(g->state_path, g->state_path_characters, g->state);
@@ -319,15 +317,14 @@ void apply_revocations() noexcept {
         if (e.kind == CatalogKind::plugin) {
             disable(e);
             e.flags &= static_cast<u16>(~kCatalogEntryEnabled);
-        } else if (g->host.package_removed) {
+        } else
             g->host.package_removed(e.kind, catalog_entry_slug(e), true);
-        }
         e.flags |= malicious ? kCatalogEntryRevoked : kCatalogEntryBroken;
         changed = true;
         UpdateLog(kLog, "revoked").field("kind", static_cast<u8>(e.kind)).field("severity", static_cast<u8>(severity)).write(LogLevel::warning);
-        if (g->host.toast) g->host.toast(malicious ? utf8_literal("MaiCord turned off an item that was found harmful.")
-                                                   : utf8_literal("MaiCord turned off an item that stopped working. Update it to turn it back on."),
-                                         true);
+        g->host.toast(malicious ? utf8_literal("MaiCord turned off an item that was found harmful.")
+                                : utf8_literal("MaiCord turned off an item that stopped working. Update it to turn it back on."),
+                      true);
     }
     if (changed) save_state();
 }
@@ -368,7 +365,7 @@ void begin(CatalogAction action, CatalogKind kind, const Utf8View& slug) noexcep
     bump();
 }
 // Developer Mode: the dev folder.
-bool developer() noexcept { return g->host.developer_mode && g->host.developer_mode(); }
+bool developer() noexcept { return g->host.developer_mode(); }
 
 void dev_line(DevLineKind kind, const Utf8View& text) noexcept {
     application_dev_console_add(kind, {g->op.dev_name, g->op.dev_name_bytes}, text);
@@ -772,8 +769,6 @@ bool dev_dll(const wchar_t* name, u32 length) noexcept {
 
 // The DLLs in the folder: new ones and ones whose time or size changed are pending (everything when force).
 __declspec(noinline) void dev_scan(bool force) noexcept {
-    u32 length = g->dev_folder_characters;
-    if (!length || length >= 600) return;
     DevFile seen[8]{};
     u32 count = 0;
     DirIter scan;
@@ -832,7 +827,7 @@ void dev_poll() noexcept {
         g->dev_scan = true;
     }
     if (dev_watch_settled(&g->dev_watch, now)) g->dev_scan = true;
-    if (dev_watch_settled(&g->effect_watch, now) && g->host.library_changed) g->host.library_changed();
+    if (dev_watch_settled(&g->effect_watch, now)) g->host.library_changed();
     if (g->dev_scan && g->dev_watch.handle) {
         dev_scan(g->dev_force);
         g->dev_scan = g->dev_force = false;
@@ -1055,7 +1050,7 @@ bool application_catalog_remove(CatalogKind kind, const Utf8View& slug, bool del
         }
         return finish(CatalogError::none);
     }
-    if (g->host.package_removed) g->host.package_removed(kind, slug, false);
+    g->host.package_removed(kind, slug, false);
     catalog_state_remove(g->state, e);
     return finish(save_state() ? CatalogError::none : CatalogError::storage);
 }
@@ -1211,7 +1206,7 @@ bool application_catalog_asset_request(CatalogAssetKind kind, const CatalogBlob&
 }
 
 bool application_catalog_asset_take(const u8 (&sha256)[32], CatalogAsset* out) noexcept {
-    if (!g || !out) return false;
+    if (!g) return false;
     for (AssetSlot& slot : g->assets) {
         if (!slot.used || !slot.ready || !bytes_equal(slot.sha256, sha256, 32)) continue;
         copy_bytes(out->sha256, sha256, 32);
@@ -1224,7 +1219,6 @@ bool application_catalog_asset_take(const u8 (&sha256)[32], CatalogAsset* out) n
 }
 
 void application_catalog_asset_release(CatalogAsset* asset) noexcept {
-    if (!asset) return;
     catalog_worker_free(asset->bytes);
     reset_value(asset);
 }
@@ -1343,7 +1337,7 @@ void application_catalog_poll() noexcept {
         while (const u64 owner = plugin_runtime_poll(&r, clock_monotonic_milliseconds())) {
             if (CatalogStateEntry* e = catalog_state_find_owner(g->state, owner)) e->flags |= kCatalogEntryOverran;
             UpdateLog(kLog, "plugin_overran").hex("owner", owner).write(LogLevel::warning);
-            if (g->host.toast) g->host.toast(utf8_literal("MaiCord turned off a plugin that kept running too long."), true);
+            g->host.toast(utf8_literal("MaiCord turned off a plugin that kept running too long."), true);
             save_state();
         }
         // Host switches changed on the plugin's settings page.

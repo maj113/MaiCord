@@ -308,6 +308,7 @@ bool popup_scene_move_selection(PopupScene* scene, i32 direction, bool* changed)
 // Pages one content viewport without wrapping, preserving visible focus position.
 // Command virtual models keep their owner-specific paging policy.
 // A quick-reaction strip is one logical paging row; arrows select its reactions.
+// The scene is active and its kind scrollable (context menu, autocomplete, popover or settings choice).
 bool popup_scene_page_selection(PopupScene* scene, bool reverse, bool* changed) noexcept;
 bool popup_scene_scroll(PopupScene* scene, float delta, bool* changed) noexcept;
 bool popup_scene_select_index(PopupScene* scene, u32 index, bool* changed) noexcept;

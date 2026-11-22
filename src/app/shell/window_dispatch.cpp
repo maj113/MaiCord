@@ -479,8 +479,8 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
             break;
         update_scrollbar_hover(dip.x, dip.y);
         if (handle_reaction_viewer_hover(dip.x, dip.y) || handle_message_text_selection_drag(content) ||
-            handle_scrollbar_drag(input_held(content), dip.y) || handle_pane_resize_drag(content) ||
-            handle_popup_hover(content) || application_login_handle_drag(content) || handle_composer_drag(content))
+            handle_scrollbar_drag(input_held(content), dip.y) || handle_popup_hover(content) ||
+            application_login_handle_drag(content) || handle_composer_drag(content))
             return true;
         handle_message_hover(content);
         if (message_action_bar_hit_test(g_app.message_action_bar, dip.x, dip.y).inside)
@@ -511,10 +511,6 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
         }
         if (g_app.scrollbar_drag != ScrollbarDragKind::none) {
             end_scrollbar_drag();
-            return true;
-        }
-        if (g_app.pane_resize != PaneResizeKind::none) {
-            end_pane_resize();
             return true;
         }
         if (g_app.login.pointer_selection != LoginControl::none) {

@@ -178,11 +178,9 @@ void test_markdown(Check check) noexcept {
     check(near(item.color.red, .5f) && near(dash.color.red, .5f) && near(bullet.color.red, 1) && near(run.color.red, 1) &&
               near(faint.color.red, 1) && faint.color.alpha < .5f && faint.color.alpha >= .2f && near(clear.color.alpha, 1),
           "markdown: nested items are muted and a part ending in the fade band is fainter");
-    check(outside.text.bytes == 0 && ui_markdown_command(&block, 9, false, nullptr, {}, {0, 0, 300, 400}, {0, 0, 300, 400}, {}, {}).text.bytes == 0 &&
+    check(outside.text.bytes == 0 &&
               ui_markdown_command(&block, 0, true, nullptr, {}, {0, 0, 300, 400}, {0, 0, 300, 400}, {}, {}).text.bytes == 0,
-          "markdown: a part outside the clip, an unknown part and the marker of a plain run give no command");
-    check(!ui_markdown_parse(&block, source, body, {scratch, 8}) && !block.parsed,
-          "markdown: scratch smaller than the source is rejected and leaves the block unparsed");
+          "markdown: a part outside the clip and the marker of a plain run give no command");
 
     UiMarkdownBank* bank = nullptr;
     UiMarkdown* blocks[kUiMarkdownBankBlocks + 1]{};

@@ -37,13 +37,10 @@ inline UiSplitterLimits pane_resize_limits(PaneResizeKind kind) noexcept {
 }
 } // namespace
 
-bool handle_pane_resize_drag(const WindowEvent& event) noexcept {
-    if (g_app.pane_resize == PaneResizeKind::none) {
-        return false;
-    }
+void handle_pane_resize_drag(const WindowEvent& event) noexcept {
     if (!input_held(event)) {
         end_pane_resize();
-        return true;
+        return;
     }
     const PaneResizeKind kind = g_app.pane_resize;
     const float x = client_dip_x(event);
@@ -52,7 +49,6 @@ bool handle_pane_resize_drag(const WindowEvent& event) noexcept {
                              ? ui_splitter_drag_width(rail_width(), UiSplitterEdge::right, x, limits)
                              : ui_splitter_drag_width(application_viewport_dips().right, UiSplitterEdge::left, x,
                                                       limits));
-    return true;
 }
 
 void end_pane_resize() noexcept {

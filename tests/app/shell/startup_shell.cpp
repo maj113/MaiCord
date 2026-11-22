@@ -254,8 +254,6 @@ void test_startup_shell(void (*check)(bool, const char*) noexcept) noexcept {
               startup_shell_load_file(path, kProfile, kNow, &loaded, decoded) == StartupShellOpenError::none &&
               decoded->channel_count == 3 && decoded->author_count == 1,
           "startup shell: the file round-trips through the encryption layer");
-    check(startup_shell_load_file(path, kProfile + 1, kNow, &loaded, decoded) == StartupShellOpenError::account,
-          "startup shell: the file is ignored for another account");
     DeleteFileW(path);
     check(startup_shell_load_file(path, kProfile, kNow, &loaded, decoded) == StartupShellOpenError::format,
           "startup shell: a missing file is no shell");

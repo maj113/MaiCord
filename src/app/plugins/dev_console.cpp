@@ -17,11 +17,10 @@ struct Console {
 Console g;
 
 Utf8View owner_name(const PluginRuntime* runtime, u64 owner_id) noexcept {
-    if (runtime)
-        for (u32 i = 0; i < runtime->binding_count; ++i) {
-            const PluginBinding& b = *runtime->bindings[i];
-            if (b.owner_id == owner_id) return {b.image.info.name, b.image.info.name_bytes};
-        }
+    for (u32 i = 0; i < runtime->binding_count; ++i) {
+        const PluginBinding& b = *runtime->bindings[i];
+        if (b.owner_id == owner_id) return {b.image.info.name, b.image.info.name_bytes};
+    }
     return utf8_literal("plugin");
 }
 
@@ -91,14 +90,14 @@ void application_dev_console_clear() noexcept {
 }
 
 void application_dev_console_log(void* runtime, u64 owner_id, u32 level, Utf8View text) noexcept {
-    if (!g.enabled || level > MC_LOG_ERROR) return;
+    if (!g.enabled) return;
     application_dev_console_add(static_cast<DevLineKind>(level), owner_name(static_cast<const PluginRuntime*>(runtime), owner_id), text);
 }
 
 void application_dev_console_strike(void* runtime, u64 owner_id, PluginCallKind kind, u32 strike, u64 elapsed_us) noexcept {
     if (!g.enabled) return;
     DevText w{};
-    w.add(name_list_at(kCallNames, static_cast<u32>(kind) <= static_cast<u32>(PluginCallKind::last) ? static_cast<u32>(kind) : 0));
+    w.add(name_list_at(kCallNames, static_cast<u32>(kind)));
     w.add(" ran past its time budget: ");
     w.number(elapsed_us / 1000);
     w.add(" ms. Strike ");

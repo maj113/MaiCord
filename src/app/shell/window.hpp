@@ -43,8 +43,8 @@ const WindowPlacement* application_window_saved_placement() noexcept;
 void application_window_save_placement() noexcept;
 // The platform's request to quit that does not come as a window event: on Linux SIGTERM, SIGINT and SIGHUP (read from a
 // descriptor the main loop waits on; src/app/linux/shutdown_signal.cpp). `application_platform_quit_signal` is the
-// waitable (null when there is none) and `application_platform_quit_requested` consumes what arrived. Windows has
-// none: a closing session reaches the window as messages.
+// waitable (null when there is none) and `application_platform_quit_requested`, called once that is ready, consumes
+// what arrived. Windows has none: a closing session reaches the window as messages.
 #if defined(_WIN32)
 inline Waitable application_platform_quit_signal() noexcept {
     return nullptr;

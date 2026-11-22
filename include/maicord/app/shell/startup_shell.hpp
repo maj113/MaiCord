@@ -120,10 +120,11 @@ Utf8View startup_shell_text(const StartupShell& shell, StartupShellText text) no
 // Appends text to the bank; false (and an empty reference) when it does not fit.
 bool startup_shell_add_text(StartupShell* shell, const Utf8View& text, StartupShellText* output) noexcept;
 
-// The plaintext body; 0 when output is too small.
+// The plaintext body into output (kStartupShellPlaintextBytes, which every
+// shell fits); 0 when a count exceeds its capacity.
 u32 startup_shell_encode(const StartupShell& shell, Slice<u8> output) noexcept;
-// Strict: a short, oversized or inconsistent body, or invalid UTF-8, is
-// rejected whole and leaves the shell unspecified.
+// Strict: a short or inconsistent body (at most kStartupShellPlaintextBytes),
+// or invalid UTF-8, is rejected whole and leaves the shell unspecified.
 bool startup_shell_decode(ConstSlice<u8> input, StartupShell* shell) noexcept;
 
 // Per-account key: a random AES-256-GCM key kept DPAPI-wrapped (user-bound)
@@ -135,12 +136,15 @@ struct StartupShellKey {
     u32 wrapped_bytes;
     u8 wrapped[kStartupShellWrappedKeyBytes];
 };
+// Creates the key for profile_id (nonzero) in a released key.
 bool startup_shell_key_create(StartupShellKey* key, u64 profile_id) noexcept;
 void startup_shell_key_release(StartupShellKey* key) noexcept;
 
 // File image: header (magic, version, profile id, sizes), the wrapped key,
 // a fresh nonce, the ciphertext and its tag; the header, key and nonce are
-// authenticated data. Returns the image bytes, 0 on failure.
+// authenticated data. key is live (created or opened), plaintext is an
+// encoded body and output holds kStartupShellFileBytes. Returns the image
+// bytes, 0 on failure.
 u32 startup_shell_seal(const StartupShellKey& key, ConstSlice<u8> plaintext, Slice<u8> output) noexcept;
 
 enum class StartupShellOpenError : u8 {
@@ -153,9 +157,10 @@ enum class StartupShellOpenError : u8 {
     malformed, // the plaintext does not decode
     expired,   // older than kStartupShellMaximumAgeMs (or from the future)
 };
-// Opens an image saved for profile_id. A live key for that profile decrypts
-// directly; otherwise the image's key is unwrapped into *key, which then
-// stays live for later seals. plaintext is caller scratch, erased on return.
+// Opens an image saved for profile_id (nonzero). A live key for that profile
+// decrypts directly; otherwise the image's key is unwrapped into *key, which
+// then stays live for later seals. plaintext is caller scratch of
+// kStartupShellPlaintextBytes, erased on return.
 StartupShellOpenError startup_shell_open(ConstSlice<u8> image, u64 profile_id, u64 now_unix_ms,
                                          StartupShellKey* key, Slice<u8> plaintext,
                                          StartupShell* shell) noexcept;
@@ -163,10 +168,11 @@ StartupShellOpenError startup_shell_open(ConstSlice<u8> image, u64 profile_id, u
 // accounts\[slot-N\]active.shell. A missing file is StartupShellOpenError::format.
 StartupShellOpenError startup_shell_load_file(const wchar_t* path, u64 profile_id, u64 now_unix_ms,
                                               StartupShellKey* key, StartupShell* shell) noexcept;
-// Encodes, seals and atomically replaces the file; creates the key on first use.
+// Encodes, seals and atomically replaces the file (a nonempty path) for the
+// shell's profile (nonzero); creates the key on first use.
 bool startup_shell_save_file(const wchar_t* path, StartupShellKey* key, const StartupShell& shell) noexcept;
 
-// The stores READY populates.
+// The stores READY populates; state, users and members are always set.
 struct StartupShellStores {
     ChatStateStore* state;
     UserStore* users;
@@ -183,7 +189,8 @@ void startup_shell_capture(const StartupShellStores& stores, const MessageStore*
 // Fills empty stores as READY would, before READY: guilds, channels with
 // their saved permissions, conversations, users, author display and the
 // account, then selects the saved channel (or the saved server, pending).
-// True when the selection was placed.
+// shell is a decoded one (its self_user_id is set). True when the selection
+// was placed.
 bool startup_shell_apply(const StartupShell& shell, const StartupShellStores& stores) noexcept;
 
 } // namespace maicord

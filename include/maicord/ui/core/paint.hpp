@@ -78,6 +78,7 @@ struct PaintStream {
     u32 sealed_batches;
 };
 
+// Every paint_stream function takes a stream that is not null.
 bool paint_stream_initialize(PaintStream* stream, u32 initial_capacity = kInitialPaintQuads) noexcept;
 void paint_stream_release(PaintStream* stream) noexcept;
 bool paint_stream_reset(PaintStream* stream, float right = kMaximumPaintCoordinate,

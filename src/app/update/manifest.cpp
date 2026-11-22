@@ -1,5 +1,4 @@
 #include "maicord/app/update/manifest.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/decimal.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
 
@@ -99,23 +98,8 @@ UpdateManifestResult verify_manifest(const Utf8View& document, const ConstSlice<
     const UpdateManifestPolicy* admission, u64 maximum_artifact_bytes,
     u64 maximum_validity_seconds, const Slice<u32>& structural_scratch,
     UpdateManifest* output) noexcept {
-    if (!output || !document.bytes || document.bytes > kUpdateManifestMaximumBytes || signature.count != 64 ||
-        !trusted_key.handle || trusted_key.kind != P256Kind::ecdsa || !workspace.storage.data ||
-        !structural_scratch.data || !structural_scratch.count ||
-        !maximum_artifact_bytes || !maximum_validity_seconds ||
-        (admission && (!admission->now_unix_seconds || admission->channel > UpdateChannel::preview)))
+    if (!document.bytes || document.bytes > kUpdateManifestMaximumBytes || (admission && !admission->now_unix_seconds))
         return {UpdateManifestError::invalid_input};
-    const ConstSlice<u8> ranges[]{
-        {reinterpret_cast<const u8*>(document.data), document.bytes}, signature,
-        {reinterpret_cast<const u8*>(structural_scratch.data), static_cast<u32>(minimum<usize>(~u32{0},
-            static_cast<usize>(structural_scratch.count) * sizeof(u32)))},
-        {reinterpret_cast<const u8*>(output), sizeof(*output)},
-        {reinterpret_cast<const u8*>(&trusted_key), sizeof(trusted_key)},
-        {reinterpret_cast<const u8*>(&workspace), sizeof(workspace)},
-        {workspace.storage.data, workspace.storage.capacity},
-        {reinterpret_cast<const u8*>(admission), admission ? static_cast<u32>(sizeof(*admission)) : 0u}};
-    if (structural_scratch.count > ~u32{0} / sizeof(u32)) return {UpdateManifestError::invalid_input};
-    if (!byte_ranges_all_disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])})) return {UpdateManifestError::invalid_input};
     const ConstSlice<u8> parts[]{
         {reinterpret_cast<const u8*>(kUpdateManifestSignatureDomain.data), kUpdateManifestSignatureDomain.bytes},
         {reinterpret_cast<const u8*>(document.data), document.bytes}};

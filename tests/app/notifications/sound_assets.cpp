@@ -54,11 +54,9 @@ void test_notification_sound_assets(void(*check)(bool,const char*) noexcept) noe
     }
     check(metadata,"sound assets: both original resource headers preserve stereo rate and exact frames");
     i16 sentinel_sample{};NotificationAudioClip untouched{{&sentinel_sample,1}};
-    check(!notification_sound_asset_resolve(nullptr,1,&untouched)&&
-        !notification_sound_asset_resolve(&bank,0,&untouched)&&
+    check(!notification_sound_asset_resolve(&bank,0,&untouched)&&
         !notification_sound_asset_resolve(&bank,kNotificationSoundClipCount+1,&untouched)&&
         !notification_sound_asset_resolve(&bank,~0u,&untouched)&&
-        !notification_sound_asset_resolve(&bank,1,nullptr)&&
         untouched.samples.data==&sentinel_sample&&untouched.samples.count==1&&!bank.failed_mask&&!bank.pcm[0]&&!bank.pcm[1],
         "sound assets: invalid callback inputs preserve descriptor and lazy bank");
     NotificationAudioClip first{},third{},again{};
@@ -102,13 +100,12 @@ void test_notification_sound_assets(void(*check)(bool,const char*) noexcept) noe
     }
     check(volumes,"sound assets: every exact output percent samples gain and clamps boosted nominal gain to one");
     notification_sound_assets_volume(&bank,73);notification_sound_assets_volume(&bank,201);
-    notification_sound_assets_volume(&bank,~0u);notification_sound_assets_volume(nullptr,100);
+    notification_sound_assets_volume(&bank,~0u);
     float gain=9;u32 nan_bits=0x7FC00000;float nan{};copy_bytes(&nan,&nan_bits,sizeof(nan));
     float kept=-1;
     check(notification_sound_asset_gain(&bank,.5f,&kept)&&kept>=.365f-.000001f&&kept<=.365f+.000001f&&
-        !notification_sound_asset_gain(nullptr,.5f,&gain)&&
         !notification_sound_asset_gain(&bank,-.1f,&gain)&&!notification_sound_asset_gain(&bank,1.1f,&gain)&&
-        !notification_sound_asset_gain(&bank,nan,&gain)&&!notification_sound_asset_gain(&bank,.5f,nullptr)&&gain==9,
+        !notification_sound_asset_gain(&bank,nan,&gain)&&gain==9,
         "sound assets: invalid percentages and nominal gains cannot change volume or output");
     InterlockedExchange(&bank.output_percent,-1);
     bool invalid_percent=!notification_sound_asset_gain(&bank,.5f,&gain)&&gain==9;
@@ -151,10 +148,10 @@ void test_notification_sound_assets(void(*check)(bool,const char*) noexcept) noe
     for(u32 i=0;i<kNotificationSoundClipCount;++i)all_freed=all_freed&&!bank.pcm[i]&&memory_released(addresses[i]);
     check(first_ok&&third_ok&&shaped&&all_freed&&!bank.failed_mask,
         "sound assets: isolated owner release frees every PCM allocation after no worker lifetime exists");
-    notification_sound_assets_release(&bank);notification_sound_assets_release(nullptr);
+    notification_sound_assets_release(&bank);
     bool empty=true;
     for(const void* pcm:bank.pcm)empty=empty&&!pcm;
-    check(empty,"sound assets: empty and null release are idempotent");
+    check(empty,"sound assets: a second release is idempotent");
 }
 }
 

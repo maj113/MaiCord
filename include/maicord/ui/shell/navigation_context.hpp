@@ -7,10 +7,8 @@ namespace maicord {
 // identity is checked separately; no selected conversation is required.
 inline bool channel_context_row_current(const NavigationView& view,
                                         const ShellNavigationScene& scene, u64 id) noexcept {
-    if (!id || !scene.active || !scene.rows.data || scene.count > scene.rows.count ||
-        scene.source_rows != view.channel_rows || scene.source_count != view.channel_count ||
-        scene.source_revision != view.channel_revision || view.channel_count > view.channel_capacity ||
-        (view.channel_count && !view.channel_rows))
+    if (!id || !scene.active || !scene.rows.data || scene.source_rows != view.channel_rows ||
+        scene.source_count != view.channel_count || scene.source_revision != view.channel_revision)
         return false;
     for (u32 index = 0; index < scene.count; ++index) {
         const auto& row = scene.rows[index];
@@ -28,8 +26,7 @@ inline bool guild_context_row_current(const NavigationView& view, const GuildRai
                                       u64 id) noexcept {
     if (!id || !scene.active || !scene.rows.data || scene.count > scene.rows.count ||
         scene.source_rows != view.guild_rows || scene.source_count != view.guild_count ||
-        scene.source_revision != view.guild_revision || view.guild_count > view.guild_capacity ||
-        (view.guild_count && !view.guild_rows))
+        scene.source_revision != view.guild_revision)
         return false;
     for (u32 index = 0; index < scene.count; ++index) {
         const auto& row = scene.rows[index];

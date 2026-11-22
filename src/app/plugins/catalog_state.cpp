@@ -1,6 +1,5 @@
 #include "maicord/app/plugins/catalog_state.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -98,10 +97,7 @@ bool catalog_state_valid(const CatalogState& state) noexcept {
 }
 
 AcceptanceRecordResult catalog_state_encode(const CatalogState& state, Slice<u8> record) noexcept {
-    const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(&state), sizeof(state)}, {record.data, record.count}};
-    if (!record.data || record.count != kCatalogStateRecordBytes || !byte_ranges_all_disjoint({ranges, 2}) ||
-        !catalog_state_valid(state))
-        return fail(RE::invalid_input);
+    if (!catalog_state_valid(state)) return fail(RE::invalid_input);
     Writer w{record.data};
     w.bytes(kMagic, 8);
     w.u32v(kCatalogStateVersion); w.u32v(state.count); w.u32v(state.flags); w.u32v(0); // checksum below
@@ -114,9 +110,6 @@ AcceptanceRecordResult catalog_state_encode(const CatalogState& state, Slice<u8>
 }
 
 AcceptanceRecordResult catalog_state_decode(ConstSlice<u8> record, CatalogState* state) noexcept {
-    const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(state), sizeof(*state)}, record};
-    if (!state || !record.data || !byte_ranges_all_disjoint({ranges, 2})) return fail(RE::invalid_input);
-    if (record.count != kCatalogStateRecordBytes) return fail(RE::size);
     if (!bytes_equal(record.data, kMagic, 8)) return fail(RE::format);
     Reader r{record.data + 8};
     if (r.u32v() != kCatalogStateVersion) return fail(RE::version);
@@ -136,7 +129,6 @@ AcceptanceRecordResult catalog_state_decode(ConstSlice<u8> record, CatalogState*
 }
 
 AcceptanceRecordResult catalog_state_load(const wchar_t* path, CatalogState* state) noexcept {
-    if (!state || !path) return fail(RE::invalid_input);
     clear_bytes(state, sizeof(*state));
     auto* record = static_cast<u8*>(commit_pages(kCatalogStateRecordBytes));
     if (!record) return fail(RE::invalid_input);

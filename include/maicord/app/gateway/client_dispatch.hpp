@@ -14,8 +14,7 @@ struct GatewayClientNotificationThreadRecord {
 };
 bool gateway_client_notification_entry(const GatewayClientEvent&, ConstSlice<u8>,
                                        MessageNotificationGuildSetting*) noexcept;
-bool gateway_client_notification_override_at(const GatewayClientEvent&, ConstSlice<u8>, u32,
-                                             MessageNotificationOverride*) noexcept;
+bool gateway_client_notification_override_at(ConstSlice<u8>, u32, MessageNotificationOverride*) noexcept;
 bool gateway_client_notification_sidecar(ConstSlice<u8>, GatewayClientNotificationSidecar*,
                                          ConstSlice<u8>*) noexcept;
 bool gateway_client_notification_thread_at(ConstSlice<u8>, u32,

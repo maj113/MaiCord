@@ -112,13 +112,13 @@ constexpr bool definitions_valid() noexcept {
 }
 static_assert(definitions_valid());
 u32 put(const Slice<char>& output, u32 at, const Utf8View& text) noexcept {
-    if (!output.data || at + text.bytes > output.count)
+    if (at + text.bytes > output.count)
         return at;
     copy_bytes(output.data + at, text.data, text.bytes);
     return at + text.bytes;
 }
 u32 put_char(const Slice<char>& output, u32 at, char value) noexcept {
-    if (!output.data || at >= output.count)
+    if (at >= output.count)
         return at;
     output.data[at] = value;
     return at + 1;
@@ -300,8 +300,6 @@ inline static bool shortcut_scope_active(ShortcutScope scope, ShortcutContext co
 
 u32 shortcut_resolve(ShortcutContext context, ShortcutChord chord, Slice<ShortcutAction> output) noexcept {
     u32 count = 0;
-    if (!chord.key || !output.data)
-        return 0;
     // A chord binds at most one definition per scope (definitions_valid), so one walk finds each scope's action.
     ShortcutAction bound[4]{};
     for (const auto& definition : kDefinitions)
@@ -331,7 +329,7 @@ inline static const ShortcutDefinition* shortcut_built_in(ShortcutChord chord) n
 }
 
 u32 shortcut_key_label(u8 key, const Slice<char>& output) noexcept {
-    if (!key || !output.data)
+    if (!key)
         return 0;
     if ((key >= 'A' && key <= 'Z') || (key >= '0' && key <= '9'))
         return put_char(output, 0, static_cast<char>(key));
@@ -356,7 +354,7 @@ Utf8View shortcut_modifier_label(u8 modifier) noexcept {
     }
 }
 u32 shortcut_chord_label(ShortcutChord chord, Slice<char> output) noexcept {
-    if (!chord.key || !output.data)
+    if (!chord.key)
         return 0;
     u32 at = 0;
     // Ctrl, Alt, Shift: the bits in display order.
@@ -369,8 +367,6 @@ u32 shortcut_chord_label(ShortcutChord chord, Slice<char> output) noexcept {
 }
 
 u32 shortcut_listing(Utf8View query, Slice<ShortcutListingRow> output) noexcept {
-    if (!output.data)
-        return 0;
     bool filtered = false;
     for (u32 i = 0; i < query.bytes && !filtered; ++i)
         filtered = query.data[i] != ' ';
@@ -454,7 +450,7 @@ Utf8View custom_keybind_error_text(CustomKeybindError error) noexcept {
     }
 }
 CustomKeybindError custom_keybind_check(const CustomKeybinds& keybinds, CustomKeybind keybind) noexcept {
-    if (keybind.action == CustomKeybindAction::push_to_talk || keybind.action >= CustomKeybindAction::count)
+    if (keybind.action == CustomKeybindAction::push_to_talk)
         return CustomKeybindError::invalid;
     const auto chord = keybind.chord;
     if (!chord.key || chord.key == 0xff || (chord.modifiers & ~shortcut_modifier_mask) ||
@@ -482,7 +478,7 @@ bool custom_keybinds_add(CustomKeybinds* keybinds, CustomKeybind keybind, Custom
     return true;
 }
 bool custom_keybinds_remove(CustomKeybinds* keybinds, u32 index) noexcept {
-    if (index >= keybinds->count || keybinds->count > kCustomKeybindMaximum)
+    if (index >= keybinds->count)
         return false;
     for (u32 i = index + 1; i < keybinds->count; ++i)
         keybinds->items[i - 1] = keybinds->items[i];
@@ -490,25 +486,13 @@ bool custom_keybinds_remove(CustomKeybinds* keybinds, u32 index) noexcept {
     return true;
 }
 u32 custom_keybinds_find(const CustomKeybinds& keybinds, ShortcutChord chord) noexcept {
-    for (u32 i = 0; i < keybinds.count && i < kCustomKeybindMaximum; ++i)
+    for (u32 i = 0; i < keybinds.count; ++i)
         if (shortcut_chord_equal(keybinds.items[i].chord, chord))
             return i;
     return kCustomKeybindMaximum;
 }
-inline static bool custom_keybinds_valid(const CustomKeybinds& keybinds) noexcept {
-    if (keybinds.count > kCustomKeybindMaximum)
-        return false;
-    CustomKeybinds rebuilt{};
-    for (u32 i = 0; i < keybinds.count; ++i)
-        if (!custom_keybinds_add(&rebuilt, keybinds.items[i]))
-            return false;
-    return true;
-}
-
 u32 custom_keybinds_encode(const CustomKeybinds& keybinds, Slice<u8> output) noexcept {
     const u32 bytes = kCustomKeybindsHeaderBytes + keybinds.count * kCustomKeybindBytes;
-    if (!output.data || !custom_keybinds_valid(keybinds) || output.count < bytes)
-        return 0;
     clear_bytes(output.data, bytes);
     u8* r = output.data;
     copy_bytes(r, kMagic, 8);
@@ -526,7 +510,7 @@ u32 custom_keybinds_encode(const CustomKeybinds& keybinds, Slice<u8> output) noe
 }
 bool custom_keybinds_decode(ConstSlice<u8> record, CustomKeybinds* keybinds) noexcept {
     const u8* r = record.data;
-    if (!keybinds || !r || record.count < kCustomKeybindsHeaderBytes || record.count > kCustomKeybindsMaximumBytes ||
+    if (record.count < kCustomKeybindsHeaderBytes || record.count > kCustomKeybindsMaximumBytes ||
         !bytes_equal(r, kMagic, 8) || byte_load_le32(r + 8) != kCustomKeybindsVersion ||
         byte_load_le32(r + 12) != record.count || byte_load_le64(r + kChecksumOffset) != checksum(record))
         return false;
@@ -547,8 +531,6 @@ bool custom_keybinds_decode(ConstSlice<u8> record, CustomKeybinds* keybinds) noe
     return true;
 }
 bool custom_keybinds_load_file(const wchar_t* path, CustomKeybinds* keybinds) noexcept {
-    if (!path || !keybinds)
-        return false;
     u8 record[kCustomKeybindsMaximumBytes];
     const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)});
     return read.ok() && custom_keybinds_decode({record, read.bytes}, keybinds);
@@ -556,8 +538,8 @@ bool custom_keybinds_load_file(const wchar_t* path, CustomKeybinds* keybinds) no
 bool custom_keybinds_save_file(const wchar_t* path, const CustomKeybinds& keybinds) noexcept {
     u8 record[kCustomKeybindsMaximumBytes];
     const u32 bytes = custom_keybinds_encode(keybinds, {record, sizeof(record)});
-    const u32 length = path ? wide_length(path, kAccountProfileMaximumPathCharacters) : 0;
-    return bytes && length && file_persistence_write_atomic(path, length, {record, bytes}).ok();
+    return file_persistence_write_atomic(path, wide_length(path, kAccountProfileMaximumPathCharacters),
+                                         {record, bytes}).ok();
 }
 bool custom_keybinds_load(CustomKeybinds* keybinds) noexcept {
     wchar_t path[kAccountProfileMaximumPathCharacters]{};

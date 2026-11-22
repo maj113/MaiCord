@@ -19,9 +19,8 @@ bool row_focusable(const ChannelViewRow& row) noexcept {
 
 ShellNavigationSceneResult scene_error(ShellNavigationScene* scene,
                                        ShellNavigationSceneError error) noexcept {
-    saturating_increment_if(scene, scene->rejected);
-    return ShellNavigationSceneResult{error, scene ? scene->first : 0, scene ? scene->count : 0,
-                                      scene ? scene->scroll_dips : 0.0f, false};
+    saturating_increment(scene->rejected);
+    return ShellNavigationSceneResult{error, scene->first, scene->count, scene->scroll_dips, false};
 }
 
 UiLayoutStyle row_style(const ChannelViewRow& row) noexcept {
@@ -193,7 +192,7 @@ bool shell_navigation_scene_initialize(ShellNavigationScene* scene,
                                        Slice<ShellNavigationRowWidget> row_storage,
                                        Slice<UiWidget> widget_storage,
                                        Slice<UiLayoutNode> layout_storage) noexcept {
-    if (!scene || !row_storage.data || row_storage.count == 0 || !widget_storage.data ||
+    if (!row_storage.data || row_storage.count == 0 || !widget_storage.data ||
         !layout_storage.data || row_storage.count > (~0u - 2u) / 4u) {
         return false;
     }
@@ -206,10 +205,8 @@ bool shell_navigation_scene_initialize(ShellNavigationScene* scene,
 ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* scene,
                                                          const NavigationView* view, const UiRect& viewport,
                                                          float requested_scroll_dips) noexcept {
-    if (!scene || !scene->rows.data || !scene->widgets.storage.data || !ui_rect_valid_or_empty(viewport) ||
-        !ui_coordinate_valid(requested_scroll_dips) ||
-        (view && (view->channel_count > view->channel_capacity ||
-                  (view->channel_count != 0 && !view->channel_rows)))) {
+    if (!scene->rows.data || !scene->widgets.storage.data || !ui_rect_valid_or_empty(viewport) ||
+        !ui_coordinate_valid(requested_scroll_dips)) {
         return scene_error(scene, ShellNavigationSceneError::invalid_input);
     }
 
@@ -382,7 +379,7 @@ ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* s
 
 bool shell_navigation_scene_set_banner(ShellNavigationScene* scene, float inset, bool header_hovered,
                                        u32 revision) noexcept {
-    if (!scene || !ui_extent_valid(inset))
+    if (!ui_extent_valid(inset))
         return false;
     const bool changed = scene->banner_inset != inset || scene->banner_header_hovered != header_hovered ||
                          scene->banner_revision != revision;
@@ -399,7 +396,7 @@ bool shell_navigation_scene_set_banner(ShellNavigationScene* scene, float inset,
 ShellNavigationSceneResult shell_navigation_scene_scroll(ShellNavigationScene* scene,
                                                          const NavigationView* view,
                                                          float delta_dips) noexcept {
-    if (!scene || !ui_coordinate_valid(delta_dips)) {
+    if (!ui_coordinate_valid(delta_dips)) {
         return scene_error(scene, ShellNavigationSceneError::invalid_input);
     }
     return shell_navigation_scene_update(scene, view, scene->viewport, scene->scroll_dips + delta_dips);
@@ -434,9 +431,6 @@ ShellNavigationHit shell_navigation_scene_hit_test(const ShellNavigationScene& s
 }
 
 bool shell_navigation_scene_focus_channel(ShellNavigationScene* scene, u64 channel_id) noexcept {
-    if (!scene) {
-        return false;
-    }
     if (channel_id == 0) {
         scene->focused_channel_id = 0;
         return ui_widget_manager_focus(&scene->widgets, ui_widget_invalid_handle());
@@ -454,8 +448,7 @@ bool shell_navigation_scene_focus_channel(ShellNavigationScene* scene, u64 chann
 
 bool shell_navigation_scene_reveal_channel(ShellNavigationScene* scene, const NavigationView& view,
                                            u64 channel_id) noexcept {
-    if (!scene || !scene->active || !channel_id || view.channel_count > view.channel_capacity ||
-        (view.channel_count && !view.channel_rows))
+    if (!scene->active || !channel_id)
         return false;
     float top = shell_navigation_top_inset(*scene);
     for (u32 i = 0; i < view.channel_count; ++i) {
@@ -480,8 +473,8 @@ bool shell_navigation_scene_reveal_channel(ShellNavigationScene* scene, const Na
 
 ShellNavigationHit shell_navigation_scene_page(ShellNavigationScene* scene,
                                                const NavigationView& view, bool reverse) noexcept {
-    if (!scene || !scene->active || !ui_coordinate_valid(scene->scroll_dips) || scene->scroll_dips < 0 ||
-        !ui_rect_valid(scene->viewport) || view.channel_count > view.channel_capacity || !view.channel_rows)
+    if (!scene->active || !ui_coordinate_valid(scene->scroll_dips) || scene->scroll_dips < 0 ||
+        !ui_rect_valid(scene->viewport) || !view.channel_rows)
         return {};
     struct Source {
         const NavigationView* view;

@@ -483,7 +483,7 @@ UiLayoutStyle ui_layout_spacer_style(float height) noexcept {
 }
 
 bool ui_layout_engine_initialize(UiLayoutEngine* engine, Slice<UiLayoutNode> storage) noexcept {
-    if (!engine || !storage.data || storage.count == 0 || storage.count > kInvalidUiLayoutSlot) {
+    if (!storage.data || storage.count == 0 || storage.count > kInvalidUiLayoutSlot) {
         return false;
     }
     reset_value<UiLayoutEngine>(engine);
@@ -493,7 +493,7 @@ bool ui_layout_engine_initialize(UiLayoutEngine* engine, Slice<UiLayoutNode> sto
 }
 
 void ui_layout_engine_reset(UiLayoutEngine* engine) noexcept {
-    if (!engine || !engine->storage.data || engine->storage.count == 0) {
+    if (!engine->storage.data || engine->storage.count == 0) {
         return;
     }
     ++engine->generation;
@@ -506,7 +506,7 @@ void ui_layout_engine_reset(UiLayoutEngine* engine) noexcept {
 
 bool ui_layout_engine_set_measure_callback(UiLayoutEngine* engine, UiLayoutMeasureCallback callback,
                                            void* context) noexcept {
-    if (!engine || !engine->storage.data || (!callback && context)) {
+    if (!engine->storage.data || (!callback && context)) {
         return false;
     }
     engine->measure_callback = callback;
@@ -520,10 +520,8 @@ bool ui_layout_engine_set_measure_callback(UiLayoutEngine* engine, UiLayoutMeasu
 UiLayoutResult ui_layout_engine_add(UiLayoutEngine* engine, UiLayoutNodeHandle parent,
                                     const UiLayoutNodeSpec& specification,
                                     UiLayoutNodeHandle* handle) noexcept {
-    if (handle) {
-        *handle = ui_layout_invalid_handle();
-    }
-    if (!engine || !handle || !engine->storage.data) {
+    // The widget manager is the one caller: it passes its own engine and handle, and reads the handle only on success.
+    if (!engine->storage.data) {
         return UiLayoutResult{UiLayoutError::invalid_argument, 0, 0};
     }
     if (engine->count >= engine->storage.count || engine->count >= kInvalidUiLayoutSlot) {
@@ -570,7 +568,8 @@ UiLayoutResult ui_layout_engine_add(UiLayoutEngine* engine, UiLayoutNodeHandle p
 
 UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine, UiRect viewport_rectangle,
                                                  bool arrange_only) noexcept {
-    if (!engine || !engine->storage.data || engine->count == 0) {
+    // A node exists only in storage that add accepted.
+    if (engine->count == 0) {
         return UiLayoutResult{UiLayoutError::missing_root, 0, 0};
     }
     if (!ui_rect_valid(viewport_rectangle)) {
@@ -626,7 +625,7 @@ UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine, UiRect 
 
 bool ui_layout_engine_set_scroll(UiLayoutEngine* engine, UiLayoutNodeHandle handle,
                                  UiPoint offset) noexcept {
-    UiLayoutNode* node = ui_layout_engine_resolve(engine, handle);
+    auto* node = const_cast<UiLayoutNode*>(ui_layout_engine_resolve(*engine, handle));
     if (!node || !ui_extent_valid(offset.x) || !ui_extent_valid(offset.y) ||
         (offset.x != 0.0f && !has_flag(node->spec.style, ui_layout_node_scroll_horizontal)) ||
         (offset.y != 0.0f && !has_flag(node->spec.style, ui_layout_node_scroll_vertical))) {
@@ -636,20 +635,14 @@ bool ui_layout_engine_set_scroll(UiLayoutEngine* engine, UiLayoutNodeHandle hand
     return true;
 }
 
+// A node below the count was added under a nonzero engine generation, so a zero handle generation never matches it.
 const UiLayoutNode* ui_layout_engine_resolve(const UiLayoutEngine& engine,
                                              UiLayoutNodeHandle handle) noexcept {
-    if (handle.generation == 0 || handle.slot >= engine.count) {
+    if (handle.slot >= engine.count) {
         return nullptr;
     }
     const UiLayoutNode& node = engine.storage[handle.slot];
     return node.generation == handle.generation ? &node : nullptr;
-}
-
-UiLayoutNode* ui_layout_engine_resolve(UiLayoutEngine* engine, UiLayoutNodeHandle handle) noexcept {
-    if (!engine) {
-        return nullptr;
-    }
-    return const_cast<UiLayoutNode*>(ui_layout_engine_resolve(*engine, handle));
 }
 
 } // namespace maicord

@@ -315,14 +315,6 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
               fixture.scene.owner_id == 7 && fixture.scene.revision == revision &&
               fixture.rows[0].widget.generation == retained_row.generation,
           "menu row: invalid icon metadata preserves the current popup and its generation");
-    fixture.rows[0].widget.generation ^= 1;
-    check(!popup_scene_menu_row_geometry(fixture.scene, 0, &first),
-          "menu row: recycled row handles cannot emit icon or text geometry");
-    fixture.rows[0].widget = retained_row;
-    fixture.rows[0].source_index = 3;
-    check(!popup_scene_menu_row_geometry(fixture.scene, 0, &first),
-          "menu row: a tampered source index cannot project another retained row's text or icon");
-    fixture.rows[0].source_index = 0;
     paint_stream_release(&paint);
 
     MessageRecord message{};

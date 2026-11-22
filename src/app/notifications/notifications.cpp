@@ -288,7 +288,6 @@ bool retention_unavailable(ApplicationNotifications& n) noexcept {
 bool retention_room(ApplicationNotifications& n,u64 channel) noexcept {
     const auto room=notification_retention_room(&n.retention,channel);
     if(room.ok()) return true;
-    if(room.error!=NotificationRetentionError::full_channels) return retention_unavailable(n);
     // Two replacement banks grow only when a new channel needs a slot. The
     // old banks remain valid until both allocations and rebind succeed.
     const u32 old_capacity=n.retention.rows.count;
@@ -332,7 +331,6 @@ void release_storage(ApplicationNotifications& n) noexcept {
     stable_storage_release(&n.guild_scopes); stable_storage_release(&n.channel_scopes);
 }
 ApplicationNotifications* ensure(Application* a) noexcept {
-    if(!a) return nullptr;
     if(a->notifications) return a->notifications;
     auto* n = commit_pages<ApplicationNotifications>();
     if(!n) return nullptr;
@@ -578,7 +576,6 @@ void application_notifications_set_avatar_source(ApplicationNotificationAvatarFu
     g_notification_avatar = source;
 }
 bool application_notifications_initialize(Application* a) noexcept {
-    if(!a) return false;
     if(!notification_identity_set_process({app_id,sizeof(app_id)/sizeof(wchar_t)-1}).ok()) return false;
     // A path-sized identity is transient and does not enlarge Application.
     auto* identity=commit_pages<Identity>();
@@ -599,7 +596,7 @@ bool application_notifications_initialize(Application* a) noexcept {
     return result.ok();
 }
 void application_notifications_attach_window(Application* a) noexcept {
-    if(!a || !a->notifications) return;
+    if(!a->notifications) return;
     auto& n=*a->notifications;
     if(n.native.runtime) desktop_notifications_set_wake(&n.native,wake_target(*a));
     // Startup attaches HWND before the first account request launches audio.
@@ -608,14 +605,14 @@ void application_notifications_attach_window(Application* a) noexcept {
     }
 }
 void application_notifications_voice_sounds(Application* a,bool enabled) noexcept {
-    auto* n=a?a->notifications:nullptr;
+    auto* n=a->notifications;
     if(!n || n->voice_sounds==enabled) return;
     n->voice_sounds=enabled;
     // The worker turns on or off only while message sounds are off.
     if(!n->audio_preference) audio_reset(*n,enabled && n->profile!=0);
 }
 void application_notifications_voice_sound(Application* a,VoiceConnectionSound sound,u32 volume_percent) noexcept {
-    auto* n=a?a->notifications:nullptr;
+    auto* n=a->notifications;
     // Streamer Mode's "Disable all sound effects". A full worker skips the sound: a refused submit turns audio off.
     if(!n || sound==VoiceConnectionSound::none || !n->voice_sounds || !volume_percent || volume_percent>100 ||
         application_streamer_disable_sounds() || !audio_capacity(*n,1)) return;
@@ -681,10 +678,10 @@ bool application_notifications_setup(Application* a) noexcept {
     return result.ok();
 }
 Utf8View application_notifications_status(const Application* a) noexcept {
-    return a && a->notifications?a->notifications->status:utf8_literal("Desktop notifications aren't set up yet. Select Set up to turn them on.");
+    return a->notifications?a->notifications->status:utf8_literal("Desktop notifications aren't set up yet. Select Set up to turn them on.");
 }
 const MessageNotificationStore* application_notifications_store(const Application* a) noexcept {
-    return a && a->notifications?&a->notifications->settings:nullptr;
+    return a->notifications?&a->notifications->settings:nullptr;
 }
 bool application_notifications_project(Application* a,u64 guild,u64 channel,const MessageNotificationSetting& value) noexcept {
     auto* n=ensure(a); if(!n || (!guild && !channel)) return false;
@@ -711,7 +708,7 @@ bool application_notifications_project(Application* a,u64 guild,u64 channel,cons
 }
 namespace {
 void acknowledge(Application* a,u64 channel,bool defer_removal) noexcept {
-    if(!a || !a->notifications || !channel) return;
+    if(!a->notifications || !channel) return;
     auto& n=*a->notifications;
     notification_retention_discard_channel(&n.retention,channel);
     if(n.display) {
@@ -732,7 +729,7 @@ void application_notifications_ack(Application* a,u64 channel) noexcept {
     acknowledge(a,channel,false);
 }
 bool application_notifications_can_pop(Application* a) noexcept {
-    if(!a || !a->notifications) return true;
+    if(!a->notifications) return true;
     auto& n=*a->notifications;
     audio_preferences(*a,n); audio_observe(n);
     if(!n.ready || !n.live || n.snapshot || n.snapshot_failed || n.profile!=a->account.status.profile_id) {
@@ -757,14 +754,14 @@ bool application_notifications_can_pop(Application* a) noexcept {
     return available && !n.audio_backpressured;
 }
 bool application_notifications_gateway_pending(const Application* a) noexcept {
-    if(!a || !a->notifications) return false;
+    if(!a->notifications) return false;
     const auto& n=*a->notifications;
     if(n.audio_backpressured)
         return !n.audio_preference || !audio_sink(n) || audio_capacity(n,2);
     return n.backpressured;
 }
 u64 application_notifications_next_wake(const Application* a) noexcept {
-    if(!a || !a->notifications) return 0;
+    if(!a->notifications) return 0;
     const auto& n=*a->notifications;
     // The timer flag first: audio_capacity takes the audio worker's lock.
     u64 deadline{};
@@ -773,7 +770,7 @@ u64 application_notifications_next_wake(const Application* a) noexcept {
     return deadline;
 }
 void application_notifications_selection(Application* a) noexcept {
-    if(!a || !a->notifications || !a->account_ui) return;
+    if(!a->notifications || !a->account_ui) return;
     auto& n=*a->notifications;
     const u64 selected=a->account_ui->chat_state.selected_channel_id;
     const bool window_focused=focused(n);
@@ -788,7 +785,7 @@ static bool row_audio_ready(const ApplicationNotifications& n,const DesktopNotif
     return !row.sound_id || row.sound_epoch!=n.audio_epoch || !n.audio_preference || !audio_sink(n) || audio_capacity(n,1);
 }
 void application_notifications_drain(Application* a) noexcept {
-    if(!a || !a->notifications) return;
+    if(!a->notifications) return;
     auto& n=*a->notifications;
     audio_preferences(*a,n); audio_observe(n);
     const bool audio_can_resume=n.audio_backpressured &&
@@ -921,10 +918,10 @@ void application_notifications_drain(Application* a) noexcept {
         log_write(LogLevel::warning,"notifications","activation_navigation_failed");
 }
 void application_notifications_wake(Application* a) noexcept {
-    if(a && a->notifications) a->notifications->work_pending=true;
+    if(a->notifications) a->notifications->work_pending=true;
 }
 void application_notifications_account_stop(Application* a) noexcept {
-    if(!a || !a->notifications) return;
+    if(!a->notifications) return;
     auto& n=*a->notifications;
     audio_reset(n,false);
     if(n.enrolled && n.profile) transport_error(n,desktop_notifications_remove_profile(&n.native,n.profile));
@@ -937,7 +934,7 @@ void application_notifications_account_stop(Application* a) noexcept {
     desktop_notifications_discard_activations(&n.native);
 }
 void application_notifications_release(Application* a) noexcept {
-    if(!a || !a->notifications) return;
+    if(!a->notifications) return;
     auto& n=*a->notifications;
     const auto joined=notification_audio_release(&n.audio,2000);
     if(!joined.ok()) {
@@ -953,7 +950,7 @@ void application_notifications_release(Application* a) noexcept {
 void application_notifications_prepare_shutdown(Application* a) noexcept {
     // Normal process shutdown retains OS history for later cold activation.
     // Explicit account invalidation still removes that profile's history.
-    if(a && a->notifications) {
+    if(a->notifications) {
         audio_reset(*a->notifications,false);
         a->notifications->backpressured=a->notifications->audio_backpressured=false;
         a->notifications->profile=0;
@@ -988,11 +985,11 @@ void application_notifications_fixture_retention_oom(Application* a,u32 bank) no
 }
 u64 application_notifications_fixture_retained(Application* a,u64 channel,u32 ordinal) noexcept {
     u64 ticket{};
-    if(a && a->notifications) notification_retention_ticket(&a->notifications->retention,channel,ordinal,&ticket);
+    if(a->notifications) notification_retention_ticket(&a->notifications->retention,channel,ordinal,&ticket);
     return ticket;
 }
 ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(Application* a) noexcept {
-    if(!a || !a->notifications) return {};
+    if(!a->notifications) return {};
     const auto& n=*a->notifications;
     ApplicationNotificationFixtureMetrics metrics{};
     metrics.guilds=n.settings.guild_count; metrics.overrides=n.settings.override_count;
@@ -1088,7 +1085,7 @@ __declspec(noinline) static void apply_sidecar(ApplicationNotifications* n,const
     }
 }
 void application_notifications_gateway(Application* a,const GatewayClientEvent& event,ConstSlice<u8> payload) noexcept {
-    if(!a || event.dispatch_payload_bytes!=payload.count) return;
+    if(event.dispatch_payload_bytes!=payload.count) return;
     auto* n=a->notifications;
     if(event.kind==GatewayClientEventKind::ready) {
         n=ensure(a); if(!n) return;
@@ -1158,7 +1155,7 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
             (!event.notification.override_count || stable_storage_reserve(&n->staging,event.notification.override_count));
         auto* rows=stable_storage_data<MessageNotificationOverride>(n->staging);
         for(u32 i=0;valid && i<event.notification.override_count;++i)
-            valid=gateway_client_notification_override_at(event,payload,i,rows+i);
+            valid=gateway_client_notification_override_at(payload,i,rows+i);
         const u64 version=(event.notification.flags&gateway_notification_version_known)?event.notification.version:n->settings.version;
         // Snapshot entries come from one server-confirmed packet, whose per-guild
         // versions may differ. Accept every entry before advancing the stored
@@ -1233,7 +1230,7 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
 MessageReadBadge application_notifications_read_badge(void* context,const GatewayClientEvent& event,
                                                       ConstSlice<u8> payload) noexcept {
     const auto* a=static_cast<Application*>(context);
-    if(!a||!a->notifications||!a->account_ui||
+    if(!a->notifications||!a->account_ui||
         event.message.mention_role_count>kGatewayMessageMentionRoleMaximumIds)return MessageReadBadge::none;
     const auto& n=*a->notifications;const auto& state=a->account_ui->chat_state;
     const auto* channel=chat_state_store_find_channel(state,event.message.channel_id);
@@ -1263,7 +1260,7 @@ MessageReadBadge application_notifications_read_badge(void* context,const Gatewa
 }
 void application_notifications_message(void* context,const GatewayClientEvent& event,ConstSlice<u8> payload) noexcept {
     auto* a=static_cast<Application*>(context);
-    if(!a || !a->notifications || !a->account_ui || event.dispatch_kind!=GatewayClientDispatchKind::message_create) return;
+    if(!a->notifications || !a->account_ui || event.dispatch_kind!=GatewayClientDispatchKind::message_create) return;
     auto& n=*a->notifications; auto& ui=*a->account_ui; const auto& state=ui.chat_state;
     if(n.profile!=a->account.status.profile_id || !event.has_sequence) return;
     if(n.has_create_sequence && event.sequence<=n.create_sequence) return;

@@ -225,7 +225,7 @@ void search_group(void* context, u8 group, UiAccessNodeDesc* description) noexce
     }
 }
 
-void describe_search(void* context, const UiWidgetManager& manager, UiWidgetHandle handle, const UiWidget&,
+void describe_search(void* context, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&,
                      const UiLayoutNode&, UiAccessWidgetInfo* info) noexcept {
     const auto& s = *static_cast<const UiSearchScene*>(context);
     const auto* content = s.content;
@@ -250,7 +250,7 @@ void describe_search(void* context, const UiWidgetManager& manager, UiWidgetHand
         info->actions = ui_access_action_invoke;
         return;
     }
-    if (!s.targets || handle.slot >= manager.count || !content)
+    if (!s.targets || !content)
         return;
     const UiSearchTarget& target = s.targets[handle.slot];
     switch (target.action) {
@@ -609,11 +609,11 @@ void inbox_group(void*, u8, UiAccessNodeDesc* description) noexcept {
     description->name = utf8_literal("Inbox sections");
 }
 
-void describe_inbox(void* context, const UiWidgetManager& manager, UiWidgetHandle handle, const UiWidget&,
+void describe_inbox(void* context, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&,
                     const UiLayoutNode&, UiAccessWidgetInfo* info) noexcept {
     const auto& s = *static_cast<const UiInboxScene*>(context);
     const auto* content = s.content;
-    if (handle.slot < manager.count && handle.slot < kUiInboxWidgetCapacity && s.focused.action != UiInboxAction::none &&
+    if (handle.slot < kUiInboxWidgetCapacity && s.focused.action != UiInboxAction::none &&
         ui_inbox_target_equal(s.targets[handle.slot], s.focused))
         info->state |= ui_access_focused;
     if (same(handle, s.root)) {
@@ -1641,7 +1641,7 @@ u32 ui_access_add_media_picker(UiAccessTree* tree, u32 parent, const UiMediaPick
 }
 
 bool ui_access_quick_switcher_summary(const UiQuickSwitcherScene& scene, UiAccessNameBuilder* output) noexcept {
-    if (!output || !scene.active || !scene.content)
+    if (!scene.active || !scene.content)
         return false;
     output->clear();
     switch (scene.content->phase) {
@@ -1660,7 +1660,7 @@ bool ui_access_quick_switcher_summary(const UiQuickSwitcherScene& scene, UiAcces
 }
 
 bool ui_access_search_summary(const UiSearchScene& scene, UiAccessNameBuilder* output) noexcept {
-    if (!output || !scene.active || !scene.content || !scene.count_bytes ||
+    if (!scene.active || !scene.content || !scene.count_bytes ||
         scene.content->phase == UiSearchPhase::empty)
         return false;
     output->clear().add({scene.count_text, scene.count_bytes});

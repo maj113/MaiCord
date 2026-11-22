@@ -261,7 +261,7 @@ Color ui_caption_bar_title_color(const Theme& theme, const UiCaptionBarState& st
 
 bool ui_caption_bar_paint(PaintStream* paint, const Theme& theme, const UiCaptionBarLayout& layout,
                           const UiCaptionBarState& state, float pixel_scale, u32* buttons_first) noexcept {
-    if (!paint || !(pixel_scale > 0))
+    if (!(pixel_scale > 0))
         return false;
     const auto& tokens = theme.tokens.caption;
     // The shell's backdrop at the app frame's tier: a gradient and the

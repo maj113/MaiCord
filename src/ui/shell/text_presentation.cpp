@@ -386,8 +386,6 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                           const GuildRailScene* guild_scene,
                                           u64 visual_selected_channel_id, UiTextMeasureCache* measure) noexcept {
     if (!ui_text_output_valid(stream) || scene.count == 0 ||
-        navigation.channel_count > navigation.channel_capacity ||
-        (navigation.channel_count != 0 && !navigation.channel_rows) ||
         (guild_scene && guild_scene->active &&
          (!guild_scene->rows.data || guild_scene->count > guild_scene->rows.count ||
           !ui_rect_has_area(guild_scene->viewport))) ||
@@ -451,7 +449,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
             const Utf8View name = chat_state_store_guild_name(state, *selected_guild);
             // A guild header draws the name on its dropdown button, the
             // chevron right after it (shell_guild_header_geometry).
-            const UiLayoutNode* guild_menu = selected_guild ? ui_scene_node(scene, UiSemantic::guild_menu) : nullptr;
+            const UiLayoutNode* guild_menu = ui_scene_node(scene, UiSemantic::guild_menu);
             const UiLayoutNode* owner = guild_menu ? guild_menu : channel_header;
             UiRect header_text_rectangle =
                 ui_scene_content_rectangle(scene, guild_menu ? UiSemantic::guild_menu : UiSemantic::channel_header);
@@ -466,7 +464,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                 header_text_rectangle.right = minimum(geometry.chevron.left, geometry.name.right + 1.f);
             }
             // Over a server banner the name turns white with a drop shadow.
-            const bool banner = selected_guild && shell_presentation_guild_banner_visible(scene, &channel_scene);
+            const bool banner = shell_presentation_guild_banner_visible(scene, &channel_scene);
             if (banner) {
                 const UiRect shadow{header_text_rectangle.left, header_text_rectangle.top + 1,
                                     header_text_rectangle.right, header_text_rectangle.bottom + 1};

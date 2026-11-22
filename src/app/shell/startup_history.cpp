@@ -94,13 +94,12 @@ bool page_current(u64 channel_id, Utf8View body) noexcept {
 } // namespace
 
 bool application_startup_history_submit(u64 channel_id) noexcept {
-    AccountHost& host = g_app.account;
     release_body();
     reset_value(&g_startup);
-    if (!channel_id || !host.instance)
+    if (!channel_id)
         return false;
     const MessageHistoryQuery query{0, kMessageHistoryRequestLimit, MessageHistoryPosition::latest};
-    if (!account_module_history_submit(host.instance, channel_id, &query, kStartupHistoryRequestId).ok())
+    if (!account_module_history_submit(g_app.account.instance, channel_id, &query, kStartupHistoryRequestId).ok())
         return false;
     g_startup.channel_id = channel_id;
     g_startup.request_id = kStartupHistoryRequestId;

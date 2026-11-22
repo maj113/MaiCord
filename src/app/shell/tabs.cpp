@@ -233,10 +233,9 @@ void settle() noexcept {
 }
 
 // READY has landed and the remembered selection was placed: the channels the tabs name are known.
-bool settled() noexcept {
-    const AccountUiRuntime* ui = g_app.account_ui;
-    return ui && g_app.account.instance && g_app.account.status.running && !g_app.startup_shell_provisional &&
-           ui->chat_state.self_user_id && !ui->chat_state.restore_channel_id && !ui->chat_state.selection_held;
+bool settled(const AccountUiRuntime& ui) noexcept {
+    return g_app.account.instance && g_app.account.status.running && !g_app.startup_shell_provisional &&
+           ui.chat_state.self_user_id && !ui.chat_state.restore_channel_id && !ui.chat_state.selection_held;
 }
 
 // The strip shows, for the account whose memory is loaded (another account's tabs are gone). While it does not, no
@@ -297,7 +296,7 @@ bool gone(const Tab& tab) noexcept {
 // Adopts the saved tabs once READY settled, keeps labels current and closes the tabs whose channel is gone.
 void follow_account() noexcept {
     const AccountUiRuntime& ui = *g_app.account_ui;
-    const bool ready = settled();
+    const bool ready = settled(ui);
     const bool adopt = ready && !g_tabs.restored;
     if (adopt) {
         const ConstSlice<ChannelMemoryTab> saved = application_channel_memory_tabs();
@@ -313,15 +312,15 @@ void follow_account() noexcept {
     if (!adopt && bytes_equal(stamp, g_tabs.stamp, sizeof(stamp)))
         return;
     copy_bytes(g_tabs.stamp, stamp, sizeof(stamp));
+    // Adopted above when ready, so the tabs are the restored ones.
     bool any = false;
-    for (u32 i = 0; i < g_tabs.count; ++i)
-        any = any || (live_channel(g_tabs.items[i]) && gone(g_tabs.items[i]));
-    if (any && g_tabs.restored && ready) {
+    for (u32 i = 0; ready && i < g_tabs.count; ++i)
+        if (live_channel(g_tabs.items[i]) && gone(g_tabs.items[i])) {
+            g_tabs.items[i].flags |= kUiTabClosing;
+            any = true;
+        }
+    if (any)
         begin();
-        for (u32 i = 0; i < g_tabs.count; ++i)
-            if (live_channel(g_tabs.items[i]) && gone(g_tabs.items[i]))
-                g_tabs.items[i].flags |= kUiTabClosing;
-    }
     for (u32 i = 0; i < g_tabs.count; ++i)
         if (live_channel(g_tabs.items[i]))
             describe(&g_tabs.items[i]);

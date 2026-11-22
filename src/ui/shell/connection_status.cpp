@@ -37,8 +37,6 @@ UiConnectionStatus target(const UiConnectionIndicator& c, u64 now_ms, u32* secon
 
 bool ui_connection_indicator_set(UiConnectionIndicator* c, UiConnectionLink link, u64 retry_at_ms,
                                  u64 now_ms) noexcept {
-    if (!c)
-        return false;
     if (link == UiConnectionLink::up)
         c->down_ms = 0;
     else if (c->link == UiConnectionLink::up)
@@ -49,8 +47,6 @@ bool ui_connection_indicator_set(UiConnectionIndicator* c, UiConnectionLink link
 }
 
 bool ui_connection_indicator_tick(UiConnectionIndicator* c, u64 now_ms) noexcept {
-    if (!c)
-        return false;
     u32 seconds = 0;
     const UiConnectionStatus shown = target(*c, now_ms, &seconds);
     if (shown == c->shown && seconds == c->seconds)

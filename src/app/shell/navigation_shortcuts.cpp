@@ -44,11 +44,6 @@ bool focus_eligible(void* opaque, u32 index) noexcept {
     // conversation shortcuts continue using the activation predicate above.
     return row.id && (row.selectable || row.type == 4);
 }
-// False when the view's row list for this rail is inconsistent.
-bool rows_valid(const NavigationView& view, bool guild, u32 rows) noexcept {
-    return rows <= (guild ? view.guild_capacity : view.channel_capacity) && rows != ~0u &&
-           (!rows || (guild ? view.guild_rows != nullptr : view.channel_rows != nullptr));
-}
 // The list index (the guild rail's home entry is index 0) of `id`, else home or none.
 u32 current_index(const NavigationView& view, bool guild, u32 rows, u64 id) noexcept {
     const u32 found = guild ? selected_row(view.guild_rows, rows, id) : selected_row(view.channel_rows, rows, id);
@@ -91,12 +86,10 @@ NavigationShortcut navigation_shortcut(u32 key, bool control, bool alt, bool shi
 
 NavigationTarget navigation_target(const NavigationView& view,
                                    NavigationShortcut shortcut) noexcept {
-    if (shortcut.mode == NavigationMode::none || shortcut.mode > NavigationMode::mention)
+    if (shortcut.mode == NavigationMode::none)
         return {};
     const bool guild = shortcut.mode == NavigationMode::guild;
     const u32 row_count = guild ? view.guild_count : view.channel_count;
-    if (!rows_valid(view, guild, row_count))
-        return {};
     Candidates candidates{&view, shortcut.mode};
     const u32 current =
         current_index(view, guild, row_count, guild ? view.selected_guild_id : view.selected_channel_id);
@@ -107,8 +100,6 @@ NavigationTarget navigation_target(const NavigationView& view,
 NavigationTarget navigation_focus_target(const NavigationView& view, bool guild, u64 focused_id,
                                          UiListMove move) noexcept {
     const u32 rows = guild ? view.guild_count : view.channel_count;
-    if (!rows_valid(view, guild, rows))
-        return {};
     Candidates candidates{&view, guild ? NavigationMode::guild : NavigationMode::channel};
     return target_at(view, guild,
                      ui_list_move(rows + (guild ? 1u : 0u), current_index(view, guild, rows, focused_id), move,

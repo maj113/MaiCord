@@ -195,7 +195,6 @@ void test_good_plugins(Place& place) noexcept {
         check(plugin_image_load(&image, place.pinned, leaf(L"good.so"), kPermissions).error == PluginLoadError::already_loaded,
               "an image that holds a plugin is not loaded twice");
         check(plugin_image_unload(&image).ok() && !image.module && !mapped(L"good.so"), "unload frees the plugin");
-        check(plugin_image_unload(&image).error == PluginLoadError::invalid_argument, "unloading nothing is refused");
     }
     // The file on disk is not the mapped image: replacing it after the load changes nothing.
     place.put(L"clear-urls.dll", L"swap.so");
