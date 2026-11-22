@@ -55,9 +55,29 @@ struct HevcBits {
         return result;
     }
     bool bit() noexcept {
-        return read(1) != 0;
+        if (!remaining || error != HevcError::none)
+            return read(1) != 0;
+        --remaining;
+        ++position;
+        return (current >> remaining) & 1u;
     }
+    // A code inside the current byte is taken at once (its leading zeros counted with the unread bits at the top of a
+    // word); any other goes a bit at a time.
     __declspec(noinline) u32 ue(u32 maximum = 0x7fffffffu) noexcept {
+        const u32 unread = remaining ? u32{current} << (32u - remaining) : 0u;
+        if (unread && error == HevcError::none) {
+            const u32 zeros = static_cast<u32>(__builtin_clz(unread));
+            if (2 * zeros < remaining) {
+                remaining = static_cast<u8>(remaining - 2 * zeros - 1);
+                position += 2 * zeros + 1;
+                const u32 value = (1u << zeros) - 1 + ((current >> remaining) & ((1u << zeros) - 1u));
+                if (value > maximum) {
+                    error = HevcError::malformed;
+                    return 0;
+                }
+                return value;
+            }
+        }
         u32 zeros_count{};
 #pragma clang loop unroll(disable)
         while (error == HevcError::none && !bit())

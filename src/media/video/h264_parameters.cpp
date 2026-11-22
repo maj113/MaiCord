@@ -1,4 +1,5 @@
 #include "maicord/media/video/h264_parameters.hpp"
+#include "maicord/media/video/video_display.hpp"
 #include "maicord/core/memory.hpp"
 #include "h264_bits.hpp"
 #include "maicord/sys/crt.hpp"
@@ -21,9 +22,6 @@ constexpr u8 default_large[2][64] = {
      21,21,21,21,21,22,22,22,22,22,22,22,24,24,24,24,
      24,24,24,24,25,25,25,25,25,25,25,27,27,27,27,27,
      27,28,28,28,28,28,30,30,30,30,32,32,32,33,33,35}};
-constexpr u16 sar[17][2] = {{0,0},{1,1},{12,11},{10,11},{16,11},{40,33},
-    {24,11},{20,11},{32,11},{80,33},{18,11},{15,11},{64,33},
-    {160,99},{4,3},{3,2},{2,1}};
 
 H264Bits payload(ConstSlice<u8> nal, u8 type) noexcept {
     H264Bits bits{};
@@ -74,7 +72,7 @@ void vui(H264Bits* bits, H264Sps* sps) noexcept {
             sps->sar_width = static_cast<u16>(bits->read(16));
             sps->sar_height = static_cast<u16>(bits->read(16));
         } else if (id < 17) {
-            sps->sar_width = sar[id][0]; sps->sar_height = sar[id][1];
+            sps->sar_width = kVuiSampleAspect[id][0]; sps->sar_height = kVuiSampleAspect[id][1];
         } else { bits->error = H264Error::malformed; return; }
         if (!sps->sar_width || !sps->sar_height) sps->sar_width = sps->sar_height = 1;
     }

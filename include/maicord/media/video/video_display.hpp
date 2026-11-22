@@ -9,6 +9,11 @@ struct VideoDisplayExtent {
     u16 height;
 };
 
+// The sample aspect ratios of aspect_ratio_idc 0-16 (H.264 Table E-1, H.265 Table E.1).
+inline constexpr u16 kVuiSampleAspect[17][2]{{0, 0},  {1, 1},   {12, 11}, {10, 11}, {16, 11}, {40, 33},
+                                             {24, 11}, {20, 11}, {32, 11}, {80, 33}, {18, 11}, {15, 11},
+                                             {64, 33}, {160, 99}, {4, 3},   {3, 2},   {2, 1}};
+
 // Natural square-pixel size of the cropped picture. Grow width for wide
 // pixels and height for narrow pixels, rounding once. This describes layout,
 // never the decoder surface, atlas allocation, or upload size. Unrepresentable

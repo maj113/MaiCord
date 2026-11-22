@@ -28,13 +28,23 @@ struct Bits {
             position = bits;
             return 0;
         }
-        u32 value = 0;
-        for (u32 i = 0; i < count; ++i, ++position)
-            value = value << 1 | ((data[position >> 3] >> (7 - (position & 7))) & 1u);
+        // The bytes that hold [position, position + count): at most five for 32 bits.
+        const u32 end = (position + count + 7) >> 3;
+        u64 window = 0;
+        for (u32 i = position >> 3; i < end; ++i)
+            window = window << 8 | data[i];
+        const u32 value = static_cast<u32>(window >> (end * 8 - position - count) & ((u64{1} << count) - 1));
+        position += count;
         return value;
     }
     __declspec(noinline) bool flag() noexcept {
-        return f(1) != 0;
+        if (position == bits) {
+            overrun = true;
+            return false;
+        }
+        const bool value = (data[position >> 3] >> (7 - (position & 7))) & 1u;
+        ++position;
+        return value;
     }
     __declspec(noinline) i32 su(u32 count) noexcept {
         const u32 value = f(count);

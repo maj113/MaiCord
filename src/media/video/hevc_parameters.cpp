@@ -1,5 +1,6 @@
 #include "maicord/media/video/hevc.hpp"
 #include "maicord/media/video/gpu_video_frame.hpp"
+#include "maicord/media/video/video_display.hpp"
 #include "maicord/core/memory.hpp"
 #include "hevc_bits.hpp"
 // Header parsing, once per picture and no byte loop: compiled for size.
@@ -151,17 +152,14 @@ void hrd(HevcBits& b, u32 layers) noexcept {
     }
 }
 void vui(HevcBits& b, HevcSps& s) noexcept {
-    static constexpr u16 sar[17][2] = {{0, 0},   {1, 1},    {12, 11}, {10, 11}, {16, 11}, {40, 33},
-                                {24, 11}, {20, 11},  {32, 11}, {80, 33}, {18, 11}, {15, 11},
-                                {64, 33}, {160, 99}, {4, 3},   {3, 2},   {2, 1}};
     if (b.bit()) {
         const u32 id = b.read(8);
         if (id == 255) {
             s.sar_width = b.read(16);
             s.sar_height = b.read(16);
         } else if (id < 17) {
-            s.sar_width = sar[id][0];
-            s.sar_height = sar[id][1];
+            s.sar_width = kVuiSampleAspect[id][0];
+            s.sar_height = kVuiSampleAspect[id][1];
         } else {
             b.error = HevcError::malformed;
             return;
