@@ -1,7 +1,7 @@
 // The Khmer, Myanmar and Universal Shaping Engine shapers and the Hangul plan (MaiCordSyllabicShapeTests), checked
 // against HarfBuzz (tests/generated/syllabic_shape_fixture.inc, tools/font_reference/syllabic_fixtures.py). Without
-// MAICORD_SYLLABIC_OWNED the test runs the argument and Hangul plan units and replays the cluster-start corpora of
-// Sinhala, Khmer, Myanmar and Tibetan. It also runs the Indic and Khmer syllable scanners on long joiner runs. With
+// MAICORD_SYLLABIC_OWNED the test runs the Hangul plan units and shapes the cluster-start corpora of Sinhala, Khmer,
+// Myanmar and Tibetan. It also runs the Indic and Khmer syllable scanners on long joiner runs. With
 // MAICORD_SYLLABIC_OWNED=<script> it shapes that script on its Windows system font: plan preparation accounting and
 // failure atomicity, the compact output aliasing every input, malformed UTF-8 and limits, HarfBuzz's output for the
 // sample strings, and a font HarfBuzz shapes the script in with its default shaper or without the script's glyphs.
@@ -22,18 +22,39 @@ u32 checks=0;
 bool failed(u32 line) noexcept {test_write_text("FAIL syllabic line ");test_write_u64(line);test_write_text("\n");return false;}
 #define CHECK(x) do {++checks;if(!(x))return failed(__LINE__);} while(false)
 #include "../../support/script_shape_owner.inc"
+// A font made here: one format 13 cmap group maps every character to glyph 1, and advances only. Every
+// decomposition and composition applies, and no layout table changes a cluster. HarfBuzz's unsafe-to-break flags in a
+// font without layout tables give the same cluster starts.
+constexpr u32 kJoiners=65535,kCapacity=2*kJoiners+64;
+struct RunStorage {
+    SfntComponentGlyph glyphs[kCapacity];SfntComponentNode nodes[kCapacity];u64 bits[kCapacity/64+1];u32 characters[kCapacity],targets[kCapacity];
+    SfntMarkAssociation associations[kCapacity];double advances[kCapacity];u8 flags[kCapacity];SfntPosition positions[kCapacity];
+    SfntPlacement placements[kCapacity];SfntGsubExecutionFrame frames[8];u32 at[kCapacity],rebased[kCapacity],consumed[kCapacity];
+    alignas(16) u8 replacements[kCapacity*sizeof(SfntClusterGlyph)];SfntComponentUndo journal[64];char text[(kJoiners+1)*3];
+} r;
+constexpr u8 every_character[28]{0,13,0,0,0,0,0,28,0,0,0,0,0,0,0,1,0,0,0,0,0,0x10,0xff,0xff,0,0,0,1};
+SfntStatus shape(SfntSyllabicScript script,u32 bytes,SfntShapeRunResult* result,const SfntShapeLimits& limits={}) noexcept {
+    SfntShapePlan plan{};plan.units_per_em=1000;plan.advance=+[](void*,u16 glyph,double* value) noexcept {*value=glyph;return SfntStatus::ok;};
+    const SfntShapeStorage storage{{r.glyphs,kCapacity},{r.nodes,kCapacity},{r.bits,kCapacity/64+1},{r.characters,kCapacity},{r.targets,kCapacity},
+        {r.associations,kCapacity},{r.advances,kCapacity},{r.flags,kCapacity},{r.positions,kCapacity},{r.placements,kCapacity},
+        {{r.frames,8},{r.at,kCapacity},{r.rebased,kCapacity},{r.consumed,kCapacity},{r.replacements,sizeof(r.replacements)},{r.journal,64}},{}};
+    return sfnt_syllabic_run(script,plan,{{every_character,sizeof(every_character)},{},2,13},{r.text,bytes},1000,storage,result,{},{},limits);
+}
 struct Corpus {SfntSyllabicScript script;const char* name;const u32* words;u32 count,cases;};
 template<u32 N> constexpr Corpus corpus(SfntSyllabicScript script,const char* name,const u32 (&words)[N],u32 cases) noexcept {return {script,name,words,N,cases};}
 constexpr Corpus corpora[]{corpus(SfntSyllabicScript::sinhala,"Sinhala",sinhala_clusters,sinhala_cluster_cases),
     corpus(SfntSyllabicScript::khmer,"Khmer",khmer_clusters,khmer_cluster_cases),
     corpus(SfntSyllabicScript::myanmar,"Myanmar",myanmar_clusters,myanmar_cluster_cases),
     corpus(SfntSyllabicScript::tibetan,"Tibetan",tibetan_clusters,tibetan_cluster_cases)};
-// Each vector's cluster starts equal HarfBuzz's, except the pinned divergent vectors, which must still differ.
+// Each vector's cluster starts (a scalar whose first unit maps to another glyph than the unit before it) equal
+// HarfBuzz's, except the pinned divergent vectors, which must still differ.
 bool cluster_corpus(const Corpus& c) noexcept {
     u32 scalars[256]{};u8 starts[256]{};u32 first=0,count=0,done=0,pinned=0,wrong=0;
     for(u32 i=0;i<c.count;++i){const u32 word=c.words[i];CHECK(count<256);scalars[count++]=word&0x1fffffu;
         if(!(word&0x40000000u))continue;
-        CHECK(sfnt_syllabic_boundaries(c.script,{scalars,count},{starts,count})==SfntStatus::ok);
+        u32 bytes=0;for(u32 j=0;j<count;++j)bytes+=utf8_encode(scalars[j],r.text+bytes);
+        SfntShapeRunResult result{};CHECK(shape(c.script,bytes,&result)==SfntStatus::ok);
+        for(u32 j=0,unit=0;j<count;unit+=scalars[j]>0xffff?2:1,++j)starts[j]=!unit||r.characters[unit]!=r.characters[unit-1];
         bool same=true;for(u32 j=0;j<count;++j)same&=starts[j]==(c.words[first+j]>>31);
         // Each wrong case: its index, then scalar:native start:HarfBuzz start, in decimal.
         if(same==((word&0x20000000u)!=0)&&++wrong<=40){test_write_text(c.name);test_write_text(same?" pinned divergent case agrees, ":" cluster case ");
@@ -71,34 +92,17 @@ bool indic_joiner_runs() noexcept {
         CHECK(syllables==c.syllables&&indic==c.indic&&broken==c.broken&&longest==c.longest);}
     test_write_text("PASS Indic joiner runs\n");return true;
 }
-// A Khmer consonant and 65,535 joiners go through the shaper, two times with each joiner. The font is made here: a
-// format 12 cmap of the Khmer block, the joiners and U+25CC, and advances only. Each joiner is a syllable and a
-// cluster of its own. The scanner reads such a run once, not once for each joiner. Before, the time grew with the
-// square of the run length (about 4 s for one run). Then the test did not end in its time limit.
+// A Khmer consonant and 65,535 joiners go through the shaper, two times with each joiner, in the font that maps every
+// character. Each joiner is a syllable and a cluster of its own. The scanner reads such a run once, not once for each
+// joiner. Before, the time grew with the square of the run length (about 4 s for one run). Then the test did not end
+// in its time limit.
 bool khmer_joiner_runs() noexcept {
-    constexpr u32 n=65535,capacity=2*n+64;
-    struct Storage {
-        SfntComponentGlyph glyphs[capacity];SfntComponentNode nodes[capacity];u64 bits[capacity/64+1];u32 characters[capacity],targets[capacity];
-        SfntMarkAssociation associations[capacity];double advances[capacity];u8 flags[capacity];SfntPosition positions[capacity];
-        SfntPlacement placements[capacity];SfntGsubExecutionFrame frames[8];u32 at[capacity],rebased[capacity],consumed[capacity];
-        alignas(16) u8 replacements[capacity*sizeof(SfntClusterGlyph)];SfntComponentUndo journal[64];char text[(n+1)*3];
-    };
-    static Storage s;
-    const u32 groups[3][3]{{0x1780,0x17ff,1},{0x200c,0x200d,129},{0x25cc,0x25cc,131}};u8 cmap[16+3*12]{};
-    byte_store_be32(cmap,0x000c0000u);byte_store_be32(cmap+4,sizeof(cmap));byte_store_be32(cmap+12,3);
-    for(u32 i=0;i<3;++i)for(u32 k=0;k<3;++k)byte_store_be32(cmap+16+i*12+k*4,groups[i][k]);
-    const SfntCmap font{{cmap,sizeof(cmap)},{},132,12};
-    SfntShapePlan plan{};plan.units_per_em=1000;plan.advance=+[](void*,u16 glyph,double* value) noexcept {*value=glyph;return SfntStatus::ok;};
-    const SfntShapeStorage storage{{s.glyphs,capacity},{s.nodes,capacity},{s.bits,capacity/64+1},{s.characters,capacity},{s.targets,capacity},
-        {s.associations,capacity},{s.advances,capacity},{s.flags,capacity},{s.positions,capacity},{s.placements,capacity},
-        {{s.frames,8},{s.at,capacity},{s.rebased,capacity},{s.consumed,capacity},{s.replacements,sizeof(s.replacements)},{s.journal,64}},{}};
-    const u32 joiners[]{0x200d,0x200c,0x200d,0x200c};
+    constexpr u32 n=kJoiners;const u32 joiners[]{0x200d,0x200c,0x200d,0x200c};
     for(const u32 joiner:joiners){
-        u32 bytes=utf8_encode(0x1780,s.text);for(u32 i=0;i<n;++i)bytes+=utf8_encode(joiner,s.text+bytes);
-        SfntShapeRunResult result{};
-        SfntShapeLimits limits{};limits.stage_work=4000000;
-        CHECK(sfnt_syllabic_run(SfntSyllabicScript::khmer,plan,font,{s.text,bytes},1000,storage,&result,{},{},limits)==SfntStatus::ok);
-        CHECK(result.glyph_count==n+1&&result.source_units==n+1&&result.target_count==n+1&&s.glyphs[0].glyph.glyph==1);}
+        u32 bytes=utf8_encode(0x1780,r.text);for(u32 i=0;i<n;++i)bytes+=utf8_encode(joiner,r.text+bytes);
+        SfntShapeRunResult result{};SfntShapeLimits limits{};limits.stage_work=4000000;
+        CHECK(shape(SfntSyllabicScript::khmer,bytes,&result,limits)==SfntStatus::ok);
+        CHECK(result.glyph_count==n+1&&result.source_units==n+1&&result.target_count==n+1&&r.glyphs[0].glyph.glyph==1);}
     test_write_text("PASS Khmer joiner runs\n");return true;
 }
 void put(u8* p,u32 at,u16 v) noexcept {p[at]=static_cast<u8>(v>>8);p[at+1]=static_cast<u8>(v);}

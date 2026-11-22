@@ -417,9 +417,11 @@ SfntStatus sfnt_syllabic_run(SfntSyllabicScript script,const SfntShapePlan& plan
             dotted=circle!=0;if(shaper.repha!=255)while(at<q&&pieces[at].category==shaper.repha)++at;}
         const u32 length=q-p+dotted;if(count+length>capacity||count+length>position_capacity)return SfntStatus::output_too_small;
         // The syllable's cluster starts at its lowest source (HarfBuzz clusters; sorting and composition merged the
-        // sources they moved across). A syllable that starts at or before the previous one joins its cluster.
+        // sources they moved across). A syllable that starts at or before the previous one joins its cluster; one that
+        // opens a cluster inside a grapheme joins the cluster before it.
         u32 first=lowest_source(pieces.data,p,q);if(!boundaries)first=0;
-        if(!boundaries||first>storage.targets[boundaries-1]){
+        const bool opens=!boundaries||first>storage.targets[boundaries-1];
+        if(opens){
             if(boundaries==storage.targets.count||(shaper.use&&boundaries==type_capacity))return SfntStatus::output_too_small;
             if(shaper.use)types[boundaries]=type;storage.targets[boundaries++]=first;}
         const u32 floor=storage.targets[boundaries-1];
@@ -435,7 +437,7 @@ SfntStatus sfnt_syllabic_run(SfntSyllabicScript script,const SfntShapePlan& plan
             out.mapped[count]={{piece.glyph,class_of(piece),static_cast<u8>(i<p+rphf?sfnt_use_rphf:0)},maximum(piece.source,floor)};
             out.meta[count]=static_cast<u8>(piece.category|(default_ignorable(piece.scalar)?ignorable_bit:0));out.original[count++]=piece.glyph;
         }
-        if(pieces[p].continuation)out.meta[start]|=merge_bit;
+        if(opens&&pieces[p].continuation)out.meta[start]|=merge_bit;
         if(&shaper==&khmer){if(type==khmer_consonant||type==khmer_broken)khmer_reorder(out,start,count);}
         else if(&shaper==&myanmar){if(type==myanmar_consonant||type==myanmar_broken)myanmar_reorder(out,positions,start,count);}
         else if(type==use_hieroglyph||type==use_other)last_form=0;
