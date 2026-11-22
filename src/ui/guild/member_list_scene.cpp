@@ -372,7 +372,7 @@ Utf8View member_list_group_label(const MemberListScene& s, u32 index, Slice<char
     const auto& row = s.rows[index];
     if (!row.resident || row.source_row.kind == MemberListRowKind::member)
         return {};
-    const auto group_name = member_list_row_label(row.source_row, *s.members, *s.users, *s.state);
+    const auto group_name = member_list_row_label(row.source_row, *s.members, *s.users, *s.state, s.source->guild_id);
     u32 used = utf8_truncated_length(group_name, 128);
     // Group heading format: "ONLINE — 75,000" (ASCII letters uppercased, em dash, grouped digits).
     for (u32 i = 0; i < used; ++i) {
@@ -436,7 +436,7 @@ UiBadgeWidget member_list_badge_resolve(const MemberListScene& s, u32 index) noe
     const auto natural = ui_badge_widget_layout(s.measure, b, line);
     const float width = ui_rect_width(natural.outer);
     const auto name =
-        member_list_row_label(row.source_row, *s.members, *s.users, *s.state);
+        member_list_row_label(row.source_row, *s.members, *s.users, *s.state, s.source->guild_id);
     const auto* name_style = guild && guild->name.font_id ? guild : a;
     UiTextMeasureValue measured{};
     // "Next to names": the role dot's 12-DIP slot leads the name (shell_text_presentation_member_output).

@@ -57,10 +57,10 @@ u32 hidden_channel_menu_build(const ChatStateStore& state, const UserStore& user
     // Who sees it: roles (highest first), then members an overwrite names.
     const RoleRecord* roles[kRoleRows]{};
     u32 role_count = 0, role_total = 0;
-    for (u32 index = 0; index < state.role_count; ++index) {
-        const RoleRecord& role = state.roles[index];
-        if (role.guild_id != channel.guild_id || role.id == channel.guild_id || role.managed ||
-            !role_sees(state, channel, role.id))
+    const auto guild_roles = chat_state_store_guild_roles(state, channel.guild_id);
+    for (u32 index = 0; index < guild_roles.count; ++index) {
+        const RoleRecord& role = guild_roles[index];
+        if (role.id == channel.guild_id || role.managed || !role_sees(state, channel, role.id))
             continue;
         ++role_total;
         u32 at = role_count;

@@ -16,7 +16,7 @@ struct PermissionMember {
     bool quarantined = false;
 };
 
-// Guild role table may contain other guilds' rows; they are filtered by ID.
+// `roles` is the guild's own run of the role table (chat_state_store_guild_roles), @everyone included.
 struct PermissionGuild {
     u64 guild_id;
     u64 owner_id;
@@ -55,6 +55,8 @@ PermissionSet permission_compute(const PermissionGuild& guild, const PermissionM
 // Store-backed helpers. Channel zero resolves guild-level permissions; a
 // thread resolves through its parent. Missing guild/channel yields zero.
 PermissionGuild chat_state_store_permission_guild(const ChatStateStore& store, u64 guild_id) noexcept;
+// One guild's roles, @everyone included: their run of the store's role table, which is sorted by guild.
+ConstSlice<RoleRecord> chat_state_store_guild_roles(const ChatStateStore& store, u64 guild_id) noexcept;
 PermissionSet chat_state_store_member_permissions(const ChatStateStore& store, u64 guild_id,
                                                      u64 channel_id, const PermissionMember& member,
                                                      const PermissionOptions& options) noexcept;

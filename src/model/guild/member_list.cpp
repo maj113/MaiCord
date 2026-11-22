@@ -21,7 +21,7 @@ inline bool offline(const GuildMemberRecord& member) noexcept {
     return member.status == GuildMemberStatus::offline;
 }
 
-u64 group_id(const GuildMemberRecord& member) noexcept {
+inline u64 group_id(const GuildMemberRecord& member) noexcept {
     if (offline(member)) {
         return kMemberListOfflineGroup;
     }
@@ -49,7 +49,7 @@ Utf8View member_name(const GuildMemberRecord& member, const UserStore& users) no
     return user ? user_store_name(users, *user) : Utf8View{};
 }
 
-bool member_less(const GuildMemberStore& members, const MemberListSortKey& left_key,
+inline bool member_less(const GuildMemberStore& members, const MemberListSortKey& left_key,
                  const MemberListSortKey& right_key) noexcept {
     const GuildMemberRecord& left = members.records[left_key.slot];
     const GuildMemberRecord& right = members.records[right_key.slot];
@@ -390,10 +390,8 @@ const MemberListRow* member_list_view_row(
     return &row;
 }
 
-Utf8View member_list_row_label(const MemberListRow& row,
-                                       const GuildMemberStore& members,
-                                       const UserStore& users,
-                                       const ChatStateStore& state) noexcept {
+Utf8View member_list_row_label(const MemberListRow& row, const GuildMemberStore& members, const UserStore& users,
+                               const ChatStateStore& state, u64 guild_id) noexcept {
     if (row.kind == MemberListRowKind::group) {
         if (row.group_role_id == kMemberListPrivateGroup) return utf8_literal("Members");
         if (row.group_role_id == kMemberListOfflineGroup) {
@@ -402,12 +400,8 @@ Utf8View member_list_row_label(const MemberListRow& row,
         if (row.group_role_id == kMemberListOnlineGroup) {
             return utf8_literal("Online");
         }
-        // Group rows have no member slot. Guild role IDs are unique within the
-        // selected projection, so a bounded state scan is sufficient.
-        for (u32 index = 0; index < state.role_count; ++index)
-            if (state.roles[index].id == row.group_role_id)
-                return chat_state_store_role_name(state, state.roles[index]);
-        return {};
+        const auto* role = chat_state_store_find_role(state, guild_id, row.group_role_id);
+        return role ? chat_state_store_role_name(state, *role) : Utf8View{};
     }
     if (row.member_slot >= members.capacity) {
         const auto nickname = state.private_channels ? private_channel_store_nickname(*state.private_channels, row.group_role_id, row.user_id) : Utf8View{};

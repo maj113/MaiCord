@@ -51,13 +51,13 @@ void self_permission_scope(const ChatStateStore& store, const GuildRecord& guild
     // drops the owner's exemption.
     const bool viewing = chat_state_store_viewing_as(store, guild.id);
     u32 count = 0;
-    const RoleRun run = guild_role_run(store, guild.id);
-    for (u32 index = run.first; index < run.end && count < kGuildRoleMaximum; ++index) {
-        const RoleRecord& role = store.roles[index];
-        if (role.guild_id == guild.id && role.id != guild.id && (viewing ? role.viewing : role.self_assigned))
+    scope->guild = chat_state_store_permission_guild(store, guild.id);
+    const auto roles = scope->guild.roles;
+    for (u32 index = 0; index < roles.count && count < kGuildRoleMaximum; ++index) {
+        const RoleRecord& role = roles[index];
+        if (role.id != guild.id && (viewing ? role.viewing : role.self_assigned))
             scope->role_ids[count++] = role.id;
     }
-    scope->guild = chat_state_store_permission_guild(store, guild.id);
     if (viewing)
         scope->guild.owner_id = 0;
     scope->member = {store.self_user_id, {scope->role_ids, count}, 0,
@@ -733,12 +733,11 @@ bool chat_state_store_viewing_as(const ChatStateStore& store, u64 guild_id) noex
 u32 chat_state_store_view_roles(const ChatStateStore& store, u64 guild_id, Slice<u64> output) noexcept {
     if (!chat_state_store_viewing_as(store, guild_id))
         return 0;
+    const auto roles = chat_state_store_guild_roles(store, guild_id);
     u32 count = 0;
-    for (u32 index = 0; index < store.role_count && count < output.count; ++index) {
-        const RoleRecord& role = store.roles[index];
-        if (role.guild_id == guild_id && role.id != guild_id && role.viewing)
-            output[count++] = role.id;
-    }
+    for (u32 index = 0; index < roles.count && count < output.count; ++index)
+        if (roles[index].id != guild_id && roles[index].viewing)
+            output[count++] = roles[index].id;
     return count;
 }
 
@@ -747,10 +746,9 @@ bool set_view(ChatStateStore* store, u64 guild_id, ConstSlice<u64> role_ids, boo
     if (!store || !guild_id || !store->roles || !chat_state_store_find_guild(*store, guild_id) ||
         !chat_state_store_find_role(*store, guild_id, guild_id))
         return false;
-    for (u32 index = 0; index < store->role_count; ++index) {
+    const RoleRun run = guild_role_run(*store, guild_id);
+    for (u32 index = run.first; index < run.end; ++index) {
         RoleRecord& role = store->roles[index];
-        if (role.guild_id != guild_id)
-            continue;
         bool viewed = active && role.id == guild_id;
         for (u32 i = 0; active && !viewed && i < role_ids.count; ++i)
             viewed = role_ids[i] == role.id;

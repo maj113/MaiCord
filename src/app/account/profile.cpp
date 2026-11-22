@@ -312,13 +312,7 @@ bool open_role_menu(ApplicationProfile& p, UiRect anchor) noexcept {
         return true;
     const auto& state = g_app.account_ui->chat_state;
     const u64 guild = p.data.guild_id;
-    u32 begin = 0;
-    while (begin < state.role_count && state.roles[begin].guild_id < guild)
-        ++begin;
-    u32 end = begin;
-    while (end < state.role_count && state.roles[end].guild_id == guild)
-        ++end;
-    const ConstSlice<RoleRecord> roles{state.roles ? state.roles + begin : nullptr, end - begin};
+    const auto roles = chat_state_store_guild_roles(state, guild);
     const auto policy = role_edit_policy(state, guild);
     u16 order[8192];
     const bool ordered = roles.count && role_display_order(roles, {order, 8192}, role_before);

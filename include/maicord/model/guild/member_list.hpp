@@ -108,9 +108,10 @@ MemberListPresenceResult member_list_view_refresh_presence(
 u32 member_list_view_count(const MemberListView& projection) noexcept;
 const MemberListRow* member_list_view_row(
     const MemberListView& projection, u32 logical_index) noexcept;
+// A member's name, or a group's heading. A role group's role is one of guild_id's roles.
 Utf8View member_list_row_label(
     const MemberListRow& row, const GuildMemberStore& members,
-    const UserStore& users, const ChatStateStore& state) noexcept;
+    const UserStore& users, const ChatStateStore& state, u64 guild_id) noexcept;
 // Sources for a private conversation's member presence: the overall status,
 // which no server scopes. Relationships may be absent (not yet loaded).
 struct MemberListPrivatePresence {

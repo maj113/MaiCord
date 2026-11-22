@@ -963,7 +963,7 @@ bool shell_text_presentation_member_output(const MemberListScene& member_list, c
         const bool group = row.kind == MemberListRowKind::group;
         const auto name = group ? member_list_group_label(*member_scene, index, {group_storage, sizeof(group_storage)})
                                 : member_list_row_label(row.source_row, *member_scene->members,
-                                                        *member_scene->users, *member_scene->state);
+                                                        *member_scene->users, *member_scene->state, 0);
         // Accessibility's Role Colors, as in the official member list: the name takes the role colour (and the
         // enhanced gradient) only "In names"; "Next to names" puts a role-coloured dot before a default-coloured name.
         const u32 role_rgb = group ? 0u : row.source_row.role_color;

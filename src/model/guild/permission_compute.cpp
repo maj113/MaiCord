@@ -1,5 +1,6 @@
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/model/guild/role_policy.hpp"
+#include "activity.hpp"
 
 // Not machine-outlined (see src/app/gateway/chat_state_dispatch.cpp).
 #pragma clang attribute push([[clang::no_outline]], apply_to = function)
@@ -12,11 +13,6 @@ bool has_role(const PermissionMember& member, u64 role_id) noexcept {
         if (member.role_ids[i] == role_id)
             return true;
     return false;
-}
-
-ConstSlice<RoleRecord> store_roles(const ChatStateStore& store) noexcept {
-    return store.roles ? ConstSlice<RoleRecord>{store.roles, store.role_count}
-                       : ConstSlice<RoleRecord>{};
 }
 
 // Channel overwrites in service order: @everyone, the allow/deny aggregate of
@@ -56,7 +52,7 @@ PermissionSet permission_compute_base_with(const PermissionGuild& guild, const P
     PermissionSet base = 0;
     for (u32 i = 0; i < guild.roles.count; ++i) {
         const auto& role = guild.roles[i];
-        if (role.guild_id == guild.guild_id && (role.id == guild.guild_id || has_role(member, role.id)))
+        if (role.id == guild.guild_id || has_role(member, role.id))
             base |= role_id && role.id == role_id ? role_permissions : role.permissions;
     }
     return (base & kPermissionAdministrator) ? kPermissionAll : base;
@@ -92,11 +88,16 @@ PermissionSet permission_compute(const PermissionGuild& guild, const PermissionM
                                         overwrites, options);
 }
 
+ConstSlice<RoleRecord> chat_state_store_guild_roles(const ChatStateStore& store, u64 guild_id) noexcept {
+    const auto run = chat_activity_detail::guild_role_run(store, guild_id);
+    return {store.roles + run.first, run.end - run.first};
+}
+
 PermissionGuild chat_state_store_permission_guild(const ChatStateStore& store, u64 guild_id) noexcept {
     const auto* guild = chat_state_store_find_guild(store, guild_id);
     if (!guild)
         return {};
-    return {guild->id, guild->owner_id, store_roles(store),
+    return {guild->id, guild->owner_id, chat_state_store_guild_roles(store, guild_id),
             (guild->settings.known & guild_settings_mfa_level) && guild->settings.mfa_level == 1};
 }
 
@@ -127,10 +128,11 @@ ConstSlice<PermissionOverwriteRecord> chat_state_store_channel_overwrites(const 
 }
 
 u32 chat_state_store_self_role_ids(const ChatStateStore& store, u64 guild_id, Slice<u64> output) noexcept {
+    const auto roles = chat_state_store_guild_roles(store, guild_id);
     u32 count = 0;
-    for (u32 i = 0; i < store.role_count && count < output.count; ++i)
-        if (store.roles[i].guild_id == guild_id && store.roles[i].id != guild_id && store.roles[i].self_assigned)
-            output[count++] = store.roles[i].id;
+    for (u32 i = 0; i < roles.count && count < output.count; ++i)
+        if (roles[i].id != guild_id && roles[i].self_assigned)
+            output[count++] = roles[i].id;
     return count;
 }
 

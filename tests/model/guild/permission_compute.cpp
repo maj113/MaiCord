@@ -21,10 +21,10 @@ constexpr PermissionSet kEveryone = kPermissionViewChannel | kPermissionSendMess
 
 // Pure resolver vectors ---------------------------------------------------
 
-RoleRecord role(u64 id, PermissionSet permissions, u32 position = 1, u64 guild = kGuild) noexcept {
+RoleRecord role(u64 id, PermissionSet permissions, u32 position = 1) noexcept {
     RoleRecord value{};
     value.id = id;
-    value.guild_id = guild;
+    value.guild_id = kGuild;
     value.permissions = permissions;
     value.position = position;
     return value;
@@ -36,7 +36,6 @@ void test_vectors() noexcept {
         role(kRoleModerator, kPermissionManageMessages | kPermissionKickMembers, 5),
         role(kRoleAdmin, kPermissionAdministrator, 9),
         role(kRoleBanner, kPermissionBanMembers | kPermissionAttachFiles, 3),
-        role(kRoleModerator, kPermissionAdministrator, 5, 999), // other guild, same ID
     };
     const PermissionOverwriteRecord overwrites[] = {
         {kGuild, 0, kPermissionSendMessages, 0},
@@ -45,7 +44,7 @@ void test_vectors() noexcept {
         {kSelf, kPermissionReadMessageHistory, kPermissionManageMessages, 1},
         {kOther, kPermissionAdministrator, 0, 0}, // a role overwrite for an ID nobody holds
     };
-    const PermissionGuild guild{kGuild, kOwner, {roles, 5}, false};
+    const PermissionGuild guild{kGuild, kOwner, {roles, 4}, false};
     const PermissionOptions plain{};
     const ConstSlice<PermissionOverwriteRecord> channel{overwrites, 5};
 
@@ -62,8 +61,7 @@ void test_vectors() noexcept {
     const PermissionMember plain_member{kOther, {}, 0};
     check(permission_compute_base(guild, plain_member) == kEveryone &&
               permission_compute(guild, plain_member, channel, plain) == (kEveryone & ~kPermissionSendMessages),
-          "permission compute: everyone role and everyone overwrite apply without roles; foreign guild rows "
-          "are ignored");
+          "permission compute: everyone role and everyone overwrite apply without roles");
 
     const u64 moderator_roles[] = {kRoleModerator, 999'999};
     const PermissionMember self{kSelf, {moderator_roles, 2}, 0};
@@ -116,7 +114,7 @@ void test_vectors() noexcept {
           "permission compute: clockless quarantine restricts after overwrites, retains nickname without "
           "granting denied permissions, composes with timeout and exempts owners and administrators");
 
-    const PermissionGuild strict{kGuild, kOwner, {roles, 5}, true};
+    const PermissionGuild strict{kGuild, kOwner, {roles, 4}, true};
     check(permission_compute(strict, owner, {}, {0, true}) == (kPermissionAll & ~kPermissionElevatedMask) &&
               permission_compute(strict, self, {}, {0, true}) ==
                   (base & ~(kPermissionKickMembers | kPermissionManageMessages)) &&

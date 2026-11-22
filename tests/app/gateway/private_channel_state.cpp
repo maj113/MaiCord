@@ -117,7 +117,7 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
     const auto dm_projected = member_list_view_private(&dm_members, users, store, 11, no_presence);
     check(dm_projected.ok() && dm_members.member_count == 3 && dm_members.count == 4 &&
         dm_rows[1].user_id == 2 && dm_rows[2].user_id == 3 && dm_rows[3].user_id == 1 &&
-        utf8_equal(member_list_row_label(dm_rows[1], no_guild_members, users, store), utf8_literal("peer")) &&
+        utf8_equal(member_list_row_label(dm_rows[1], no_guild_members, users, store, 0), utf8_literal("peer")) &&
         !member_list_view_private(&dm_members, users, store, 11, no_presence).changed,
         "group DM member projection contains recipients and self without guild records and retains unchanged view");
     check(dm_rows[1].status == GuildMemberStatus::offline && dm_rows[2].status == GuildMemberStatus::offline &&

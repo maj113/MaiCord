@@ -528,7 +528,7 @@ void append_mention_users(ComposerAutocomplete* autocomplete, const MessageCompo
             if (row.kind != MemberListRowKind::member || !row.user_id)
                 continue;
             const Utf8View label =
-                member_store ? member_list_row_label(row, *member_store, users, state) : Utf8View{};
+                member_store ? member_list_row_label(row, *member_store, users, state, guild_id) : Utf8View{};
             ranking.offer(users, {row.user_id, index, row.status, label}, query);
         }
     }

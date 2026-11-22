@@ -1,6 +1,5 @@
 #pragma once
-#include "maicord/model/chat/chat_state.hpp"
-#include "maicord/model/guild/permission_bits.hpp"
+#include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/core/heap_sort.hpp"
 namespace maicord {
 // The one order of a guild's roles: higher position first, equal positions by
@@ -118,9 +117,10 @@ __declspec(noinline) inline RoleEditPolicy role_edit_policy(const ChatStateStore
         !(guild->base_permissions & (kPermissionManageRoles | kPermissionAdministrator)))
         return policy;
     policy.allowed = true;
-    for (u32 i = 0; i < state.role_count; ++i) {
-        const auto& own = state.roles[i];
-        if (own.guild_id == guild_id && own.self_assigned &&
+    const auto roles = chat_state_store_guild_roles(state, guild_id);
+    for (u32 i = 0; i < roles.count; ++i) {
+        const auto& own = roles[i];
+        if (own.self_assigned &&
             (!policy.hierarchy_known || role_rank_before(guild_id, own.position, own.id,
                                                          policy.highest_position, policy.highest_role_id))) {
             policy.highest_role_id = own.id;

@@ -262,16 +262,14 @@ u32 guild_settings_sorted_roles(const ChatStateStore& store, u64 guild_id,
                                 Slice<const RoleRecord*> output) noexcept {
     if (!output.data || !output.count)
         return 0;
+    const auto roles = chat_state_store_guild_roles(store, guild_id);
     u32 count = 0;
     const RoleRecord* everyone = nullptr;
-    for (u32 i = 0; i < store.role_count; ++i) {
-        const auto& role = store.roles[i];
-        if (role.guild_id != guild_id)
-            continue;
-        if (role.id == guild_id)
-            everyone = &role;
+    for (u32 i = 0; i < roles.count; ++i) {
+        if (roles[i].id == guild_id)
+            everyone = &roles[i];
         else if (count < output.count)
-            output[count++] = &role;
+            output[count++] = &roles[i];
     }
     heap_sort_shared(output.data, count, [](const RoleRecord* a, const RoleRecord* b) noexcept {
         return rank_above(a->position, a->id, *b);

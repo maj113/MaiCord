@@ -178,13 +178,11 @@ u32 collect_roles(u64 guild_id, u64 user_id, u64* ids, bool* held, u32 capacity)
     const auto member_roles = guild_member_store_role_ids(g_app.account_ui->guild_member_store, *member);
     // Rank every editable role before cutting to the menu size; the store holds them by id.
     const RoleRecord* found[kGuildRoleMaximum];
+    const auto roles = chat_state_store_guild_roles(state, guild_id);
     u32 count = 0;
-    for (u32 i = 0; i < state.role_count && count < kGuildRoleMaximum; ++i) {
-        const auto& role = state.roles[i];
-        if (role.guild_id != guild_id || role.id == guild_id || role.managed || !role_editable(policy, role))
-            continue;
-        found[count++] = &role;
-    }
+    for (u32 i = 0; i < roles.count && count < kGuildRoleMaximum; ++i)
+        if (role_editable(policy, roles[i]))
+            found[count++] = &roles[i];
     heap_sort_shared(found, count,
               [](const RoleRecord* left, const RoleRecord* right) noexcept { return role_before(*left, *right); });
     count = minimum(count, minimum<u32>(capacity, kUserContextRoleItems));

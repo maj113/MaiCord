@@ -549,7 +549,7 @@ bool ui_private_member_owner_paint(const MemberListScene& scene, const ChatState
         const auto line = label->content_rectangle;
         float name_width = ui_rect_width(line);
         if (scene.measure && scene.members && scene.users) {
-            const auto name = member_list_row_label(row.source_row, *scene.members, *scene.users, state);
+            const auto name = member_list_row_label(row.source_row, *scene.members, *scene.users, state, 0);
             UiTextMeasureValue measured{};
             if (name.bytes &&
                 ui_text_measure_cache_measure(scene.measure,

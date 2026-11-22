@@ -261,9 +261,9 @@ bool profile_scene_layout(ProfileScene* s, const UiRect& viewport_view, bool for
     s->can_manage_roles = false;
     if (s->state && s->profile->guild_id) {
         const auto policy = role_edit_policy(*s->state, s->profile->guild_id);
-        for (u32 i = 0; i < s->state->role_count && !s->can_manage_roles; ++i)
-            s->can_manage_roles = s->state->roles[i].guild_id == s->profile->guild_id &&
-                                  role_editable(policy, s->state->roles[i]);
+        const auto roles = chat_state_store_guild_roles(*s->state, s->profile->guild_id);
+        for (u32 i = 0; i < roles.count && !s->can_manage_roles; ++i)
+            s->can_manage_roles = role_editable(policy, roles[i]);
     }
     s->note_editing = s->note_editing && s->note_visible && !self(*s) && modal(*s);
     s->edit.active = interactive(*s) && (s->note_editing || (!modal(*s) && !panel(*s) && can_message(*s)));

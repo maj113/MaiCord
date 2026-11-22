@@ -118,7 +118,7 @@ u64 state_hash() noexcept {
 bool label(u32 index, Utf8View expected) noexcept {
     const auto& f = fixture;
     const auto* row = member_list_view_row(f.projection, index);
-    return row && utf8_equal(member_list_row_label(*row, f.members, f.users, f.state), expected);
+    return row && utf8_equal(member_list_row_label(*row, f.members, f.users, f.state, f.projection.guild_id), expected);
 }
 
 struct RoleRefreshProbe {
