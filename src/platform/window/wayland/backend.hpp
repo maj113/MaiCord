@@ -342,8 +342,9 @@ float pixel_scale() noexcept;
 void surface_sync() noexcept;
 // The viewport destination or integer buffer scale of the surface, each sent when it changed (applied by the next commit).
 void apply_surface_geometry() noexcept;
-// A new scale from an integer source (wl_output, preferred_buffer_scale) or fractional-scale: scale_120.
-void window_scale_changed(u32 scale_120) noexcept;
+// A new scale from an integer source (wl_output, preferred_buffer_scale) or fractional-scale: scale_120. One outside
+// 60 to 1200 (0 too) is refused.
+void window_scale_changed(u64 scale_120) noexcept;
 // Dispatches until `done()` is true, the connection fails or `timeout_ms` passes.
 bool dispatch_until(bool (*done)() noexcept, u32 timeout_ms) noexcept;
 void connection_check() noexcept;

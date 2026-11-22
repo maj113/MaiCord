@@ -33,8 +33,7 @@ void update_integer_scale() noexcept {
             if (extras.output_entered[i] && extras.output_scale[i] > scale)
                 scale = extras.output_scale[i];
     }
-    if (scale != 0)
-        window_scale_changed(scale * 120);
+    window_scale_changed(u64{scale} * 120);
 }
 
 void on_output_geometry(void*, wl_output*, i32, i32, i32, i32, i32, const char*, const char*, i32) noexcept {}

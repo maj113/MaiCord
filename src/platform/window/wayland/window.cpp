@@ -127,10 +127,6 @@ void on_global_remove(void*, wl_registry*, u32) noexcept {}
 
 const wl_registry_listener kRegistryListener = {on_global, on_global_remove};
 
-u32 scale_to_dpi(u32 scale_120) noexcept {
-    return (kDefaultDpi * scale_120 + 60) / 120;
-}
-
 u32 to_pixels(u32 logical) noexcept {
     return (logical * g.window.dpi + kDefaultDpi / 2) / kDefaultDpi;
 }
@@ -418,9 +414,8 @@ void set_min_size_px(u32 width_px, u32 height_px) noexcept {
     if (!window.toplevel)
         return;
     // Logical units, rounded up: a window the compositor sizes to the minimum must still hold the layout.
-    const u32 dpi = window.dpi ? window.dpi : kDefaultDpi;
-    const u32 width = (width_px * kDefaultDpi + dpi - 1) / dpi;
-    const u32 height = (height_px * kDefaultDpi + dpi - 1) / dpi;
+    const u32 width = (width_px * kDefaultDpi + window.dpi - 1) / window.dpi;
+    const u32 height = (height_px * kDefaultDpi + window.dpi - 1) / window.dpi;
     if (width == window.min_logical_width && height == window.min_logical_height)
         return;
     window.min_logical_width = width;
@@ -577,11 +572,15 @@ void apply_surface_geometry() noexcept {
     apply_margin();
 }
 
-void window_scale_changed(u32 scale_120) noexcept {
-    if (scale_120 == 0 || scale_120 == g.window.scale_120)
+void window_scale_changed(u64 scale_120) noexcept {
+    // The compositor's scale is outside input: one outside 50% to 1000% (DPI 48 to 960, the range a saved placement
+    // accepts) is refused, so the DPI every reader divides by is never 0 and the pixel sizes made from it do not wrap.
+    constexpr u32 kMinimum = kWindowPlacementDpiMinimum * 120 / kDefaultDpi;
+    constexpr u32 kMaximum = kWindowPlacementDpiMaximum * 120 / kDefaultDpi;
+    if (scale_120 < kMinimum || scale_120 > kMaximum || scale_120 == g.window.scale_120)
         return;
-    g.window.scale_120 = scale_120;
-    g.window.dpi = scale_to_dpi(scale_120);
+    g.window.scale_120 = static_cast<u32>(scale_120);
+    g.window.dpi = (kDefaultDpi * g.window.scale_120 + 60) / 120;
     if (!g.window.configured)
         return;
     emit_resize(EventType::scale_changed);

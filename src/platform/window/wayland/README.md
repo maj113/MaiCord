@@ -83,7 +83,7 @@ kept in `Backend` (`backend.hpp`), destroyed in `disconnect`.
 |---|---|
 | xdg-shell 6, xdg-decoration | window, client-side frame (our caption bar), `suspended` state |
 | wl_subcompositor + viewporter | the resize margin around the window |
-| fractional-scale-v1 + viewporter | scale in 1/120; falls back to wl_surface buffer scale |
+| fractional-scale-v1 + viewporter | scale in 1/120, 50% to 1000% (others are refused); falls back to wl_surface buffer scale |
 | cursor-shape-v1 | cursors; `wl_cursor` theme fallback |
 | text-input-v3, wl_data_device | IME, clipboard, drag and drop |
 | xdg-activation-v1 | `window_request_attention` (own token), `window_wayland_activate` (the token of a notification click or a second launch) |

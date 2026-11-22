@@ -11,10 +11,12 @@
 #include "wayland_protocols.hpp"
 #include "xkb_test_api.hpp"
 #include "../../support/test_output.hpp"
+#include "../../../src/platform/window/wayland/backend.hpp"
 
 // The pure parts of the Wayland backend (src/platform/window/wayland): the key table, the character filter, the
-// double-click synthesiser and key repeat timing with an injected clock, the generated protocol tables against
-// libwayland-client's own, and the key table over real xkb keymaps (US, German, French, Dvorak, Russian, Japanese).
+// double-click synthesiser and key repeat timing with an injected clock, the compositor's scale before a window exists,
+// the generated protocol tables against libwayland-client's own, and the key table over real xkb keymaps (US, German,
+// French, Dvorak, Russian, Japanese).
 // The last two need libwayland-client and libxkbcommon with xkeyboard-config; without them they report SKIP.
 
 namespace maicord {
@@ -690,6 +692,24 @@ void test_settings_map() noexcept {
     check(platform_settings_from_desktop(desktop).client_area_animation, "settings: animation on");
 }
 
+// The compositor's scale ---------------------------------------------------------------------------------------------
+
+// A scale outside 50% to 1000% keeps the DPI. 2^27 120ths once wrapped the DPI to 0, and the next focus of a text field
+// divided by it.
+void test_scale() noexcept {
+    window_scale_changed(240);
+    check(g.window.scale_120 == 240 && g.window.dpi == 192, "scale: 2.0 is DPI 192");
+    window_scale_changed(1u << 27);
+    window_scale_changed(0);
+    window_scale_changed(59);
+    window_scale_changed(1201);
+    check(g.window.scale_120 == 240 && g.window.dpi == 192, "scale: the window refuses a scale outside 60 to 1200");
+    window_scale_changed(60);
+    check(g.window.dpi == 48, "scale: 0.5 is DPI 48");
+    window_scale_changed(1200);
+    check(g.window.dpi == 960, "scale: 10.0 is DPI 960");
+}
+
 } // namespace
 } // namespace maicord
 
@@ -702,6 +722,7 @@ MAICORD_TEST_ENTRY(maicord_wayland_input_entry) {
     maicord::test_xkb_layouts();
     maicord::test_uri();
     maicord::test_post_queue();
+    maicord::test_scale();
     maicord::test_settings_map();
     maicord::test_exit(maicord::g_failures, "wayland_input");
 }
