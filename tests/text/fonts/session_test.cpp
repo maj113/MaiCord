@@ -8,8 +8,7 @@ namespace maicord {namespace {
 constexpr u32 session_capacity=1024;
 NativeFontSession* session=nullptr;NativeFontHandle faces[session_capacity],alias;NativeFontInstanceHandle instances[session_capacity],instructed;NativeFontRunHandle runs[session_capacity];
 wchar_t paths[session_capacity+1][MAX_PATH];u32 paths_created=0,checks=0;DWORD handles_before=0;
-void print(const char* text) noexcept {u32 n=0;while(text[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,n,&written,nullptr);}
-void number(u32 value) noexcept {char digits[16];u32 n=0;do{digits[n++]=static_cast<char>('0'+value%10);value/=10;}while(value);for(u32 i=0;i<n/2;++i){const char c=digits[i];digits[i]=digits[n-i-1];digits[n-i-1]=c;}digits[n]=0;print(digits);}
+constexpr auto& print=test_write_text;constexpr auto& number=test_write_u64;
 #define CHECK(x) do{++checks;if(!(x)){print("FAIL line=");number(__LINE__);print("\n");return false;}}while(0)
 bool write(const wchar_t* path,ConstSlice<u8> data) noexcept {HANDLE file=CreateFileW(path,GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_TEMPORARY,nullptr);if(file==INVALID_HANDLE_VALUE)return false;DWORD written=0;const bool ok=WriteFile(file,data.data,data.count,&written,nullptr)&&written==data.count;CloseHandle(file);return ok;}
 bool same(NativeFontHandle a,NativeFontHandle b) noexcept {return a.slot==b.slot&&a.generation==b.generation;}

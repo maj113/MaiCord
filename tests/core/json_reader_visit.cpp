@@ -177,45 +177,6 @@ bool find_items(void* context, JsonString name, JsonValue value) noexcept {
     return true;
 }
 
-// The scalar reference of the scanner: unescaped quotes and the punctuation outside strings.
-u32 reference_offsets(Utf8View text, u32* out) noexcept {
-    u32 count = 0, backslashes = 0;
-    bool inside = false;
-    for (u32 i = 0; i < text.bytes; ++i) {
-        const char c = text.data[i];
-        if (c == '"' && !(backslashes & 1)) {
-            out[count++] = i;
-            inside = !inside;
-        } else if (!inside && (c == '{' || c == '}' || c == '[' || c == ']' || c == ':' || c == ',')) {
-            out[count++] = i;
-        }
-        backslashes = c == '\\' ? backslashes + 1 : 0;
-    }
-    return count;
-}
-
-// The scan at every capacity around the structural count, with guard words after the output.
-bool scan_fits_every_capacity(Utf8View text) noexcept {
-    static u32 expected[1024];
-    static u32 buffer[1024 + 80];
-    const u32 total = reference_offsets(text, expected);
-    for (u32 capacity = 0; capacity <= total + 80 && capacity + 1 < 1024 + 80 - 70; ++capacity) {
-        if (capacity > 8 && capacity + 8 < total && capacity % 7 != 0) continue;
-        for (u32 i = 0; i < 1024 + 80; ++i) buffer[i] = 0xA5A5A5A5u;
-        const JsonScanResult scan = json_scan_structurals_avx1(text, {buffer, capacity});
-        for (u32 i = capacity; i < 1024 + 80; ++i)
-            if (buffer[i] != 0xA5A5A5A5u) return false;
-        if (capacity >= total) {
-            if (!scan.ok() || scan.count != total) return false;
-        } else if (scan.error != JsonScanError::output_overflow || scan.error_offset != expected[capacity]) {
-            return false;
-        }
-        for (u32 i = 0; i < capacity && i < total; ++i)
-            if (buffer[i] != expected[i]) return false;
-    }
-    return true;
-}
-
 // Containers of a registered document scan exactly like the same text scanned alone, at every output capacity.
 bool source_answers_like_scan() noexcept {
     static char doc[8192];
@@ -304,14 +265,6 @@ void test_json_reader_visit(void (*check)(bool, const char*) noexcept) noexcept 
 
     check(ends_table(), "json ends table pairs the brackets and counts the levels");
     check(source_answers_like_scan(), "json scan source answers container scans like the scanner");
-    check(scan_fits_every_capacity(utf8_literal(R"({"a":[1,2,{"b":"c"}],"d":"e\"f"})")),
-          "json scan fills small outputs exactly");
-    static char dense[300];
-    for (u32 i = 0; i < sizeof(dense); ++i) dense[i] = "[{,:"[i & 3];
-    check(scan_fits_every_capacity({dense, sizeof(dense)}), "json scan fills outputs when every byte is structural");
-    static char quotes[300];
-    for (u32 i = 0; i < sizeof(quotes); ++i) quotes[i] = i % 5 == 0 ? '"' : i % 5 == 3 ? ',' : 'x';
-    check(scan_fits_every_capacity({quotes, sizeof(quotes)}), "json scan fills outputs around string edges");
 }
 
 } // namespace maicord

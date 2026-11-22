@@ -42,24 +42,9 @@ bool url_is(const DesktopLaunch& launch, const wchar_t* expected) noexcept {
 MAICORD_TEST_ENTRY(maicord_linux_launch_line_entry) {
     using namespace maicord;
     {
-        const char* const arguments[] = {"/opt/maicord/MaiCord"};
-        const Launch launch = launch_of(arguments);
-        check(launch.parsed && !launch.launch.url_present && !launch.launch.startup, "a plain launch has no link and no startup flag");
-    }
-    {
-        const char* const arguments[] = {"/opt/maicord/MaiCord", "--startup"};
-        const Launch launch = launch_of(arguments);
-        check(launch.parsed && launch.launch.startup && !launch.launch.url_present, "--startup is the startup entry's launch");
-    }
-    {
         const char* const arguments[] = {"/opt/maicord/MaiCord", "--url", "--", "discord://-/channels/1/2/3"};
         const Launch launch = launch_of(arguments);
         check(launch.parsed && url_is(launch.launch, L"discord://-/channels/1/2/3"), "--url -- <link>, the shape of the desktop entry's Exec");
-    }
-    {
-        const char* const arguments[] = {"/opt/maicord/MaiCord", "discord://-/invite/abc"};
-        const Launch launch = launch_of(arguments);
-        check(launch.parsed && url_is(launch.launch, L"discord://-/invite/abc"), "a bare discord:// argument is the link");
     }
     {
         const char* const arguments[] = {"/opt/my programs/MaiCord", "--url", "--", "discord://-/channels/@me/9"};

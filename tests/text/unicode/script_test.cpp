@@ -1,11 +1,9 @@
 #include "maicord/text/unicode/script.hpp"
 #include "maicord/text/unicode/unicode.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
 namespace maicord {namespace {
 u32 checks=0;
-void print(const char* text) noexcept {u32 count=0;while(text[count])++count;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,count,&done,nullptr);}
-void number(u32 value) noexcept {char text[16];u32 n=0;do{text[n++]=static_cast<char>('0'+value%10);value/=10;}while(value);for(u32 i=0;i<n/2;++i){const char v=text[i];text[i]=text[n-i-1];text[n-i-1]=v;}text[n]=0;print(text);}
+constexpr auto& print=test_write_text;constexpr auto& number=test_write_u64;
 #define CHECK(value) do{++checks;if(!(value)){print("FAIL script line=");number(__LINE__);print("\n");return false;}}while(0)
 bool builtins() noexcept {
     // Unicode 17.0 Script values (UAX #24): Arabic question mark and the Saudi

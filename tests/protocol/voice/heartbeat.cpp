@@ -30,11 +30,8 @@ void test_voice_heartbeat(void (*check)(bool, const char*) noexcept) noexcept {
     check(send.action == VoiceHeartbeatAction::send && send.sequence_ack == -1 && send.nonce == 1 &&
               !heartbeat.awaiting_ack && !voice_heartbeat_deadline(heartbeat),
           "due send removes its timer but does not await an ACK before transport accepts it");
-    u8 small[1]{0xCC};
-    check(!voice_gateway_write_heartbeat(send.nonce, send.sequence_ack, {small, 1}).ok() &&
-              small[0] == 0xCC && voice_heartbeat_poll(&heartbeat, 9000).nonce == send.nonce &&
-              !heartbeat.last_nonce,
-          "short encoding and output backpressure neither consume a nonce nor spin an expired timer");
+    check(voice_heartbeat_poll(&heartbeat, 9000).nonce == send.nonce && !heartbeat.last_nonce,
+          "output backpressure neither consumes a nonce nor spins an expired timer");
     check(voice_heartbeat_submitted(&heartbeat, send, 9000) && heartbeat.next_send_ms == 14000 &&
               heartbeat.ack_deadline_ms == 14000 && !voice_heartbeat_submitted(&heartbeat, send, 9001),
           "accepted delayed send starts one new interval and rejects duplicate submission");

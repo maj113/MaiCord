@@ -123,8 +123,8 @@ void translations(HWND window) noexcept {
     check((e.flags & ev_repeat) == 0, "translate: a first press is not a repeat");
     e = translate(window, WM_KEYUP, key::enter, 0xC0000001u | (1u << 30));
     check(e.type == EventType::key_up && (e.flags & ev_repeat) == 0, "translate: a release is key_up and never a repeat");
-    // The system flag is the message's, whatever the modifier state: Windows decides what an Alt chord is
-    // (win32_behaviour.cpp documents what could be captured of it).
+    // The system flag is the message's, whatever the modifier state: Windows' input thread decides what an Alt chord
+    // is.
     set_keys(true, true, false);
     e = translate(window, WM_KEYDOWN, 'Q', 1);
     check(e.type == EventType::key_down && (e.flags & ev_system) == 0 && e.modifiers == (mod_ctrl | mod_alt),

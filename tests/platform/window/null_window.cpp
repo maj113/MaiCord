@@ -5,8 +5,8 @@
 #include "../../support/test_output.hpp"
 
 // The headless window backend (src/platform/window/null) behaves as the system does where handlers depend on it:
-// capture notification timing as captured from a real window in win32_behaviour.cpp, key and pointer state held in
-// memory, events injected through the sink.
+// capture notification timing (WM_CAPTURECHANGED sent before ReleaseCapture or SetCapture returns), key and pointer
+// state held in memory, events injected through the sink.
 namespace maicord {
 namespace {
 

@@ -4,8 +4,7 @@
 #include "../../support/test_output.hpp"
 namespace maicord {namespace {
 u32 checks=0;
-void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
-void number(u32 v) noexcept {char s[16],out[16];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n;++i)out[i]=s[n-i-1];out[n]=0;print(out);}
+constexpr auto& print=test_write_text;constexpr auto& number=test_write_u64;
 #define CHECK(x) do{++checks;if(!(x)){print("FAIL line=");number(__LINE__);print("\n");return false;}}while(0)
 struct Mock {u32 fail=0;bool cover=true;};
 SfntStatus select(void* context,u32 cp,NativeFallbackChoice* out) noexcept {auto& m=*static_cast<Mock*>(context);if(m.fail==1)return SfntStatus::malformed;*out={cp=='b'?1u:cp=='?'?native_fallback_missing:0u,cp=='x'?1u:0u};return SfntStatus::ok;}

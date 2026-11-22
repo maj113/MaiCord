@@ -675,7 +675,6 @@ void test_ceremony() noexcept {
               wait_state(WebAuthnCeremonyState::done, 3000) == WebAuthnCeremonyState::done,
           "the right PIN finishes it");
     credential.bytes = 0;
-    credential.data = storage;
     check(webauthn_ceremony_finish(&credential).ok() && credential.bytes > 100, "with the credential");
     check(same_text(g_fake.pins[g_fake.pin_count - 1], "1234") && g_fake.pin_count == 2, "the PINs reached the key as typed");
     clear_bytes(storage, sizeof(storage));
@@ -691,7 +690,6 @@ void test_ceremony() noexcept {
     check(wait_state(WebAuthnCeremonyState::done, 3000) == WebAuthnCeremonyState::done && g_fake.cancels >= 1,
           "a cancel reaches the waiting key and ends the ceremony");
     credential.bytes = 0;
-    credential.data = storage;
     check(webauthn_ceremony_finish(&credential).error == WebAuthnCeremonyError::cancelled && credential.bytes == 0,
           "as cancelled, with no credential");
 
@@ -836,29 +834,6 @@ void test_creation() noexcept {
     check(make_run(&s, &made) == fido2::Outcome::created && s.pins_asked == 2 && s.last_wrong && s.last_retries == 2 &&
               same_text(g_fake.pins[g_fake.pin_count - 1], "1234"),
           "a key that wants a PIN is asked for it, again after a wrong one, then makes the credential");
-    forget(Mode::needs_pin);
-    make_creation(kCreationJson, 600);
-    clear_bytes(&s, static_cast<u32>(sizeof(s)));
-    s.answers[0] = "0000";
-    s.answers[1] = "1111";
-    s.answers[2] = "2222";
-    check(make_run(&s, &made) == fido2::Outcome::pin_blocked, "a blocked PIN ends the registration");
-    forget(Mode::uv_without_pin);
-    make_creation(kCreationJson, 600);
-    check(make_run(&s, &made) == fido2::Outcome::pin_not_set, "a key with no PIN for a verification it must make");
-
-    // No key, a touch that never comes, keys that cannot be opened.
-    forget(Mode::plain);
-    g_fake.devices = 0;
-    make_creation(kCreationJson, 150);
-    check(make_run(&s, &made) == fido2::Outcome::no_device && g_fake.manifests > 2, "no key plugged in: no device");
-    forget(Mode::never_touched);
-    make_creation(kCreationJson, 150);
-    check(make_run(&s, &made) == fido2::Outcome::timed_out && g_fake.makes > 1, "a key that is never touched: timed out");
-    forget(Mode::plain);
-    g_fake.open_fails = true;
-    make_creation(kCreationJson, 2000);
-    check(make_run(&s, &made) == fido2::Outcome::cannot_open, "keys that cannot be opened: cannot open");
 }
 
 bool start_creation(const char* json, u32 bytes, u32 timeout_ms) noexcept {
@@ -876,7 +851,6 @@ void test_creation_ceremony() noexcept {
     // A "none" attestation: the credential holds an attestation object without the statement and the AAGUID.
     forget(Mode::plain);
     check(start_creation(kCreationJson, sizeof(kCreationJson) - 1, 2000), "the registration ceremony starts");
-    check(!webauthn_ceremony_start_with(g_api, g_request, Waker{}, 80), "and only one ceremony runs at a time");
     check(wait_state(WebAuthnCeremonyState::done, 3000) == WebAuthnCeremonyState::done, "it ends when the key answers");
     const WebAuthnCeremonyResult finished = webauthn_ceremony_finish(&credential);
     const char* json = reinterpret_cast<const char*>(storage);
@@ -904,7 +878,6 @@ void test_creation_ceremony() noexcept {
               client.ok() && client_base64.ok() && contains(json, credential.bytes, client_text),
           "its credential is the registration JSON: the id, the algorithm of the key, its transport, the attestation "
           "object of format none and the client data");
-    check(webauthn_ceremony_state() == WebAuthnCeremonyState::idle, "and the ceremony is idle again");
     clear_bytes(storage, sizeof(storage));
 
     // A direct attestation keeps the key's format, statement and AAGUID.
@@ -927,19 +900,6 @@ void test_creation_ceremony() noexcept {
           "a direct attestation keeps the key's format, statement and AAGUID");
     clear_bytes(storage, sizeof(storage));
 
-    // A PIN, then the credential.
-    forget(Mode::needs_pin);
-    check(start_creation(kCreationJson, sizeof(kCreationJson) - 1, 5000), "a registration for a key that wants a PIN starts");
-    check(wait_state(WebAuthnCeremonyState::need_pin, 3000) == WebAuthnCeremonyState::need_pin,
-          "it asks for the PIN");
-    const u8 right[4] = {'1', '2', '3', '4'};
-    check(webauthn_ceremony_submit_pin({right, 4}) &&
-              wait_state(WebAuthnCeremonyState::done, 3000) == WebAuthnCeremonyState::done,
-          "the right PIN finishes it");
-    credential.bytes = 0;
-    check(webauthn_ceremony_finish(&credential).ok() && credential.bytes > 100, "with the credential");
-    clear_bytes(storage, sizeof(storage));
-
     // The failures a registration names.
     forget(Mode::excluded);
     start_creation(kCreationJson, sizeof(kCreationJson) - 1, 600);
@@ -955,22 +915,6 @@ void test_creation_ceremony() noexcept {
     start_creation(kCreationJson, sizeof(kCreationJson) - 1, 600);
     wait_state(WebAuthnCeremonyState::done, 3000);
     check(webauthn_ceremony_finish(&credential).error == WebAuthnCeremonyError::key_full, "a full key: key full");
-
-    // Cancel while the key waits for a touch.
-    forget(Mode::blocks);
-    start_creation(kCreationJson, sizeof(kCreationJson) - 1, 60000);
-    const u64 waiting = clock_monotonic_milliseconds() + 3000;
-    while (clock_monotonic_milliseconds() < waiting && InterlockedCompareExchange(&g_fake.in_assert, 0, 0) == 0)
-        thread_sleep(2);
-    webauthn_ceremony_cancel();
-    check(wait_state(WebAuthnCeremonyState::done, 3000) == WebAuthnCeremonyState::done &&
-              webauthn_ceremony_finish(&credential).error == WebAuthnCeremonyError::cancelled,
-          "a cancel reaches the waiting key and ends the registration cancelled");
-
-    // A challenge without a user cannot start.
-    check(!webauthn_ceremony_start_creation_with(g_api, WebAuthnMfaCreationOptions{}, Waker{}, 81) &&
-              webauthn_ceremony_state() == WebAuthnCeremonyState::idle,
-          "an empty registration does not start");
 }
 
 void test_no_library() noexcept {

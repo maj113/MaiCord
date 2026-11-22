@@ -65,6 +65,9 @@ void test_libraries() noexcept {
     const auto get_process_id = reinterpret_cast<GetProcessId>(dlsym(library.handle, "getpid"));
     expect(get_process_id && static_cast<u32>(get_process_id()) == process_id(), "dlsym_getpid");
     expect(dlsym(library.handle, "maicord_no_such_symbol") == nullptr, "dlsym_missing_symbol");
+    // _start starts musl's libc itself (__libc_start_main): the libc's program name must be set (Mesa strrchr()s it).
+    const auto* name = static_cast<char* const*>(dlsym(library.handle, "program_invocation_name"));
+    expect(name && *name && **name, "c_library_program_name_is_set");
     shared_library_close(&library);
     expect(library.handle == nullptr, "dlclose");
 
@@ -108,19 +111,13 @@ bool text_contains(const char* text, const char* word) noexcept {
     return false;
 }
 
-// _start tells musl from glibc (process_libc_is_musl) and starts musl's libc itself (__libc_start_main): the libc's
-// program name must be set (Mesa strrchr()s it), and the C library the loader mapped is the image's interpreter's.
+// _start tells musl from glibc (process_libc_is_musl): the C library the loader mapped is the image's interpreter's.
 void test_c_library() noexcept {
     const char* interpreter = program_interpreter();
     expect(interpreter != nullptr, "c_library_interpreter");
     if (interpreter) {
         expect(process_libc_is_musl() == text_contains(interpreter, "ld-musl"), "c_library_is_the_interpreters");
     }
-    SharedLibrary libc{};
-    expect(shared_library_open(&libc, "libc.so.6"), "c_library_opens_by_its_glibc_name");
-    const auto* name = static_cast<char* const*>(dlsym(libc.handle, "program_invocation_name"));
-    expect(name && *name && **name, "c_library_program_name_is_set");
-    shared_library_close(&libc);
 }
 
 // MAICORD_LIBRARY_PATH names a directory without the library first: the search continues to the loader.

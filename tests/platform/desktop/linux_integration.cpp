@@ -1,5 +1,5 @@
 #include "maicord/core/data_path.hpp"
-#include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/platform/desktop/integration.hpp"
 #include "../../support/test_output.hpp"
@@ -45,24 +45,11 @@ bool write_file(const wchar_t* path, const char* text) noexcept {
     const FileHandle file = file_open(path, {FileAccess::write, FileCreate::create_always, kFileShareRead, 0});
     if (file == INVALID_HANDLE_VALUE)
         return false;
-    u32 bytes = 0;
-    while (text[bytes])
-        ++bytes;
+    const u32 bytes = c_string_length(text);
     u32 written = 0;
     const bool ok = file_write(file, text, bytes, &written) && written == bytes;
     file_close(file);
     return ok;
-}
-
-bool contains(const char* text, const char* needle) noexcept {
-    for (; *text; ++text) {
-        u32 i = 0;
-        while (needle[i] && text[i] == needle[i])
-            ++i;
-        if (!needle[i])
-            return true;
-    }
-    return false;
 }
 
 u32 occurrences(const char* text, const char* needle) noexcept {
@@ -74,6 +61,10 @@ u32 occurrences(const char* text, const char* needle) noexcept {
         found += needle[i] == 0;
     }
     return found;
+}
+
+bool contains(const char* text, const char* needle) noexcept {
+    return occurrences(text, needle) != 0;
 }
 
 void test_startup() noexcept {

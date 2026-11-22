@@ -4,9 +4,7 @@
 // converts them), for inspecting a difference.
 #include "maicord/core/log.hpp"
 #include "maicord/gpu/api.hpp"
-#include "maicord/sys/linux/calls.hpp"
-#include "maicord/sys/linux/process.hpp"
-#include "../support/test_output.hpp"
+#include "capture_io.hpp"
 #include "ui_quads_scene.hpp"
 
 namespace maicord {
@@ -26,14 +24,6 @@ u32 g_failures = 0;
 
 void check(bool condition, const char* label) noexcept {
     test_check(&g_failures, condition, label);
-}
-
-void dump(const char* path) noexcept {
-    const long file = sys_open(path, kOpenWriteOnly | kOpenCreate | kOpenTruncate, 0644);
-    if (file < 0)
-        return;
-    sys_write(static_cast<int>(file), g_pixels, sizeof(g_pixels));
-    sys_close(static_cast<int>(file));
 }
 
 void run() noexcept {
@@ -118,7 +108,7 @@ void run() noexcept {
               "readback");
         const char* dump_path = environment_get("MAICORD_GPU_QUAD_DUMP");
         if (dump_path && dump_path[0])
-            dump(dump_path);
+            capture_io::write_file(dump_path, g_pixels, sizeof(g_pixels));
         const bool decoded = ui_quads::decode_png({kGolden, sizeof(kGolden)}, g_golden);
         check(decoded, "the golden PNG decodes");
         if (decoded) {

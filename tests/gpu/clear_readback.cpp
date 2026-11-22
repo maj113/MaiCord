@@ -127,11 +127,10 @@ void test_upload_orientation_and_copy(GpuDevice* device, GpuContext* context) no
     gpu_release(b);
     gpu_release(a);
 
-    // BGRA bytes round-trip as stored (a sampled-only format).
+    // bgra8 is a sampled-only format: a texture takes initial data, a render target is refused.
     const Rgba bgra[4] = {{1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}, {13, 14, 15, 16}};
     const GpuInitialData bgra_data{bgra, 8};
     GpuTexture* c = nullptr;
-    // A sampled bgra8 texture has no render path, so read back through a copy-compatible default texture.
     check(gpu_ok(gpu_texture_create(device, {2, 2, GpuFormat::bgra8, GpuUsage::immutable, gpu_bind_srv}, &bgra_data, &c)),
           "bgra8 sampled texture");
     gpu_release(c);

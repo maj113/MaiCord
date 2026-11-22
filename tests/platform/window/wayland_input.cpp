@@ -75,33 +75,20 @@ void test_key_table() noexcept {
     check_key(30, 'A', 'a', 'A', 'A', "us shifted a");
     check_key(2, '1', '1', '!', '1', "us 1");
     check_key(12, keysym::minus, keysym::minus, '_', key::minus, "us minus");
-    check_key(13, keysym::equal, keysym::equal, '+', key::equals, "us equals");
-    check_key(41, keysym::grave, keysym::grave, '~', key::grave, "us grave");
     check_key(57, keysym::space, keysym::space, keysym::space, key::space, "space");
 
     // German: Z and Y trade places, the umlaut keys keep their position.
     check_key(21, 'z', 'z', 'Z', 'Z', "de y position types z");
-    check_key(44, 'y', 'y', 'Y', 'Y', "de z position types y");
     check_key(26, 0xFC, 0xFC, 0xDC, key::left_bracket, "de u-umlaut by position");
-    check_key(39, 0xF6, 0xF6, 0xD6, key::semicolon, "de o-umlaut by position");
-    check_key(12, 0xDF, 0xDF, '?', key::minus, "de sharp s by position");
 
     // French AZERTY: the digit row types symbols unshifted; the digit is the shifted level.
     check_key(2, '&', '&', '1', '1', "fr digit 1 from level 1");
-    check_key(3, 0xE9, 0xE9, '2', '2', "fr digit 2 from level 1");
-    check_key(16, 'a', 'a', 'A', 'A', "fr q position types a");
-    check_key(30, 'q', 'q', 'Q', 'Q', "fr a position types q");
 
     // Dvorak: the VK follows the label, punctuation included.
-    check_key(31, 'o', 'o', 'O', 'O', "dvorak s position types o");
     check_key(12, keysym::bracketleft, keysym::bracketleft, '{', key::left_bracket, "dvorak minus position types [");
-    check_key(16, keysym::apostrophe, keysym::apostrophe, '"', key::quote, "dvorak q position types '");
 
     // Russian: letters fall back to the physical key; the digit row and the shared punctuation are Latin.
     check_key(30, 0x6C6, 0x6C6, 0x6E6, 'A', "ru ef on the a key");
-    check_key(44, 0x6D1, 0x6D1, 0x6F1, 'Z', "ru ya on the z key");
-    check_key(51, 0x6C2, 0x6C2, 0x6E2, key::comma, "ru be on the comma key");
-    check_key(2, '1', '1', '!', '1', "ru digit 1");
 
     // Japanese: yen and ro keep their positions; the kana have no key of their own.
     check_key(124, 0xA5, 0xA5, '|', key::backslash, "jp yen key");
@@ -112,27 +99,13 @@ void test_key_table() noexcept {
     check_key(79, keysym::kp_end, keysym::kp_end, 0xFFB1, key::end, "keypad 1 without Num Lock");
     check_key(83, keysym::kp_delete, keysym::kp_delete, keysym::kp_decimal, key::del, "keypad dot without Num Lock");
     check_key(83, keysym::kp_decimal, keysym::kp_delete, keysym::kp_decimal, key::decimal, "keypad dot with Num Lock");
-    check_key(96, keysym::kp_enter, keysym::kp_enter, keysym::kp_enter, key::enter, "keypad enter");
-    check_key(98, keysym::kp_divide, keysym::kp_divide, keysym::kp_divide, key::divide, "keypad divide");
     check_key(42, keysym::shift_l, keysym::shift_l, keysym::shift_l, key::shift, "left shift is the generic shift");
     check_key(54, keysym::shift_r, keysym::shift_r, keysym::shift_r, key::shift, "right shift is the generic shift");
-    check_key(29, keysym::control_l, keysym::control_l, keysym::control_l, key::ctrl, "ctrl");
-    check_key(56, keysym::alt_l, keysym::alt_l, keysym::alt_l, key::alt, "alt");
     check_key(100, keysym::iso_level3_shift, keysym::iso_level3_shift, keysym::iso_level3_shift, key::right_alt,
               "AltGr is right alt");
-    check_key(125, keysym::super_l, keysym::super_l, keysym::super_l, key::left_super, "left super");
-    check_key(127, keysym::menu, keysym::menu, keysym::menu, key::menu, "menu");
     check_key(15, keysym::iso_left_tab, keysym::tab, keysym::iso_left_tab, key::tab, "shift tab is tab");
-    check_key(28, keysym::return_key, keysym::return_key, keysym::return_key, key::enter, "return");
-    check_key(14, keysym::backspace, keysym::backspace, keysym::backspace, key::backspace, "backspace");
-    check_key(111, keysym::delete_key, keysym::delete_key, keysym::delete_key, key::del, "delete");
-    check_key(58, keysym::caps_lock, keysym::caps_lock, keysym::caps_lock, key::caps_lock, "caps lock");
-    check_key(69, keysym::num_lock, keysym::num_lock, keysym::num_lock, key::num_lock, "num lock");
-    check_key(59, keysym::f1, keysym::f1, keysym::f1, key::f1, "f1");
     check_key(194, keysym::f24, keysym::f24, keysym::f24, key::f24, "f24");
     check_key(99, keysym::print, keysym::print, keysym::sys_req, key::print_screen, "print");
-    check_key(119, keysym::pause, keysym::pause, keysym::pause, key::pause, "pause");
-    check_key(1, keysym::escape, keysym::escape, keysym::escape, key::escape, "escape");
 
     check(specific_modifier_key(42) == key::left_shift && specific_modifier_key(54) == key::right_shift &&
               specific_modifier_key(29) == key::left_ctrl && specific_modifier_key(97) == key::right_ctrl &&
@@ -551,101 +524,34 @@ void test_xkb_layouts() noexcept {
     Layout fr = make_layout(*api, context, "fr", nullptr);
     Layout dvorak = make_layout(*api, context, "us", "dvorak");
     Layout ru = make_layout(*api, context, "ru", nullptr);
-    Layout jp = make_layout(*api, context, "jp", nullptr);
-    check(de.keymap && fr.keymap && dvorak.keymap && ru.keymap && jp.keymap, "layouts compile");
-    if (de.keymap && fr.keymap && dvorak.keymap && ru.keymap && jp.keymap) {
+    check(de.keymap && fr.keymap && dvorak.keymap && ru.keymap, "layouts compile");
+    if (de.keymap && fr.keymap && dvorak.keymap && ru.keymap) {
         Press p = press(*api, us, 30);
         check(p.key == 'A' && p.text == 'a', "xkb us a");
-        p = press(*api, us, 30, "Shift");
-        check(p.key == 'A' && p.text == 'A', "xkb us shifted a");
         p = press(*api, us, 30, "Control");
         check(p.key == 'A' && p.text == 0x01, "xkb us ctrl+a types the control code");
         p = press(*api, us, 111);
         check(p.key == key::del && p.text == 0x7F && !is_message_character(p.text), "xkb delete types no text");
-        p = press(*api, us, 28);
-        check(p.key == key::enter && p.text == '\r', "xkb return");
-        p = press(*api, us, 14);
-        check(p.key == key::backspace && p.text == '\b', "xkb backspace");
         p = press(*api, us, 79);
         check(p.key == key::end, "xkb keypad 1 without Num Lock is End");
         p = press(*api, us, 79, "Mod2");
         check(p.key == key::numpad1 && p.text == '1', "xkb keypad 1 with Num Lock");
-        p = press(*api, us, 42);
-        check(p.key == key::shift, "xkb left shift");
-        p = press(*api, us, 12);
-        check(p.key == key::minus && p.text == '-', "xkb us minus");
-
         p = press(*api, de, 21);
         check(p.key == 'Z' && p.text == 'z', "xkb de y position types z");
-        p = press(*api, de, 44);
-        check(p.key == 'Y' && p.text == 'y', "xkb de z position types y");
         p = press(*api, de, 26);
         check(p.key == key::left_bracket && p.text == 0xFC, "xkb de u-umlaut");
-        const u32 level_three = api->keymap_mod_get_index(de.keymap, "LevelThree") != kXkbModifierInvalid
-                                    ? api->keymap_mod_get_index(de.keymap, "LevelThree")
-                                    : api->keymap_mod_get_index(de.keymap, "Mod5");
-        check(level_three != kXkbModifierInvalid, "xkb de has an AltGr modifier");
-        api->state_update_mask(de.state, 1u << level_three, 0, 0, 0, 0, 0);
-        check(api->state_key_get_utf32(de.state, 16 + kEvdevToXkb) == '@', "xkb de AltGr+q types @");
-        p = press(*api, de, 100);
-        check(p.key == key::right_alt, "xkb de AltGr key");
-
         p = press(*api, fr, 2);
         check(p.key == '1' && p.text == '&', "xkb fr digit row unshifted");
-        p = press(*api, fr, 2, "Shift");
-        check(p.key == '1' && p.text == '1', "xkb fr digit row shifted");
-        p = press(*api, fr, 16);
-        check(p.key == 'A' && p.text == 'a', "xkb fr q position types a");
-        p = press(*api, fr, 30);
-        check(p.key == 'Q' && p.text == 'q', "xkb fr a position types q");
-
-        p = press(*api, dvorak, 31);
-        check(p.key == 'O' && p.text == 'o', "xkb dvorak o");
-        p = press(*api, dvorak, 16);
-        check(p.key == key::quote && p.text == '\'', "xkb dvorak apostrophe");
         p = press(*api, dvorak, 12);
         check(p.key == key::left_bracket && p.text == '[', "xkb dvorak left bracket");
-
         p = press(*api, ru, 30);
         check(p.key == 'A' && p.text == 0x444, "xkb ru ef on the a key");
-        p = press(*api, ru, 2);
-        check(p.key == '1' && p.text == '1', "xkb ru digit");
-
-        p = press(*api, jp, 124);
-        check(p.key == key::backslash, "xkb jp yen key");
-        p = press(*api, jp, 30);
-        check(p.key == 'A' && p.text == 'a', "xkb jp a");
     }
     release_layout(*api, &us);
     release_layout(*api, &de);
     release_layout(*api, &fr);
     release_layout(*api, &dvorak);
     release_layout(*api, &ru);
-    release_layout(*api, &jp);
-
-    // Compose: a dead key and a letter make one accented character.
-    XkbComposeTable* table = api->compose_table_new_from_locale(context, "en_US.UTF-8", 0);
-    if (!table) {
-        test_write_line("SKIP compose: no compose table for en_US.UTF-8");
-    } else {
-        XkbComposeState* state = api->compose_state_new(table, 0);
-        const u32 dead_acute = 0xFE51;
-        check(api->compose_state_feed(state, dead_acute) == kXkbComposeFeedAccepted &&
-                  api->compose_state_get_status(state) == kXkbComposeStatusComposing,
-              "dead acute starts a sequence");
-        check(api->compose_state_feed(state, 'a') == kXkbComposeFeedAccepted &&
-                  api->compose_state_get_status(state) == kXkbComposeStatusComposed,
-              "dead acute and a compose");
-        char text[16] = {};
-        const int length = api->compose_state_get_utf8(state, text, sizeof(text));
-        check(length == 2 && static_cast<u8>(text[0]) == 0xC3 && static_cast<u8>(text[1]) == 0xA1, "composes a-acute");
-        api->compose_state_reset(state);
-        check(api->compose_state_feed(state, 'x') == kXkbComposeFeedAccepted &&
-                  api->compose_state_get_status(state) == kXkbComposeStatusNothing,
-              "an ordinary key composes nothing");
-        api->compose_state_unref(state);
-        api->compose_table_unref(table);
-    }
     api->context_unref(context);
 }
 

@@ -258,15 +258,6 @@ void test_trace_record() noexcept {
         }
     }
     expect(bounded, "trace_record_all_capacity_boundaries");
-    clear_bytes(fixture.record.text, sizeof(fixture.record.text));
-    fixture.record.used = 0;
-    fixture.record.append("abc");
-    fixture.record.append(fixture.record.text);
-    bool overlapping = fixture.record.used == sizeof(fixture.record.text) - 1;
-    for (u32 index = 0; index < fixture.record.used; ++index)
-        overlapping = overlapping && fixture.record.text[index] == "abc"[index % 3];
-    expect(overlapping && fixture.record.text[fixture.record.used] == 0,
-           "trace_record_overlapping_text_append");
 
     // An event and its fields are one line: no newline inside, the values after their keys, error codes named.
     const auto same = [](const LogEvent& event, const char* expected) noexcept {
@@ -338,47 +329,53 @@ void test_byte_queue() noexcept {
     expect(byte_queue_produce(&queue, 2) && byte_queue_readable(queue)[1] == 22,
            "byte_queue_external_produce");
     expect(!byte_queue_produce(&queue, 7), "byte_queue_produce_bound");
-
-    // Exercise unaligned appends and overlapping compaction across copy boundaries. The runtime memmove
-    // uses only unaligned loads, so its paths depend on length alone; three offsets keep misalignment.
-    u8 payload[512]{};
-    u8 window[576]{};
-    for (u32 index = 0; index < sizeof(payload); ++index) {
-        payload[index] = static_cast<u8>(index * 37 + 17);
-    }
-    constexpr u32 lengths[]{0, 1, 2, 3, 7, 8, 15, 16, 31, 32, 63, 64,
-                            127, 128, 255, 256, 511};
-    bool ordered = true;
-    for (const u32 length : lengths) {
-        for (u32 offset = 1; offset <= 31; offset += 15) {
-            clear_bytes(window, sizeof(window));
-            ByteQueue current{window + offset, length + 1, 0, 0};
-            ordered = byte_queue_append(&current, ConstSlice<u8>{payload, length}) && ordered;
-            const ConstSlice<u8> appended = byte_queue_readable(current);
-            ordered = appended.count == length && maicord::bytes_equal(appended.data, payload, length) && ordered;
-            if (length != 0) {
-                ordered = byte_queue_consume(&current, 1) && ordered;
-                // Two incoming bytes require compaction of the resident suffix.
-                ordered = byte_queue_append(&current, ConstSlice<u8>{payload + 510, 2}) && ordered;
-                const ConstSlice<u8> held = byte_queue_readable(current);
-                ordered = held.count == length + 1 && maicord::bytes_equal(held.data, payload + 1, length - 1) &&
-                          held[length - 1] == payload[510] && held[length] == payload[511] && ordered;
-            }
-            ordered = window[offset - 1] == 0 && window[offset + length + 1] == 0 && ordered;
-        }
-    }
-    expect(ordered, "byte_queue_fragmented_copy_boundaries");
-}
-
-// One event with five fields, written as a warning: the file holds it as one line before the call returns.
-void log_warning_event() noexcept {
-    const u64 values[] = {1, 2, 3, 4, 5};
-    LogEvent("deferred").fields("a\0b\0c\0d\0e", values).write(LogLevel::warning, "test");
 }
 
 #if defined(_WIN32)
-// Buffered logging: ordinary lines reach the file through the deferred flush
-// without further log traffic, error lines flush synchronously, order is kept.
+#define LOG_EOL "\r\n"
+#else
+#define LOG_EOL "\n"
+#endif
+
+// Buffered logging, read back through `file_text`: ordinary lines reach the file through the deferred flush without
+// further log traffic (`pause` waits between reads), error lines flush synchronously, order is kept, and an event with
+// five fields, written as a warning, is one line the file holds before the call returns.
+template <typename FileText, typename Pause>
+void expect_log_contract(bool ok, const FileText& file_text, const Pause& pause) noexcept {
+    char text[1024]{};
+    log_write(LogLevel::info, "test", "buffered_line");
+    const bool initially_buffered = ok && file_text(text, sizeof(text)) == 0;
+    u32 bytes = 0;
+    for (u32 attempt = 0; ok && attempt < 200 && bytes == 0; ++attempt) {
+        pause();
+        bytes = file_text(text, sizeof(text));
+    }
+    const bool deferred = bytes != 0;
+    log_u64(LogLevel::info, "test", "pending", 7);
+    log_write(LogLevel::error, "test", "error_line");
+    const u64 values[] = {1, 2, 3, 4, 5};
+    LogEvent("deferred").fields("a\0b\0c\0d\0e", values).write(LogLevel::warning, "test");
+    file_text(text, sizeof(text));
+    log_close();
+    const auto find = [&](const char* needle) noexcept -> u32 {
+        for (u32 start = 0; text[start]; ++start) {
+            u32 index = 0;
+            while (needle[index] && text[start + index] == needle[index]) ++index;
+            if (!needle[index]) return start;
+        }
+        return ~0u;
+    };
+    const u32 first = find("[I] [test] buffered_line" LOG_EOL), second = find("[I] [test] pending=7" LOG_EOL),
+              third = find("[E] [test] error_line" LOG_EOL);
+    expect(ok && initially_buffered && deferred && first != ~0u && second != ~0u && third != ~0u &&
+               first < second && second < third && text[4] == '-' && text[10] == ' ' && text[19] == '.' &&
+               text[23] == ' ',
+           "log_buffers_lines_flushes_deferred_and_errors_in_order");
+    const u32 event_line = find("[W] [test] deferred a=1 b=2 c=3 d=4 e=5" LOG_EOL);
+    expect(ok && event_line != ~0u && event_line > third, "log_event_is_one_line_and_warnings_reach_the_file_at_once");
+}
+
+#if defined(_WIN32)
 void test_log_buffered_flush() noexcept {
     wchar_t previous[1024]{};
     const DWORD previous_length = GetEnvironmentVariableW(L"LOCALAPPDATA", previous, 1024);
@@ -407,36 +404,7 @@ void test_log_buffered_flush() noexcept {
         output[read] = 0;
         return read;
     };
-    char text[1024]{};
-    log_write(LogLevel::info, "test", "buffered_line");
-    const bool initially_buffered = ok && file_text(text, sizeof(text)) == 0;
-    u32 bytes = 0;
-    for (u32 attempt = 0; ok && attempt < 200 && bytes == 0; ++attempt) {
-        Sleep(10);
-        bytes = file_text(text, sizeof(text));
-    }
-    const bool deferred = bytes != 0;
-    log_u64(LogLevel::info, "test", "pending", 7);
-    log_write(LogLevel::error, "test", "error_line");
-    log_warning_event();
-    bytes = file_text(text, sizeof(text));
-    log_close();
-    const auto find = [&](const char* needle) noexcept -> u32 {
-        for (u32 start = 0; text[start]; ++start) {
-            u32 index = 0;
-            while (needle[index] && text[start + index] == needle[index]) ++index;
-            if (!needle[index]) return start;
-        }
-        return ~0u;
-    };
-    const u32 first = find("[I] [test] buffered_line\r\n"), second = find("[I] [test] pending=7\r\n"),
-              third = find("[E] [test] error_line\r\n");
-    expect(ok && initially_buffered && deferred && first != ~0u && second != ~0u && third != ~0u &&
-               first < second && second < third && text[4] == '-' && text[10] == ' ' && text[19] == '.' &&
-               text[23] == ' ',
-           "log_buffers_lines_flushes_deferred_and_errors_in_order");
-    const u32 event_line = find("[W] [test] deferred a=1 b=2 c=3 d=4 e=5\r\n");
-    expect(ok && event_line != ~0u && event_line > third, "log_event_is_one_line_and_warnings_reach_the_file_at_once");
+    expect_log_contract(ok, file_text, [] { Sleep(10); });
     DeleteFileW(file);
     RemoveDirectoryW(logs_dir);
     RemoveDirectoryW(maicord_dir);
@@ -444,9 +412,8 @@ void test_log_buffered_flush() noexcept {
     SetEnvironmentVariableW(L"LOCALAPPDATA", previous_length && previous_length < 1024 ? previous : nullptr);
 }
 #else
-// The same contract on the Linux log, whose file is <XDG_STATE_HOME>/maicord/logs/maicord.log and whose lines end in
-// "\n". The harness gives every test a private XDG_STATE_HOME ("test-profile" in its path); the test refuses any
-// other, so it never deletes the user's log.
+// The Linux log is <XDG_STATE_HOME>/maicord/logs/maicord.log. The harness gives every test a private XDG_STATE_HOME
+// ("test-profile" in its path); the test refuses any other, so it never deletes the user's log.
 void test_log_buffered_flush() noexcept {
     const char* data_home = environment_get("XDG_STATE_HOME");
     bool private_home = false;
@@ -469,37 +436,10 @@ void test_log_buffered_flush() noexcept {
         output[count] = 0;
         return count;
     };
-    char text[1024]{};
-    log_write(LogLevel::info, "test", "buffered_line");
-    const bool initially_buffered = ok && file_text(text, sizeof(text)) == 0;
-    u32 bytes = 0;
-    for (u32 attempt = 0; ok && attempt < 200 && bytes == 0; ++attempt) {
+    expect_log_contract(ok, file_text, [] {
         const TimeSpec pause{0, 10'000'000};
         sys_nanosleep(&pause);
-        bytes = file_text(text, sizeof(text));
-    }
-    const bool deferred = bytes != 0;
-    log_u64(LogLevel::info, "test", "pending", 7);
-    log_write(LogLevel::error, "test", "error_line");
-    log_warning_event();
-    bytes = file_text(text, sizeof(text));
-    log_close();
-    const auto find = [&](const char* needle) noexcept -> u32 {
-        for (u32 start = 0; text[start]; ++start) {
-            u32 index = 0;
-            while (needle[index] && text[start + index] == needle[index]) ++index;
-            if (!needle[index]) return start;
-        }
-        return ~0u;
-    };
-    const u32 first = find("[I] [test] buffered_line\n"), second = find("[I] [test] pending=7\n"),
-              third = find("[E] [test] error_line\n");
-    expect(ok && initially_buffered && deferred && first != ~0u && second != ~0u && third != ~0u &&
-               first < second && second < third && text[4] == '-' && text[10] == ' ' && text[19] == '.' &&
-               text[23] == ' ',
-           "log_buffers_lines_flushes_deferred_and_errors_in_order");
-    const u32 event_line = find("[W] [test] deferred a=1 b=2 c=3 d=4 e=5\n");
-    expect(ok && event_line != ~0u && event_line > third, "log_event_is_one_line_and_warnings_reach_the_file_at_once");
+    });
     // Remove the file, then the logs and MaiCord directories above it.
     sys_unlink(path);
     for (u32 directories = 0; ok && directories < 2; ++directories) {

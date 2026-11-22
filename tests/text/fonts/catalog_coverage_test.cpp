@@ -6,8 +6,7 @@
 namespace maicord {namespace {
 #include "../../generated/font_catalog_probe_font.inc"
 u32 checks=0;bool cleanup_ok=true;
-void print(const char* p) noexcept {u32 n=0;while(p[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),p,n,&written,nullptr);}
-void number(u32 value) noexcept {char digits[16],out[16];u32 n=0;do{digits[n++]=static_cast<char>('0'+value%10);value/=10;}while(value);for(u32 i=0;i<n;++i)out[i]=digits[n-i-1];out[n]=0;print(out);}
+constexpr auto& print=test_write_text;constexpr auto& number=test_write_u64;
 #define CHECK(x) do{++checks;if(!(x)){print("FAIL line=");number(__LINE__);print("\n");return false;}}while(0)
 bool same(NativeFontHandle a,NativeFontHandle b) noexcept{return a.slot==b.slot&&a.generation==b.generation;}
 bool write(const wchar_t* path,ConstSlice<u8> bytes) noexcept {HANDLE h=CreateFileW(path,GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,0,nullptr);if(h==INVALID_HANDLE_VALUE)return false;

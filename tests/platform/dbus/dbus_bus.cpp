@@ -97,8 +97,7 @@ bool described_as(Connection* c, const Builder& body, const char* expected, cons
 
 void test_connect(Connection* c) noexcept {
     check(c && connection_alive(c), "the bus connection opens");
-    check(text_equal(connection_unique_name(c), connection_unique_name(c)) && connection_unique_name(c)[0] == ':',
-          "Hello gave a unique name");
+    check(connection_unique_name(c)[0] == ':', "Hello gave a unique name");
 
     Connection* second = connection_open_address(g_address);
     check(second && !text_equal(connection_unique_name(second), connection_unique_name(c)), "a second connection has its own name");

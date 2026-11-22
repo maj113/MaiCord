@@ -1,6 +1,6 @@
 #pragma once
 
-#include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/os/thread.hpp"
 #include "maicord/platform/window/wayland/abi.hpp"
@@ -19,7 +19,7 @@ namespace maicord::inject {
 using namespace wayland;
 
 inline constexpr u32 kMaxOffered = 4;
-inline constexpr u32 kMimeBits = 8;
+inline constexpr u32 kMimeBits = 5;
 
 struct Offered {
     const char* mime;
@@ -33,8 +33,7 @@ struct HelperOffer {
 };
 
 inline constexpr const char* kMimeNames[kMimeBits] = {"text/plain;charset=utf-8", "text/plain", "UTF8_STRING",
-                                                      "image/png", "text/html", "text/uri-list",
-                                                      "x-special/gnome-copied-files", "text/x-unused"};
+                                                      "image/png", "text/html"};
 
 struct Helper {
     wl_display* display;
@@ -58,7 +57,6 @@ struct Helper {
     // Input method.
     volatile u32 ime_active;
     volatile u32 ime_done_count;
-    volatile u32 ime_deactivations;
     char ime_surrounding[4100];
     volatile u32 ime_surrounding_bytes;
     volatile u32 ime_cursor, ime_anchor;
@@ -69,22 +67,14 @@ namespace helper_detail {
 
 inline Helper* g_target;
 
-inline bool same(const char* left, const char* right) noexcept {
-    while (*left && *left == *right) {
-        ++left;
-        ++right;
-    }
-    return *left == *right;
-}
-
 inline void on_global(void*, wl_registry* registry, u32 name, const char* interface, u32 version) noexcept {
     Helper& helper = *g_target;
-    if (same(interface, "wl_seat") && !helper.seat)
+    if (c_string_equal(interface, "wl_seat") && !helper.seat)
         helper.seat = static_cast<wl_seat*>(wl_registry_bind(registry, name, &wl_seat_interface, 1));
-    else if (same(interface, "zwlr_data_control_manager_v1") && !helper.data_manager)
+    else if (c_string_equal(interface, "zwlr_data_control_manager_v1") && !helper.data_manager)
         helper.data_manager = static_cast<zwlr_data_control_manager_v1*>(wl_registry_bind(
             registry, name, &zwlr_data_control_manager_v1_interface, version < 2 ? version : 2));
-    else if (same(interface, "zwp_input_method_manager_v2") && !helper.ime_manager)
+    else if (c_string_equal(interface, "zwp_input_method_manager_v2") && !helper.ime_manager)
         helper.ime_manager = static_cast<zwp_input_method_manager_v2*>(
             wl_registry_bind(registry, name, &zwp_input_method_manager_v2_interface, 1));
 }
@@ -94,7 +84,7 @@ inline const wl_registry_listener kRegistryListener = {on_global, on_global_remo
 inline void on_offer_mime(void* data, zwlr_data_control_offer_v1*, const char* mime) noexcept {
     HelperOffer* offer = static_cast<HelperOffer*>(data);
     for (u32 i = 0; i < kMimeBits; ++i)
-        if (same(mime, kMimeNames[i]))
+        if (c_string_equal(mime, kMimeNames[i]))
             offer->mimes = offer->mimes | (1u << i);
 }
 inline const zwlr_data_control_offer_v1_listener kOfferListener = {on_offer_mime};
@@ -166,7 +156,7 @@ inline void write_all(int fd, const u8* data, u32 bytes) noexcept {
 inline void on_send(void*, zwlr_data_control_source_v1*, const char* mime, i32 fd) noexcept {
     const Helper& helper = *g_target;
     for (u32 i = 0; i < helper.offered_count; ++i)
-        if (same(helper.offered[i].mime, mime))
+        if (c_string_equal(helper.offered[i].mime, mime))
             write_all(fd, helper.offered[i].data, helper.offered[i].bytes);
     sys_close(fd);
 }
@@ -178,7 +168,6 @@ inline void on_ime_activate(void*, zwp_input_method_v2*) noexcept {
 }
 inline void on_ime_deactivate(void*, zwp_input_method_v2*) noexcept {
     g_target->ime_active = 0;
-    g_target->ime_deactivations = g_target->ime_deactivations + 1;
 }
 inline void on_ime_surrounding(void*, zwp_input_method_v2*, const char* text, u32 cursor, u32 anchor) noexcept {
     Helper& helper = *g_target;

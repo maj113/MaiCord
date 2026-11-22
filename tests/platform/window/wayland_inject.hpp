@@ -1,6 +1,6 @@
 #pragma once
 
-#include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/window/wayland/abi.hpp"
 #include "maicord/platform/window/wayland/xkb.hpp"
@@ -33,24 +33,16 @@ struct Injector {
 
 namespace detail {
 
-inline bool same(const char* left, const char* right) noexcept {
-    while (*left && *left == *right) {
-        ++left;
-        ++right;
-    }
-    return *left == *right;
-}
-
 inline Injector* g_target;
 
 inline void on_global(void*, wl_registry* registry, u32 name, const char* interface, u32 version) noexcept {
     Injector& injector = *g_target;
-    if (same(interface, "wl_seat") && !injector.seat)
+    if (c_string_equal(interface, "wl_seat") && !injector.seat)
         injector.seat = static_cast<wl_seat*>(wl_registry_bind(registry, name, &wl_seat_interface, 1));
-    else if (same(interface, "zwlr_virtual_pointer_manager_v1") && !injector.pointer_manager)
+    else if (c_string_equal(interface, "zwlr_virtual_pointer_manager_v1") && !injector.pointer_manager)
         injector.pointer_manager = static_cast<zwlr_virtual_pointer_manager_v1*>(wl_registry_bind(
             registry, name, &zwlr_virtual_pointer_manager_v1_interface, version < 2 ? version : 2));
-    else if (same(interface, "zwp_virtual_keyboard_manager_v1") && !injector.keyboard_manager)
+    else if (c_string_equal(interface, "zwp_virtual_keyboard_manager_v1") && !injector.keyboard_manager)
         injector.keyboard_manager = static_cast<zwp_virtual_keyboard_manager_v1*>(
             wl_registry_bind(registry, name, &zwp_virtual_keyboard_manager_v1_interface, 1));
 }

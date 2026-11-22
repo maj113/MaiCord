@@ -3,8 +3,8 @@
 // The headless window backend (src/platform/window/null): the whole window service over plain memory, with no
 // desktop and no compositor, for the tests that drive window handlers (tests/support/window_fixture.hpp). It keeps
 // what the system keeps: capture, focus, the cursor shape, key state; and, like the system, reports a lost capture
-// to the sink synchronously, from inside the call that lost it
-// (tests/platform/window/win32_behaviour.cpp captures the Windows behaviour it copies).
+// to the sink synchronously, from inside the call that lost it (ReleaseCapture and SetCapture send WM_CAPTURECHANGED
+// to the old owner before they return; SetCapture by the owner itself names that window as the new one).
 #include "maicord/platform/window/window.hpp"
 
 namespace maicord {

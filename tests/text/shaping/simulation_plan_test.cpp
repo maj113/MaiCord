@@ -5,8 +5,7 @@
 #include "../../support/test_output.hpp"
 namespace maicord {namespace {
 u64 checks=0,glyphs=0;u32 faces=0;
-void print(const char* s) noexcept{u32 n=0;while(s[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&written,nullptr);}
-void number(u64 value) noexcept{char b[24];u32 n=0;do{b[n++]=static_cast<char>('0'+value%10);value/=10;}while(value);for(u32 i=0;i<n/2;++i){const char c=b[i];b[i]=b[n-1-i];b[n-1-i]=c;}b[n]=0;print(b);}
+constexpr auto& print=test_write_text;constexpr auto& number=test_write_u64;
 #define CHECK(x) do{++checks;if(!(x)){print("FAIL line=");number(__LINE__);print(" face=");number(faces);print("\n");return false;}}while(0)
 struct Reader {const u8* p;u32 left;bool take(u32 n,const u8** out) noexcept{if(n>left)return false;*out=p;p+=n;left-=n;return true;}bool word(u32* out) noexcept{const u8* b=nullptr;if(!take(4,&b))return false;*out=byte_load_le32(b);return true;}};
 bool exercise(const wchar_t* path,u32 index,u32 count,const u8* expected) noexcept {

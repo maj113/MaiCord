@@ -6,8 +6,7 @@
 namespace maicord {namespace {
 #include "../../generated/font_matching_fixture.inc"
 u32 checks=0,cases=0,groups=0;
-void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&written,nullptr);}
-void number(u32 value) noexcept {char s[16];u32 n=0;do{s[n++]=static_cast<char>('0'+value%10);value/=10;}while(value);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}s[n]=0;print(s);}
+constexpr auto& print=test_write_text;constexpr auto& number=test_write_u64;
 #define CHECK(x) do{++checks;if(!(x)){print("FAIL line=");number(__LINE__);print(" case=");number(cases);print(" group=");number(groups);print("\n");return false;}}while(0)
 bool corpus() noexcept {
     const auto* data=font_matching_fixture;const u32 size=sizeof(font_matching_fixture);u32 at=12;CHECK(bytes_equal(data,"MCFMAT1\0",8));const u32 n=byte_load_le32(data+8);

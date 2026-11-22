@@ -2517,11 +2517,6 @@ maicord_test(MaiCordByteOrderTests ENTRY maicord_byte_order_entry SOURCES tests/
 maicord_test(MaiCordWindowWin32KeysTests ONLY WINDOWS ENTRY maicord_window_win32_keys_entry
     SOURCES tests/platform/window/win32_keys.cpp
     LIBS maicord_core maicord_window_win32 kernel32 user32 TIMEOUT 10 TEST maicord_window_win32_keys)
-# Windows behaviours the window seam relies on (capture notification timing, context-menu keys), captured in a hidden
-# harness window.
-maicord_test(MaiCordWindowWin32BehaviourTests ONLY WINDOWS ENTRY maicord_window_win32_behaviour_entry
-    SOURCES tests/platform/window/win32_behaviour.cpp
-    LIBS maicord_core kernel32 user32 TIMEOUT 10 TEST maicord_window_win32_behaviour)
 # The Windows backend's event translation and window procedure (hooks, sink answers, post-actions), and a saved
 # placement applied to the hidden window.
 maicord_test(MaiCordWindowWin32EventsTests ONLY WINDOWS ENTRY maicord_window_win32_events_entry

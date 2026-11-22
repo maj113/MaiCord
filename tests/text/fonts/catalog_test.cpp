@@ -10,8 +10,7 @@ namespace maicord {namespace {
 #include "../../generated/font_catalog_probe_font.inc"
 #include "catalog_fixture.inc"
 u32 checks=0;
-void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
-void number(u32 v) noexcept {char d[16],out[16];u32 n=0;do{d[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n;++i)out[i]=d[n-i-1];out[n]=0;print(out);}
+constexpr auto& print=test_write_text;constexpr auto& number=test_write_u64;
 #define CHECK(x) do{++checks;if(!(x)){print("FAIL line=");number(__LINE__);print("\n");return false;}}while(0)
 u32 length(const wchar_t* p) noexcept {u32 n=0;while(p[n])++n;return n;}
 ConstSlice<u16> wide(const wchar_t* p) noexcept {return {reinterpret_cast<const u16*>(p),length(p)};}
