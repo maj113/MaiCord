@@ -231,7 +231,7 @@ GatewayEventDecodeResult decode_thread(const JsonValue& value, const JsonIndexed
     thread.archived = context.archived;
     thread.locked = context.locked;
     thread.present = true;
-    if (!bounded_string(context.name, kGatewayMessageUserNameMaximumBytes, text, &thread.name))
+    if (!bounded_string(context.name, kRichThreadNameMaximumBytes, text, &thread.name))
         return decode_failure(GatewayEventDecodeError::invalid_data);
     return decode_failure(GatewayEventDecodeError::none);
 }

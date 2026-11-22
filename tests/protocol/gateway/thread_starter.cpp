@@ -36,6 +36,22 @@ void test_thread_starter(Check check) noexcept {
     GatewayMessageEvent invalid{};
     check(!decode(utf8_literal(R"({"thread":{"name":"no id"}})"), &invalid, text, sizeof(text)),
           "thread starter: a thread without an id is rejected");
+    // Discord allows 100 characters in a thread name: 100 four-byte characters are 400 bytes, all shown.
+    char long_body[512];
+    u32 at = 0;
+    const auto put = [&](Utf8View part) noexcept {
+        copy_bytes(long_body + at, part.data, part.bytes);
+        at += part.bytes;
+    };
+    put(utf8_literal(R"({"thread":{"id":"89","name":")"));
+    for (u32 i = 0; i < 100; ++i)
+        put(utf8_literal("\xF0\x9F\xA7\xB5"));
+    put(utf8_literal(R"(","thread_metadata":{"archived":false}}})"));
+    char long_text[512]{};
+    GatewayMessageEvent named{};
+    check(decode({long_body, at}, &named, long_text, sizeof(long_text)) && named.thread.name.bytes == 400 &&
+              bytes_equal(named.thread.name.data + 396, "\xF0\x9F\xA7\xB5", 4) && !named.rich_truncations,
+          "thread starter: a thread name of 100 four-byte characters (400 bytes) decodes whole");
 
     static MessageRichRecord records[4];
     u16 order[4]{};
@@ -43,6 +59,12 @@ void test_thread_starter(Check check) noexcept {
     MessageRichStore store{};
     check(message_rich_store_initialize(&store, {records, 4}, {order, 4}, {bank, sizeof(bank)}),
           "thread starter: rich store initializes");
+    named.id = 78;
+    named.channel_id = 5;
+    const auto* long_rich = message_rich_store_apply(&store, 78, 1, named).ok() ? message_rich_store_find(store, 78)
+                                                                                 : nullptr;
+    check(long_rich && message_rich_store_string(store, long_rich->thread.name).bytes == 400,
+          "thread starter: the rich store keeps the whole 400-byte thread name");
     message.channel_id = 5;
     const auto applied = message_rich_store_apply(&store, 77, 1, message);
     const auto* rich = message_rich_store_find(store, 77);

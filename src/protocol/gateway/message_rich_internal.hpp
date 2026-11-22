@@ -31,6 +31,8 @@ inline constexpr u32 kRichEmbedDescriptionMaximumBytes = 16 * 1024;
 inline constexpr u32 kRichEmbedFooterMaximumBytes = 8 * 1024;
 inline constexpr u32 kRichComponentTextMaximumBytes = 4 * 1024;
 inline constexpr u32 kRichComponentIdMaximumBytes = 256;
+// A channel name has 1-100 characters (docs.discord.food, channel object): 400 bytes of UTF-8.
+inline constexpr u32 kRichThreadNameMaximumBytes = 400;
 
 struct RootContext {
     JsonValue message_reference;
