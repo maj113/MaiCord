@@ -8,7 +8,7 @@ void test_command_autocomplete(void (*check)(bool, const char*) noexcept) noexce
     CommandIndex index{};
     constexpr auto catalog = utf8_literal(
         R"({"applications":[{"id":"10","name":"Search"}],"application_commands":[{"id":"100","application_id":"10","version":"7","name":"find","type":1,"options":[{"name":"required","type":6,"required":true},{"name":"scope","type":3},{"name":"query","type":3,"autocomplete":true},{"name":"number","type":10,"autocomplete":true}]}]})");
-    check(command_index_decode(catalog, {scratch, 2048}, &index), "autocomplete command index fixture");
+    check(command_index_decode(catalog, &index), "autocomplete command index fixture");
     if (index.command_count != 1)
         return;
     u8 output[2048];

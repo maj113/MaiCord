@@ -234,7 +234,7 @@ void test_commands(PluginBinding* binding) noexcept {
     const u32 bytes = plugin_command_index_json({g_json, sizeof(g_json)});
     check(bytes && plugin_command_count() == 16, "the plugin's commands make an index");
     check(plugin_command_index_json({g_json, 100}) == 0, "an output that is too small yields no index");
-    check(command_index_decode({g_json, bytes}, {g_scratch, 16384}, &g_index) && g_index.application_count == 1 &&
+    check(command_index_decode({g_json, bytes}, &g_index) && g_index.application_count == 1 &&
               g_index.command_count == 16,
           "the composer decodes the index: one application, sixteen commands");
     if (g_index.command_count != 16) return;
@@ -487,7 +487,7 @@ void test_disable(PluginRuntime* runtime, PluginBinding* binding, u32 revision) 
 bool reload_index() noexcept {
     command_index_release(&g_index);
     const u32 bytes = plugin_command_index_json({g_json, sizeof(g_json)});
-    return bytes && command_index_decode({g_json, bytes}, {g_scratch, 16384}, &g_index);
+    return bytes && command_index_decode({g_json, bytes}, &g_index);
 }
 
 PluginBinding* enable_sample(PluginRuntime* runtime, const Root& root, const wchar_t* built, const wchar_t* name) noexcept {

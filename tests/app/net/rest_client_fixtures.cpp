@@ -9,6 +9,7 @@
 #include "../account/login/account_action_captcha_transport.cpp"
 #include "rest_credential_swap.cpp"
 #include "signed_out_session.cpp"
+#include "../chat/composer/command_index_transport.cpp"
 
 namespace maicord {
 namespace {
@@ -24,6 +25,7 @@ constexpr RestClientFixture rest_client_fixtures[]{
     {L"action-captcha-transport", action_captcha_transport::run},
     {L"credential-swap", credential_swap::run},
     {L"signed-out-session", signed_out_session_test::run},
+    {L"command-index-transport", command_index_transport::run},
 };
 // The fixture named by the only argument after the program name, or null.
 const RestClientFixture* selected_fixture() noexcept {

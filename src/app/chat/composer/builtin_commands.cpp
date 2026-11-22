@@ -224,8 +224,6 @@ const CommandIndex* builtin_commands_index() noexcept {
             const u8* text = inflated_block_load(g_index_block, kBuiltinCommandsPacked, sizeof(kBuiltinCommandsPacked),
                                                  kBuiltinCommandsBytes);
             return text && command_index_decode({reinterpret_cast<const char*>(text), kBuiltinCommandsBytes},
-                                                {g_app.account_ui->message_history_page_structurals,
-                                                 kMessageHistoryPageStructuralCount},
                                                 &g_builtins.index);
         }();
     return s.decoded ? &s.index : nullptr;

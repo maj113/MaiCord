@@ -1920,7 +1920,8 @@ maicord_test(MaiCordRestClientFixtureTests ONLY WINDOWS ENTRY maicord_rest_clien
     TEST maicord_account_bulk_read_transport bulk-read-transport
     TEST maicord_account_action_captcha_transport action-captcha-transport
     TEST maicord_rest_credential_swap credential-swap
-    TEST maicord_signed_out_session signed-out-session)
+    TEST maicord_signed_out_session signed-out-session
+    TEST maicord_command_index_transport command-index-transport)
 maicord_test(MaiCordAccountLogoutRuntimeTests ONLY WINDOWS ENTRY maicord_application_account_logout_runtime_entry
     SOURCES ${maicord_account_fake}
     SOURCES tests/app/account/application_account_logout_runtime.cpp src/app/account/account_logout_stop.cpp

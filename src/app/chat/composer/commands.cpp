@@ -603,10 +603,7 @@ bool application_commands_response(const RestClientResponse& response, Utf8View 
             if (response.transport_ok() && response.status_code == 200) {
                 if (c.selected.index == &c.index[c.requested_slot])
                     reset_value(&c.selected);
-                if (!command_index_decode(body,
-                                          {g_app.account_ui->message_history_page_structurals,
-                                           kMessageHistoryPageStructuralCount},
-                                          &c.index[c.requested_slot]))
+                if (!command_index_decode(body, &c.index[c.requested_slot]))
                     c.error = utf8_literal("Couldn't load commands");
             } else
                 c.error = utf8_literal("Couldn't load commands");

@@ -132,7 +132,7 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
         R"({"applications":[{"id":"10","name":"First","bot":{"id":"11","avatar":"abc"}},{"id":"20","name":"Second"}],"application_commands":[{"id":"100","application_id":"10","version":"7","name":"bump","description":"Bump first","type":1},{"id":"200","application_id":"20","version":"8","name":"bump","description":"Bump second","type":1},{"id":"300","application_id":"10","version":"9","name":"admin","description":"Admin","type":1,"options":[{"name":"member","type":2,"options":[{"name":"set","description":"Set member","type":1,"options":[{"name":"user","type":6,"required":true},{"name":"reason","type":3},{"name":"count","type":4},{"name":"enabled","type":5},{"name":"ratio","type":10}]}]}]}]})");
     u32 scratch[2048];
     CommandIndex index{};
-    check(command_index_decode(body, {scratch, 2048}, &index), "command_index_decodes");
+    check(command_index_decode(body, &index), "command_index_decodes");
     if (index.command_count != 3) {
         check(false, "command_leaf_count");
         command_index_release(&index);
@@ -183,7 +183,7 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
     check(command_arguments(index, index.commands[0], {}, &w, &error) && w.used == 2,
           "zero_option_command_executes_empty_options");
     const auto* retained = index.commands;
-    check(!command_index_decode(utf8_literal("{broken"), {scratch, 2048}, &index) &&
+    check(!command_index_decode(utf8_literal("{broken"), &index) &&
               index.commands == retained,
           "bad_index_does_not_replace_loaded_commands");
     command_index_release(&index);
@@ -191,7 +191,7 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
         constexpr auto chooser = utf8_literal(
             R"({"applications":[{"id":"10","name":"First","bot":{"id":"11","username":"first_bot","global_name":"First Bot"}}],"application_commands":[{"id":"400","application_id":"10","version":"1","name":"size","type":1,"nsfw":true,"options":[{"name":"size","type":3,"choices":[{"name":"Extra large","value":"xl"}]},{"name":"count","type":4,"choices":[{"name":"Two","value":2}]},{"name":"flag","type":5}]}]})");
         CommandIndex choices{};
-        check(command_index_decode(chooser, {scratch, 2048}, &choices) && choices.command_count == 1 &&
+        check(command_index_decode(chooser, &choices) && choices.command_count == 1 &&
                   choices.commands[0].nsfw && choices.application_count == 1 &&
                   utf8_equal(choices.applications[0].bot_name, utf8_literal("First Bot")),
               "command index keeps the nsfw flag and the bot's display name");
@@ -217,7 +217,7 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
         const Utf8View files[]{utf8_literal("a.png"), utf8_literal("b.png")};
         CommandAttachmentPlan plan{};
         w.used = 0;
-        const bool decoded = command_index_decode(uploader, {scratch, 2048}, &uploads) && uploads.command_count == 1;
+        const bool decoded = command_index_decode(uploader, &uploads) && uploads.command_count == 1;
         check(decoded && command_arguments(uploads, uploads.commands[0], utf8_literal("extra:b.png note:hi"), &w,
                                            &error, {}, {}, {files, 2}, &plan) &&
                   plan.count == 2 && plan.file[0] == 0 && plan.file[1] == 1 &&

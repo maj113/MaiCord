@@ -36,6 +36,26 @@ inline bool application_command_interaction_body(bool autocomplete, u64 applicat
          protocol_writer_append_literal(body, ",\"nonce\":\"") && protocol_writer_append_u64(body, nonce);
     return ok && protocol_writer_append_c_string(body, autocomplete ? "\"}" : "\",\"analytics_location\":\"slash_ui\"}");
 }
+// GETs the application command index: with `user`, of the apps installed to the account; else of `guild`, or outside
+// a server of `channel` (a DM or group DM). A big bot's localized commands inflate past the 256 KiB response a
+// client is configured for, a server's many bots further: the body grows to the large response ceiling as it arrives.
+inline constexpr u64 kCommandIndexRouteId = 0x434d4449;
+inline RestClientSubmitResult submit_command_index(RestClient* rest, bool user, u64 guild, u64 channel,
+                                                   u64 request_id) noexcept {
+    u8 target[96];
+    ProtocolWriter path{{target, sizeof(target)}, 0};
+    if (user ? !protocol_writer_append_literal(&path, "/api/v9/users/@me/application-command-index")
+             : !channel || !protocol_write(&path, "/api/v9/", guild ? "guilds/" : "channels/", guild ? guild : channel,
+                                           "/application-command-index"))
+        return {RestClientSubmitError::invalid_input};
+    return rest_client_submit_large_response(
+        rest,
+        {{target, path.used}, {},
+         {kCommandIndexRouteId, guild ? guild : channel, RestMethod::get,
+          guild ? RestMajorParameter::guild : RestMajorParameter::channel},
+         request_id, kRestClientDefaultTimeoutMs, false},
+        kRestClientMaximumLargeResponseBytes);
+}
 // The built-in /nick and /thread requests:
 // PATCH /guilds/{guild}/members/@me/nick {"nick"} and
 // POST /channels/{channel}/threads {"name","type","auto_archive_duration",

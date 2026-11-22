@@ -64,9 +64,8 @@ bool menu_row_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) 
     // and descriptions until after the popup is retired below.
     constexpr auto body = utf8_literal(
         R"({"applications":[{"id":"10","name":"First"}],"application_commands":[{"id":"100","application_id":"10","version":"7","name":"bump","description":"Bump first","type":1},{"id":"300","application_id":"10","version":"9","name":"admin","description":"Admin","type":1}]})");
-    u32 scratch[256]{};
     CommandIndex commands{};
-    valid = valid && command_index_decode(body, {scratch, 256}, &commands) && commands.command_count == 2;
+    valid = valid && command_index_decode(body, &commands) && commands.command_count == 2;
     PopupItem suggestions[3]{};
     char labels[2][64]{};
     suggestions[0] = {utf8_literal("All"), 1, popup_item_enabled | popup_item_command_category};

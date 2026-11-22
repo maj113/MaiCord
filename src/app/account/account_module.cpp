@@ -684,25 +684,8 @@ RestClientSubmitResult account_module_application_command(void* instance, u64 ch
         return account_command_frecency(
             rest, operation == 4 ? AccountGifFavoritesOperation::fetch : AccountGifFavoritesOperation::update,
             {reinterpret_cast<const u8*>(data.data), data.bytes}, request_id);
-    u8 target[160];
-    ProtocolWriter path{{target, sizeof(target)}, 0};
-    if (operation <= 1) {
-        if (operation == 1) {
-            if (!protocol_writer_append_literal(&path, "/api/v9/users/@me/application-command-index"))
-                return invalid;
-        } else if (!channel || !protocol_writer_append_literal(&path, "/api/v9/") ||
-                   !protocol_writer_append_c_string(&path, guild ? "guilds/" : "channels/") ||
-                   !protocol_writer_append_u64(&path, guild ? guild : channel) ||
-                   !protocol_writer_append_literal(&path, "/application-command-index"))
-            return invalid;
-        return rest_client_submit(
-            rest, {target, path.used},
-            {},
-            {0x434d4449, guild ? guild : channel, RestMethod::get,
-             guild ? RestMajorParameter::guild : RestMajorParameter::channel},
-            request_id,
-            false);
-    }
+    if (operation <= 1)
+        return app_detail::submit_command_index(rest, operation == 1, guild, channel, request_id);
     if (!channel || !application || !nonce || !data.bytes || !utf8_validate(data).valid)
         return invalid;
     struct Command {

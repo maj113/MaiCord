@@ -30,7 +30,7 @@ inline constexpr u8 kCommandTypeUser = 2;
 inline constexpr u8 kCommandTypeMessage = 3;
 JsonValue command_member(const JsonIndexedDocument&, JsonValue, const Utf8View& name) noexcept;
 bool command_json_text(JsonValue, const Slice<char>&, Utf8View*) noexcept;
-bool command_index_decode(Utf8View, Slice<u32> scratch, CommandIndex*) noexcept;
+bool command_index_decode(Utf8View, CommandIndex*) noexcept;
 void command_index_release(CommandIndex*) noexcept;
 // The options JSON is produced by the typed composer; the original command
 // metadata stays intact, including its version and root/subcommand structure.

@@ -30,10 +30,7 @@ void plugin_commands_refresh() noexcept {
     s.built = true;
     s.revision = plugin_ui_revision();
     const u32 bytes = plugin_command_index_json({s.json, sizeof(s.json)});
-    if (bytes &&
-        !command_index_decode({s.json, bytes},
-                              {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount},
-                              &s.index))
+    if (bytes && !command_index_decode({s.json, bytes}, &s.index))
         log_write(LogLevel::warning, "commands", "plugin_index_decode_failed");
 }
 

@@ -1,12 +1,12 @@
 #include "maicord/protocol/messages/application_commands.hpp"
 #include "maicord/model/chat/message_composer.hpp"
+#include "../../fixtures/large_command_index.hpp"
 namespace maicord {
 void test_command_argument_editing(void (*check)(bool, const char*) noexcept) noexcept {
     constexpr auto catalog = utf8_literal(
         R"({"applications":[{"id":"10","name":"Search"}],"application_commands":[{"id":"100","application_id":"10","version":"1","name":"find","type":1,"options":[{"name":"scope","type":3},{"name":"query","type":3,"autocomplete":true},{"name":"count","type":4,"min_value":1,"max_value":10},{"name":"caf\u00e9","type":3},{"name":"ratio","type":10},{"name":"title","type":3,"required":true,"min_length":2,"max_length":4},{"name":"size","type":4,"choices":[{"name":"Two","value":2}]},{"name":"flag","type":5},{"name":"who","type":6}]}]})");
-    u32 scratch[2048];
     CommandIndex index{};
-    check(command_index_decode(catalog, {scratch, 2048}, &index), "argument editing command schema");
+    check(command_index_decode(catalog, &index), "argument editing command schema");
     if (index.command_count != 1)
         return;
     const auto& command = index.commands[0];
@@ -126,6 +126,13 @@ void test_command_argument_editing(void (*check)(bool, const char*) noexcept) no
               command_choice_score(utf8_literal("Tomorrow"), utf8_literal("tmw")) == 1 &&
               !command_choice_score(utf8_literal("Tomorrow"), utf8_literal("x")),
           "choices rank like the client's queryChoice");
+    command_index_release(&index);
+    static u8 large[kLargeCommandIndexBytes];
+    const u32 large_bytes = write_large_command_index({large, sizeof(large)});
+    check(large_bytes && command_index_decode({reinterpret_cast<const char*>(large), large_bytes}, &index) &&
+              index.command_count == 100 && index.application_count == 1 &&
+              utf8_equal(index.commands[99].name, utf8_literal("play99")),
+          "a big bot's command index decodes all its commands");
     command_index_release(&index);
 }
 } // namespace maicord

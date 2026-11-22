@@ -164,7 +164,7 @@ JsonValue command_member(const JsonIndexedDocument& doc, JsonValue object, const
 }
 bool command_json_text(JsonValue value, const Slice<char>& output, Utf8View* result) noexcept {
     JsonString string{};
-    if (!result || !json_value_as_string(value, &string))
+    if (!json_value_as_string(value, &string))
         return false;
     const auto decoded = json_string_decode_utf8(string, output);
     if (decoded.error != JsonStringDecodeError::none)
@@ -173,29 +173,27 @@ bool command_json_text(JsonValue value, const Slice<char>& output, Utf8View* res
     return true;
 }
 void command_index_release(CommandIndex* index) noexcept {
-    if (!index)
-        return;
     arena_release(&index->storage);
     reset_value(index);
 }
-bool command_index_decode(Utf8View body, Slice<u32> scratch, CommandIndex* output) noexcept {
-    if (!output || !body.bytes || !body.data)
-        return false;
-    const auto scan = json_scan_structurals_avx1(body, scratch);
-    if (!scan.ok())
+bool command_index_decode(Utf8View body, CommandIndex* output) noexcept {
+    if (!body.bytes || !body.data)
         return false;
     CommandIndex index{};
     const usize reserve = static_cast<usize>(body.bytes) * 8 + 65536;
     if (!arena_initialize(&index.storage, reserve, 0, 4096, ArenaTag::protocol))
         return false;
     char* retained = arena_allocate<char>(&index.storage, body.bytes);
-    u32* positions = arena_allocate<u32>(&index.storage, scan.count);
-    if (!retained || !positions) {
+    // Each structural is one byte, so the body's length bounds their count; the pages past the scan's go back.
+    u32* positions = arena_allocate<u32>(&index.storage, body.bytes);
+    const auto scan = retained && positions ? json_scan_structurals_avx1(body, {positions, body.bytes})
+                                            : JsonScanResult{0, JsonScanError::invalid_input};
+    if (!scan.ok()) {
         command_index_release(&index);
         return false;
     }
+    arena_trim(&index.storage, index.storage.offset - static_cast<usize>(body.bytes - scan.count) * sizeof(u32));
     copy_bytes(retained, body.data, body.bytes);
-    copy_bytes(positions, scratch.data, scan.count * sizeof(u32));
     index.document = {{retained, body.bytes}, {positions, scan.count}};
     const JsonValue root{index.document.input, 0, JsonValueKind::object};
     const auto commands = field(index.document, root, "application_commands");
@@ -237,7 +235,7 @@ bool command_index_decode(Utf8View body, Slice<u32> scratch, CommandIndex* outpu
 }
 bool command_data(const ApplicationCommand& command, const Utf8View& options, ProtocolWriter* w,
                   const Utf8View& attachments) noexcept {
-    if (!w || !command.id || !command.version || !command.root_name.bytes || !options.bytes)
+    if (!command.id || !command.version || !command.root_name.bytes || !options.bytes)
         return false;
     // The key order: version, id, guild_id, name, type, options,
     // application_command, then the staged attachments.
@@ -270,7 +268,7 @@ bool command_data(const ApplicationCommand& command, const Utf8View& options, Pr
 
 bool command_context_data(const ApplicationCommand& command, u8 type, u64 target_id,
                           ProtocolWriter* w) noexcept {
-    if (!w || !command.id || !command.version || !command.root_name.bytes || !target_id ||
+    if (!command.id || !command.version || !command.root_name.bytes || !target_id ||
         (type != kCommandTypeUser && type != kCommandTypeMessage) || !command.original.source.bytes)
         return false;
     bool ok = protocol_write(w, "{\"version\":", snowflake_text(command.version), ",\"id\":", snowflake_text(command.id));
@@ -922,7 +920,7 @@ void command_suggestions_release(CommandSuggestions* output) noexcept {
 }
 bool command_suggestions_decode(Utf8View body, Slice<u32> scratch, u64 expected_nonce,
                                 CommandSuggestions* output) noexcept {
-    if (!output || !expected_nonce || !body.data || !body.bytes)
+    if (!expected_nonce || !body.data || !body.bytes)
         return false;
     const auto scan = json_scan_structurals_avx1(body, scratch);
     if (!scan.ok())
@@ -998,8 +996,6 @@ void first_form_error(const JsonIndexedDocument& doc, JsonValue value, u32 depth
 } // namespace
 bool command_interaction_failure(Utf8View body, Slice<u32> scratch, Slice<char> message,
                                  CommandInteractionFailure* output) noexcept {
-    if (!output)
-        return false;
     reset_value(output);
     if (!body.data || !body.bytes || body.data[0] != '{')
         return false;
@@ -1045,8 +1041,6 @@ u64 last_use(const CommandFrecencyEntry& entry) noexcept {
 
 bool command_frecency_decode_response(Utf8View body, Slice<u8> scratch, Slice<CommandFrecencyEntry> entries,
                                       u32* count, u32* data_version) noexcept {
-    if (!count || !data_version || !entries.data || !scratch.data)
-        return false;
     *count = 0;
     *data_version = 0;
     const auto response =
@@ -1111,7 +1105,7 @@ u32 command_frecency_compute(Slice<CommandFrecencyEntry> entries, u32 count, u64
 
 void command_frecency_track(Slice<CommandFrecencyEntry> entries, u32* count, const Utf8View& key,
                             u64 now_unix_ms) noexcept {
-    if (!count || !key.bytes || key.bytes > kCommandFrecencyKeyBytes || !entries.count)
+    if (!key.bytes || key.bytes > kCommandFrecencyKeyBytes)
         return;
     i64 found = find_frecency({entries.data, entries.count}, *count, key);
     if (found < 0) {
@@ -1180,8 +1174,6 @@ constexpr u8 kPendingMagic[] = {'M', 'C', 'C', 'F'};
 constexpr u8 kPendingVersion = 1;
 }
 u32 command_frecency_pending_encode(ConstSlice<CommandFrecencyUse> uses, Slice<u8> output) noexcept {
-    if (uses.count > kCommandFrecencyPendingUses || !output.data || output.count < 10)
-        return 0;
     u32 used = 0;
     const auto put = [&](const void* data, u32 bytes) noexcept {
         if (bytes > output.count - used)
@@ -1209,7 +1201,7 @@ u32 command_frecency_pending_encode(ConstSlice<CommandFrecencyUse> uses, Slice<u
     return put(tail, 4) ? used : 0;
 }
 bool command_frecency_pending_decode(ConstSlice<u8> record, Slice<CommandFrecencyUse> uses, u32* count) noexcept {
-    if (!count || !uses.data || !record.data || record.count < 10 || record.count > kCommandFrecencyPendingFileBytes)
+    if (record.count < 10 || record.count > kCommandFrecencyPendingFileBytes)
         return false;
     const u32 body = record.count - 4;
     const u32 stored = record[body] | (u32{record[body + 1]} << 8) | (u32{record[body + 2]} << 16) |
