@@ -3,6 +3,7 @@
 #include "maicord/core/time.hpp"
 #include "../../support/account_module_fake.hpp"
 #include "maicord/app/gateway/client.hpp"
+#include "maicord/ui/widgets/presence.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord::self_status_runtime_test {
@@ -53,6 +54,7 @@ RestClientResponse response(u64 id, u16 status = 200) noexcept {
 }
 void run() noexcept {
     g_app.account.instance = reinterpret_cast<void*>(1);
+    g_app.account.status.profile_id = 4;
     g_account_fake.self_status_snapshot = get;
     g_account_fake.self_status_submit = submit;
     g_account_fake.self_status_complete = complete;
@@ -60,7 +62,10 @@ void run() noexcept {
     snapshot.self_user_id = 7;
     snapshot.available = true;
     snapshot.status = snapshot.confirmed_status = GatewayUserStatus::invisible;
-    application_self_status_synchronize();
+    // The account panel's avatar takes its status from each frame's synchronize (issue 32).
+    check(application_self_status_synchronize(7) == UiPresence::online &&
+              application_self_status_synchronize(8) == UiPresence::unknown,
+          "self status frontend: the panel shows Online before the saved status loads, nothing for another user");
     check(application_self_status_pending(1) && application_self_status_next_wake() == 1 &&
               application_self_status_submit(101, 1) &&
               submitted_operation == SelfStatusSettingsOperation::fetch,
@@ -70,6 +75,8 @@ void run() noexcept {
     check(application_self_status_response(response(101), {}) && snapshot.authoritative &&
               !application_self_status_next_wake(),
           "self status frontend: accepted saved settings settle the initial fetch");
+    check(application_self_status_synchronize(7) == UiPresence::offline,
+          "self status frontend: the panel shows the saved Invisible as offline");
     const u32 before = submissions;
     check(application_self_status_request(GatewayUserStatus::invisible) && submissions == before &&
               !application_self_status_pending(1),
@@ -85,6 +92,8 @@ void run() noexcept {
               !application_self_status_submit(103, 1),
           "self status frontend: a newer choice is visible and fenced without overwriting the in-flight "
           "ticket");
+    check(application_self_status_synchronize(7) == UiPresence::busy,
+          "self status frontend: the panel shows a new choice before the server confirms it");
     const u64 queued_revision = application_self_status_snapshot().revision;
     check(application_self_status_request(GatewayUserStatus::dnd) &&
               application_self_status_snapshot().revision == queued_revision,
@@ -106,7 +115,7 @@ void run() noexcept {
               completions == disconnected_completions + 1 &&
               !application_self_status_pending(1) && !application_self_status_next_wake(),
           "self status frontend: same-account disconnected completion drains backend without a wake");
-    application_self_status_synchronize();
+    application_self_status_synchronize(7);
     snapshot.available = true;
     check(application_self_status_pending(1) && application_self_status_submit(112, 1) &&
               submitted_status == GatewayUserStatus::dnd &&

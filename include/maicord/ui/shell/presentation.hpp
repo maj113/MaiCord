@@ -78,6 +78,10 @@ bool shell_presentation_build_member_status_overlay(
 // plugin corner badges, likewise composited after the server icons' media.
 bool shell_presentation_build_guild_rail_overlay(const UiScene& scene, const GuildRailScene* guild_scene,
                                                  const Theme& theme, PaintStream* stream) noexcept;
+// The account's own status (navigation->self_presence) at the account panel avatar's corner, likewise after the
+// avatar's media; nothing while the status is unknown.
+bool shell_presentation_build_account_status_overlay(const UiScene& scene, const NavigationView* navigation,
+                                                     const Theme& theme, PaintStream* stream) noexcept;
 
 // The selected server's banner layers above its picture (media): the header
 // scrim, the glass edge, and the header dropdown's hover fill and chevron,

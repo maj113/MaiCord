@@ -317,7 +317,18 @@ bool application_present_frame() noexcept {
         return present_rejected("friends");
     application_dm_profile_synchronize();
     application_profile_synchronize();
-    application_self_status_synchronize();
+    // The account's own status, for the account panel's avatar and the own member row. A change (one the user chose,
+    // Idle while away, one the Gateway confirmed) shows at once; member rows that carry the old one (their dimming,
+    // name and activity line) are projected again.
+    const UiPresence self =
+        application_self_status_synchronize(g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0);
+    if (g_app.account_ui && g_app.account_ui->navigation_view.self_presence != self) {
+        g_app.account_ui->navigation_view.self_presence = self;
+        if (g_app.member_list_scene.active &&
+            g_app.member_list_scene.materialized_self_status != static_cast<GuildMemberStatus>(self) &&
+            !refresh_account_text(true))
+            return present_rejected("self_status");
+    }
     application_user_settings_synchronize();
     if (!application_account_menu_synchronize())
         return present_rejected("account_menu");

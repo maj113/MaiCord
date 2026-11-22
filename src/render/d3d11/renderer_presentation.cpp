@@ -530,7 +530,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     }
     s.push(renderer.navigation_view, renderer.chat_state, renderer.user_store);
     if (renderer.navigation_view)
-        s.push(renderer.navigation_view->revision);
+        s.push(renderer.navigation_view->revision, renderer.navigation_view->self_presence);
     // Conversation rows paint presence dots and typing subtitles from these
     // sources; only the Home view shows them (typing elsewhere repaints nothing).
     if (const auto* rows = renderer.navigation_view && renderer.chat_state && renderer.chat_state->home_selected

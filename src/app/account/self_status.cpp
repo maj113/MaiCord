@@ -43,10 +43,8 @@ GatewayClientSelfStatusSnapshot synchronize() noexcept {
     }
     return snapshot;
 }
-} // namespace
-
-GatewayClientSelfStatusSnapshot application_self_status_snapshot() noexcept {
-    auto snapshot = backend();
+// The snapshot with the user's queued choice in place of the saved status.
+GatewayClientSelfStatusSnapshot with_queued(GatewayClientSelfStatusSnapshot snapshot) noexcept {
     const auto& request = g_app.self_status;
     if (current(request, snapshot) && request.queued) {
         snapshot.status = request.desired;
@@ -55,11 +53,16 @@ GatewayClientSelfStatusSnapshot application_self_status_snapshot() noexcept {
     }
     return snapshot;
 }
+} // namespace
+
+GatewayClientSelfStatusSnapshot application_self_status_snapshot() noexcept {
+    return with_queued(backend());
+}
 UiPresence application_self_presence(u64 self_user_id) noexcept {
     return self_presence(application_self_status_snapshot(), g_app.account.status.profile_id, self_user_id);
 }
-void application_self_status_synchronize() noexcept {
-    synchronize();
+UiPresence application_self_status_synchronize(u64 self_user_id) noexcept {
+    return self_presence(with_queued(synchronize()), g_app.account.status.profile_id, self_user_id);
 }
 bool application_self_status_request(GatewayUserStatus status) noexcept {
     if (status != GatewayUserStatus::online && status != GatewayUserStatus::idle &&

@@ -21,6 +21,7 @@
 #include "maicord/ui/chat/messages/mention_badge.hpp"
 #include "maicord/ui/plugins/slot_surfaces.hpp"
 #include "maicord/ui/voice/panel.hpp"
+#include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "maicord/ui/layout/scroll_host.hpp"
@@ -229,8 +230,29 @@ void test_ui_scene() noexcept {
     ring = ring && ui_account_speaking_ring_paint(&ring_paint, &speaking_view, account_avatar, kDefaultTheme) &&
            ui_account_speaking_ring_paint(&ring_paint, nullptr, account_avatar, kDefaultTheme) &&
            ring_paint.count == 1;
-    paint_stream_release(&ring_paint);
     expect(ring, "account_avatar_speaking_ring_only_while_speaking_in_a_connected_call");
+    // The account panel's avatar shows the account's own status (issue 32): a 10-DIP dot at its lower right corner,
+    // ringed in the panel's fill and coloured by the status, following each change; nothing while it is unknown.
+    NavigationView self_view{};
+    const UiPresence self_statuses[]{UiPresence::online, UiPresence::idle, UiPresence::busy, UiPresence::offline};
+    const Color self_colors[]{kDefaultTheme.tokens.status.online, kDefaultTheme.tokens.status.idle,
+                              kDefaultTheme.tokens.status.dnd, kDefaultTheme.tokens.status.offline};
+    const PaintQuad* self_ring = ring_paint.quads;
+    bool self_dot = ring && paint_stream_reset(&ring_paint, 1280, 800) &&
+                    shell_presentation_build_account_status_overlay(scene, &self_view, kDefaultTheme, &ring_paint) &&
+                    ring_paint.count == 0;
+    for (u32 i = 0; i < 4; ++i) {
+        self_view.self_presence = self_statuses[i];
+        self_dot = self_dot && paint_stream_reset(&ring_paint, 1280, 800) &&
+                   shell_presentation_build_account_status_overlay(scene, &self_view, kDefaultTheme, &ring_paint) &&
+                   ring_paint.count != 0 && self_ring->left == account_avatar.right - 12 &&
+                   self_ring->top == account_avatar.bottom - 12 && self_ring->right == account_avatar.right + 2 &&
+                   self_ring->bottom == account_avatar.bottom + 2 &&
+                   bytes_equal(&self_ring->fill, &self_colors[i], sizeof(Color)) &&
+                   bytes_equal(&self_ring->border, &kDefaultTheme.surface_high, sizeof(Color));
+    }
+    paint_stream_release(&ring_paint);
+    expect(self_dot, "account_panel_avatar_shows_the_own_status");
     UiLayoutDiagnostic scene_diagnostics[32]{};
     const u32 scene_rebuilds = scene.layout_rebuilds;
     const u16 scene_generation = scene.widgets.generation;
@@ -2172,8 +2194,9 @@ void test_member_list_scene() noexcept {
         expect(colored, "member_status_gpu_paint_matches_presence_unknown_is_not_green");
     }
     {
-        // The account's own row (issue 20): as in the official client, it shows the app's own status in place of
-        // the server's (every record now reads offline), for its dot and its row. Unknown keeps the server's.
+        // The account's own row (issue 20): as in the official client, it shows the app's own status (the frame's
+        // self_presence) in place of the server's (every record now reads offline), for its dot and its row. Unknown
+        // keeps the server's.
         // Rows above or below the viewport paint clipped rings, so both rows come from inside it.
         const auto inside = [&](u32 index, u64 skip) noexcept {
             const auto* node = member_list_scene_layout_node(scene, scene.rows[index].widget);
@@ -2187,7 +2210,8 @@ void test_member_list_scene() noexcept {
         while (other < scene.count && !inside(other, self)) ++other;
         const u64 other_user = other < scene.count ? scene.rows[other].user_id : 0;
         state.self_user_id = self;
-        scene.self_status = GuildMemberStatus::idle;
+        UiPresence self_presence = UiPresence::idle;
+        scene.self_presence = &self_presence;
         // A row's status: its materialized status and the fill of its painted ring.
         const auto shows = [&](u64 user, GuildMemberStatus status, const Color& ring) noexcept {
             u32 index = 0;
@@ -2210,13 +2234,29 @@ void test_member_list_scene() noexcept {
                    shows(self, GuildMemberStatus::idle, kDefaultTheme.tokens.status.idle) &&
                    shows(other_user, GuildMemberStatus::online, kDefaultTheme.tokens.status.offline),
                "member_own_row_shows_the_own_status_not_the_server_status");
-        scene.self_status = GuildMemberStatus::unknown;
+        // An automatic change (Idle while away, a status the Gateway confirms) with no other UI change: the
+        // own dot follows the frame's status at once, while the row still carries the old one, and the next update
+        // projects the row with it (found while fixing issue 32).
+        self_presence = UiPresence::busy;
+        paint_stream_reset(&status_paint, viewport.right, viewport.bottom);
+        const bool followed = shell_presentation_build_member_status_overlay(&scene, kDefaultTheme, &status_paint) &&
+                              shows(self, GuildMemberStatus::idle, kDefaultTheme.tokens.status.dnd);
+        const bool projected = member_list_scene_update(&scene, &projection, &members, &users, &state, viewport,
+                                                        scene.scroll_dips).changed;
+        paint_stream_reset(&status_paint, viewport.right, viewport.bottom);
+        expect(followed && projected &&
+                   shell_presentation_build_member_status_overlay(&scene, kDefaultTheme, &status_paint) &&
+                   shows(self, GuildMemberStatus::dnd, kDefaultTheme.tokens.status.dnd) &&
+                   shows(other_user, GuildMemberStatus::online, kDefaultTheme.tokens.status.offline),
+               "member_own_row_follows_an_automatic_own_status_change");
+        self_presence = UiPresence::unknown;
         const bool restored = member_list_scene_update(&scene, &projection, &members, &users, &state, viewport,
                                                        scene.scroll_dips).changed;
         paint_stream_reset(&status_paint, viewport.right, viewport.bottom);
         expect(restored && shell_presentation_build_member_status_overlay(&scene, kDefaultTheme, &status_paint) &&
                    shows(self, GuildMemberStatus::online, kDefaultTheme.tokens.status.offline),
                "member_own_row_without_an_own_status_keeps_the_server_status");
+        scene.self_presence = nullptr;
         state.self_user_id = 0;
     }
 

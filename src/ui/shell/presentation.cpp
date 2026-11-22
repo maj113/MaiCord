@@ -1311,6 +1311,9 @@ bool shell_presentation_build_member_status_overlay(const MemberListScene* membe
         return false;
     }
     const MemberListRowWidget* hovered_row = member_list_scene_resolve(*member_scene, member_scene->widgets.hovered);
+    // The account's own row shows the frame's own status, as other rows show their live record.
+    const UiPresence self = member_scene->self_presence ? *member_scene->self_presence : UiPresence::unknown;
+    const u64 self_user = self != UiPresence::unknown && member_scene->state ? member_scene->state->self_user_id : 0;
     for (u32 index = 0; index < member_scene->count; ++index) {
         const MemberListRowWidget& row = member_scene->rows[index];
         if (!member_list_scene_row_resident(*member_scene, index) ||
@@ -1339,11 +1342,9 @@ bool shell_presentation_build_member_status_overlay(const MemberListScene* membe
         const GuildMemberRecord* member = member_scene->members && row.source_row.member_slot < member_scene->members->capacity
                                               ? &member_scene->members->records[row.source_row.member_slot]
                                               : nullptr;
-        // Rows without a server record (private conversations) and the account's own row (self_status) carry
-        // their resolved status.
-        const bool own = member_scene->self_status != GuildMemberStatus::unknown && member_scene->state &&
-                         row.user_id == member_scene->state->self_user_id;
-        const auto presence = static_cast<UiPresence>(member && !own ? member->status : row.source_row.status);
+        // Rows without a server record (private conversations) carry their resolved status.
+        const auto presence = row.user_id == self_user ? self
+                              : static_cast<UiPresence>(member ? member->status : row.source_row.status);
         const bool mobile =
             member_scene->users &&
             ui_presence_mobile(presence, user_store_client_status(*member_scene->users, row.user_id));
@@ -1404,6 +1405,16 @@ bool shell_presentation_build_guild_rail_overlay(const UiScene& scene, const Gui
         }
     }
     return paint_stream_pop_clip(stream);
+}
+
+bool shell_presentation_build_account_status_overlay(const UiScene& scene, const NavigationView* navigation,
+                                                     const Theme& theme, PaintStream* stream) noexcept {
+    const UiLayoutNode* footer = ui_scene_node(scene, UiSemantic::channel_footer);
+    if (!footer || !navigation || navigation->self_presence == UiPresence::unknown)
+        return true;
+    // The corner of conversation rows, cut from the panel's fill.
+    return ui_presence_paint(stream, ui_private_row_status_rectangle(ui_account_avatar_rectangle(footer->rectangle)),
+                             navigation->self_presence, theme.surface_high, theme);
 }
 
 } // namespace maicord

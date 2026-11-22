@@ -178,10 +178,12 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
     if (range.count > scene->rows.count || !ui_widget_manager_reserve(&scene->widgets, required_widgets)) {
         return failure(scene, MemberListSceneError::capacity);
     }
+    const GuildMemberStatus self_status =
+        scene->self_presence ? static_cast<GuildMemberStatus>(*scene->self_presence) : GuildMemberStatus::unknown;
     const bool retained = scene->active && scene->source == source &&
                           scene->members == members && scene->users == users && scene->state == state &&
                           scene->source_revision == source->revision && scene->first == range.first &&
-                          scene->materialized_self_status == scene->self_status &&
+                          scene->materialized_self_status == self_status &&
                           scene->count == range.count && scene->source_count == member_list_view_count(*source) &&
                           source_current(source, members, users, state) &&
                           (!source->authoritative || !source->source_members ||
@@ -232,10 +234,10 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
              (resolved->member_slot < members->capacity && members->records[resolved->member_slot].occupied &&
               members->records[resolved->member_slot].user_id == resolved->user_id));
         MemberListRow source_row = resident ? *resolved : MemberListRow{};
-        // The account's own row shows its own status (self_status), not the server's.
-        if (source_row.kind == MemberListRowKind::member && scene->self_status != GuildMemberStatus::unknown &&
+        // The account's own row shows its own status (self_presence), not the server's.
+        if (source_row.kind == MemberListRowKind::member && self_status != GuildMemberStatus::unknown &&
             source_row.user_id && source_row.user_id == state->self_user_id)
-            source_row.status = scene->self_status;
+            source_row.status = self_status;
         const bool member_row = resident && source_row.kind == MemberListRowKind::member;
 
         const u32 id = 2u + source_index * kMemberListWidgetsPerRow;
@@ -283,7 +285,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
     scene->first = range.first;
     scene->count = range.count;
     scene->active = true;
-    scene->materialized_self_status = scene->self_status;
+    scene->materialized_self_status = self_status;
     ++scene->rebuilds;
     ++scene->layout_passes;
     if (restore_focus != 0) {

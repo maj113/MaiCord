@@ -5,6 +5,7 @@
 namespace maicord {
 struct GuildFolderSettings;
 struct VoiceStateStore;
+enum class UiPresence : u8;
 
 // conversation: an unread direct message pinned above the servers; the row id
 // is its channel.
@@ -174,6 +175,8 @@ struct NavigationView {
     // row (named Browse Channels when browse_channels is set) for the selected server. Bump events_revision on
     // change.
     bool boost_row, hub_row, channels_roles_row, browse_channels;
+    // Host-set each frame: the account's own status (application_self_presence), shown on the account panel's avatar.
+    UiPresence self_presence;
     u16 boost_count, boost_goal;
     // Host-set with connected_voice_channel_id; cleared by the rebuild.
     bool connected_voice_stale;

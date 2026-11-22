@@ -1648,6 +1648,10 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (!shell_presentation_build_guild_rail_overlay(*renderer->ui_scene, renderer->guild_rail_scene, theme,
                                                      &renderer->paint_stream))
         return layout_step_failed(__LINE__);
+    // The account panel's status sits above its avatar.
+    if (!shell_presentation_build_account_status_overlay(*renderer->ui_scene, renderer->navigation_view, theme,
+                                                         &renderer->paint_stream))
+        return layout_step_failed(__LINE__);
     // The server banner's header scrim, glass edge and dropdown sit above its picture.
     if (!shell_presentation_build_guild_banner_overlay(*renderer->ui_scene, renderer->navigation_view,
                                                        renderer->shell_navigation_scene, theme,

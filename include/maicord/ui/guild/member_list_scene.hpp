@@ -14,6 +14,7 @@ struct UiBadgeWidget;
 struct UiActivityStatus;
 
 struct UiPluginSlotBadge;
+enum class UiPresence : u8;
 
 inline constexpr u32 kMemberListSceneOverscanRows = 2;
 // A member row: UI Density's list item (38, 42 or 48 DIPs) with a 1-DIP gap above and below.
@@ -98,11 +99,12 @@ struct MemberListScene {
     u8 role_style;
     // The display's DPI, for the pixel size ornaments are requested at (0: 96).
     u16 media_dpi;
-    // The account's own status, published by the app (unknown: the server's status stays). As in the official
-    // client, the account's own row shows it in place of the status that the server reports.
-    GuildMemberStatus self_status;
     // The own status that the materialized rows carry: a change materializes the rows again.
     GuildMemberStatus materialized_self_status;
+    // The account's own status: the frame's NavigationView::self_presence, borrowed from the app (null or unknown: the
+    // server's status stays). As in the official client, the account's own row shows it in place of the status that
+    // the server reports. Its presence and member numberings match.
+    const UiPresence* self_presence;
     void (*viewport_changed)(void*) noexcept;
     void* viewport_context;
 };

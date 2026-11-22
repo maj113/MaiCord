@@ -19,7 +19,9 @@ GatewayClientSelfStatusSnapshot application_self_status_snapshot() noexcept;
 // (self_presence in self_presence.hpp). Unknown unless `self_user_id` is the session's user.
 UiPresence application_self_presence(u64 self_user_id) noexcept;
 bool application_self_status_request(GatewayUserStatus) noexcept;
-void application_self_status_synchronize() noexcept;
+// Once per frame: adopts the session's account and returns application_self_presence(self_user_id) from the same
+// snapshot.
+UiPresence application_self_status_synchronize(u64 self_user_id) noexcept;
 void application_self_status_clear() noexcept;
 bool application_self_status_pending(u64 now_ms) noexcept;
 bool application_self_status_submit(u64 request_id, u64 now_ms) noexcept;
