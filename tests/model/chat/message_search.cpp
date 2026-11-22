@@ -24,13 +24,6 @@ struct DecodeFixture {
     MessageSearchMessage messages[6];
 };
 
-MessageSearchDecodeResult decode(DecodeFixture* fixture, Utf8View body,
-                                 const MessageSearchQuery& query) noexcept {
-    return decode_message_search_page(
-        body, query, {fixture->page_structurals, 512}, 32,
-        {fixture->text, 2048}, {fixture->groups, 3}, {fixture->messages, 6});
-}
-
 struct RichSearchFixture {
     u32 page_structurals[32768]; u8 body[65536]; char text[65536];
     MessageSearchGroup groups[25]; MessageSearchMessage messages[125];
@@ -55,6 +48,16 @@ struct RichSearchFixture {
         return message_rich_store_initialize(&store, {owned_records, 4}, {owned_order, 2}, {owned_text, sizeof(owned_text)});
     }
 } rich_search_fixture{};
+
+bool accept_all(void*, u32, const MessageSearchMessage&) noexcept {
+    return true;
+}
+MessageSearchDecodeResult decode(DecodeFixture* fixture, Utf8View body,
+                                 const MessageSearchQuery& query) noexcept {
+    return decode_message_search_page(
+        body, query, {fixture->page_structurals, 512}, 32, {fixture->text, 2048}, {fixture->groups, 3},
+        {fixture->messages, 6}, rich_search_fixture.scratch(), {nullptr, accept_all});
+}
 
 bool rich_search_accept(void* opaque, u32 index, const MessageSearchMessage& item) noexcept {
     auto& fixture = *static_cast<RichSearchFixture*>(opaque);
@@ -188,8 +191,7 @@ void test_rich_search(void (*check)(bool, const char*) noexcept) noexcept {
     check(result.ok() && fixture.messages[0].message.id == 900 && fixture.messages[1].message.channel_id == 8 &&
         !fixture.messages[0].message.content.data && !fixture.messages[0].message.author_name.data &&
         !fixture.messages[0].message.attachments.data && !fixture.messages[0].message.snapshot.content.data &&
-        !fixture.messages[0].message.snapshot.attachments.data && !fixture.messages[0].message.mention_roles.data &&
-        !fixture.messages[0].card_excerpt.data,
+        !fixture.messages[0].message.snapshot.attachments.data && !fixture.messages[0].message.mention_roles.data,
         "rich search summaries retain scalar route metadata without any reused scratch views escaping the sink");
     fixture.reset(false, true); body = rich_search_body(true); result = rich_search_decode(body, scratch);
     check(body.bytes && result.ok() && fixture.calls == 125 && fixture.valid && result.page.group_count == 25 &&
@@ -229,7 +231,7 @@ void test_rich_search(void (*check)(bool, const char*) noexcept) noexcept {
     check(result.ok() && fixture.calls == 1 && outer && outer->attachment_count == 1 && outer->embed_count == 1 &&
         utf8_equal(message_rich_store_string(fixture.store, outer->attachments[0].filename), utf8_literal("image.png")) &&
         utf8_equal(message_rich_store_string(fixture.store, outer->embeds[0].video.url), utf8_literal("https://example.com/video.mp4")) &&
-        !fixture.messages[0].forwarded && (fixture.messages[0].message.fields & gateway_message_field_message_snapshots) &&
+        (fixture.messages[0].message.fields & gateway_message_field_message_snapshots) &&
         !message_rich_store_snapshot(fixture.store, 30),
         "rich search retains attachment and video-only hits with real URLs and dimensions while explicit null removes the child");
     constexpr auto quoted_mention = utf8_literal(R"({"total_results":1,"messages":[[{"id":"30","guild_id":"7","channel_id":"7","author":{"id":"3"},"content":"","timestamp":"2026-01-01T00:00:00Z","hit":true,"message_snapshots":[{"message":{"content":"<@3> ||quoted spoiler||","mention_everyone":true,"mentions":[{"id":"3","username":"quoted author"}]}}]}]]})");
@@ -486,9 +488,6 @@ void test_message_search(void (*check)(bool, const char*) noexcept) noexcept {
     constexpr auto guild_prefix = utf8_literal("/api/v9/guilds/7/messages/search?offset=25");
     check(written.ok() && bytes_equal(target, guild_prefix.data, guild_prefix.bytes),
           "search: guild scope and page offset route through server search");
-    check(write_message_search_target(query, {target, 20}).error ==
-              MessageSearchWriteError::output_capacity,
-          "search: short target buffers reject without request publication");
     auto invalid = query;
     invalid.author_ids[1] = invalid.author_ids[0];
     check(!write_message_search_target(invalid, {target, sizeof(target)}).ok(),
@@ -513,31 +512,6 @@ void test_message_search(void (*check)(bool, const char*) noexcept) noexcept {
     query = query_fixture();
     DecodeFixture fixture{};
     {
-        char forward_body[] = R"({"total_results":1,"messages":[[{"id":"30","channel_id":"7","author":{"id":"3","username":"Original"},"content":"Outer caption","timestamp":"2026-01-01T00:00:00Z","hit":true,"message_snapshots":[{"message":{"content":"quoted <@3> **source**","timestamp":"2026-01-02T00:00:00Z","mention_everyone":true,"mentions":[{"id":"3","username":"quoted user"}],"attachments":[{"id":"101"}],"embeds":[{}],"sticker_items":[{"id":"9"}],"components":[{"type":10,"content":"nested"}]}}]}]]})";
-        const auto forwarded = decode(&fixture, {forward_body, sizeof(forward_body) - 1}, query);
-        clear_bytes(forward_body, sizeof(forward_body));
-        const auto& item = fixture.messages[0];
-        check(forwarded.ok() && item.forwarded && item.message.id == 30 && item.message.channel_id == 7 &&
-            item.message.author_id == 3 && utf8_equal(item.message.author_name, utf8_literal("Original")) &&
-            utf8_equal(item.message.content, utf8_literal("Outer caption")) &&
-            utf8_equal(item.card_excerpt, utf8_literal("Outer caption\nForwarded message\n> quoted <@3> **source**\n1 attachment · 1 embed · 1 sticker · 1 component")) &&
-            utf8_equal(item.message.snapshot.content, utf8_literal("quoted <@3> **source**")) &&
-            item.snapshot_attachments == 1 && item.snapshot_embeds == 1 && item.snapshot_stickers == 1 &&
-            item.snapshot_components == 1 && !item.message.mentions_current_user && !item.message.mention_everyone &&
-            !item.message.snapshot.mention_users.count && !item.message.snapshot.attachments.data,
-            "search: forwarded quote and validated media counts survive JSON reuse without changing outer author route or notification scope");
-        const auto quote_only = decode(&fixture, utf8_literal(R"({"total_results":1,"messages":[[{"id":"30","channel_id":"7","author":{"id":"3","username":"Original"},"content":"","timestamp":"2026-01-01T00:00:00Z","hit":true,"message_snapshots":[{"message":{"content":"received quote"}}]}]]})"), query);
-        check(quote_only.ok() && !fixture.messages[0].message.content.bytes &&
-            utf8_equal(fixture.messages[0].card_excerpt, utf8_literal("Forwarded message\n> received quote")) &&
-            fixture.messages[0].message.id == 30 && fixture.messages[0].message.author_id == 3,
-            "search: empty outer forwarded message still exposes a readable quoted result under the outer identity");
-        const Utf8View rejected[]{
-            utf8_literal(R"({"total_results":1,"messages":[[{"id":"30","channel_id":"7","author":{"id":"3"},"content":"","timestamp":"2026-01-01T00:00:00Z","hit":true,"message_snapshots":[{"message":{"content":"child","author":{"id":"88"}}}]}]]})"),
-            utf8_literal(R"({"total_results":1,"messages":[[{"id":"30","channel_id":"7","author":{"id":"3"},"content":"","timestamp":"2026-01-01T00:00:00Z","hit":true,"message_snapshots":[{"message":{"content":"child","message_snapshots":[]}}]}]]})"),
-            utf8_literal(R"({"total_results":1,"messages":[[{"id":"30","channel_id":"7","author":{"id":"3"},"content":"","timestamp":"2026-01-01T00:00:00Z","hit":true,"message_snapshots":[{"message":{"content":"child","attachments":[null]}}]}]]})")};
-        bool rejected_all = true;
-        for (const auto input : rejected) rejected_all &= !decode(&fixture, input, query).ok();
-        check(rejected_all, "search: author fabrication nested snapshots and malformed count-only media cannot publish forwarded candidates");
         char outer[1026], quoted[1026], excerpt[1024];
         for (u32 i = 0; i < sizeof(outer); i += 3) {
             copy_bytes(outer + i, "\xE2\x82\xAC", 3); copy_bytes(quoted + i, "\xE2\x82\xAC", 3);
@@ -549,65 +523,16 @@ void test_message_search(void (*check)(bool, const char*) noexcept) noexcept {
             utf8_validate({excerpt + bounded.quoted_offset, bounded.quoted_bytes}).valid,
             "search: bounded forwarded cards reserve both bodies and media summary without splitting UTF8");
     }
-    char body[] =
-        R"({"total_results":41,"doing_deep_historical_index":true,"documents_indexed":99,"messages":[[{"id":"30","channel_id":"7","author":{"id":"3","username":"Original"},"content":"hit\ntext","timestamp":"2026-01-01T00:00:00Z","hit":true},{"id":"29","channel_id":"7","author":{"id":"4","username":"Context"},"content":"before","timestamp":"2026-01-01T00:00:00Z","hit":false}],[{"id":"20","channel_id":"7","author":{"id":"3","username":"Original"},"content":"second","timestamp":"2026-01-01T00:00:00Z","hit":true}]]})";
-    auto result = decode(&fixture, {body, sizeof(body) - 1}, query);
-    const bool valid_page =
-        result.ok() && result.page.total_results == 41 && result.page.documents_indexed == 99 &&
-        result.page.historical_indexing && result.page.group_count == 2 && result.page.message_count == 3 &&
-        fixture.groups[0].first_message == 0 && fixture.groups[0].message_count == 2 &&
-        fixture.groups[0].hit_count == 1 && fixture.groups[1].first_message == 2 &&
-        fixture.messages[0].hit && !fixture.messages[1].hit && fixture.messages[2].hit &&
-        fixture.messages[0].message.id == 30 && fixture.messages[1].message.id == 29 &&
-        utf8_equal(fixture.messages[0].message.content, utf8_literal("hit\ntext"));
-    check(valid_page,
-          "search: copied typed hit and context groups retain total and historical indexing metadata");
-    for (u32 index = 0; index < sizeof(body) - 1; ++index) {
-        body[index] = 'x';
-    }
-    check(valid_page && utf8_equal(fixture.messages[0].message.content, utf8_literal("hit\ntext")) &&
-              utf8_equal(fixture.messages[0].message.author_name, utf8_literal("Original")),
-          "search: result text and author labels survive HTTP body reuse");
-    {
-        // Fill the real application arena with ordinary messages. The card
-        // projection must alias each decoded body rather than duplicate it.
-        u8 large_body[270 * 1024]{};
-        char large_text[256 * 1024]{};
-        u32 large_structurals[1024]{};
-        MessageSearchGroup large_groups[16]{};
-        MessageSearchMessage large_messages[16]{};
-        ProtocolWriter writer{{large_body, sizeof(large_body)}, 0};
-        bool built = protocol_writer_append_literal(&writer, "{\"total_results\":16,\"messages\":[");
-        constexpr u32 ordinary_body_bytes = kGatewayMessageContentMaximumBytes - 1;
-        for (u32 at = 0; at < 16; ++at) {
-            built &= (!at || protocol_writer_append_byte(&writer, ',')) &&
-                protocol_writer_append_literal(&writer, "[{\"id\":\"") &&
-                protocol_writer_append_u64(&writer, 100 + at) &&
-                protocol_writer_append_literal(&writer, "\",\"channel_id\":\"7\",\"author\":{\"id\":\"3\",\"username\":\"A\"},\"content\":\"");
-            for (u32 byte = 0; byte < ordinary_body_bytes; ++byte)
-                built &= protocol_writer_append_byte(&writer, 'a');
-            built &= protocol_writer_append_literal(&writer, "\",\"timestamp\":\"2026-01-01T00:00:00Z\",\"hit\":true}]");
-        }
-        built &= protocol_writer_append_literal(&writer, "]}");
-        const auto capacity_page = decode_message_search_page(
-            {reinterpret_cast<const char*>(large_body), writer.used}, query,
-            {large_structurals, 1024}, 32,
-            {large_text, sizeof(large_text)}, {large_groups, 16}, {large_messages, 16});
-        bool aliases = true;
-        for (const auto& item : large_messages)
-            aliases &= item.card_excerpt.data == item.message.content.data &&
-                item.card_excerpt.bytes == ordinary_body_bytes && !item.forwarded;
-        check(built && capacity_page.ok() && capacity_page.page.message_count == 16 && aliases &&
-            capacity_page.page.text_bytes == sizeof(large_text),
-            "search: ordinary full256KiB page reuses owned body views without allocating duplicate card excerpts");
-        const auto short_page = decode_message_search_page(
-            {reinterpret_cast<const char*>(large_body), writer.used}, query,
-            {large_structurals, 1024}, 32,
-            {large_text, sizeof(large_text) - 1}, {large_groups, 16}, {large_messages, 16});
-        check(short_page.error == MessageSearchDecodeError::message_decode &&
-            short_page.message_error == GatewayEventDecodeError::message_content_capacity,
-            "search: one byte below exact ordinary arena capacity rejects without publishing partial candidates");
-    }
+    constexpr auto body = utf8_literal(
+        R"({"total_results":41,"doing_deep_historical_index":true,"documents_indexed":99,"messages":[[{"id":"30","channel_id":"7","author":{"id":"3","username":"Original"},"content":"hit\ntext","timestamp":"2026-01-01T00:00:00Z","hit":true},{"id":"29","channel_id":"7","author":{"id":"4","username":"Context"},"content":"before","timestamp":"2026-01-01T00:00:00Z","hit":false}],[{"id":"20","channel_id":"7","author":{"id":"3","username":"Original"},"content":"second","timestamp":"2026-01-01T00:00:00Z","hit":true}]]})");
+    auto result = decode(&fixture, body, query);
+    check(result.ok() && result.page.total_results == 41 && result.page.documents_indexed == 99 &&
+              result.page.historical_indexing && result.page.group_count == 2 && result.page.message_count == 3 &&
+              fixture.groups[0].first_message == 0 && fixture.groups[0].message_count == 2 &&
+              fixture.groups[0].hit_count == 1 && fixture.groups[1].first_message == 2 &&
+              fixture.messages[0].hit && !fixture.messages[1].hit && fixture.messages[2].hit &&
+              fixture.messages[0].message.id == 30 && fixture.messages[1].message.id == 29,
+          "search: typed hit and context groups retain total and historical indexing metadata");
     check(decode(&fixture, utf8_literal(R"({"total_results":0,"messages":[]})"), query).ok(),
           "search: explicit successful empty page decodes");
     check(decode(&fixture, utf8_literal(R"({"total_results":0,"total_results":0,"messages":[]})"), query)

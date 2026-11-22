@@ -606,7 +606,6 @@ MessageTextCopyProjectionResult message_text_project_selection_for_copy(const Me
     }
     u32 cursor = first;
     u32 written = 0;
-    bool transformed = false;
     for (u32 index = 0; index < command.semantics.count; ++index) {
         const MessageMarkdownSemantic& semantic = command.semantics[index];
         // Custom emoji and link chips (message/channel references, attachment
@@ -642,7 +641,6 @@ MessageTextCopyProjectionResult message_text_project_selection_for_copy(const Me
         copy_bytes(output.data + written, source.data + source_offset, semantic.source_bytes);
         written += semantic.source_bytes;
         cursor = semantic_end;
-        transformed = true;
     }
     const u32 tail_bytes = last - cursor;
     if (tail_bytes > output.count - written) {
@@ -650,7 +648,7 @@ MessageTextCopyProjectionResult message_text_project_selection_for_copy(const Me
     }
     copy_bytes(output.data + written, command.text.data + cursor, tail_bytes);
     written += tail_bytes;
-    return MessageTextCopyProjectionResult{written, transformed, true};
+    return MessageTextCopyProjectionResult{written, true};
 }
 
 u32 message_text_command_copy_end(const MessageTextCommand& command) noexcept {

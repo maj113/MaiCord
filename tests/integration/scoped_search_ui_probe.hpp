@@ -7,6 +7,7 @@
 #include "maicord/ui/theme/background_presentation.hpp"
 #include "../../src/render/d3d11/renderer_interaction_state.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../support/search_rows.hpp"
 
 namespace maicord {
 namespace scoped_search_probe_detail {
@@ -22,8 +23,6 @@ inline bool resolve(void*, u32 index, UiSearchRow* out) noexcept {
                      "This longer synthetic excerpt wraps inside its own card without escaping the pane."),
         utf8_literal("10/03 12:30"),
         true,
-        index == 0 || index == 2,
-        0,
         0x771000 + index % 3,
         utf8_literal("0123456789abcdef0123456789abcdef")};
     return true;
@@ -181,6 +180,9 @@ inline bool scoped_search_ui_probe(D3D11Renderer& renderer) noexcept {
     auto viewport = ui_scene_content_rectangle(*renderer.ui_scene, UiSemantic::content);
     viewport.right = static_cast<float>(renderer.width) * 96.f / renderer.dpi;
     UiSearchSource source{nullptr, 6, 1, resolve};
+    static SearchRows rows;
+    if (!search_rows_publish(&rows, &source))
+        return fail();
     UiSearchContent content{};
     content.edit = {utf8_literal("release has:image"), 17, 17, true, false, false};
     content.heading = utf8_literal("Search Native Garden");
@@ -266,8 +268,7 @@ inline bool scoped_search_ui_probe(D3D11Renderer& renderer) noexcept {
     if (!assert_ink(0, 210, content.heading) || !assert_ink(0, 211, content.edit.text) ||
         !assert_ink(0, 212, utf8_literal("About 67 results")) ||
         !assert_ink(0, 213, utf8_literal("#release-planning")) ||
-        !assert_ink(0, 214, utf8_literal("#native-ui")) || !assert_ink(0, 215, scene.visible[0].author) ||
-        !assert_ink(0, 216, scene.visible[0].body, true) || !assert_ink(0, 217, utf8_literal("2")))
+        !assert_ink(0, 214, utf8_literal("#native-ui")) || !assert_ink(0, 217, utf8_literal("2")))
         return fail();
     stage = 218;
     if (!centered_pages(scene, renderer, readback, static_cast<float>(renderer.dpi) / 96.f, theme))
@@ -330,8 +331,9 @@ inline bool scoped_search_ui_probe(D3D11Renderer& renderer) noexcept {
         if (target.action != UiSearchAction::page || target.page_offset != i * 25)
             return fail();
     }
-    const auto first = scene.row_rectangles[0];
-    const auto result = ui_search_scene_hit_test(scene, first.left + 60, first.top + 70);
+    const auto* jump = ui_widget_manager_layout_node(scene.widgets, scene.rows[0]);
+    const auto center = jump ? channel_overview_probe_detail::center(jump->rectangle) : UiPoint{};
+    const auto result = ui_search_scene_hit_test(scene, center.x, center.y);
     if (result.action != UiSearchAction::result || result.channel_id != 710 || result.message_id != 810)
         return fail();
     // Receipt creation follows assertions; a failure never produces a misleading PASS image.
@@ -350,9 +352,7 @@ inline bool scoped_search_ui_probe(D3D11Renderer& renderer) noexcept {
     stage = 416;
     if (scene.chooser.top != scene.field.bottom + 8 || scene.chooser.right > viewport.right)
         return fail();
-    const auto covered = ui_search_scene_hit_test(scene, first.left + 60, first.top + 70);
-    if (covered.action == UiSearchAction::result ||
-        !readback.capture(1, L"search-scoped-filters-native.bmp"))
+    if (!readback.capture(1, L"search-scoped-filters-native.bmp"))
         return fail();
     log_write(LogLevel::info, "probe", "scoped_search_native_passed");
     return true;

@@ -433,9 +433,6 @@ bool select_embed_media_tail(const MessageRichStore& store, const MessageRichEmb
 }
 } // namespace
 
-bool message_rich_embed_music_preview(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
-    return music_preview(embed, EmbedUrl{message_rich_store_string(store, embed.url)});
-}
 Utf8View message_rich_embed_provider_label(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
     const EmbedPages urls = embed_pages(store, embed);
     if (page_or_player(urls, apple_collection).bytes) return utf8_literal("Apple Music · Preview");

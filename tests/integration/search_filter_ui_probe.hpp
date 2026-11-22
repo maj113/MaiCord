@@ -1,6 +1,7 @@
 #pragma once
 
 #include "scoped_search_ui_probe.hpp"
+#include "../support/search_rows.hpp"
 #include "maicord/ui/guild/rail_scene.hpp"
 #include "maicord/ui/widgets/menu_row.hpp"
 #include "maicord/ui/shell/navigation_scene.hpp"
@@ -67,6 +68,7 @@ struct Fixture {
     u32 resolves;
     UiSearchFilterChoiceSource choices;
     UiSearchSource results;
+    SearchRows result_rows;
     UiSearchContent content;
     UiResolvedThemeStyles styles;
 };
@@ -90,8 +92,7 @@ inline bool result(void* context, u32 index, UiSearchRow* row) noexcept {
             utf8_literal("Original result underneath the contextual chooser."),
             utf8_literal("12:30"),
             true,
-            index == 0,
-            24};
+            7400};
     return true;
 }
 inline void restore_bindings(D3D11Renderer& r, const D3D11Renderer& saved) noexcept {
@@ -364,6 +365,8 @@ inline bool search_filter_ui_probe(D3D11Renderer& renderer,
                  current};
     f.choices.kind = UiSearchFilterKind::from;
     f.results = {&f, 3, 1, result};
+    if (!require(search_rows_publish(&f.result_rows, &f.results), 8))
+        return false;
     f.content.edit = {utf8_literal("from:mi"), 7, 7, true, true, false};
     f.content.heading = utf8_literal("Search Native Garden");
     f.content.placeholder = utf8_literal("Search garden messages");

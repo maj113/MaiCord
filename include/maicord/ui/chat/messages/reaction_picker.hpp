@@ -10,8 +10,7 @@ struct MessageComposer;
 
 // The emoji picker's data model. The expression picker's Emoji tab and the
 // message reaction popout both present it through UiMediaPickerScene.
-inline constexpr u32 kReactionPickerMaximumQueryBytes = 48;
-inline constexpr u32 kReactionPickerBorrowedQueryMaximumBytes = 256;
+inline constexpr u32 kReactionPickerMaximumQueryBytes = 256;
 inline constexpr u32 kReactionPickerCatalogCapacity = 3'780;
 // Custom results index the chat state's emoji array, so the picker holds
 // every emoji the store can.
@@ -96,17 +95,14 @@ struct ReactionPickerModel {
     u32 revision;
     u32 emoji_mutations;
     ReactionPreferenceKind preference_kind;
-    bool search_borrowed;
-    char query[kReactionPickerMaximumQueryBytes];
 };
 
 // message_id is the owner identity (a message, or the composer's channel). The
 // preference store seeds, personalizes and persists the Frequently Used and
-// Favorites sections.
+// Favorites sections. The picker searches the caller's composer.
 ReactionPickerResult reaction_picker_open(ReactionPickerModel* picker, u64 message_id,
                                           ReactionPreferenceStore* preferences, u64 now_ms,
-                                          const ChatStateStore* state = nullptr, u64 guild_id = 0,
-                                          MessageComposer* borrowed_search = nullptr,
+                                          const ChatStateStore* state, u64 guild_id, MessageComposer* search,
                                           ReactionPreferenceKind kind = ReactionPreferenceKind::reaction) noexcept;
 void reaction_picker_release(ReactionPickerModel* picker) noexcept;
 // Rebuilds the results once the search document's text revision changes.

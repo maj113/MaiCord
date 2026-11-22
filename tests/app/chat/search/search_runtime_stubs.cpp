@@ -1,6 +1,5 @@
 #include "search_runtime_internal.hpp"
 #include "../../../../src/app/shell/content_input.hpp"
-#include "application_search_measurement.hpp"
 #include "../../../../src/app/chat/polls/poll.hpp"
 #include "maicord/ui/chat/polls/controls.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
@@ -29,7 +28,7 @@ bool renderer_rebuild_content_text(D3D11Renderer*, const Theme&) noexcept {
     return true;
 }
 TextSystem renderer_text_system(D3D11Renderer*, UiTextFace) noexcept {
-    return search_runtime_test::search_measurement_text_system();
+    return {};
 }
 bool text_edit_layout_hit_test(const TextEditLayoutOwner&, float, float, u32* position) noexcept {
     if (!position) {

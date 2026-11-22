@@ -8,7 +8,6 @@
 #include "../../../../src/app/chat/search/search_input.cpp"
 #include "search_runtime_internal.hpp"
 #include "../../../support/model_store_fixtures.hpp"
-#include "application_search_measurement.hpp"
 #include "../../../support/test_output.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/platform/window/key.hpp"
@@ -306,7 +305,6 @@ void run() noexcept {
         release();
         return;
     }
-    test_search_measurement();
     const auto timeline_before = g_app.message_view.timeline;
     const auto store_before = g_app.message_view.store;
     const auto record_before = records[0];

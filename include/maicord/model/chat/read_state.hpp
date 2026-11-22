@@ -34,7 +34,6 @@ struct ReadStateStore {
     u32 backed_count;
     u32 revision;
     u32 generation;
-    u32 rejected;
     bool incomplete;
     bool preparing_ready;
     bool retaining_ready;

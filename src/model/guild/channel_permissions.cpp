@@ -699,7 +699,6 @@ bool chat_state_store_append_channel_overwrite(ChatStateStore* store, u64 channe
     if (!channel || channel->overwrite_count == 0xFFFFu ||
         store->overwrite_count >= store->overwrite_capacity ||
         !chat_state_store_prepare_permissions(store, store->role_count, store->overwrite_count + 1)) {
-        ++store->rejected;
         return false;
     }
     u32 insert = store->overwrite_count;

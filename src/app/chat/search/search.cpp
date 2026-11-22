@@ -474,11 +474,8 @@ void application_search_theme_changed() noexcept {
     if (!s)
         return;
     ui_search_scene_bind_theme_styles(&s->scene, application_theme().styles);
-    if (s->bank) {
-        s->bank->measured_width = -1;
-        s->bank->measured_dpi = 0;
+    if (s->bank)
         s->bank->polls.backend_revision = renderer_text_measure_revision(g_app.renderer);
-    }
     if (s->text_owner) {
         auto& p = s->text_owner->presentation;
         p.measurement_history_count = 0;
@@ -763,9 +760,6 @@ bool application_search_synchronize() noexcept {
     ui_search_scene_bind_theme_styles(&s->scene, application_theme().styles);
     ui_search_scene_set_media_policy(&s->scene, application_message_media_policy());
     if (!ui_search_scene_update(&s->scene, scene_source, &s->content, viewport, title, &header))
-        return false;
-    if (measure_rows(*s) &&
-        !ui_search_scene_update(&s->scene, scene_source, &s->content, viewport, title, &header))
         return false;
     g_app.renderer.search_scene = &s->scene;
     if (s->panel && s->bank) {

@@ -491,8 +491,8 @@ void test_chip_copy(Check check) noexcept {
     const auto whole =
         message_text_project_selection_for_copy(command, source, 0, command.text.bytes, {output, sizeof(output)});
     const auto part = message_text_project_selection_for_copy(command, source, 2, 8, {partial, sizeof(partial)});
-    check(whole.ok && whole.transformed && utf8_equal({output, whole.bytes}, source) && part.ok && !part.transformed &&
-              part.bytes == 6,
+    check(whole.ok && utf8_equal({output, whole.bytes}, source) && part.ok && part.bytes == 6 &&
+              utf8_equal({partial, part.bytes}, {command.text.data + 2, 6}),
           "chip: a fully selected chip copies its URL or <#id> source; a partial one its text");
 }
 

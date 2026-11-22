@@ -30,7 +30,7 @@ static_assert(name_list_count(kSectionNames) == kReactionPickerSectionSearch + 1
 // Reserved only; an open snapshot commits what it uses.
 inline constexpr usize kReactionPickerStorageBytes =
     sizeof(u32) * kReactionPickerResultCapacity + sizeof(u32) * kReactionPickerCustomEmojiCapacity +
-    sizeof(ReactionPickerGuild) * kReactionPickerGuildCapacity + sizeof(MessageComposer) +
+    sizeof(ReactionPickerGuild) * kReactionPickerGuildCapacity +
     sizeof(ReactionPickerSection) * kReactionPickerSectionCapacity + 128;
 
 inline bool storage_valid(const ReactionPickerModel* picker) noexcept {
@@ -38,8 +38,7 @@ inline bool storage_valid(const ReactionPickerModel* picker) noexcept {
            picker->sections;
 }
 
-bool initialize_storage(ReactionPickerModel* picker, const ChatStateStore* state,
-                        MessageComposer* borrowed_search) noexcept {
+bool initialize_storage(ReactionPickerModel* picker, const ChatStateStore* state, MessageComposer* search) noexcept {
     reset_value<ReactionPickerModel>(picker);
     if (!arena_initialize(&picker->storage, kReactionPickerStorageBytes, 0, 4 * 1024, ArenaTag::ui)) {
         return false;
@@ -48,17 +47,9 @@ bool initialize_storage(ReactionPickerModel* picker, const ChatStateStore* state
         maximum(1u, minimum(kReactionPickerCustomEmojiCapacity, state ? state->emoji_count : 0));
     const u32 guild_capacity =
         maximum(1u, minimum(kReactionPickerGuildCapacity, state ? state->guild_count : 0));
-    picker->search =
-        borrowed_search ? borrowed_search : arena_allocate_zero<MessageComposer>(&picker->storage);
-    picker->search_borrowed = borrowed_search != nullptr;
-    if (!picker->search ||
-        (!borrowed_search &&
-         !message_composer_initialize(picker->search, {picker->query, kReactionPickerMaximumQueryBytes})))
-        return false;
-    if (!borrowed_search)
-        message_composer_reset(picker->search, 1, false);
-    picker->query_bytes = picker->search->bytes;
-    picker->search_revision = picker->search->text_revision;
+    picker->search = search;
+    picker->query_bytes = search->bytes;
+    picker->search_revision = search->text_revision;
     picker->custom_order = arena_allocate<u32>(&picker->storage, emoji_capacity);
     picker->guilds = arena_allocate_zero<ReactionPickerGuild>(&picker->storage, guild_capacity);
     picker->guild_count = 0;
@@ -108,10 +99,6 @@ inline bool push_section(ReactionPickerModel* picker, u32 section) noexcept {
                            reaction_preferences_section_collapsed(*picker->preferences, local, guild);
     picker->sections[picker->section_count++] = {guild, local, picker->result_count, 0, collapsed};
     return true;
-}
-inline u32 query_limit(const ReactionPickerModel& picker) noexcept {
-    return picker.search_borrowed ? kReactionPickerBorrowedQueryMaximumBytes
-                                  : kReactionPickerMaximumQueryBytes;
 }
 
 Utf8View section_label(const ReactionPickerModel& picker, u32 section) noexcept {
@@ -283,7 +270,7 @@ void preference_results(const ReactionPickerModel& picker, const ConstSlice<Reac
 }
 
 ReactionPickerResult rebuild_results(ReactionPickerModel* picker) noexcept {
-    if (!storage_valid(picker) || !picker->message_id || picker->query_bytes > query_limit(*picker))
+    if (!storage_valid(picker) || !picker->message_id || picker->query_bytes > kReactionPickerMaximumQueryBytes)
         return {ReactionPickerError::invalid_input, false};
     picker->result_count = picker->section_count = 0;
     const auto catalog = unicode_emoji_catalog();
@@ -369,18 +356,18 @@ ReactionPickerResult rebuild_results(ReactionPickerModel* picker) noexcept {
 ReactionPickerResult reaction_picker_open(ReactionPickerModel* picker, u64 message_id,
                                           ReactionPreferenceStore* preferences, u64 now_ms,
                                           const ChatStateStore* state, u64 guild_id,
-                                          MessageComposer* borrowed_search,
+                                          MessageComposer* search,
                                           ReactionPreferenceKind kind) noexcept {
-    if (!picker || !preferences || message_id == 0 || static_cast<u32>(kind) >= kReactionPreferenceKindCount ||
-        (borrowed_search && (borrowed_search->bytes > kReactionPickerBorrowedQueryMaximumBytes ||
-                             !utf8_validate(message_composer_text(*borrowed_search)).valid))) {
+    if (message_id == 0 || static_cast<u32>(kind) >= kReactionPreferenceKindCount ||
+        search->bytes > kReactionPickerMaximumQueryBytes ||
+        !utf8_validate(message_composer_text(*search)).valid) {
         return ReactionPickerResult{ReactionPickerError::invalid_input, false};
     }
     if (!seed_preferences(preferences, kind, now_ms)) {
         return ReactionPickerResult{ReactionPickerError::invalid_input, false};
     }
     reaction_picker_release(picker);
-    if (!initialize_storage(picker, state, borrowed_search)) {
+    if (!initialize_storage(picker, state, search)) {
         reaction_picker_release(picker);
         return ReactionPickerResult{ReactionPickerError::capacity, false};
     }
@@ -413,16 +400,14 @@ void reaction_picker_release(ReactionPickerModel* picker) noexcept {
     if (!picker) {
         return;
     }
-    if (picker->search && !picker->search_borrowed)
-        message_composer_release(picker->search);
     arena_release(&picker->storage);
     reset_value<ReactionPickerModel>(picker);
 }
 
 ReactionPickerResult reaction_picker_refresh_search(ReactionPickerModel* picker) noexcept {
-    if (!storage_valid(picker) || !picker->search)
+    if (!storage_valid(picker))
         return {ReactionPickerError::invalid_input, false};
-    if (picker->search->bytes > query_limit(*picker))
+    if (picker->search->bytes > kReactionPickerMaximumQueryBytes)
         return {ReactionPickerError::capacity, false};
     if (picker->search_revision == picker->search->text_revision)
         return {ReactionPickerError::none, false};
@@ -502,7 +487,7 @@ Utf8View reaction_picker_result_guild_name(const ReactionPickerModel& picker, u3
 }
 
 u32 reaction_emoji_settings_key(ReactionEmojiRef emoji, const Slice<char>& output) noexcept {
-    if (!emoji.valid() || !output.data)
+    if (!emoji.valid())
         return 0;
     if (emoji.custom())
         return decimal_digits(emoji.custom_id) > output.count ? 0

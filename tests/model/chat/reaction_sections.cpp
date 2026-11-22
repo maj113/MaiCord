@@ -13,7 +13,7 @@ u32 find_section(const ReactionPickerModel& picker, u32 local, u64 guild = 0) no
     return ~0u;
 }
 bool search(ReactionPickerModel* picker, Utf8View text) noexcept {
-    return picker->search && message_composer_restore(picker->search, 1, text, text.bytes, text.bytes) &&
+    return message_composer_restore(picker->search, 1, text, text.bytes, text.bytes) &&
            reaction_picker_refresh_search(picker).ok();
 }
 } // namespace
@@ -22,11 +22,15 @@ bool search(ReactionPickerModel* picker, Utf8View text) noexcept {
 void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept {
     ReactionPreferenceStore preferences{};
     ReactionPickerModel picker{};
-    bool valid = reaction_preferences_initialize(&preferences) &&
+    // The picker searches its owner's composer (the expression picker's field).
+    char edit_text[kReactionPickerMaximumQueryBytes]{};
+    MessageComposer edit{};
+    bool valid = message_composer_initialize(&edit, {edit_text, sizeof(edit_text)}) &&
+                 reaction_preferences_initialize(&preferences) &&
                  reaction_preferences_track_emoji(&preferences, ReactionPreferenceKind::reaction,
                                                   reaction_emoji_unicode(4), 1000).ok() &&
                  reaction_preferences_toggle_favorite_emoji(&preferences, reaction_emoji_unicode(4)).ok() &&
-                 reaction_picker_open(&picker, 77, &preferences, 1000).ok();
+                 reaction_picker_open(&picker, 77, &preferences, 1000, nullptr, 0, &edit).ok();
     const u32 favorite = find_section(picker, kReactionPickerSectionFavorites),
               recent = find_section(picker, kReactionPickerSectionFrequent);
     check(valid && favorite == 0 && recent == 1 && picker.sections[favorite].count == 1 &&
@@ -53,7 +57,7 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
               picker.storage.committed == committed_before_toggle,
           "reaction sections: toggle performs no arena allocation or page commitment");
     reaction_picker_release(&picker);
-    valid = valid && reaction_picker_open(&picker, 77, &preferences, 1000).ok();
+    valid = valid && reaction_picker_open(&picker, 77, &preferences, 1000, nullptr, 0, &edit).ok();
     check(valid && picker.sections[find_section(picker, kReactionPickerSectionFavorites)].collapsed,
           "reaction sections: account collapse state survives picker release and reopen");
     valid = valid && search(&picker, utf8_literal("s"));
@@ -101,7 +105,7 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
     for (u32 i = 0; valid && i < kReactionPreferenceFrequentCapacity; ++i)
         valid = reaction_preferences_track_emoji(&preferences, ReactionPreferenceKind::reaction,
                                                  reaction_emoji_unicode(static_cast<u16>(i)), 1000).ok();
-    valid = valid && reaction_picker_open(&picker, 88, &preferences, 1000, &state, 1007).ok();
+    valid = valid && reaction_picker_open(&picker, 88, &preferences, 1000, &state, 1007, &edit).ok();
     check(valid && picker.guild_count == 256 && picker.custom_emoji_count == 4096 &&
               picker.section_count == 266 && picker.result_count == 3780 + 4096 + 250 + 42 &&
               picker.result_capacity == 3780 + 4096 + 250 + 42,
@@ -112,21 +116,16 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
           "reaction sections: the selected server's emoji follow Favorites and Frequently Used");
     valid = valid && reaction_picker_toggle_section(&picker, guild_section).ok();
     reaction_picker_release(&picker);
-    valid = valid && reaction_picker_open(&picker, 88, &preferences, 1000, &state, 1008).ok();
+    valid = valid && reaction_picker_open(&picker, 88, &preferences, 1000, &state, 1008, &edit).ok();
     check(valid && picker.sections[find_section(picker, kReactionPickerSectionGuild, 1007)].collapsed &&
               !picker.sections[find_section(picker, kReactionPickerSectionGuild, 1008)].collapsed,
           "reaction sections: guild collapse follows 64-bit identity across selected-guild reordering");
     reaction_picker_release(&picker);
-    char borrowed_text[kReactionPickerBorrowedQueryMaximumBytes]{};
-    MessageComposer borrowed{};
-    const bool borrowed_ready =
-        message_composer_initialize(&borrowed, {borrowed_text, sizeof(borrowed_text)}) &&
-        message_composer_restore(&borrowed, 88, utf8_literal("blob"), 4, 4) &&
-        reaction_picker_open(&picker, 88, &preferences, 1000, &state, 1008, &borrowed).ok();
+    const bool searched = message_composer_restore(&edit, 88, utf8_literal("blob"), 4, 4) &&
+                          reaction_picker_open(&picker, 88, &preferences, 1000, &state, 1008, &edit).ok();
     ReactionPickerSelection logical{};
     Utf8View logical_label{};
-    check(borrowed_ready && picker.search == &borrowed && picker.search_borrowed &&
-              picker.result_count == kFixtureEmoji &&
+    check(searched && picker.search == &edit && picker.result_count == kFixtureEmoji &&
               reaction_picker_result_at(picker, picker.result_count - 1, &logical, &logical_label) &&
               logical.custom && logical.emoji_id && utf8_equal(logical_label, utf8_literal("blob")) &&
               !reaction_picker_result_at(picker, picker.result_count, &logical),
@@ -134,16 +133,16 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
     char long_query[60];
     for (char& byte : long_query)
         byte = 'x';
-    check(borrowed_ready && message_composer_restore(&borrowed, 88, {long_query, 60}, 60, 60) &&
+    check(searched && message_composer_restore(&edit, 88, {long_query, 60}, 60, 60) &&
               reaction_picker_refresh_search(&picker).ok() && picker.query_bytes == 60 &&
               !picker.result_count,
-          "reaction adapter: shared native edit has explicit 256 byte query bound beyond the owned 48 byte one");
-    const auto before_release = message_composer_text(borrowed);
+          "reaction adapter: the search takes queries up to 256 bytes");
+    const auto before_release = message_composer_text(edit);
     reaction_picker_release(&picker);
-    check(borrowed.bytes == 60 && message_composer_text(borrowed).data == before_release.data &&
-              bytes_equal(message_composer_text(borrowed).data, long_query, 60),
+    check(edit.bytes == 60 && message_composer_text(edit).data == before_release.data &&
+              bytes_equal(message_composer_text(edit).data, long_query, 60),
           "reaction adapter: model retirement never frees or resets externally owned edit document");
-    message_composer_release(&borrowed);
+    message_composer_restore(&edit, 89, {}, 0, 0);
     // Every usable emoji the store holds is listed, borrowed by index: the
     // snapshot commits four bytes of order and four of results per emoji.
     for (u32 i = 0; i < kHeavyEmoji; ++i) {
@@ -155,7 +154,7 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
         copy_bytes(emojis[i].name, i % 2 ? "wave" : "blob", 4);
     }
     state.emoji_count = kHeavyEmoji;
-    valid = reaction_picker_open(&picker, 89, &preferences, 1000, &state, 1100).ok();
+    valid = reaction_picker_open(&picker, 89, &preferences, 1000, &state, 1100, &edit).ok();
     const u32 selected = find_section(picker, kReactionPickerSectionGuild, 1100);
     ReactionPickerSelection first{}, last{};
     check(valid && picker.custom_emoji_count == kHeavyEmoji && picker.guild_count == kHeavyGuilds &&
@@ -177,5 +176,6 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
           "reaction sections: a changed emoji array leaves borrowed results unresolved");
     reaction_picker_release(&picker);
     reaction_preferences_release(&preferences);
+    message_composer_release(&edit);
 }
 } // namespace maicord

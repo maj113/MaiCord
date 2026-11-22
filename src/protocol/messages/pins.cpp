@@ -36,7 +36,6 @@ bool later(const PinInstant& left, const PinInstant& right) noexcept {
            (left.milliseconds == right.milliseconds && left.submillisecond_ns > right.submillisecond_ns);
 }
 
-template <typename T> bool valid_slice(Slice<T> slice) noexcept { return slice.data || !slice.count; }
 // A null slice is empty, so nothing of it is used and the result stays null.
 template <typename T> Slice<T> remaining(Slice<T> slice, u32 used) noexcept {
     return {slice.data + used, slice.count - used};
@@ -56,7 +55,6 @@ struct PageContext {
     u32 mention_count;
     JsonValue item_array;
     u8 fields;
-    bool capture_rich;
 };
 
 bool reject(PageContext* context, MessagePinsDecodeError error, u32 offset) noexcept {
@@ -119,16 +117,11 @@ bool visit_item(void* opaque, u32 index, JsonValue value) noexcept {
 
     GatewayMessageEvent message;
     u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
-    GatewayMessageNamedUser temporary_mentions[kGatewayMessageMentionUserMaximum];
     const auto text = remaining(context->text, context->result.page.text_bytes);
-    const auto mentions = context->mentions.data ? remaining(context->mentions, context->mention_count)
-        : Slice<GatewayMessageNamedUser>{temporary_mentions, kGatewayMessageMentionUserMaximum};
-    const auto decoded = context->capture_rich
-        ? gateway_decode_message_create(context->document, item.message, context->maximum_depth, text,
-              {mention_roles, kGatewayMessageMentionRoleMaximumIds}, context->rich.remaining_member_roles(),
-              mentions, context->rich.remaining(), 0, &message)
-        : gateway_decode_message_create(context->document, item.message, context->maximum_depth, text,
-              {mention_roles, kGatewayMessageMentionRoleMaximumIds}, mentions, 0, &message);
+    const auto decoded = gateway_decode_message_create(
+        context->document, item.message, context->maximum_depth, text,
+        {mention_roles, kGatewayMessageMentionRoleMaximumIds}, context->rich.remaining_member_roles(),
+        remaining(context->mentions, context->mention_count), context->rich.remaining(), 0, &message);
     if (!decoded.ok()) {
         context->result.message_error = decoded.error;
         context->result.scan_error = decoded.scan_error;
@@ -145,7 +138,6 @@ bool visit_item(void* opaque, u32 index, JsonValue value) noexcept {
             return reject(context, MessagePinsDecodeError::duplicate_message, item.message.source_offset);
     }
     reset_value(&message.mention_roles);
-    if (!context->mentions.data) reset_value(&message.mention_users);
     MessagePin& pin = context->items[index];
     pin.message = message;
     pin.pinned_at = item.pinned_at;
@@ -187,7 +179,7 @@ bool message_pins_cursor_valid(const MessagePinsCursor& cursor, bool allow_empty
 MessagePinsWriteResult write_message_pins_target(const MessagePinsQuery& query,
                                                  Slice<u8> output) noexcept {
     if (!query.channel_id || !query.limit || query.limit > kMessagePinsMaximumItems ||
-        !message_pins_cursor_valid(query.before) || !valid_slice(output))
+        !message_pins_cursor_valid(query.before))
         return {0, MessagePinsWriteError::invalid_input};
     ProtocolWriter writer{output, 0};
     const bool written = protocol_write(&writer, "/api/v9/channels/", query.channel_id, "/messages/pins?limit=",
@@ -200,7 +192,7 @@ MessagePinsWriteResult write_message_pins_target(const MessagePinsQuery& query,
 
 MessagePinsWriteResult write_message_pin_target(u64 channel_id, u64 message_id,
                                                 Slice<u8> output) noexcept {
-    if (!channel_id || !message_id || !valid_slice(output)) return {0, MessagePinsWriteError::invalid_input};
+    if (!channel_id || !message_id) return {0, MessagePinsWriteError::invalid_input};
     ProtocolWriter writer{output, 0};
     const bool written = protocol_write(&writer, "/api/v9/channels/", channel_id, "/messages/pins/", message_id);
     return written ? MessagePinsWriteResult{writer.used, MessagePinsWriteError::none}
@@ -213,11 +205,9 @@ MessagePinsDecodeResult decode_message_pins_page(Utf8View body, const MessagePin
     const MessageHistoryRichScratch& rich_scratch) noexcept {
     MessageHistoryRichCursor rich{rich_scratch};
     rich.scratch.poll = {}; // Pinned polls are not decoded.
-    u8 target[kMessagePinsMaximumTargetBytes];
-    if (!write_message_pins_target(query, {target, sizeof(target)}).ok() || !body.data || !body.bytes ||
-        !page_structurals.data || !page_structurals.count ||
-        !maximum_depth || !valid_slice(text_output) || !valid_slice(items) || !valid_slice(mention_users) ||
-        !rich.valid()) return {{}, 0, MessagePinsDecodeError::invalid_input};
+    // The one caller (pinned_messages.cpp) passes the query of a request that write_message_pins_target accepted,
+    // the account's decode scratch (every rich pool and the mention pool have storage) and its own item bank.
+    if (!body.data || !body.bytes) return {{}, 0, MessagePinsDecodeError::invalid_input};
     const auto scan = json_scan_structurals_avx1(body, page_structurals);
     if (!scan.ok()) return {{}, scan.error_offset, MessagePinsDecodeError::scan_failed,
                             GatewayEventDecodeError::none, scan.error};
@@ -230,7 +220,6 @@ MessagePinsDecodeResult decode_message_pins_page(Utf8View body, const MessagePin
     context.mentions = mention_users;
     context.rich = rich;
     context.maximum_depth = maximum_depth;
-    context.capture_rich = rich.present();
     if (query.before.bytes) cursor_instant(query.before, &context.before);
     auto read = json_visit_root_object(body, context.document.structurals, maximum_depth, visit_root, &context);
     if (read.ok() && context.fields != 3) context.result.error = MessagePinsDecodeError::missing_field;

@@ -100,10 +100,7 @@ constexpr bool ui_search_target_equal(const UiSearchTarget& a, const UiSearchTar
 struct UiSearchRow {
     u64 channel_id, message_id;
     Utf8View author, channel, body, detail;
-    bool hit, group_first;
-    // Wrapped body area in DIPs; 0 uses the compact 48-DIP fallback.
-    // Positive values must be finite and in [24, 464] (card max 512).
-    float body_height;
+    bool hit;
     // Borrowed from the accepted result bank, not the selected channel's
     // user cache. Old pages stop holding media when the source revision changes.
     u64 author_id;
@@ -111,6 +108,7 @@ struct UiSearchRow {
     bool unavailable;
     bool access_check; // Metadata-only private membership/hydration action.
 };
+// A source has rows only with a rich timeline: without one its count is 0.
 struct UiSearchSource {
     void* context;
     u32 count, revision;
@@ -178,8 +176,7 @@ struct UiSearchScene {
     UiRect row_rectangles[kUiSearchVisibleRows];
     UiRect group_rectangles[kUiSearchVisibleRows];
     float row_offsets[126];
-    u32 measured_source_revision, measured_count;
-    const UiSearchSource* measured_source;
+    u32 measured_count;
     UiSearchTarget* targets;
     u32 first, count, source_revision, content_revision, revision;
     u64 pagination_total;
@@ -230,9 +227,6 @@ bool ui_search_scene_avatar(const UiSearchScene&, u32 visible_slot, UiRect* rect
 // rich_item whose preview geometry is the tile's cover rectangle.
 u32 ui_search_scene_visible_tile_count(const UiSearchScene&) noexcept;
 bool ui_search_scene_visible_tile(const UiSearchScene&, u32 slot, UiSearchTarget*) noexcept;
-constexpr float ui_search_body_text_width(const UiSearchScene& scene) noexcept {
-    return maximum(1.f, ui_rect_width(scene.body) - 92.f);
-}
 // `rich_text` (the results' text presentation, optional) frames their code blocks.
 bool ui_search_scene_paint(const UiSearchScene&, const Theme&, PaintStream*, const UiEditGeometry*, u32 dpi,
                            MessageMediaCommandStream* rich_media = nullptr,

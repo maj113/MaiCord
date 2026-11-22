@@ -507,7 +507,6 @@ struct ChatStateStore {
     u32 name_bank_bytes;
     u32 name_used;
     u32 name_wasted;
-    u32 rejected;
     u32 guild_mutations;
     u32 channel_mutations;
     u32 permission_mutations;

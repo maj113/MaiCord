@@ -121,8 +121,7 @@ inline void test_message_background_surfaces(const MessageScene& original, u64 r
     check(media_keys, "message gradient actual media keys resources clip and owners match");
     check(component_fill, "message link button keeps its translucent neutral fill over background themes");
     check(materials != 0, "message gradient admitted rich fixture emits at least one real material card");
-    check(geometry && media_keys && materials && !gradient.rejected &&
-              gradient.count <= kMaxPaintQuads && !gradient_media.rejected,
+    check(geometry && media_keys && materials && !gradient.rejected && gradient.count <= kMaxPaintQuads,
           "message gradient materials preserve real geometry media semantic paint and widget ownership");
 }
 } // namespace maicord

@@ -171,13 +171,13 @@ void card_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept 
         UiPollLayout repeated{};
         stable = stable &&
                  ui_poll_measure_layout(f.state, 152, kDefaultUiPollStyle, &f.cache, 1, &repeated) &&
-                 repeated.height == layout.height && repeated.content_signature == layout.content_signature;
+                 repeated.height == layout.height;
     }
     check(stable && text_measure_calls(&f.cache) == backend, "poll retention: unchanged wrapped projections "
                                                       "reuse native-measure cache without backend calls");
     UiPollProjection ballot{}, results{};
-    ready = ready && ui_poll_controls_project_layout(f.state, {0, 0}, layout, kDefaultUiPollStyle,
-                                                     kDefaultTheme, &ballot);
+    const UiRect card{0, 0, 152, 1};
+    ready = ready && ui_poll_controls_project(f.state, card, kDefaultUiPollStyle, kDefaultTheme, &f.cache, 1, &ballot);
     check(ready && ui_poll_target_visible(ballot, {UiPollControl::vote}) &&
               !ui_poll_target_enabled(ballot, {UiPollControl::vote}) &&
               ui_poll_target_visible(ballot, {UiPollControl::results}) && !ballot.results_primary &&
@@ -187,7 +187,7 @@ void card_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept 
     gradient.background = background_theme_defaults();
     UiPollProjection themed{};
     check(ui_theme_resolve_emphasis(&gradient) &&
-              ui_poll_controls_project_layout(f.state, {0, 0}, layout, kDefaultUiPollStyle, gradient, &themed) &&
+              ui_poll_controls_project(f.state, card, kDefaultUiPollStyle, gradient, &f.cache, 1, &themed) &&
               same(themed.accent, gradient.tokens.emphasis.fill) &&
               same(themed.outline, gradient.tokens.emphasis.outline) &&
               same(themed.answer_fill, gradient.tokens.fill.subtle) &&
@@ -207,8 +207,7 @@ void card_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept 
     f.state.total_votes = 4;
     f.state.revision++;
     f.state.result_revision++;
-    ready = ready && ui_poll_controls_project_layout(f.state, {0, 0}, layout, kDefaultUiPollStyle,
-                                                     kLightTheme, &results);
+    ready = ready && ui_poll_controls_project(f.state, card, kDefaultUiPollStyle, kLightTheme, &f.cache, 1, &results);
     check(ready && layout_clean(results) && results.percentages[0] == 75 && results.percentages[1] == 25 &&
               utf8_equal(ui_poll_count_label(results, 0), utf8_literal("3 votes")) &&
               utf8_equal(ui_poll_count_label(results, 1), utf8_literal("1 vote")) &&
@@ -229,7 +228,7 @@ void card_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept 
         f.state.expiry_ms = expiries[i];
         UiPollProjection timed{};
         details = details &&
-                  ui_poll_controls_project_layout(f.state, {0, 0}, layout, kDefaultUiPollStyle, kLightTheme, &timed) &&
+                  ui_poll_controls_project(f.state, card, kDefaultUiPollStyle, kLightTheme, &f.cache, 1, &timed) &&
                   utf8_equal(ui_poll_summary_label(timed), Utf8View{labels[i], c_string_length(labels[i])});
     }
     check(details, "poll footer: \"{n} votes \xE2\x88\x99 {d}d/{h}h/{m}m/< 1m left\" like the official client");
@@ -239,8 +238,7 @@ void card_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept 
     f.state.can_retry = true;
     f.state.status = utf8_literal("A bounded retry status");
     UiPollProjection pending{};
-    check(ui_poll_controls_project_layout(f.state, {0, 0}, layout, kDefaultUiPollStyle, kLightTheme,
-                                          &pending) &&
+    check(ui_poll_controls_project(f.state, card, kDefaultUiPollStyle, kLightTheme, &f.cache, 1, &pending) &&
               ui_rect_equal(results.geometry.bounds, pending.geometry.bounds) &&
               !ui_poll_target_enabled(pending, {UiPollControl::retry}) &&
               ui_poll_target_visible(pending, {UiPollControl::retry}),
@@ -248,9 +246,8 @@ void card_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept 
     auto invalid = f.state;
     const auto saved = results.geometry.bounds;
     invalid.answers = {f.answers, 11};
-    bool atomic =
-        !ui_poll_controls_project_layout(invalid, {}, layout, kDefaultUiPollStyle, kLightTheme, &results) &&
-        ui_rect_equal(results.geometry.bounds, saved);
+    bool atomic = !ui_poll_controls_project(invalid, card, kDefaultUiPollStyle, kLightTheme, &f.cache, 1, &results) &&
+                  ui_rect_equal(results.geometry.bounds, saved);
     invalid = f.state;
     const auto id = f.answers[1].id;
     f.answers[1].id = f.answers[0].id;
@@ -258,12 +255,7 @@ void card_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept 
     f.answers[1].id = id;
     invalid.question = {"\xff", 1};
     atomic = atomic && !ui_poll_measure_layout(invalid, 152, kDefaultUiPollStyle, &f.cache, 1, &layout);
-    auto malformed = layout;
-    malformed.geometry.bounds.right++;
-    atomic = atomic && !ui_poll_controls_project_layout(f.state, {}, malformed, kDefaultUiPollStyle,
-                                                        kLightTheme, &results);
-    check(atomic, "poll validation: oversized/duplicate-ID/invalid UTF8 and malformed retained geometry "
-                  "fail atomically");
+    check(atomic, "poll validation: oversized, duplicate-ID and invalid UTF8 polls fail atomically");
     f.state.loading = f.state.error = f.state.can_retry = f.state.results = false;
     f.state.status = {};
     f.answers[0].selected = true;

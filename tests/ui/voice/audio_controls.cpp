@@ -111,7 +111,6 @@ void search_geometry(void (*check)(bool, const char*) noexcept,
                        utf8_literal("# audio"),
                        {},
                        {},
-                       true,
                        true};
             output->author_id = value->author_id;
             return true;

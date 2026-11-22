@@ -12,6 +12,7 @@
 #include "maicord/ui/chat/search/scene.hpp"
 #include "maicord/ui/chat/threads/browser_scene.hpp"
 #include "../../support/fake_text_measure.hpp"
+#include "../../support/search_rows.hpp"
 
 namespace maicord::accessibility_test {
 namespace {
@@ -248,12 +249,13 @@ void test_quick_switcher(UiAccessTree* tree) noexcept {
 
 bool search_row(void*, u32 index, UiSearchRow* row) noexcept {
     *row = {71, index + 101, utf8_literal("Ana"), utf8_literal("# general"), utf8_literal("Build is green"),
-            utf8_literal("Today at 12:30"), false, index % 3 == 0};
+            utf8_literal("Today at 12:30"), false, 900};
     return true;
 }
 
 void test_search(UiAccessTree* tree) noexcept {
     static UiSearchScene scene{};
+    static SearchRows rows;
     UiSearchSource results{nullptr, 6, 1, search_row};
     UiSearchContent content{};
     content.edit = {utf8_literal("green"), 5, 5, true, true, true};
@@ -263,7 +265,8 @@ void test_search(UiAccessTree* tree) noexcept {
     content.phase = UiSearchPhase::ready;
     content.tab_known = 1;
     content.tab_totals[0] = 6;
-    check(ui_search_scene_update(&scene, &results, &content, {0, 0, 1280, 900}, {0, 0, 1280, 48}),
+    check(search_rows_publish(&rows, &results) &&
+              ui_search_scene_update(&scene, &results, &content, {0, 0, 1280, 900}, {0, 0, 1280, 48}),
           "search scene builds");
     const u32 pane = project_overlay(tree, scene, ui_access_add_search,
                                      [](const UiSearchScene& s, UiTextOutput* out) noexcept {

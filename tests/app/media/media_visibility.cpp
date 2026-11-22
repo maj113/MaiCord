@@ -1,6 +1,7 @@
 #include "media_visibility_internal.hpp"
 #include "../../support/ui_scene_fixtures.hpp"
 #include "../../support/model_store_fixtures.hpp"
+#include "../../support/search_rows.hpp"
 #include "../../support/account_module_fake.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
@@ -966,8 +967,6 @@ void run_search_avatar_test(ApplicationMediaPump& pump) noexcept {
                                       utf8_literal("Original result"),
                                       {},
                                       true,
-                                      i == 0,
-                                      24,
                                       770 + i,
                                       utf8_literal("a_0123456789abcdef0123456789abcdef")};
                               return true;
@@ -978,7 +977,9 @@ void run_search_avatar_test(ApplicationMediaPump& pump) noexcept {
     content.phase = UiSearchPhase::ready;
     content.revision = 1;
     const auto* previous_search = g_app.renderer.search_scene;
-    bool valid = ui_search_scene_update(&scene, &source, &content, {312, 0, 1200, 800}, {312, 0, 1200, 48});
+    static SearchRows rows;
+    bool valid = search_rows_publish(&rows, &source) &&
+                 ui_search_scene_update(&scene, &source, &content, {312, 0, 1200, 800}, {312, 0, 1200, 48});
     g_app.renderer.search_scene = &scene;
     AvatarMedia media{};
     valid = valid && search_avatar_media_resolve(scene, 0, &media);

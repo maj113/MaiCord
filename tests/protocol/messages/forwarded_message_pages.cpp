@@ -57,11 +57,11 @@ Utf8View history_body(bool full) noexcept {
         message(&writer, 800, full) && append(&writer, "]");
     return ok ? Utf8View{reinterpret_cast<const char*>(page_fixture.body), writer.used} : Utf8View{};
 }
-Utf8View pins_body(bool full) noexcept {
+Utf8View pins_body() noexcept {
     ProtocolWriter writer{{page_fixture.body, sizeof(page_fixture.body)}, 0};
     const bool ok = append(&writer, "{\"items\":[{\"pinned_at\":\"2026-10-05T00:00:00Z\",\"message\":") &&
-        message(&writer, 900, full) && append(&writer, "},{\"pinned_at\":\"2026-10-04T00:00:00Z\",\"message\":") &&
-        message(&writer, 800, full) && append(&writer, "}],\"has_more\":false}");
+        message(&writer, 900, true) && append(&writer, "},{\"pinned_at\":\"2026-10-04T00:00:00Z\",\"message\":") &&
+        message(&writer, 800, true) && append(&writer, "}],\"has_more\":false}");
     return ok ? Utf8View{reinterpret_cast<const char*>(page_fixture.body), writer.used} : Utf8View{};
 }
 MessageHistoryDecodeResult history(Utf8View body, const MessageHistoryRichScratch& scratch) noexcept {
@@ -101,7 +101,7 @@ void test_forwarded_message_pages(void (*check)(bool, const char*) noexcept) noe
         page_fixture.messages[0].transient_bytes + page_fixture.messages[1].transient_bytes <= sizeof(page_fixture.text) &&
         !page_fixture.messages[0].mention_roles.data,
         "history packs child descriptors and text independently across adjacent forwarded messages without escaping stack role IDs");
-    body = pins_body(true);
+    body = pins_body();
     const auto pinned = decode_message_pins_page(body, {7, {}, 50}, {page_fixture.page_structurals, 32768},
         32, {page_fixture.text, sizeof(page_fixture.text)},
         {page_fixture.pins, 2}, {page_fixture.outer_mentions, 200}, scratch);
@@ -114,11 +114,6 @@ void test_forwarded_message_pages(void (*check)(bool, const char*) noexcept) noe
         {page_fixture.text, sizeof(page_fixture.text)}, {page_fixture.messages, 2});
     check(legacy.ok() && !page_fixture.messages[0].snapshot.present && utf8_equal(page_fixture.messages[0].content, utf8_literal("outer text")),
         "legacy non-rich history continues accepting forwarded messages without snapshot storage");
-    const auto legacy_pins = decode_message_pins_page(pins_body(false), {7, {}, 50},
-        {page_fixture.page_structurals, 32768}, 32,
-        {page_fixture.text, sizeof(page_fixture.text)}, {page_fixture.pins, 2}, {}, {});
-    check(legacy_pins.ok() && !page_fixture.pins[0].message.snapshot.present,
-        "legacy non-rich pins continue accepting forwarded messages without snapshot storage");
     const Utf8View empty_snapshots[] = {
         utf8_literal(R"([{"id":"900","channel_id":"7","author":{"id":"11"},"content":"","timestamp":"2026-01-01T00:00:00Z","message_snapshots":[]}])"),
         utf8_literal(R"([{"id":"900","channel_id":"7","author":{"id":"11"},"content":"","timestamp":"2026-01-01T00:00:00Z","message_snapshots":null}])")};

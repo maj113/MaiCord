@@ -109,9 +109,6 @@ void close_panel(ApplicationSearch& s) noexcept {
     focus(s, false);
 }
 void decorate(SearchBank& bank) noexcept {
-    bank.measured_native_text = nullptr;
-    bank.measured_width = 0;
-    clear_bytes(bank.body_heights, sizeof(bank.body_heights));
     const auto& state = g_app.account_ui->chat_state;
     // The decoder keeps every message of a group in the channel of the group's first message.
     for (u32 group = 0; group < bank.page.group_count; ++group) {

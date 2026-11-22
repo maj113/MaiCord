@@ -509,7 +509,7 @@ void search_begin(SearchRun& run, Utf8View url, bool audio = false, bool voice =
     run.source.resolve = +[](void*, u32 i, UiSearchRow* row) noexcept {
         if (i || !row)
             return false;
-        *row = {7, 1, utf8_literal("Original author"), utf8_literal("#search"), {}, {}, true, true};
+        *row = {7, 1, utf8_literal("Original author"), utf8_literal("#search"), {}, {}, true};
         return true;
     };
     run.content.edit.active = run.content.panel = true;
@@ -2014,7 +2014,9 @@ void run() noexcept {
         if (preview >= 3 && !apple_music_collection_locator(preview_source).id.bytes) {
             const auto& store = g_app.account_ui->message_rich_store;
             const auto* record = message_rich_store_find(store, 1);
-            check(record && record->embed_count && !message_rich_embed_music_preview(store, record->embeds[0]),
+            check(record && record->embed_count &&
+                      utf8_equal(message_rich_embed_provider_label(store, record->embeds[0]),
+                                 message_rich_store_string(store, record->embeds[0].provider_name)),
                   "SoundCloud full audio does not inherit the music preview label");
         }
         const auto* preview_node = message_scene_rich_item_layout_node(

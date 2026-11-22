@@ -150,8 +150,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
             clean = false;
         }
         for (const float width : widths) {
-            const float base =
-                message_composer_preferred_height(model, message_composer_scene_text_width(width));
+            const float base = message_composer_preferred_height(model, width);
             const float toolbar_height = message_composer_scene_toolbar_height(width);
             compact = compact && (text.bytes > 5 || base == 48.0f);
             // The typing strip is always reserved; reply and attachment rows add to it without stealing space
@@ -658,14 +657,11 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         UiResolvedThemeStyles styles{};
         styles.ready = true;
         styles.revision = styles.geometry_revision = styles.paint_revision = 1;
-        check(message_composer_scene_text_width(kComposerInlineWidth - .5f, &styles) >
-                      message_composer_scene_text_width(kComposerInlineWidth, &styles) &&
-                  message_composer_scene_toolbar_height(kComposerCompactWidth - .5f, &styles) > 0.f &&
+        check(message_composer_scene_toolbar_height(kComposerCompactWidth - .5f, &styles) > 0.f &&
                   message_composer_scene_toolbar_height(kComposerCompactWidth, &styles) == 0.f &&
-                  message_composer_scene_text_width(304.f, &styles) == 160.f &&
                   message_composer_scene_toolbar_height(304.f, &styles) == 0.f &&
                   message_composer_scene_toolbar_height(160.f, &styles) == 72.f,
-              "composer_resolved_default_bank_preserves_inline_and_wrapped_geometry");
+              "composer_resolved_default_bank_preserves_compact_and_wrapped_geometry");
         styles.metrics.composer_padding = 8.f;
         styles.metrics.control_height = 40.f;
         styles.metrics.menu_row_height = 44.f;
@@ -681,11 +677,8 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
             message_composer_scene_preferred_height(model, 304.f, true, true, &styles);
         bool projected = message_composer_scene_bind_theme_styles(&scene, &styles) &&
                          scene.measured_row_height == 0.f && scene.geometry_dirty &&
-                         message_composer_scene_text_width(495.5f, &styles) >
-                             message_composer_scene_text_width(496.f, &styles) &&
                          message_composer_scene_toolbar_height(311.5f, &styles) > 0.f &&
                          message_composer_scene_toolbar_height(312.f, &styles) == 0.f &&
-                         message_composer_scene_text_width(304.f, &styles) == 216.f &&
                          message_composer_scene_toolbar_height(160.f, &styles) == 96.f &&
                          message_composer_scene_toolbar_height(216.f, &styles) == 48.f && height == 212.f;
         const UiRect styled_viewport{0.f, 0.f, 304.f, height};
@@ -708,6 +701,12 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         projected &= edit && ui_rect_width(edit->content_rectangle) == 216.f;
         UiLayoutDiagnostic diagnostics[16]{};
         projected &= ui_layout_engine_validate(scene.widgets.layout, {diagnostics, 16}).clean();
+        // The styled controls move the inline width: GIF and sticker show from 496 DIPs.
+        const auto gif_shown = [&](float width) noexcept {
+            return message_composer_scene_update(&scene, &model, {0.f, 0.f, width, height}, true).ok() &&
+                   message_composer_scene_control_visible(scene, MessageComposerControl::gif);
+        };
+        projected &= !gif_shown(495.5f) && gif_shown(496.f) && update().ok();
         check(projected, "composer_resolved_metrics_drive_actual_controls_padding_wrap_and_auxiliary_rows");
         scene.measured_row_height = 64.f;
         bool stable = !message_composer_scene_bind_theme_styles(&scene, &styles) && !update().changed &&
@@ -778,7 +777,8 @@ void test_composer_plugin_slots(void (*check)(bool, const char*) noexcept) noexc
     bool ready = message_composer_initialize(&model, {storage, sizeof(storage)}) &&
                  message_composer_scene_initialize_owned(&scene) &&
                  message_composer_scene_update(&scene, &model, viewport, true).ok() && !scene.plugin_count;
-    const float plain_width = message_composer_scene_text_width(640.f);
+    const auto* edit = message_composer_scene_layout_node(scene, MessageComposerControl::edit);
+    const float plain_width = edit ? ui_rect_width(edit->content_rectangle) : 0;
     const auto* gif = message_composer_scene_layout_node(scene, MessageComposerControl::gif);
     const float gif_left = gif ? gif->rectangle.left : 0;
     composer_slot_nodes[0] = {41, 7, utf8_literal("Timer"), utf8_literal("Start timer"),
@@ -797,7 +797,7 @@ void test_composer_plugin_slots(void (*check)(bool, const char*) noexcept) noexc
               ui_rect_has_area(second->rectangle) && third && !ui_rect_has_area(third->rectangle) && gif &&
               first.rectangle.right <= second->rectangle.left && second->rectangle.right <= gif->rectangle.left &&
               gif->rectangle.left == gif_left &&
-              message_composer_scene_text_width(640.f) < plain_width - 2 * ui_rect_width(first.rectangle),
+              edit && ui_rect_width(edit->content_rectangle) < plain_width - 2 * ui_rect_width(first.rectangle),
           "composer plugin slots: buttons and icons take toolbar places before GIFs; labels don't");
     check(message_composer_scene_hit_test(scene, button.x, button.y) == MessageComposerControl::plugin_slot &&
               message_composer_scene_plugin_slot(scene, button.x, button.y) == 0 &&
@@ -817,7 +817,7 @@ void test_composer_plugin_slots(void (*check)(bool, const char*) noexcept) noexc
           "composer plugin slots: buttons are Tab reachable and report the focused slot for Enter");
     composer_slot_count = 0;
     const bool cleared = message_composer_scene_update(&scene, &model, viewport, true).ok();
-    check(cleared && !scene.plugin_count && message_composer_scene_text_width(640.f) == plain_width &&
+    check(cleared && !scene.plugin_count && edit && ui_rect_width(edit->content_rectangle) == plain_width &&
               message_composer_scene_hit_test(scene, button.x, button.y) != MessageComposerControl::plugin_slot,
           "composer plugin slots: cleared slots give the editor its width back");
     g_ui_plugin_slot_query = nullptr;

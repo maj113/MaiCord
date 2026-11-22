@@ -495,11 +495,11 @@ void test_message_text_copy_projection() noexcept {
     char output[64]{};
     const MessageTextCopyProjectionResult whole = message_text_project_selection_for_copy(
         command, source, 0, command.text.bytes, Slice<char>{output, sizeof(output)});
-    const bool whole_matches = whole.ok && whole.transformed && whole.bytes == source.bytes &&
+    const bool whole_matches = whole.ok && whole.bytes == source.bytes &&
                                utf8_equal(Utf8View{output, whole.bytes}, source);
     const MessageTextCopyProjectionResult emoji =
         message_text_project_selection_for_copy(command, source, 2, 5, Slice<char>{output, sizeof(output)});
-    expect(whole_matches && emoji.ok && emoji.transformed &&
+    expect(whole_matches && emoji.ok &&
                utf8_equal(Utf8View{output, emoji.bytes}, utf8_literal("<:lol:44>")),
            "message_text_copy_restores_custom_emoji_wire_token");
 }
@@ -2704,9 +2704,14 @@ void test_reaction_picker() noexcept {
     constexpr u64 preference_now = 1'800'000'000'000ull;
     ReactionPreferenceStore seeded{};
     ReactionPickerModel picker{};
-    const ReactionPickerResult opened = reaction_preferences_initialize(&seeded)
-                                            ? reaction_picker_open(&picker, 77, &seeded, preference_now)
-                                            : ReactionPickerResult{};
+    // The pickers search their owner's composer (the expression picker's field).
+    char search_text[kReactionPickerMaximumQueryBytes]{};
+    MessageComposer search{};
+    const ReactionPickerResult opened =
+        message_composer_initialize(&search, {search_text, sizeof(search_text)}) &&
+                reaction_preferences_initialize(&seeded)
+            ? reaction_picker_open(&picker, 77, &seeded, preference_now, nullptr, 0, &search)
+            : ReactionPickerResult{};
     const u32 frequent = section_of(picker, kReactionPickerSectionFrequent);
     const u32 first = frequent != ~0u ? catalog_at(picker, picker.sections[frequent].first) : ~0u;
     bool categories_ordered = picker.section_count == 1 + kEmojiCategoryCount;
@@ -2722,7 +2727,7 @@ void test_reaction_picker() noexcept {
     ReactionPickerModel personalized{};
     const ReactionPickerResult personalized_opened =
         reaction_preferences_initialize(&preferences)
-            ? reaction_picker_open(&personalized, 88, &preferences, preference_now)
+            ? reaction_picker_open(&personalized, 88, &preferences, preference_now, nullptr, 0, &search)
             : ReactionPickerResult{};
     const u32 personalized_frequent = section_of(personalized, kReactionPickerSectionFrequent);
     const u32 hundred_index = personalized_frequent != ~0u
@@ -2824,7 +2829,7 @@ void test_reaction_picker() noexcept {
     }
     expect(exact_aging, "reaction_preferences_exact_age_weight_buckets");
 
-    reaction_picker_open(&picker, 77, &seeded, preference_now);
+    reaction_picker_open(&picker, 77, &seeded, preference_now, nullptr, 0, &search);
     const auto query = utf8_literal("thumbs_up");
     bool searched = picker.search && message_composer_restore(picker.search, 1, query, query.bytes, query.bytes) &&
                     reaction_picker_refresh_search(&picker).ok();
@@ -2856,6 +2861,7 @@ void test_reaction_picker() noexcept {
            "emoji_search_shared_word_edit_undo_empty_result_and_browse_restore");
     reaction_picker_release(&personalized);
     reaction_picker_release(&picker);
+    message_composer_release(&search);
     expect(picker.storage.base == nullptr && picker.results == nullptr,
            "reaction_picker_releases_lazy_working_set");
 }
@@ -2877,8 +2883,11 @@ void test_emoji_category_rail() noexcept {
     state.emojis = emojis; state.emoji_count = 8; state.emoji_roles = roles;
     ReactionPickerModel picker{};
     ReactionPreferenceStore preferences{};
-    valid = valid && reaction_preferences_initialize(&preferences) &&
-            reaction_picker_open(&picker, 1, &preferences, 1000, &state, 103).ok();
+    char search_text[kReactionPickerMaximumQueryBytes]{};
+    MessageComposer search{};
+    valid = valid && message_composer_initialize(&search, {search_text, sizeof(search_text)}) &&
+            reaction_preferences_initialize(&preferences) &&
+            reaction_picker_open(&picker, 1, &preferences, 1000, &state, 103, &search).ok();
     bool server_order = valid && picker.section_count == 1 + 8 + kEmojiCategoryCount &&
                         picker.sections[0].local == kReactionPickerSectionFrequent;
     for (u32 i = 0; server_order && i < 8; ++i)

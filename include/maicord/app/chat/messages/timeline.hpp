@@ -66,7 +66,6 @@ struct MessageTimeline {
     u64 viewport_units;
     u32 default_item_units;
     u32 applied;
-    u32 rejected;
     u32 evicted;
     u32 deferred;
     u32 history_pages;

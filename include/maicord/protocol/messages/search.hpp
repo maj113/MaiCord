@@ -116,11 +116,6 @@ struct MessageSearchMessage {
     u64 guild_id;
     bool hit;
     bool guild_known;
-    // The overload without a sink keeps a short plain-text excerpt of the forwarded message.
-    // The rich sink receives the complete outer and child media.
-    Utf8View card_excerpt{};
-    u16 snapshot_attachments{}, snapshot_embeds{}, snapshot_stickers{}, snapshot_components{};
-    bool forwarded{}, excerpt_truncated{};
 };
 struct MessageSearchGroup {
     u32 first_message;
@@ -181,20 +176,6 @@ struct MessageSearchTabsWriteResult {
 MessageSearchTabsWriteResult write_message_search_tabs_request(const MessageSearchQuery& query,
                                                                Slice<u8> target, Slice<u8> body) noexcept;
 
-// Both decoders accept the legacy root (messages/total_results) or the tabs root
-// ({"tabs":{"<tab>":{messages,total_results}}}); the query's tab must be present.
-// On failure ignore all output slices. On success every text view points into
-// text_output, never the HTTP body. Search results are not conversation events
-// and never reach notification handling. Guild IDs present in the response are
-// checked against the query; when guild_known is false the host must verify
-// channel membership against server-confirmed guild state, since a missing guild
-// ID does not show the channel belongs to the guild.
-MessageSearchDecodeResult decode_message_search_page(Utf8View body, const MessageSearchQuery& query,
-                                                     Slice<u32> page_structurals, u32 maximum_depth,
-                                                     Slice<char> text_output,
-                                                     Slice<MessageSearchGroup> groups,
-                                                     Slice<MessageSearchMessage> messages) noexcept;
-
 // Scratch reused for each message of a result, rather than one rich descriptor set
 // per message. Every pool must hold the gateway's per-message maximum.
 // Snapshot pools are independent of the outer message's capacities.
@@ -211,6 +192,13 @@ struct MessageSearchRichSink {
     bool (*accept)(void* context, u32 index, const MessageSearchMessage& message) noexcept;
 };
 
+// The decoder accepts the legacy root (messages/total_results) or the tabs root
+// ({"tabs":{"<tab>":{messages,total_results}}}); the query's tab must be present.
+// Search results are not conversation events and never reach notification
+// handling. Guild IDs present in the response are checked against the query;
+// when guild_known is false the host must verify channel membership against
+// server-confirmed guild state, since a missing guild ID does not show the
+// channel belongs to the guild.
 // accept must copy every string/descriptor it needs before returning: message text
 // and rich scratch are reused for the next result. Discard anything collected
 // through the sink if the page fails for any reason (a later group without a hit,

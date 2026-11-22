@@ -47,9 +47,7 @@ __declspec(noinline) MessageSendBeginResult begin_attachment_send(MessageCompose
         author_id, content, now_unix_ms, now_monotonic_ms, true, {local, attachments.count});
 }
 
-MessageComposerControllerResult controller_error(MessageComposerController* controller,
-                                                 MessageComposerControllerError error) noexcept {
-    saturating_increment_if(controller, controller->rejected);
+MessageComposerControllerResult controller_error(MessageComposerControllerError error) noexcept {
     return MessageComposerControllerResult{{}, 0, error, false};
 }
 
@@ -219,7 +217,7 @@ MessageComposerControllerResult save_active_draft(MessageComposerController* con
         controller->drafts, MessageDraftInput{composer.channel_id, message_composer_text(composer),
             composer.anchor, composer.caret, controller->reply_message_id, controller->mention_reply_author});
     if (!saved.ok()) {
-        return controller_error(controller, MessageComposerControllerError::draft);
+        return controller_error(MessageComposerControllerError::draft);
     }
     return MessageComposerControllerResult{{}, 0, MessageComposerControllerError::none, saved.changed};
 }
@@ -254,13 +252,13 @@ MessageComposerControllerResult message_composer_controller_commit_draft(
     MessageComposerController* controller) noexcept {
     return controller_valid(controller)
                ? save_active_draft(controller)
-               : controller_error(controller, MessageComposerControllerError::invalid_input);
+               : controller_error(MessageComposerControllerError::invalid_input);
 }
 
 MessageComposerControllerResult message_composer_controller_select_channel(
     MessageComposerController* controller, u64 channel_id) noexcept {
     if (!controller_valid(controller)) {
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     }
     if (controller->composer->channel_id == channel_id) {
         return MessageComposerControllerResult{};
@@ -278,13 +276,13 @@ MessageComposerControllerResult message_composer_controller_select_channel(
         if (message_draft_store_snapshot(*controller->drafts, channel_id, &draft)) {
             if (!message_composer_restore(controller->composer, channel_id, draft.text, draft.anchor,
                                           draft.caret)) {
-                return controller_error(controller, MessageComposerControllerError::draft);
+                return controller_error(MessageComposerControllerError::draft);
             }
             controller->reply_message_id = draft.reply_message_id;
             controller->mention_reply_author = !draft.reply_message_id || draft.mention_reply_author;
         } else if (message_draft_store_find(*controller->drafts, channel_id).error !=
                    MessageDraftStoreError::not_found) {
-            return controller_error(controller, MessageComposerControllerError::draft);
+            return controller_error(MessageComposerControllerError::draft);
         } else {
             message_composer_reset(controller->composer, channel_id, false);
             controller->reply_message_id = 0;
@@ -298,13 +296,13 @@ MessageComposerControllerResult message_composer_controller_select_channel(
 MessageComposerControllerResult message_composer_controller_set_reply(
     MessageComposerController* controller, u64 reply_message_id, bool mention_reply_author) noexcept {
     if (!controller_valid(controller) || !controller->composer->channel_id)
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     mention_reply_author = !reply_message_id || mention_reply_author;
     const auto& composer = *controller->composer;
     const auto saved = message_draft_store_save(controller->drafts,
         {composer.channel_id, message_composer_text(composer), composer.anchor, composer.caret,
             reply_message_id, mention_reply_author});
-    if (!saved.ok()) return controller_error(controller, MessageComposerControllerError::draft);
+    if (!saved.ok()) return controller_error(MessageComposerControllerError::draft);
     const bool changed = controller->reply_message_id != reply_message_id ||
         controller->mention_reply_author != mention_reply_author;
     controller->reply_message_id = reply_message_id;
@@ -325,9 +323,9 @@ bool message_composer_controller_reply_snapshot(const MessageComposerController&
 MessageComposerControllerResult message_composer_controller_clear_reply(
     MessageComposerController* controller, u64 channel_id, u64 reply_message_id) noexcept {
     if (!controller_valid(controller) || !channel_id || !reply_message_id)
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     const auto cleared = message_draft_store_clear_reply(controller->drafts, channel_id, reply_message_id);
-    if (!cleared.ok()) return controller_error(controller, MessageComposerControllerError::draft);
+    if (!cleared.ok()) return controller_error(MessageComposerControllerError::draft);
     bool changed = cleared.changed;
     if (controller->composer->channel_id == channel_id && controller->reply_message_id == reply_message_id) {
         clear_reply(controller);
@@ -359,11 +357,11 @@ MessageComposerControllerResult queue_send(
         // The composer gates the account's own limit; this is the longest any account may send.
         !message_composer_can_send(*composer, channel_allows_send,
             kMessageComposerPremiumMaximumCodepoints, attachments.count != 0 || sticker_ids.count != 0)) {
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     }
     const bool active_source = composer == controller->composer;
     if (detached && (active_source || reply_snapshot))
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     // The active draft is the source of truth. A separate producer must capture it
     // first before it can consume a reply choice.
     if (!detached && ((active_source && (reply_message_id != controller->reply_message_id ||
@@ -373,44 +371,44 @@ MessageComposerControllerResult queue_send(
             (reply_message_id && mention_reply_author != reply_snapshot->mention_reply_author))) ||
         (!active_source && reply_message_id && (!reply_snapshot || composer->channel_id != reply_snapshot->channel_id ||
             reply_message_id != reply_snapshot->message_id || mention_reply_author != reply_snapshot->mention_reply_author))))
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     u64 retained_stickers[kMessageCreateMaximumStickerCount]{};
     for (u32 i = 0; i < sticker_ids.count; ++i) {
-        if (!sticker_ids[i]) return controller_error(controller, MessageComposerControllerError::invalid_input);
+        if (!sticker_ids[i]) return controller_error(MessageComposerControllerError::invalid_input);
         for (u32 j = 0; j < i; ++j)
             if (sticker_ids[i] == retained_stickers[j])
-                return controller_error(controller, MessageComposerControllerError::invalid_input);
+                return controller_error(MessageComposerControllerError::invalid_input);
         retained_stickers[i] = sticker_ids[i];
     }
     const u32 attachment_bytes = attachments.count ? message_attachment_storage_bytes(attachments, attachment_sizes) : 0;
     if (attachments.count && !attachment_bytes)
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     // prepare_submit views borrow this bank; reject them as new send inputs
     // before compaction can invalidate a source pointer.
     if (overlaps_bank(controller, attachment_sizes.data, attachment_sizes.count * sizeof(u64)))
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     for (u32 i = 0; i < attachments.count; ++i) {
         const Utf8View strings[]{attachments[i].filename, attachments[i].uploaded_filename, attachments[i].description,
                                  attachments[i].waveform};
         for (const auto text : strings)
             if (overlaps_bank(controller, text.data, text.bytes))
-                return controller_error(controller, MessageComposerControllerError::invalid_input);
+                return controller_error(MessageComposerControllerError::invalid_input);
     }
     MessageComposerRequest* const request = empty_request(controller);
     Utf8View content = message_composer_text(*composer);
     // A leading "@silent" is stripped and sent as SUPPRESS_NOTIFICATIONS.
     const bool suppress_notifications = message_silent_prefix(content, &content) || silent;
     if (suppress_notifications && !content.bytes && !attachments.count && !sticker_ids.count)
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     if (overlaps_bank(controller, content.data, content.bytes))
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     if (!request) {
-        return controller_error(controller, MessageComposerControllerError::request_capacity);
+        return controller_error(MessageComposerControllerError::request_capacity);
     }
     const u32 payload_bytes = content.bytes + attachment_bytes;
     const u32 storage_bytes = payload_bytes ? payload_bytes : 1;
     if (!reserve_request_text(controller, storage_bytes))
-        return controller_error(controller, MessageComposerControllerError::text_capacity);
+        return controller_error(MessageComposerControllerError::text_capacity);
     const Utf8View display_content = !content.bytes && sticker_ids.count ? kStickerPlaceholder : content;
     if (!active_source && !detached && reply_message_id) {
         const auto saved = save_active_draft(controller);
@@ -421,7 +419,7 @@ MessageComposerControllerResult queue_send(
         &controller->sends, controller->timeline, composer->channel_id, author_id, display_content,
         now_unix_ms, now_monotonic_ms, attachments.count != 0);
     if (!begun.ok()) {
-        return controller_error(controller, tracker_error(begun.error));
+        return controller_error(tracker_error(begun.error));
     }
     // Best effort: the send is committed; an unquoted preview only loses its header early.
     if (reply_message_id)
@@ -494,7 +492,7 @@ MessageComposerControllerResult message_composer_controller_queue_text(
     MessageComposerController* controller, MessageComposer* source, u64 author_id, u64 now_unix_ms,
     u64 now_monotonic_ms, u64 reply_message_id, bool mention_reply_author, bool silent, bool suppress_embeds) noexcept {
     if (controller && source == controller->composer)
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     return queue_send(controller, true, author_id, now_unix_ms, now_monotonic_ms, reply_message_id, {}, {}, source,
                       {}, reply_message_id != 0 && mention_reply_author, nullptr, true, silent, suppress_embeds);
 }
@@ -595,22 +593,22 @@ MessageComposerControllerResult message_composer_controller_queue_forward(
     if (!controller_valid(controller) || !destination_channel_id || !author_id || !now_unix_ms ||
         !now_monotonic_ms || !message_forward_reference_valid(source) ||
         (!caption.data && caption.bytes) || caption.bytes > kMessageComposerMaximumBytes)
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     const auto validation = utf8_validate(caption);
     if (!validation.valid || validation.codepoints > kMessageComposerDefaultMaximumCodepoints)
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     // Compaction must not invalidate a caption borrowed from an older submit.
     if (overlaps_bank(controller, caption.data, caption.bytes))
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     auto* request = empty_request(controller);
-    if (!request) return controller_error(controller, MessageComposerControllerError::request_capacity);
+    if (!request) return controller_error(MessageComposerControllerError::request_capacity);
     const u32 storage_bytes = caption.bytes ? caption.bytes : 1;
     if (!reserve_request_text(controller, storage_bytes))
-        return controller_error(controller, MessageComposerControllerError::text_capacity);
+        return controller_error(MessageComposerControllerError::text_capacity);
     const auto begun = message_send_tracker_begin(&controller->sends, controller->timeline,
         destination_channel_id, author_id, caption.bytes ? caption : kForwardPlaceholder,
         now_unix_ms, now_monotonic_ms, false, {}, false);
-    if (!begun.ok()) return controller_error(controller, tracker_error(begun.error));
+    if (!begun.ok()) return controller_error(tracker_error(begun.error));
     if (!++controller->request_sequence) ++controller->request_sequence;
     reset_value(request);
     request->nonce = begun.nonce;
@@ -634,15 +632,15 @@ MessageComposerControllerResult message_composer_controller_queue_forward(
 MessageComposerControllerResult message_composer_controller_cancel_unsent(
     MessageComposerController* controller, u64 nonce) noexcept {
     if (!controller_valid(controller) || !nonce)
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     auto* request = find_request(controller, nonce);
     if (!request || (request->phase != MessageComposerRequestPhase::queued &&
         request->phase != MessageComposerRequestPhase::retry_wait))
-        return controller_error(controller, MessageComposerControllerError::not_found);
+        return controller_error(MessageComposerControllerError::not_found);
     if (controller->inflight_nonce == nonce)
-        return controller_error(controller, MessageComposerControllerError::busy);
+        return controller_error(MessageComposerControllerError::busy);
     const auto cancelled = message_send_tracker_cancel_unsent(&controller->sends, controller->timeline, nonce);
-    if (!cancelled.ok()) return controller_error(controller, tracker_error(cancelled.error));
+    if (!cancelled.ok()) return controller_error(tracker_error(cancelled.error));
     erase_request(controller, request);
     return {cancelled.invalidation, nonce, MessageComposerControllerError::none, true};
 }
@@ -662,7 +660,7 @@ MessageComposerControllerResult message_composer_controller_prepare_submit(
     };
     clear_submit();
     if (!controller_valid(controller) || now_monotonic_ms == 0) {
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     }
     if (controller->inflight_nonce != 0) {
         return MessageComposerControllerResult{
@@ -690,7 +688,7 @@ MessageComposerControllerResult message_composer_controller_prepare_submit(
     if (selected->text_offset > controller->request_text_used ||
         request_storage_bytes(*selected) > controller->request_text_used - selected->text_offset ||
         selected->sticker_count > kMessageCreateMaximumStickerCount) {
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     }
     submit->content = {reinterpret_cast<const char*>(controller->request_text + selected->text_offset), selected->text_bytes};
     submit->nonce = selected->nonce;
@@ -707,7 +705,7 @@ MessageComposerControllerResult message_composer_controller_prepare_submit(
         {controller->request_text + selected->text_offset + selected->text_bytes, selected->attachment_bytes},
         {submit->attachments, kAttachmentUploadMaximumCount}, &submit->attachment_count)) {
         clear_submit();
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     }
     return MessageComposerControllerResult{
         {}, selected->nonce, MessageComposerControllerError::none, false};
@@ -716,18 +714,18 @@ MessageComposerControllerResult message_composer_controller_prepare_submit(
 MessageComposerControllerResult message_composer_controller_mark_submitted(
     MessageComposerController* controller, u64 nonce) noexcept {
     if (!controller_valid(controller) || nonce == 0) {
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     }
     if (controller->inflight_nonce != 0) {
-        return controller_error(controller, MessageComposerControllerError::busy);
+        return controller_error(MessageComposerControllerError::busy);
     }
     MessageComposerRequest* const request = find_request(controller, nonce);
     if (!request || (request->phase != MessageComposerRequestPhase::queued &&
                      request->phase != MessageComposerRequestPhase::retry_wait)) {
-        return controller_error(controller, MessageComposerControllerError::not_found);
+        return controller_error(MessageComposerControllerError::not_found);
     }
     if (request->reply_unavailable)
-        return controller_error(controller, MessageComposerControllerError::reply_unavailable);
+        return controller_error(MessageComposerControllerError::reply_unavailable);
     request->phase = MessageComposerRequestPhase::submitting;
     request->retry_at_ms = 0;
     controller->inflight_nonce = nonce;
@@ -737,7 +735,7 @@ MessageComposerControllerResult message_composer_controller_mark_submitted(
 MessageComposerControllerResult message_composer_controller_submit_failed(
     MessageComposerController* controller, u64 nonce, u64 now_monotonic_ms) noexcept {
     if (!controller_valid(controller) || nonce == 0 || now_monotonic_ms == 0) {
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     }
     MessageComposerRequest* const request = find_request(controller, nonce);
     if (controller->inflight_nonce == nonce && delivery_completed(*controller, request, nonce)) {
@@ -745,13 +743,13 @@ MessageComposerControllerResult message_composer_controller_submit_failed(
         return MessageComposerControllerResult{{}, nonce, MessageComposerControllerError::none, false};
     }
     if (!request) {
-        return controller_error(controller, MessageComposerControllerError::not_found);
+        return controller_error(MessageComposerControllerError::not_found);
     }
     const MessageSendObserveResult observed =
         message_send_tracker_observe_http(&controller->sends, controller->timeline, nonce, 0,
                                           MessageSendHttpDisposition::terminal_failure, now_monotonic_ms);
     if (!observed.ok()) {
-        return controller_error(controller, tracker_error(observed.error));
+        return controller_error(tracker_error(observed.error));
     }
     request->phase = MessageComposerRequestPhase::failed;
     request->http_status = 0;
@@ -767,7 +765,7 @@ MessageComposerControllerResult message_composer_controller_observe_http(
     MessageComposerController* controller, u16 http_status, MessageSendHttpDisposition disposition,
     u64 now_monotonic_ms, u64 retry_at_ms) noexcept {
     if (!controller_valid(controller) || controller->inflight_nonce == 0 || now_monotonic_ms == 0) {
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     }
     const u64 nonce = controller->inflight_nonce;
     MessageComposerRequest* const request = find_request(controller, nonce);
@@ -780,13 +778,13 @@ MessageComposerControllerResult message_composer_controller_observe_http(
     }
     if (request->phase != MessageComposerRequestPhase::submitting &&
         request->phase != MessageComposerRequestPhase::failed) {
-        return controller_error(controller, MessageComposerControllerError::not_found);
+        return controller_error(MessageComposerControllerError::not_found);
     }
     const MessageSendObserveResult observed =
         message_send_tracker_observe_http(&controller->sends, controller->timeline, nonce, http_status,
                                           disposition, now_monotonic_ms, retry_at_ms);
     if (!observed.ok()) {
-        return controller_error(controller, tracker_error(observed.error));
+        return controller_error(tracker_error(observed.error));
     }
     request->http_status = http_status;
     controller->inflight_nonce = 0;
@@ -808,21 +806,21 @@ MessageComposerControllerResult message_composer_controller_retry(MessageCompose
                                                                   u64 nonce,
                                                                   u64 now_monotonic_ms) noexcept {
     if (!controller_valid(controller) || nonce == 0 || now_monotonic_ms == 0) {
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     }
     MessageComposerRequest* const request = find_request(controller, nonce);
     if (!request || request->phase != MessageComposerRequestPhase::failed) {
-        return controller_error(controller, MessageComposerControllerError::not_found);
+        return controller_error(MessageComposerControllerError::not_found);
     }
     if (controller->inflight_nonce == nonce) {
-        return controller_error(controller, MessageComposerControllerError::busy);
+        return controller_error(MessageComposerControllerError::busy);
     }
     if (request->reply_unavailable)
-        return controller_error(controller, MessageComposerControllerError::reply_unavailable);
+        return controller_error(MessageComposerControllerError::reply_unavailable);
     const MessageSendObserveResult retried =
         message_send_tracker_retry(&controller->sends, controller->timeline, nonce, now_monotonic_ms);
     if (!retried.ok()) {
-        return controller_error(controller, tracker_error(retried.error));
+        return controller_error(tracker_error(retried.error));
     }
     request->phase = MessageComposerRequestPhase::queued;
     request->http_status = 0;
@@ -834,17 +832,17 @@ MessageComposerControllerResult message_composer_controller_retry(MessageCompose
 MessageComposerControllerResult message_composer_controller_discard_failed(
     MessageComposerController* controller, u64 nonce) noexcept {
     if (!controller_valid(controller) || nonce == 0) {
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     }
     MessageComposerRequest* const request = find_request(controller, nonce);
     if (!request || request->phase != MessageComposerRequestPhase::failed ||
         controller->inflight_nonce == nonce) {
-        return controller_error(controller, MessageComposerControllerError::not_found);
+        return controller_error(MessageComposerControllerError::not_found);
     }
     const MessageSendObserveResult discarded =
         message_send_tracker_discard(&controller->sends, controller->timeline, nonce);
     if (!discarded.ok()) {
-        return controller_error(controller, tracker_error(discarded.error));
+        return controller_error(tracker_error(discarded.error));
     }
     erase_request(controller, request);
     return MessageComposerControllerResult{discarded.invalidation, nonce,
@@ -854,7 +852,7 @@ MessageComposerControllerResult message_composer_controller_discard_failed(
 MessageComposerControllerResult message_composer_controller_observe_response(MessageComposerController* controller,
     u64 nonce, const GatewayMessageEvent& message, u64 active_channel_id) noexcept {
     if (!controller_valid(controller) || !nonce)
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     auto* request = find_request(controller, nonce);
     const MessageSendAttempt* attempt = find_attempt(*controller, nonce);
     // Gateway completion, including a subsequent edit/delete, wins over an
@@ -867,16 +865,16 @@ MessageComposerControllerResult message_composer_controller_observe_response(Mes
         (message.nonce && message.nonce != nonce) ||
         !message_reconcile_validate_create(controller->timeline->store, message,
             MessageContentAvailability::available).ok())
-        return controller_error(controller, MessageComposerControllerError::invalid_input);
+        return controller_error(MessageComposerControllerError::invalid_input);
     MessageTimelineInvalidation invalidation{};
     if (active_channel_id == message.channel_id) {
         const auto applied = message_timeline_apply_created(controller->timeline, message);
-        if (!applied.ok()) return controller_error(controller, MessageComposerControllerError::tracker);
+        if (!applied.ok()) return controller_error(MessageComposerControllerError::tracker);
         invalidation = applied.invalidation;
     }
     const auto confirmed = message_send_tracker_confirm(&controller->sends, controller->timeline,
         nonce, message.channel_id, message.author_id, message.id, MessageSendConfirmationSource::response);
-    if (!confirmed.ok()) return controller_error(controller, tracker_error(confirmed.error));
+    if (!confirmed.ok()) return controller_error(tracker_error(confirmed.error));
     request->phase = MessageComposerRequestPhase::confirmed;
     request->retry_at_ms = 0;
     // The local removal and server-confirmed insertion can change different

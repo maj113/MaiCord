@@ -71,7 +71,6 @@ Utf8View tab_label(u32 tab) noexcept;
 Utf8View url_hostname(Utf8View url) noexcept;
 MessageMediaObscure item_obscure(const UiSearchScene& s, const UiSearchItem& item) noexcept;
 UiSearchLayout layout_for(const UiSearchSource* source, const UiSearchContent& content) noexcept;
-MessageResultCardHeaderLayout plain_header(const UiRect& card, const UiSearchRow& row) noexcept;
 bool tiled(const UiSearchScene& s) noexcept;
 UiRect tile_cover(const UiSearchScene& s, const UiSearchItem& item, const UiRect& tile) noexcept;
 UiSearchTarget item_target(const UiSearchScene& s, const UiSearchItem& item, bool primary) noexcept;

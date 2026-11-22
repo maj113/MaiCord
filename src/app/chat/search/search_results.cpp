@@ -352,20 +352,16 @@ bool resolve(void* context, u32 index, UiSearchRow* out) noexcept {
                     ? utf8_literal("Checking access to this message…")
                     : utf8_literal("You no longer have access to this message."),
                 {},
-                item.hit,
-                false};
+                item.hit};
         out->unavailable = true;
         out->access_check = access_check;
         return true;
     }
-    bool first = false;
     u32 group = 0;
-    for (u32 i = 0; i < s.bank->page.group_count; ++i) {
-        first |= s.bank->groups[i].first_message == index;
+    for (u32 i = 0; i < s.bank->page.group_count; ++i)
         if (index >= s.bank->groups[i].first_message)
             group = i;
-    }
-    auto body = item.card_excerpt.bytes ? item.card_excerpt : item.message.content;
+    auto body = item.message.content;
     body.bytes = utf8_truncated_length(body, 1024);
     *out = {item.message.channel_id,
             item.message.id,
@@ -376,38 +372,8 @@ bool resolve(void* context, u32 index, UiSearchRow* out) noexcept {
             body.bytes ? body : utf8_literal("Message has no text"),
             {s.bank->details[index], s.bank->detail_bytes[index]},
             item.hit,
-            first,
-            s.bank->body_heights[index],
             item.message.author_id,
             {s.bank->avatars[index], s.bank->avatar_bytes[index]}};
-    return true;
-}
-bool measure_rows(ApplicationSearch& s) noexcept {
-    if (!s.bank || s.source.rich_timeline || !s.panel || !ui_rect_has_area(s.scene.body))
-        return false;
-    auto system = renderer_text_system(&g_app.renderer, UiTextFace::normal);
-    if (!system.native_text || !system.native_format)
-        return false;
-    auto& bank = *s.bank;
-    const float width = ui_search_body_text_width(s.scene);
-    if (bank.measured_width == width && bank.measured_em == system.em_size &&
-        bank.measured_tracking == system.tracking && bank.measured_native_text == system.native_text &&
-        bank.measured_native_format == system.native_format && bank.measured_dpi == g_app.renderer.dpi)
-        return false;
-    for (u32 i = 0; i < bank.page.message_count; ++i) {
-        UiSearchRow row{};
-        if (!resolve(&s, i, &row))
-            return false;
-        const auto measured = text_measure_utf8(&system, {row.body, {}, width, 464.f});
-        bank.body_heights[i] = measured.ok() ? maximum(24.f, minimum(464.f, measured.height + 2.f)) : 48.f;
-    }
-    bank.measured_width = width;
-    bank.measured_em = system.em_size;
-    bank.measured_tracking = system.tracking;
-    bank.measured_native_text = system.native_text;
-    bank.measured_native_format = system.native_format;
-    bank.measured_dpi = g_app.renderer.dpi;
-    ++s.source.revision;
     return true;
 }
 void cancel_submitted(ApplicationSearch& s) noexcept {

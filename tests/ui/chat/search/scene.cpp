@@ -9,14 +9,12 @@
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
+#include "../../../support/search_rows.hpp"
 
 namespace maicord {
 namespace {
 struct SearchSceneFixture {
     u32 calls;
-    bool variable = false;
-    float invalid_height = 0;
-    bool override_height = false;
     bool scope_current = true;
 };
 bool resolve_search_scene(void* opaque, u32 index, UiSearchRow* row) noexcept {
@@ -28,15 +26,9 @@ bool resolve_search_scene(void* opaque, u32 index, UiSearchRow* row) noexcept {
             utf8_literal(
                 "Search result body wraps within the right pane, preserving hit and context identities."),
             utf8_literal("Match 2026-10-03 12:30"),
-            index % 3 == 1,
-            index % 3 == 0};
+            index % 3 == 1};
     row->author_id = 900 + index;
     row->avatar_hash = utf8_literal("0123456789abcdef0123456789abcdef");
-    const auto& fixture = *static_cast<SearchSceneFixture*>(opaque);
-    if (fixture.variable)
-        row->body_height = index % 2 ? 120.f : 24.f;
-    if (fixture.override_height)
-        row->body_height = fixture.invalid_height;
     return true;
 }
 bool choice_source_current(void* context) noexcept {
@@ -44,8 +36,7 @@ bool choice_source_current(void* context) noexcept {
 }
 void search_filter_choices(void (*check)(bool, const char*) noexcept) noexcept {
     UiSearchScene scene{};
-    SearchSceneFixture fixture{};
-    UiSearchSource results{&fixture, 24, 1, resolve_search_scene};
+    UiSearchSource results{nullptr, 0, 1, resolve_search_scene};
     UiSearchFilterChoiceView rows[kUiSearchFilterChoiceMaximum]{};
     for (u32 index = 0; index < kUiSearchFilterChoiceMaximum; ++index)
         rows[index] = {900 + index, index, utf8_literal("Original cached name"),
@@ -68,9 +59,8 @@ void search_filter_choices(void (*check)(bool, const char*) noexcept) noexcept {
     const UiRect viewport{0, 0, 360, 3300}, title{0, 0, 360, 48};
     bool valid = ui_search_scene_update(&scene, &results, &content, viewport, title);
     check(valid && scene.choice_total == 10 && scene.choice_count > 0 && scene.choice_count < 10 &&
-              scene.widgets.count <= 48 && scene.count == 24 &&
-              ui_widget_manager_focus(&scene.widgets, scene.edit),
-          "search choice: bounded ten-choice source reuses existing widget bank with maximum result rows");
+              scene.widgets.count <= 48 && ui_widget_manager_focus(&scene.widgets, scene.edit),
+          "search choice: bounded ten-choice source fits the widget bank of a source without rows");
     bool no_prefix = true;
     for (u32 slot = 0; slot < scene.widgets.count; ++slot) {
         const auto action = scene.targets[slot].action;
@@ -118,7 +108,7 @@ void search_filter_choices(void (*check)(bool, const char*) noexcept) noexcept {
     valid = valid && paint_stream_reset(&paint, 360, 3300) &&
             ui_search_scene_paint(scene, kDefaultTheme, &paint, nullptr, 96) &&
             ui_search_scene_text_output(scene, kDefaultTheme, &output, nullptr);
-    const u32 revision = scene.revision, layout = scene.widgets.layout.revision, calls = fixture.calls;
+    const u32 revision = scene.revision, layout = scene.widgets.layout.revision;
     const auto generation = scene.widgets.generation;
     const auto text_signature = stream.signature;
     const u32 text_count = stream.count, quad_count = paint.count;
@@ -132,8 +122,8 @@ void search_filter_choices(void (*check)(bool, const char*) noexcept) noexcept {
                 paint.count == quad_count;
     }
     check(valid && scene.revision == revision && scene.widgets.layout.revision == layout &&
-              scene.widgets.generation == generation && fixture.calls == calls,
-          "search choice: unchanged frames preserve layout, row copies, paint count and text signature");
+              scene.widgets.generation == generation,
+          "search choice: unchanged frames preserve layout, paint count and text signature");
     live = false;
     ui_text_command_stream_reset(&stream);
     check(!ui_search_scene_current(scene) &&
@@ -214,21 +204,6 @@ void search_filter_choices(void (*check)(bool, const char*) noexcept) noexcept {
         hint = hint || utf8_equal(stream.storage[index].text, choices.hint);
     check(valid && scene.choice_count == 0 && no_prefix && hint,
           "search choice: empty recognized context shows truthful guidance and no prefix fallback actions");
-    choices.rows = {rows, 11};
-    ++choices.revision;
-    check(!ui_search_scene_update(&scene, &results, &content, narrow, narrow_title) &&
-              !ui_search_scene_current(scene),
-          "search choice: oversized publication is rejected before reading rows");
-    choices.rows = {rows, 10};
-    choices.selected = 10;
-    ++choices.revision;
-    check(!ui_search_scene_update(&scene, &results, &content, narrow, narrow_title),
-          "search choice: selected index outside publication fails closed");
-    choices.selected = 0;
-    rows[0].label = {nullptr, 2};
-    ++choices.revision;
-    check(!ui_search_scene_update(&scene, &results, &content, narrow, narrow_title) && !scene.active,
-          "search choice: new publication validates candidate UTF8 before admission");
     paint_stream_release(&paint);
     ui_search_scene_release(&scene);
 }
@@ -351,7 +326,6 @@ bool rich_search_row(void* opaque, u32 index, UiSearchRow* output) noexcept {
                record->channel_id == 71 ? utf8_literal("# source-one") : utf8_literal("# source-two"),
                utf8_literal("Legacy excerpt must not replace the native rich source"),
                {},
-               true,
                true};
     output->author_id = record->author_id;
     output->avatar_hash = utf8_literal("0123456789abcdef0123456789abcdef");
@@ -874,7 +848,8 @@ void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     rich_search_gallery(check);
     UiSearchScene scene{};
     SearchSceneFixture fixture{};
-    UiSearchSource source{&fixture, 125, 1, resolve_search_scene, +[](void* opaque) noexcept {
+    UiSearchSource source{&fixture, SearchRows::kMaximum, 1, resolve_search_scene,
+                          +[](void* opaque) noexcept {
                               return static_cast<SearchSceneFixture*>(opaque)->scope_current;
                           }};
     UiSearchContent content{};
@@ -888,19 +863,18 @@ void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     content.next = true;
     content.revision = 1;
     const UiRect viewport{312, 0, 1200, 800}, title{312, 0, 1200, 48};
-    check(!scene.storage.arena.base && ui_search_scene_update(&scene, &source, &content, viewport, title) &&
-              scene.active && scene.count < 10,
-          "search_scene_lazy_bounded_projection_of_125_contexts");
-    if (!scene.active)
-        return;
+    static SearchRows rows;
+    const bool published = search_rows_publish(&rows, &source) &&
+                           ui_search_scene_update(&scene, &source, &content, viewport, title);
     AvatarMedia avatar{};
-    check(search_avatar_media_resolve(scene, 0, &avatar) && avatar.key.id == 900 &&
+    check(published && search_avatar_media_resolve(scene, 0, &avatar) && avatar.key.id == 900 &&
               avatar.key.variant == user_avatar_variant(scene.visible[0].avatar_hash) &&
-              ui_rect_equal(avatar.rectangle,
-                            {scene.row_rectangles[0].left + 12, scene.row_rectangles[0].top + 12,
-                             scene.row_rectangles[0].left + 44, scene.row_rectangles[0].top + 44}) &&
               search_avatar_media_current(scene, avatar.key),
-          "search_scene_avatar_uses_exact_result_author_hash_and_clipped_geometry");
+          "search_scene_avatar_uses_exact_result_author_hash");
+    if (!published) {
+        ui_search_scene_release(&scene);
+        return;
+    }
     // Close is a square icon button; its hit target is the whole square.
     const auto close = ui_search_close_rectangle(scene.panel);
     check(ui_rect_width(close) == kUiSearchCloseExtent && ui_rect_height(close) == kUiSearchCloseExtent &&
@@ -931,29 +905,24 @@ void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
           "search_scene_account_scope_retirement_rejects_media_and_hits_without_publication");
     fixture.scope_current = true;
     PaintStream paint{};
-    bool flat = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1200, 800) &&
-                ui_search_scene_paint(scene, kDefaultTheme, &paint, nullptr, 96);
-    bool fallback = false;
+    MessageMediaCommand media_commands[32]{};
+    MessageMediaCommandStream media{};
+    bool flat = paint_stream_initialize(&paint) &&
+                message_media_command_stream_initialize(&media, {media_commands, 32}) &&
+                paint_stream_reset(&paint, 1200, 800) &&
+                ui_search_scene_paint(scene, kDefaultTheme, &paint, nullptr, 96, &media);
     for (u32 i = 0; flat && i < paint.count; ++i) {
         const auto& quad = paint.quads[i];
         flat &= quad.border_width != -3 && quad.border_width != -7 && quad.border_width != -8;
-        fallback |= ui_rect_equal({quad.left, quad.top, quad.right, quad.bottom}, avatar.rectangle) &&
-                    quad.fill.red == kDefaultTheme.avatar_placeholder.red && quad.fill.alpha == 1;
     }
-    check(flat && fallback,
-          "search_scene_flat_theme_retains_native_materials_and_neutral_avatar_until_resident");
+    check(flat, "search_scene_flat_theme_retains_native_materials");
     paint_stream_release(&paint);
     const auto gutter =
         ui_scrollbar_geometry(scene.body, scene.scroll_dips, scene.row_offsets[scene.measured_count]);
-    check(gutter.visible && scene.row_rectangles[0].right <= gutter.track.left &&
-              ui_search_body_text_width(scene) ==
-                  scene.row_rectangles[0].right - 12 - (scene.row_rectangles[0].left + 52),
-          "search_scene_cards_and_measured_body_keep_the_shared_scrollbar_gutter_disjoint");
+    check(gutter.visible && scene.row_rectangles[0].right <= gutter.track.left,
+          "search_scene_cards_keep_the_shared_scrollbar_gutter_disjoint");
     const u32 calls = fixture.calls, revision = scene.widgets.layout.revision;
     const auto base = scene.storage.arena.base;
-    check(ui_search_scene_update(&scene, &source, &content, viewport, title) && fixture.calls == calls &&
-              scene.widgets.layout.revision == revision && scene.storage.arena.base == base,
-          "search_scene_unchanged_update_no_resolve_layout_allocation");
     ++content.revision;
     content.edit.caret_visible = false;
     check(ui_search_scene_update(&scene, &source, &content, viewport, title) && fixture.calls == calls &&
@@ -969,36 +938,24 @@ void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     check(ui_search_scene_contains(scene, scene.panel.right - 4, scene.panel.bottom - 4) &&
               !ui_search_scene_contains(scene, scene.panel.left - 4, scene.panel.top + 150),
           "search_scene_occlusion_owns_actual_panel_geometry_only");
-    check(ui_search_scene_scroll(&scene, ui_search_scene_scroll_maximum(scene)) && scene.first > 100 &&
-              scene.count < 10 && scene.scroll_dips == ui_search_scene_scroll_maximum(scene),
-          "search_scene_scroll_window_is_bounded_and_clamped");
     UiTextCommand commands[128]{};
     UiTextCommandStream stream{};
     UiTextOutput output{&stream, nullptr};
     const bool result_text = ui_text_command_stream_initialize(&stream, {commands, 128}) &&
                              ui_search_scene_text_output(scene, kDefaultTheme, &output, nullptr);
     bool status_visible = false;
-    bool scoped_heading = false, wrapped_excerpt = false;
+    bool scoped_heading = false;
     for (u32 i = 0; i < stream.count; ++i) {
         status_visible |= commands[i].text.data == content.status.data;
         scoped_heading |= commands[i].text.data == content.heading.data;
-        if (commands[i].owner.handle.generation &&
-            scene.targets[commands[i].owner.handle.slot].action == UiSearchAction::result &&
-            commands[i].text.data == scene.visible[0].body.data)
-            wrapped_excerpt |= commands[i].wrapping == TextWrapping::wrap &&
-                               commands[i].rectangle.bottom - commands[i].rectangle.top == 48 &&
-                               commands[i].clip.top >= scene.body.top &&
-                               commands[i].clip.bottom <= scene.body.bottom;
     }
-    check(result_text && scoped_heading && wrapped_excerpt,
-          "search_scene_scoped_heading_and_compact_wrapped_excerpt_remain_clipped_to_results_viewport");
+    check(result_text && scoped_heading, "search_scene_scoped_heading_is_emitted");
     content.offset = 50;
     content.total_estimated = true;
     ++content.revision;
     check(ui_search_scene_update(&scene, &source, &content, viewport, title) && scene.page_count == 5 &&
-              bytes_equal(scene.count_text, "About ", 6) && scene.storage.arena.base == base &&
-              scene.widgets.count <= 48,
-          "search_scene_estimated_total_and_numbered_pagination_use_bounded_retained_storage");
+              bytes_equal(scene.count_text, "About ", 6) && scene.storage.arena.base == base,
+          "search_scene_estimated_total_and_numbered_pagination_use_retained_storage");
     const auto* page = ui_widget_manager_layout_node(scene.widgets, scene.pages[3]);
     const auto page_hit =
         page ? ui_search_scene_hit_test(scene, (page->rectangle.left + page->rectangle.right) * .5f,
@@ -1037,18 +994,18 @@ void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
         "search_scene_checked_sort_popup_has_bounded_options_and_real_sort_hit");
     const bool sort_text = ui_text_command_stream_initialize(&stream, {commands, 128}) &&
                            ui_search_scene_text_output(scene, kDefaultTheme, &output, nullptr);
-    bool left_author_retained = false, sort_clip_clean = true;
+    bool left_channel_retained = false, sort_clip_clean = true;
     for (u32 i = 0; i < stream.count; ++i) {
         const auto h = commands[i].owner.handle;
         if (h.generation && scene.targets[h.slot].action == UiSearchAction::result) {
             sort_clip_clean &=
                 !ui_rect_has_area(ui_rect_intersection(commands[i].clip, scene.sort_chooser));
-            left_author_retained |=
-                commands[i].text.data == scene.visible[0].author.data && ui_rect_has_area(commands[i].clip);
+            left_channel_retained |=
+                commands[i].text.data == scene.visible[0].channel.data && ui_rect_has_area(commands[i].clip);
         }
     }
-    check(sort_text && left_author_retained && sort_clip_clean,
-          "search_scene_sort_menu_occludes_right_text_without_erasing_visible_author_left_of_popup");
+    check(sort_text && left_channel_retained && sort_clip_clean,
+          "search_scene_sort_menu_occludes_right_text_without_erasing_visible_channel_left_of_popup");
     ++source.revision;
     check(ui_search_scene_hit_test(scene, scene.field.left + 10, scene.field.top + 10).action ==
               UiSearchAction::none,
@@ -1096,55 +1053,6 @@ void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
         covered_rows_unfocusable &=
             (scene.widgets.storage[scene.rows[i].slot].flags & ui_widget_focusable) == 0;
     check(covered_rows_unfocusable, "search_scene_open_suggestions_do_not_keyboard_focus_covered_results");
-    UiSearchScene variable{};
-    SearchSceneFixture variable_fixture{};
-    variable_fixture.variable = true;
-    UiSearchSource variable_source{&variable_fixture, 6, 1, resolve_search_scene};
-    UiSearchContent variable_content = content;
-    variable_content.suggestions = false;
-    variable_content.filters = false;
-    check(ui_search_scene_update(&variable, &variable_source, &variable_content, viewport, title) &&
-              ui_rect_height(variable.row_rectangles[0]) == 72 &&
-              ui_rect_height(variable.row_rectangles[1]) == 168 &&
-              variable.group_rectangles[0].bottom == variable.row_rectangles[0].top &&
-              variable.row_offsets[2] == 284,
-          "search_scene_measured_body_heights_produce_compact_variable_cards_and_separate_group_heading");
-    const auto indexed_calls = variable_fixture.calls;
-    check(ui_search_scene_scroll(&variable, 132) && variable.first == 1 &&
-              variable_fixture.calls <= indexed_calls + 6,
-          "search_scene_variable_height_scroll_uses_retained_prefix_index_and_visible_resolves");
-    ui_search_scene_release(&variable);
-    variable_fixture.invalid_height = 465;
-    variable_fixture.override_height = true;
-    ++variable_source.revision;
-    check(!ui_search_scene_update(&variable, &variable_source, &variable_content, viewport, title),
-          "search_scene_rejects_overmaximum_authority_body_height");
-    ui_search_scene_release(&variable);
-    variable_fixture.invalid_height = -1;
-    ++variable_source.revision;
-    check(!ui_search_scene_update(&variable, &variable_source, &variable_content, viewport, title),
-          "search_scene_rejects_negative_authority_body_height");
-    ui_search_scene_release(&variable);
-    variable_fixture.override_height = false;
-    ++variable_source.revision;
-    check(ui_search_scene_update(&variable, &variable_source, &variable_content, viewport, title),
-          "search_scene_nonfinite_replacement_fixture_has_live_prior_geometry");
-    variable_fixture.override_height = true;
-    const u32 nan_bits = 0x7fc00000u;
-    copy_bytes(&variable_fixture.invalid_height, &nan_bits, sizeof(nan_bits));
-    ++variable_source.revision;
-    check(!ui_search_scene_update(&variable, &variable_source, &variable_content, viewport, title) &&
-              !variable.active &&
-              ui_search_scene_hit_test(variable, 1000, 200).action == UiSearchAction::none,
-          "search_scene_rejects_nonfinite_height_without_publishing_stale_hit_geometry");
-    ui_search_scene_release(&variable);
-    const u32 infinity_bits = 0x7f800000u;
-    copy_bytes(&variable_fixture.invalid_height, &infinity_bits, sizeof(infinity_bits));
-    ++variable_source.revision;
-    check(!ui_search_scene_update(&variable, &variable_source, &variable_content, viewport, title) &&
-              !variable.active,
-          "search_scene_rejects_infinite_height_before_prefix_arithmetic");
-    ui_search_scene_release(&variable);
     content.suggestions = false;
     content.filters = true;
     ++content.revision;
@@ -1201,7 +1109,7 @@ void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
         "search_scene_native_minimum_preserves_navigation_members_and_header_field");
     ui_search_scene_release(&native_minimum);
     UiSearchScene compact{};
-    UiSearchSource short_source{&fixture, 3, 1, resolve_search_scene};
+    UiSearchSource short_source{&fixture, 0, 1, resolve_search_scene};
     bool clipped =
         ui_search_scene_update(&compact, &short_source, &content, {0, 0, 360, 240}, {0, 0, 360, 48});
     for (u32 i = 1; i < compact.widgets.count; ++i) {

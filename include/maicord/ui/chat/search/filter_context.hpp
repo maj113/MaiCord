@@ -27,7 +27,7 @@ struct UiSearchFilterContext {
     u16 value_bytes, prefix_bytes;
     u16 other_value_count;
     UiSearchFilterKind kind;
-    bool quoted, quote_complete, has_value;
+    bool has_value;
     Utf8View value() const noexcept {
         return {decoded, value_bytes};
     }

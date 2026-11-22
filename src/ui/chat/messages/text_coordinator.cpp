@@ -1,5 +1,4 @@
 #include "maicord/ui/chat/messages/text_coordinator.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -96,16 +95,12 @@ MessageTextCoordinatorResult message_text_coordinator_converge(
             scene.count == previous_count;
         if (request.trace) {
             MessageTextCoordinatorPass& trace_pass = request.trace->passes[pass];
-            reset_value<MessageTextCoordinatorPass>(&trace_pass);
             trace_pass.scroll_units = scroll_units;
             trace_pass.total_units = total_units;
             trace_pass.first = scene.first;
             trace_pass.count = scene.count;
             trace_pass.command_count = request.presentation->command_count;
             trace_pass.measurement_count = request.presentation->measurement_count;
-            for (u32 index = 0; list && index < 4 && index < list->count; ++index) {
-                trace_pass.leading_item_units[index] = ui_variable_list_item_units(*list, index);
-            }
             trace_pass.flags =
                 static_cast<u8>((scene.changed ? message_text_coordinator_scene_changed : 0u) |
                                 (command_changed ? message_text_coordinator_command_changed : 0u) |

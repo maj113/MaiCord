@@ -85,38 +85,6 @@ Utf8View question(const UiPollState& state, const UiPollStyle& style) noexcept {
 Utf8View answer_text(const UiPollAnswer& answer, const UiPollStyle& style) noexcept {
     return answer.text.bytes ? answer.text : style.answer_fallback;
 }
-u64 content_signature(const UiPollState& state, const UiPollStyle& style) noexcept {
-    u64 hash = hash64_counted_bytes(kHash64Seed, state.question.data, state.question.bytes);
-    hash = hash64_mix(hash, state.answers.count);
-    hash = hash64_mix(hash, state.multiselect);
-    for (u32 i = 0; i < state.answers.count; ++i) {
-        const auto& answer = state.answers[i];
-        hash = hash64_mix(hash, answer.id);
-        hash = hash64_counted_bytes(hash, answer.text.data, answer.text.bytes);
-        hash = hash64_counted_bytes(hash, answer.emoji_name.data, answer.emoji_name.bytes);
-        hash = hash64_mix(hash, answer.emoji_id);
-    }
-    hash = hash64_bytes(hash, &style.padding, 13 * sizeof(float));
-    const Utf8View labels[]{style.question_fallback,
-                            style.answer_fallback,
-                            style.vote,
-                            style.remove_vote,
-                            style.view_results,
-                            style.back,
-                            style.retry,
-                            style.single,
-                            style.multi,
-                            style.closed,
-                            style.unavailable,
-                            style.loading,
-                            style.failed,
-                            style.unknown_results};
-    for (auto label : labels)
-        hash = hash64_counted_bytes(hash, label.data, label.bytes);
-    static_assert(__builtin_offsetof(UiPollStyle, button_style) ==
-                  __builtin_offsetof(UiPollStyle, question_style) + 5 * sizeof(u32));
-    return hash64_bytes(hash, &style.question_style, 6 * sizeof(u32));
-}
 bool measure(const UiPollState& state, const Utf8View& text, u16 item, u32 flags, float width, bool no_wrap,
              UiTextMeasureCache* cache, u16 backend, UiTextMeasureValue* value) noexcept {
     if (!positive(width))
@@ -255,8 +223,6 @@ bool ui_poll_measure_layout(const UiPollState& state, float width, const UiPollS
         return false;
     UiPollLayout layout{};
     layout.width = width;
-    layout.content_revision = state.content_revision;
-    layout.content_signature = content_signature(state, style);
     auto& geometry = layout.geometry;
     const float left = style.padding, right = width - style.padding;
     // Answer rows: vertical padding is half the inline padding; item_gap
@@ -408,14 +374,9 @@ bool ui_poll_measure_layout(const UiPollState& state, float width, const UiPollS
 }
 
 namespace {
-// Projects a layout that ui_poll_measure_layout made from this state and style.
+// Projects a layout that ui_poll_measure_layout made from this state and style at a valid origin.
 bool project_measured(const UiPollState& state, UiPoint origin, const UiPollLayout& layout,
                       const UiPollStyle& style, const Theme& theme, UiPollProjection* out) noexcept {
-    if (!ui_coordinate_valid(origin.x) || !ui_coordinate_valid(origin.y) || !positive(layout.height) ||
-        !positive(layout.width) || layout.width < style.minimum_width ||
-        layout.width > style.maximum_width ||
-        !ui_rect_equal(layout.geometry.bounds, {0, 0, layout.width, layout.height}))
-        return false;
     UiPollProjection projection{};
     projection.state = state;
     copy_value(&projection.geometry, layout.geometry);
@@ -490,13 +451,6 @@ bool project_measured(const UiPollState& state, UiPoint origin, const UiPollLayo
 }
 } // namespace
 
-bool ui_poll_controls_project_layout(const UiPollState& state, UiPoint origin, const UiPollLayout& layout,
-                                     const UiPollStyle& style, const Theme& theme,
-                                     UiPollProjection* out) noexcept {
-    return state_valid(state) && layout.content_revision == state.content_revision &&
-           layout.content_signature == content_signature(state, style) &&
-           project_measured(state, origin, layout, style, theme, out);
-}
 bool ui_poll_controls_project(const UiPollState& state, const UiRect& bounds, const UiPollStyle& style,
                               const Theme& theme, UiTextMeasureCache* cache, u16 backend,
                               UiPollProjection* out) noexcept {

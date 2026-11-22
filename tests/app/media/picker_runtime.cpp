@@ -1317,7 +1317,7 @@ void run() noexcept {
     const auto common_panel = p.scene.panel;
     const auto submitted_before = account.submissions;
     check(query(utf8_literal("cloud")) && send_pending(117) && switch_tab(p, UiMediaPickerKind::emoji) &&
-              p.kind == UiMediaPickerKind::emoji && p.emoji.search == &p.edit && p.emoji.search_borrowed &&
+              p.kind == UiMediaPickerKind::emoji && p.emoji.search == &p.edit &&
               p.scene.content->available_tabs == 7 && !g_app.popup_scene.active &&
               ui_rect_equal(p.scene.panel, common_panel) && p.source.count > 100 && !p.wanted &&
               p.submitted_id == 117 && account.cancelled_id == 117 &&

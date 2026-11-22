@@ -143,7 +143,6 @@ struct MessageTextHit {
 
 struct MessageTextCopyProjectionResult {
     u32 bytes;
-    bool transformed;
     bool ok;
 };
 

@@ -116,16 +116,12 @@ struct UiPollProjection {
 };
 struct UiPollLayout {
     UiPollGeometry geometry;
-    u64 content_signature;
-    u32 content_revision;
     float width, height;
     // Footer action label widths, for state-dependent placement.
     float vote_width, remove_width, back_width, show_width, retry_width;
 };
 bool ui_poll_measure_layout(const UiPollState&, float width, const UiPollStyle&, UiTextMeasureCache*,
                             u16 backend_revision, UiPollLayout*) noexcept;
-bool ui_poll_controls_project_layout(const UiPollState&, UiPoint origin, const UiPollLayout&,
-                                     const UiPollStyle&, const Theme&, UiPollProjection*) noexcept;
 // Width is full card width. The returned bounds may be taller than the supplied
 // bounds: callers use its measured height in their normal scroll layout.
 // Failure is atomic. Generated labels never keep pointers into this object.

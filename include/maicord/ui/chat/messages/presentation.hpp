@@ -49,7 +49,6 @@ static_assert(sizeof(MessageMediaCommand) == 80, "Keep media commands compact: t
 struct MessageMediaCommandStream {
     Slice<MessageMediaCommand> storage;
     u32 count;
-    u32 rejected;
 };
 
 // A playing embed can have a different aspect ratio from its poster. Fit its

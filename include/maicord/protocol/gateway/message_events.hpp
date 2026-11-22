@@ -36,9 +36,6 @@ GatewayEventDecodeResult gateway_decode_message_snapshot_core(const JsonIndexedD
                                                               Slice<char> content_scratch,
                                                               Slice<GatewayMessageNamedUser> mention_users,
                                                               GatewayMessageEvent* output) noexcept;
-GatewayEventDecodeResult gateway_extract_message_snapshot(const JsonIndexedDocument& document, JsonValue array,
-                                                          u32 maximum_depth, JsonValue* body,
-                                                          bool* present) noexcept;
 GatewayEventDecodeResult gateway_decode_message_create(const JsonIndexedDocument& document, JsonValue data,
                                                        u32 maximum_depth, Slice<char> content_scratch,
                                                        GatewayMessageEvent* output) noexcept;

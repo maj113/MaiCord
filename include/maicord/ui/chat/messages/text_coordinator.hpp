@@ -26,7 +26,6 @@ struct MessageTextCoordinatorPass {
     u32 count;
     u32 command_count;
     u32 measurement_count;
-    u32 leading_item_units[4];
     u8 flags;
 };
 
@@ -84,7 +83,7 @@ MessageTextCoordinatorResult message_text_coordinator_converge(
     const MessageTextCoordinatorRequest& request) noexcept;
 
 static_assert(sizeof(MessageTextCoordinatorResult) == 5);
-static_assert(sizeof(MessageTextCoordinatorPass) == 56);
-static_assert(sizeof(MessageTextCoordinatorTrace) == 456);
+static_assert(sizeof(MessageTextCoordinatorPass) == 40);
+static_assert(sizeof(MessageTextCoordinatorTrace) == 328);
 
 } // namespace maicord

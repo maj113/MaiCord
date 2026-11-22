@@ -1,8 +1,9 @@
 #pragma once
 // A model of the composer's height and width boundaries, for tests that lay out a shell or a composer viewport before
 // a scene has measured its text (the client sizes the composer from the measured row,
-// message_composer_scene_cached_height). Text is a 20 px line per 8 px column (at least 120 px wide), at most eight
-// lines; the row, toolbar and chrome follow the scene's rules.
+// message_composer_scene_cached_height). Text is a 20 px line per 8 px column of the composer width less 144 px of
+// controls (the folded row of the default bank; at least 120 px wide), at most eight lines; the row, toolbar and
+// chrome follow the scene's rules.
 #include "maicord/core/utf.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
@@ -17,8 +18,8 @@ namespace maicord {
 inline constexpr float kComposerInlineWidth = 380.f;
 inline constexpr float kComposerCompactWidth = 264.f;
 
-inline float message_composer_preferred_height(const MessageComposer& composer, float available_text_width) noexcept {
-    const float usable_width = maximum(available_text_width, 120.0f);
+inline float message_composer_preferred_height(const MessageComposer& composer, float composer_width) noexcept {
+    const float usable_width = maximum(composer_width - 144.0f, 120.0f);
     const u32 columns = maximum(1u, static_cast<u32>(usable_width / 8.0f));
     u32 lines = 1;
     u32 column = 0;
@@ -45,9 +46,8 @@ inline float message_composer_scene_preferred_height(const MessageComposer& mode
         return metrics.composer_padding + metrics.composer_padding + metrics.menu_padding + metrics.menu_padding;
     };
     const auto& metrics = ui_theme_metrics(styles);
-    const float natural =
-        message_composer_preferred_height(model, message_composer_scene_text_width(composer_width, styles)) +
-        editor_padding(metrics) - editor_padding(ui_theme_metrics(nullptr));
+    const float natural = message_composer_preferred_height(model, composer_width) + editor_padding(metrics) -
+                          editor_padding(ui_theme_metrics(nullptr));
     const float minimum_row = maximum(kMessageComposerMinimumHeight,
                                       maximum(32.f, metrics.control_height) + 2.f * metrics.composer_padding);
     return minimum(kMessageComposerMaximumHeight, maximum(minimum_row, natural)) +

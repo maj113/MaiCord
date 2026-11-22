@@ -13,8 +13,7 @@ u32 fixed_choices(UiSearchFilterKind kind, UiSearchFilterChoiceView (&rows)[kUiS
 void test_search_filter_context(void (*check)(bool, const char*) noexcept) noexcept {
     const auto empty = ui_search_filter_context(utf8_literal("from:"), 5, 5);
     check(empty.kind == UiSearchFilterKind::from && empty.token_begin == 0 && empty.token_end == 5 &&
-              empty.value_begin == 5 && empty.value_end == 5 && !empty.has_value &&
-              empty.quote_complete && empty.other_value_count == 0,
+              empty.value_begin == 5 && empty.value_end == 5 && !empty.has_value && empty.other_value_count == 0,
           "search_filter_context_empty_value_is_active_after_colon");
     const auto middle = ui_search_filter_context(utf8_literal("hi from:alice tail"), 10, 10);
     check(middle.kind == UiSearchFilterKind::from && middle.token_begin == 3 && middle.token_end == 13 &&
@@ -37,34 +36,34 @@ void test_search_filter_context(void (*check)(bool, const char*) noexcept) noexc
           "search_filter_context_end_boundary_is_active_but_separator_and_key_are_not");
     constexpr auto quoted_text = utf8_literal("in:\"build room\" tail");
     const auto quoted = ui_search_filter_context(quoted_text, 10, 10);
-    check(quoted.quoted && quoted.quote_complete && quoted.value_begin == 3 && quoted.value_end == 15 &&
+    check(quoted.value_begin == 3 && quoted.value_end == 15 &&
               utf8_equal(quoted.value(), utf8_literal("build room")) &&
               utf8_equal(quoted.prefix(), utf8_literal("build ")),
           "search_filter_context_quoted_spaces_decode_without_replacing_neighbors");
     constexpr auto unfinished_text = utf8_literal("mentions:\"Alice Smith");
     const auto unfinished = ui_search_filter_context(unfinished_text, unfinished_text.bytes, unfinished_text.bytes);
-    check(unfinished.kind == UiSearchFilterKind::mentions && unfinished.quoted && !unfinished.quote_complete &&
+    check(unfinished.kind == UiSearchFilterKind::mentions &&
               utf8_equal(unfinished.value(), utf8_literal("Alice Smith")) && unfinished.prefix_bytes == 11,
           "search_filter_context_unfinished_quote_is_tolerated");
     const auto opener = ui_search_filter_context(utf8_literal("from:\""), 6, 6);
-    check(opener.kind == UiSearchFilterKind::from && !opener.quote_complete && !opener.has_value &&
+    check(opener.kind == UiSearchFilterKind::from && !opener.has_value &&
               opener.other_value_count == 0 && opener.prefix_bytes == 0,
           "search_filter_context_open_quote_without_text_does_not_consume_identity_slot");
     constexpr auto escaped_text = utf8_literal("from:\"A\\\"B\\\\C\"");
     const auto escaped = ui_search_filter_context(escaped_text, escaped_text.bytes, escaped_text.bytes);
     const auto escape_half = ui_search_filter_context(escaped_text, 8, 8);
-    check(escaped.quote_complete && utf8_equal(escaped.value(), utf8_literal("A\"B\\C")) &&
+    check(utf8_equal(escaped.value(), utf8_literal("A\"B\\C")) &&
               utf8_equal(escape_half.prefix(), utf8_literal("A")),
           "search_filter_context_escape_pairs_decode_and_do_not_read_past_caret");
     constexpr auto slash_value = utf8_literal("in:\"folder\\\\\"");
     const auto slash = ui_search_filter_context(utf8_literal("in:\"folder\\\\\" tail"),
                                                  slash_value.bytes, slash_value.bytes);
-    check(slash.quote_complete && slash.value_end == slash_value.bytes &&
+    check(slash.value_end == slash_value.bytes &&
               utf8_equal(slash.value(), utf8_literal("folder\\")),
           "search_filter_context_even_backslashes_allow_closing_quote_and_preserve_tail");
     constexpr auto unknown_escape_text = utf8_literal("in:\"A\\q\"");
     const auto unknown_escape = ui_search_filter_context(unknown_escape_text, 8, 8);
-    check(unknown_escape.quote_complete && utf8_equal(unknown_escape.value(), utf8_literal("A\\q")),
+    check(utf8_equal(unknown_escape.value(), utf8_literal("A\\q")),
           "search_filter_context_unrecognized_escape_is_literal_as_in_query_parser");
     const auto malformed_quote = ui_search_filter_context(utf8_literal("from:\"A\"tail"), 8, 8);
     check(malformed_quote.kind == UiSearchFilterKind::none && malformed_quote.value_bytes == 0 &&

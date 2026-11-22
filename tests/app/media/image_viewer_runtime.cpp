@@ -73,7 +73,7 @@ bool publish_search() noexcept {
     search_source.resolve = +[](void*, u32 index, UiSearchRow* row) noexcept {
         if (index || !row)
             return false;
-        *row = {101, 800, utf8_literal("Fixture author"), utf8_literal("#fixture"), {}, {}, true, true};
+        *row = {101, 800, utf8_literal("Fixture author"), utf8_literal("#fixture"), {}, {}, true};
         return true;
     };
     search_content.edit.active = search_content.panel = true;

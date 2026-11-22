@@ -1118,7 +1118,7 @@ void test_ui_scene() noexcept {
                attachment_format_projected && embed_identity_projected && message_media_item_owned,
            "message_presentation_media_projection_uses_exact_retained_items");
     expect(tiny_message_presentation_failed && tiny_message_media_stream.count == 0 &&
-               tiny_message_media_stream.rejected != 0 && tiny_message_presentation.geometry_quads == 0 &&
+               tiny_message_presentation.geometry_quads == 0 &&
                message_presentation_paint.count == paint_count_before_tiny,
            "message_presentation_capacity_failure_is_atomic");
     const u64 restored_scroll = message_scene_timeline.scroll_units;

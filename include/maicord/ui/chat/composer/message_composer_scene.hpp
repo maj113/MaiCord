@@ -306,14 +306,12 @@ bool message_composer_scene_bind_theme_styles(MessageComposerScene* scene,
 // its natural height. Below the inline width the GIF and sticker buttons fold
 // into the emoji picker; only below the compact width do the trailing actions
 // wrap into additional toolbar rows.
-float message_composer_scene_text_width(float composer_width,
-                                        const UiResolvedThemeStyles* styles = nullptr) noexcept;
+float message_composer_scene_toolbar_height(float composer_width,
+                                            const UiResolvedThemeStyles* styles = nullptr) noexcept;
 // False for accessories folded away at the current width.
 bool message_composer_scene_control_visible(const MessageComposerScene&, MessageComposerControl) noexcept;
 // Keyboard-focused plugin toolbar button, or kMessageComposerPluginSlots.
 u32 message_composer_scene_focused_plugin_slot(const MessageComposerScene&) noexcept;
-float message_composer_scene_toolbar_height(float composer_width,
-                                            const UiResolvedThemeStyles* styles = nullptr) noexcept;
 // attachments is a MessageComposerAttachmentRow; true selects the label row. The
 // typing strip above the surface is always part of the height, so showing or
 // hiding the indicator never moves the message list.

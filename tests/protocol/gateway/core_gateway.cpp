@@ -934,13 +934,16 @@ void test_chat_state() noexcept {
     ReactionPickerModel custom_picker{};
     ReactionPickerSelection custom_selection{};
     ReactionPreferenceStore custom_preferences{};
+    char custom_text[kReactionPickerMaximumQueryBytes]{};
+    MessageComposer custom_edit{};
     const ReactionPickerResult custom_opened =
-        reaction_preferences_initialize(&custom_preferences)
-            ? reaction_picker_open(&custom_picker, 900, &custom_preferences, 1000, &store, 100)
+        message_composer_initialize(&custom_edit, {custom_text, sizeof(custom_text)}) &&
+                reaction_preferences_initialize(&custom_preferences)
+            ? reaction_picker_open(&custom_picker, 900, &custom_preferences, 1000, &store, 100, &custom_edit)
             : ReactionPickerResult{};
     constexpr Utf8View fresh_query = utf8_literal("fresh");
-    const bool custom_search = custom_opened.ok() && custom_picker.search &&
-        message_composer_restore(custom_picker.search, 1, fresh_query, fresh_query.bytes, fresh_query.bytes) &&
+    const bool custom_search = custom_opened.ok() &&
+        message_composer_restore(&custom_edit, 1, fresh_query, fresh_query.bytes, fresh_query.bytes) &&
         reaction_picker_refresh_search(&custom_picker).ok();
     bool custom_resolved = false;
     for (u32 i = 0; custom_search && !custom_resolved && i < custom_picker.result_count; ++i)

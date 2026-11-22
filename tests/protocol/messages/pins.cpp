@@ -23,13 +23,12 @@ struct PinsFixture {
     GatewayMessageEmbedField fields[6];
 };
 
+// The client always decodes pins with the rich pools and a mention pool.
 MessagePinsDecodeResult decode(PinsFixture* fixture, Utf8View body, const MessagePinsQuery& query,
-                               bool rich = false) noexcept {
-    if (!rich) return decode_message_pins_page(body, query, {fixture->page_structurals, 4096},
-        32, {fixture->text, 8192}, {fixture->items, 50}, {}, {});
+                               u32 structurals = 4096) noexcept {
     const MessageHistoryRichScratch scratch{{}, {fixture->attachments, 6}, {fixture->embeds, 6},
                                                   {fixture->fields, 6}, {}, {}, {}};
-    return decode_message_pins_page(body, query, {fixture->page_structurals, 4096},
+    return decode_message_pins_page(body, query, {fixture->page_structurals, structurals},
         32, {fixture->text, 8192}, {fixture->items, 50},
         {fixture->mentions, 6}, scratch);
 }
@@ -151,7 +150,7 @@ void test_message_pins(void (*check)(bool, const char*) noexcept) noexcept {
 
     constexpr auto rich_page = utf8_literal(
         R"({"has_more":false,"items":[{"pinned_at":"2026-10-05T00:00:00Z","message":{"id":"30","channel_id":"7","author":{"id":"3","username":"Synthetic"},"content":"rich","timestamp":"2026-01-01T00:00:00Z","mentions":[{"id":"4","username":"Fixture"}],"attachments":[{"id":"9","filename":"synthetic.png","size":42,"url":"https://cdn.discordapp.com/attachments/7/9/synthetic.png","content_type":"image/png","width":16,"height":8}],"embeds":[{"type":"rich","title":"Synthetic","description":"Bounded","fields":[{"name":"Field","value":"Value","inline":true}]}]}}]})");
-    result = decode(&fixture, rich_page, query, true);
+    result = decode(&fixture, rich_page, query);
     check(result.ok() && fixture.items[0].message.attachments.count == 1 &&
         fixture.items[0].message.embeds.count == 1 && fixture.items[0].message.embed_fields.count == 1 &&
         fixture.items[0].message.mention_users.count == 1 &&
@@ -162,9 +161,8 @@ void test_message_pins(void (*check)(bool, const char*) noexcept) noexcept {
         check(label.data >= fixture.text && label.data + label.bytes <= fixture.text + result.page.text_bytes,
             "pins: rich filename owns text arena storage rather than borrowing REST body");
     }
-    check(decode_message_pins_page(utf8_literal("{\"items\":[],\"has_more\":false}"), query,
-        {fixture.page_structurals, 1}, 32, {fixture.text, 8192},
-        {fixture.items, 50}, {}, {}).error == MessagePinsDecodeError::scan_failed,
+    check(decode(&fixture, utf8_literal("{\"items\":[],\"has_more\":false}"), query, 1).error ==
+              MessagePinsDecodeError::scan_failed,
         "pins: structural capacity failure remains categorical");
 }
 

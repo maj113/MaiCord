@@ -3,6 +3,7 @@
 #include "maicord/ui/media/picker_presentation.hpp"
 #include "maicord/ui/chat/search/scene.hpp"
 #include "../../src/render/d3d11/renderer_interaction_state.hpp"
+#include "../support/search_rows.hpp"
 
 namespace maicord {
 namespace pane_glyph_stress_detail {
@@ -36,7 +37,7 @@ inline bool search_row(void* opaque, u32 index, UiSearchRow* out) noexcept {
             utf8_literal("Original controlled search result. No account or provider data is used."),
             utf8_literal("Offline fixture"),
             true,
-            true};
+            9200};
     return true;
 }
 inline bool category_label_clear(const UiMediaPickerScene& scene, const D3D11Renderer& renderer) noexcept {
@@ -180,6 +181,9 @@ inline bool native_pane_glyph_stress_probe(D3D11Renderer& renderer) noexcept {
     gallery_content.phase = UiMediaPickerPhase::ready;
     gallery_content.available_tabs = 7;
     UiSearchSource search_bank{&search_source, 30, 1, search_row};
+    static SearchRows search_rows;
+    if (!search_rows_publish(&search_rows, &search_bank))
+        return fail();
     UiSearchContent search_content{};
     search_content.edit = {utf8_literal("native garden"), 13, 13, true, true, false};
     search_content.status = utf8_literal("Original offline results");

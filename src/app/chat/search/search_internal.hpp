@@ -73,10 +73,6 @@ struct SearchBank {
     const AccountUiRuntime* account_ui;
     u32 publication;
     bool initialized;
-    float body_heights[kMessageSearchMaximumMessages];
-    float measured_width, measured_em, measured_tracking;
-    const void* measured_native_text;
-    u32 measured_dpi, measured_native_format;
 };
 struct SearchFilterStamp {
     const void *actor{}, *ui{}, *relationships{}, *private_channels{};
@@ -178,7 +174,6 @@ bool available() noexcept;
 bool front() noexcept;
 bool thread_scope(const ApplicationSearch& s, ApplicationThreadBrowserSearchScope* out) noexcept;
 bool resolve(void* context, u32 index, UiSearchRow* out) noexcept;
-bool measure_rows(ApplicationSearch& s) noexcept;
 void cancel_submitted(ApplicationSearch& s) noexcept;
 void focus(ApplicationSearch& s, bool value) noexcept;
 void release_pointer(ApplicationSearch& s) noexcept;

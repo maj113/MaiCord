@@ -332,9 +332,6 @@ bool geometry() noexcept {
     if (!require(edit != nullptr, 220))
         return false;
     if (!require(ui_rect_width(scene.viewport) == fixture->expected_width, 221) ||
-        !require(ui_rect_width(edit->content_rectangle) + .01f >=
-                     message_composer_scene_text_width(fixture->expected_width),
-                 222) ||
         !require(scene.widgets.count == kMessageComposerWidgetCapacity, 223))
         return false;
     const MessageComposerControl controls[]{MessageComposerControl::add_attachment,

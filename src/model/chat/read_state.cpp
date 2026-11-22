@@ -68,7 +68,7 @@ bool read_state_reserve_pending(ReadStateStore* reads, u32 required_count) noexc
     if (required_count > reads->pending.count ||
         (required_count > reads->backed_count && (!reads->reserve ||
             !reads->reserve(reads->reserve_context, required_count)))) {
-        reads->incomplete = true; saturating_increment(reads->rejected); return false;
+        reads->incomplete = true; return false;
     }
     reads->backed_count = maximum(reads->backed_count, required_count);
     return true;

@@ -231,7 +231,7 @@ void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
     source.resolve = +[](void*, u32 i, UiSearchRow* row) noexcept {
         if (i || !row)
             return false;
-        *row = {88, 880, utf8_literal("Original author"), utf8_literal("#accepted"), {}, {}, true, true};
+        *row = {88, 880, utf8_literal("Original author"), utf8_literal("#accepted"), {}, {}, true};
         return true;
     };
     UiSearchContent content{};

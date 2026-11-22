@@ -10,9 +10,6 @@ namespace maicord {
 using namespace search_scene_detail;
 
 namespace search_scene_detail {
-namespace {
-constexpr float default_body_height = 48;
-} // namespace
 bool rich_enabled(const UiSearchScene& s) noexcept {
     return s.source && s.source->rich_timeline;
 }
@@ -170,30 +167,6 @@ bool recent_shown(const UiSearchScene& s) noexcept {
 float recent_top(const UiSearchScene& s) noexcept {
     return s.chooser.top + 28 + 5 * 48 + 4;
 }
-bool choices_authorized(const UiSearchFilterChoiceSource* source) noexcept {
-    return !source ||
-           (source->revision && source->rows.count <= kUiSearchFilterChoiceMaximum &&
-            static_cast<u8>(source->kind) <= static_cast<u8>(UiSearchFilterKind::file_name) &&
-            (!source->rows.count || source->rows.data) &&
-            (source->selected == kUiSearchFilterNoSelection || source->selected < source->rows.count) &&
-            (!source->current || source->current(source->context)));
-}
-bool choices_valid(const UiSearchFilterChoiceSource* source) noexcept {
-    if (!source)
-        return true;
-    if (!choices_authorized(source) || source->heading.bytes > 256 || source->hint.bytes > 512 ||
-        !utf8_validate(source->heading).valid || !utf8_validate(source->hint).valid)
-        return false;
-    for (u32 index = 0; index < source->rows.count; ++index) {
-        const auto& choice = source->rows[index];
-        if (!choice.label.bytes || choice.label.bytes > 512 || choice.detail.bytes > 512 ||
-            !choice.value.bytes || choice.value.bytes > kUiSearchFilterQueryBytes ||
-            !utf8_validate(choice.label).valid || !utf8_validate(choice.detail).valid ||
-            !utf8_validate(choice.value).valid)
-            return false;
-    }
-    return true;
-}
 UiIcon choice_icon(const UiSearchFilterChoiceSource& source, const UiSearchFilterChoiceView& row) noexcept {
     switch (source.kind) {
     case UiSearchFilterKind::from:
@@ -240,7 +213,7 @@ bool choices_current(const UiSearchScene& scene) noexcept {
            (!source ||
             (source->revision == scene.choice_source_revision && source->rows.data == scene.choice_rows &&
              source->rows.count == scene.choice_total && source->selected == scene.choice_selected &&
-             (!source->current || source->current(source->context))));
+             source->current(source->context)));
 }
 namespace {
 float choice_em(const UiSearchScene& scene) noexcept {
@@ -417,22 +390,6 @@ UiSearchLayout layout_for(const UiSearchSource* source, const UiSearchContent& c
     default:
         return UiSearchLayout::list;
     }
-}
-// Plain (unmeasured) result header: the timestamp gets a slot sized to its
-// own text (estimated at subtext width), the author the rest, ellipsizing first.
-MessageResultCardHeaderLayout plain_header(const UiRect& card, const UiSearchRow& row) noexcept {
-    auto layout = message_result_card_header_layout(card.left + 52, card.right - 12,
-                                                    static_cast<float>(row.author.bytes) * 9.f,
-                                                    static_cast<float>(row.detail.bytes) * 7.f);
-    // Unmeasured: the author takes all the room left of a right-aligned stamp.
-    if (layout.timestamp_width > 0) {
-        layout.timestamp.left = card.right - 12 - layout.timestamp_width;
-        layout.name.right = layout.timestamp.left - kMessageResultCardHeaderGap;
-    } else
-        layout.name.right = card.right - 12;
-    layout.name.top = layout.timestamp.top = card.top + 8;
-    layout.name.bottom = layout.timestamp.bottom = card.top + 32;
-    return layout;
 }
 bool tiled(const UiSearchScene& s) noexcept {
     return s.layout != UiSearchLayout::list && s.rich_projection;
@@ -614,37 +571,15 @@ bool row_text_valid(const UiSearchRow& row) noexcept {
 }
 } // namespace
 bool measure_rows(UiSearchScene& s) noexcept {
-    if (rich_enabled(s)) {
-        const auto& list = *s.source->rich_timeline->list;
-        for (u32 i = 0; i <= list.count; ++i)
-            s.row_offsets[i] = ui_extent_dips(ui_variable_list_prefix_units(list, i));
-        s.measured_source = s.source;
-        s.measured_source_revision = s.source->revision;
-        s.measured_count = list.count;
-        return s.layout == UiSearchLayout::list || build_items(s);
-    }
-    if (s.measured_source == s.source &&
-        s.measured_source_revision == (s.source ? s.source->revision : 0) &&
-        s.measured_count == (s.source ? s.source->count : 0))
+    if (!rich_enabled(s)) {
+        s.measured_count = 0;
         return true;
-    s.row_offsets[0] = 0;
-    const u32 count = s.source ? s.source->count : 0;
-    for (u32 i = 0; i < count; ++i) {
-        UiSearchRow row{};
-        if (!s.source->resolve(s.source->context, i, &row))
-            return false;
-        // The range test also rejects NaN and infinities.
-        if (!row_text_valid(row) ||
-            !(row.body_height == 0 || (row.body_height >= 24 && row.body_height <= 464)))
-            return false;
-        s.row_offsets[i + 1] = s.row_offsets[i] + 48 +
-                               (row.body_height ? row.body_height : default_body_height) + 8 +
-                               ((row.group_first || !i) ? 28 : 0);
     }
-    s.measured_source = s.source;
-    s.measured_source_revision = s.source ? s.source->revision : 0;
-    s.measured_count = count;
-    return true;
+    const auto& list = *s.source->rich_timeline->list;
+    for (u32 i = 0; i <= list.count; ++i)
+        s.row_offsets[i] = ui_extent_dips(ui_variable_list_prefix_units(list, i));
+    s.measured_count = list.count;
+    return s.layout == UiSearchLayout::list || build_items(s);
 }
 UiRect widget_viewport(const UiSearchScene& s) noexcept {
     return {minimum(s.viewport.left, s.field.left), minimum(s.viewport.top, s.field.top),
@@ -1065,29 +1000,23 @@ bool rebuild(UiSearchScene& s) noexcept {
                 if (!s.source->resolve(s.source->context, i, &row) || !row_text_valid(row))
                     return false;
                 s.visible[s.count] = row;
-                const bool rich = rich_enabled(s);
-                const float group = rich ? 0.f : (row.group_first || !i) ? 28.f : 0.f;
                 // Keep the shared 12-DIP scrollbar gutter outside the cards.
-                const UiRect card{s.body.left + 8, y + group, s.body.right - 20,
+                const UiRect card{s.body.left + 8, y, s.body.right - 20,
                                   s.body.top + s.row_offsets[i + 1] - s.scroll_dips - 8};
-                // Rich cards head with their channel, aligned to the avatar column,
+                // Cards head with their channel, aligned to the avatar column,
                 // and Jump at the trailing edge of the same row.
                 const float heading = kMessageResultCardStyle.heading_height;
                 const UiRect jump{card.right - 72, card.top + 4, card.right - 8, card.top + heading - 4};
-                s.group_rectangles[s.count] =
-                    rich ? UiRect{card.left + 16, y, maximum(card.left + 16, jump.left - 8), y + heading}
-                         : UiRect{s.body.left + 12, y, s.body.right - 20, y + group};
+                s.group_rectangles[s.count] = {card.left + 16, y, maximum(card.left + 16, jump.left - 8),
+                                               y + heading};
                 s.row_rectangles[s.count] = card;
-                const auto r = ui_rect_intersection({card.left, y, card.right, card.bottom}, s.body);
-                if (!ui_rect_has_area(r))
+                if (!ui_rect_has_area(ui_rect_intersection(card, s.body)))
                     continue;
                 UiSearchTarget target = source_target(s, UiSearchAction::result, row.channel_id, row.message_id, i);
-                s.rows[s.count] = add(
-                    s, rich ? ui_rect_intersection(jump, s.body) : r, target,
-                    rich ? (row.access_check ? utf8_literal("Check access") : utf8_literal("Jump"))
-                         : row.author,
-                    (!row.unavailable || row.access_check) && menus_closed(s));
-                if (rich && !row.unavailable) {
+                s.rows[s.count] = add(s, ui_rect_intersection(jump, s.body), target,
+                                      row.access_check ? utf8_literal("Check access") : utf8_literal("Jump"),
+                                      (!row.unavailable || row.access_check) && menus_closed(s));
+                if (!row.unavailable) {
                     const auto& native = s.rich_projection->scene;
                     const auto* outer = message_scene_find_row(native, i);
                     const MessageSceneRowWidget* projected[]{

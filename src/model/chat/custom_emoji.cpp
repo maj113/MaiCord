@@ -196,20 +196,17 @@ bool chat_state_store_replace_guild_emojis(ChatStateStore* store, u64 guild_id,
         const CustomEmojiInput& input = emojis[index];
         if (input.id == 0 || !valid_emoji_name(input.name) ||
             !roles_valid(input.role_ids_le, input.role_count) || role_count > ~0u - input.role_count) {
-            ++store->rejected;
             return false;
         }
         role_count += input.role_count;
         for (u32 previous = 0; previous < index; ++previous) {
             if (emojis[previous].id == input.id) {
-                ++store->rejected;
                 return false;
             }
         }
     }
     if (chat_state_store_guild_emoji_admission(*store, guild_id, emojis.count, role_count) !=
         ChatStateStoreError::none) {
-        ++store->rejected;
         return false;
     }
     chat_state_store_remove_guild_emojis(store, guild_id);

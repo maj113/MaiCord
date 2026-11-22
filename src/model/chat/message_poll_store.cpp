@@ -25,9 +25,7 @@ void advance(u32& revision) noexcept {
     if (!++revision)
         ++revision;
 }
-MessagePollStoreResult failure(MessagePollStore* store, MessagePollStoreError error) noexcept {
-    if (store)
-        saturating_increment(store->rejected);
+MessagePollStoreResult failure(MessagePollStoreError error) noexcept {
     return {nullptr, error, false, false};
 }
 bool valid_text(Utf8View value, u32 maximum_bytes, u32 maximum_scalars) noexcept {
@@ -173,9 +171,8 @@ void message_poll_store_release(MessagePollStore* store) noexcept {
     }
     reset_value(store);
 }
+// An uninitialized store holds no records, and apply refuses id 0, so neither needs a check.
 const MessagePollRecord* message_poll_store_find(const MessagePollStore& store, u64 id) noexcept {
-    if (!id || !store.records)
-        return nullptr;
     const u32 at = position(store, id);
     return at < store.count && store.records[at].message_id == id ? store.records + at : nullptr;
 }
@@ -203,12 +200,12 @@ MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id,
                                                 const GatewayMessagePoll& input, u64 serial,
                                                 const MessagePollResultTicket* ticket) noexcept {
     if (!store || !store->capacity || !id || !channel || (input.fields & ~kKnownFields))
-        return failure(store, MessagePollStoreError::invalid_input);
+        return failure(MessagePollStoreError::invalid_input);
     const auto* old = message_poll_store_find(*store, id);
     if ((old && old->channel_id != channel) ||
         (ticket &&
          (ticket->message_id != id || ticket->content_revision != (old ? old->content_revision : 0))))
-        return failure(store, MessagePollStoreError::stale);
+        return failure(MessagePollStoreError::stale);
     if (serial && old && serial <= old->last_gateway_serial)
         return {old, MessagePollStoreError::stale, false, false};
     if (!input.present) {
@@ -220,19 +217,19 @@ MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id,
     if (!old &&
         (input.fields & (gateway_message_poll_field_question | gateway_message_poll_field_answers)) !=
             (gateway_message_poll_field_question | gateway_message_poll_field_answers))
-        return failure(store, MessagePollStoreError::incomplete);
+        return failure(MessagePollStoreError::incomplete);
     if ((input.fields & gateway_message_poll_field_question) &&
         !valid_text(input.question, kGatewayMessagePollQuestionMaximumBytes,
                     kGatewayMessagePollQuestionMaximumScalars))
-        return failure(store, MessagePollStoreError::invalid_utf8);
+        return failure(MessagePollStoreError::invalid_utf8);
     if ((input.fields & gateway_message_poll_field_answers) &&
         (!input.answers.data || !input.answers.count ||
          input.answers.count > kGatewayMessagePollMaximumAnswers))
-        return failure(store, MessagePollStoreError::invalid_input);
+        return failure(MessagePollStoreError::invalid_input);
     if ((input.fields & gateway_message_poll_field_results) &&
         (!input.results_known || input.answer_counts.count > kGatewayMessagePollMaximumAnswers ||
          (input.answer_counts.count && !input.answer_counts.data)))
-        return failure(store, MessagePollStoreError::invalid_input);
+        return failure(MessagePollStoreError::invalid_input);
 
     MessagePollRecord next;
     if (old)
@@ -256,15 +253,15 @@ MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id,
         for (u32 i = 0; i < input.answers.count; ++i) {
             const auto& source = input.answers[i];
             if (!source.answer_id)
-                return failure(store, MessagePollStoreError::invalid_input);
+                return failure(MessagePollStoreError::invalid_input);
             if (!valid_text(source.text, kGatewayMessagePollAnswerMaximumBytes,
                             kGatewayMessagePollAnswerMaximumScalars) ||
                 !valid_text(source.emoji_name, kGatewayMessagePollEmojiMaximumBytes,
                             kGatewayMessagePollEmojiMaximumBytes))
-                return failure(store, MessagePollStoreError::invalid_utf8);
+                return failure(MessagePollStoreError::invalid_utf8);
             for (u32 j = 0; j < i; ++j)
                 if (input.answers[j].answer_id == source.answer_id)
-                    return failure(store, MessagePollStoreError::invalid_input);
+                    return failure(MessagePollStoreError::invalid_input);
             const auto* prior = old ? message_poll_record_answer(*old, source.answer_id) : nullptr;
             next.answers[i] = prior ? *prior : MessagePollAnswer{};
             next.answers[i].id = source.answer_id;
@@ -304,15 +301,15 @@ MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id,
     if (input.fields & gateway_message_poll_field_results) {
         for (u32 i = 0; i < input.answer_counts.count; ++i) {
             if (!answer(next, input.answer_counts[i].answer_id))
-                return failure(store, MessagePollStoreError::invalid_input);
+                return failure(MessagePollStoreError::invalid_input);
             for (u32 j = 0; j < i; ++j)
                 if (input.answer_counts[j].answer_id == input.answer_counts[i].answer_id)
-                    return failure(store, MessagePollStoreError::invalid_input);
+                    return failure(MessagePollStoreError::invalid_input);
         }
         if (!ignore_results) {
             if (old && (old->fields & gateway_message_poll_field_results) && old->is_finalized &&
                 !input.is_finalized)
-                return failure(store, MessagePollStoreError::stale);
+                return failure(MessagePollStoreError::stale);
             for (u32 i = 0; i < next.answer_count; ++i) {
                 auto& target = next.answers[i];
                 target.count = 0;
@@ -355,20 +352,20 @@ MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id,
                 ignore_results && (input.fields & gateway_message_poll_field_results)};
     }
     if (!old && store->count == store->capacity)
-        return failure(store, MessagePollStoreError::capacity);
+        return failure(MessagePollStoreError::capacity);
     u32 bytes = question.bytes;
     for (u32 i = 0; i < next.answer_count; ++i)
         bytes += texts[i].bytes + emojis[i].bytes;
     if (content_changed && bytes > store->text_capacity)
-        return failure(store, MessagePollStoreError::capacity);
+        return failure(MessagePollStoreError::capacity);
     const u32 old_bytes = old ? string_bytes(*old) : 0;
     const u32 at = old ? static_cast<u32>(old - store->records) : position(*store, id);
     if (!ensure_storage(*store, store->count + (old ? 0 : 1)))
-        return failure(store, MessagePollStoreError::capacity);
+        return failure(MessagePollStoreError::capacity);
     const u32 before_compactions = store->compactions;
     if (content_changed) {
         if (!prepare_text(*store, bytes, id))
-            return failure(store, MessagePollStoreError::capacity);
+            return failure(MessagePollStoreError::capacity);
         if (store->compactions == before_compactions)
             store->text_wasted += old_bytes;
         next.question = write_string(*store, question);
@@ -404,7 +401,7 @@ MessagePollStoreResult message_poll_store_vote(MessagePollStore* store,
                                                u64 serial) noexcept {
     if (!store || !event.message_id || !event.channel_id || !event.user_id || !event.answer_id || !actor ||
         !serial)
-        return failure(store, MessagePollStoreError::invalid_input);
+        return failure(MessagePollStoreError::invalid_input);
     auto* poll = find(*store, event.message_id);
     if (!poll)
         return {nullptr, MessagePollStoreError::incomplete, false, false};
@@ -412,7 +409,7 @@ MessagePollStoreResult message_poll_store_vote(MessagePollStore* store,
         return {poll, MessagePollStoreError::stale, false, false};
     auto* value = answer(*poll, event.answer_id);
     if (!value)
-        return failure(store, MessagePollStoreError::invalid_input);
+        return failure(MessagePollStoreError::invalid_input);
     poll->last_gateway_serial = serial;
     if ((poll->fields & gateway_message_poll_field_results) && poll->is_finalized)
         return {poll, MessagePollStoreError::none, false, false};
@@ -449,12 +446,12 @@ MessagePollStoreResult message_poll_store_vote(MessagePollStore* store,
 MessagePollStoreResult message_poll_store_own_vote(MessagePollStore* store, u64 message_id, u64 channel_id,
                                                    u64 actor, u16 mask) noexcept {
     if (!store || !message_id || !channel_id || !actor)
-        return failure(store, MessagePollStoreError::invalid_input);
+        return failure(MessagePollStoreError::invalid_input);
     auto* poll = find(*store, message_id);
     if (!poll)
         return {nullptr, MessagePollStoreError::incomplete, false, false};
     if (poll->channel_id != channel_id || (mask >> poll->answer_count))
-        return failure(store, MessagePollStoreError::invalid_input);
+        return failure(MessagePollStoreError::invalid_input);
     if ((poll->fields & gateway_message_poll_field_results) && poll->is_finalized)
         return {poll, MessagePollStoreError::none, false, false};
     bool changed = false;
@@ -538,7 +535,6 @@ MessagePollPageResult message_poll_store_apply_page(MessagePollStore* store,
         if (!cloned) {
             candidate.revision = store->revision;
             candidate.content_revision = store->content_revision;
-            candidate.rejected = store->rejected;
             candidate.compactions = store->compactions;
             if (store->count) {
                 if (!ensure_storage(candidate, store->count))

@@ -59,7 +59,6 @@ struct MessagePollStore {
     u32 text_wasted;
     u32 revision;
     u32 content_revision;
-    u32 rejected;
     u32 compactions;
     MessagePollOwnedStorage* owned;
 };

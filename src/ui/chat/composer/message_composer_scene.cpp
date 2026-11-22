@@ -1036,11 +1036,6 @@ bool message_composer_scene_control_visible(const MessageComposerScene& scene,
     return node && node->visible;
 }
 
-float message_composer_scene_text_width(float composer_width,
-                                        const UiResolvedThemeStyles* styles) noexcept {
-    return controls_text_width(composer_width, styles, plugin_slot_count());
-}
-
 float message_composer_scene_toolbar_height(float composer_width,
                                             const UiResolvedThemeStyles* styles) noexcept {
     return composer_width <= 0.f ? 0.f : controls_toolbar_height(composer_width, styles, plugin_slot_count());

@@ -3,7 +3,6 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/name_list.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/protocol/messages/card_excerpt.hpp"
 
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
@@ -58,12 +57,6 @@ struct DecodeContext {
     MessageSearchRichSink sink;
 };
 
-template <typename T> bool disjoint(Slice<T> a, Slice<T> b) noexcept {
-    const usize start_a = reinterpret_cast<usize>(a.data), start_b = reinterpret_cast<usize>(b.data);
-    return start_a <= start_b ? start_b - start_a >= static_cast<usize>(a.count) * sizeof(T)
-                              : start_a - start_b >= static_cast<usize>(b.count) * sizeof(T);
-}
-
 bool reject(DecodeContext* context, MessageSearchDecodeError error, u32 offset) noexcept {
     context->result.error = error;
     context->result.error_offset = offset;
@@ -76,22 +69,12 @@ struct HitContext {
     bool seen;
     bool valid;
     bool guild_seen;
-    JsonValue snapshots;
-    bool snapshots_seen;
 };
 
 bool visit_hit(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* hit = static_cast<HitContext*>(opaque);
-    switch (protocol_detail::member_index<"message_snapshots", "guild_id", "hit">(name)) {
+    switch (protocol_detail::member_index<"guild_id", "hit">(name)) {
     case 0:
-        if (hit->snapshots_seen) {
-            hit->valid = false;
-            return false;
-        }
-        hit->snapshots_seen = true;
-        hit->snapshots = value;
-        break;
-    case 1:
         if (hit->guild_seen || (value.kind != JsonValueKind::null_value &&
                                 !json_value_to_snowflake(value, &hit->guild_id))) {
             hit->valid = false;
@@ -99,7 +82,7 @@ bool visit_hit(void* opaque, JsonString name, JsonValue value) noexcept {
         }
         hit->guild_seen = true;
         break;
-    case 2:
+    case 1:
         if (hit->seen || !json_value_to_bool(value, &hit->hit)) {
             hit->valid = false;
             return false;
@@ -108,111 +91,6 @@ bool visit_hit(void* opaque, JsonString name, JsonValue value) noexcept {
         break;
     default: break;
     }
-    return true;
-}
-
-struct SnapshotCounts {
-    JsonIndexedDocument document{};
-    u32 maximum_depth{}, fields{};
-    u16 counts[4]{};
-    bool valid{true};
-};
-bool count_media(void* opaque, u32 index, JsonValue value) noexcept {
-    auto* count = static_cast<u16*>(opaque);
-    if (value.kind != JsonValueKind::object || index >= 65535)
-        return false;
-    *count = static_cast<u16>(index + 1);
-    return true;
-}
-bool visit_snapshot_media(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& context = *static_cast<SnapshotCounts*>(opaque);
-    const u32 i = protocol_detail::member_index<"attachments", "embeds", "sticker_items", "components">(name);
-    if (i < 4) {
-        const u32 field = 1u << i;
-        if ((context.fields & field) || value.kind != JsonValueKind::array) {
-            context.valid = false;
-            return false;
-        }
-        context.fields |= field;
-        const auto read = json_visit_indexed_array(context.document, value, context.maximum_depth,
-                                                   count_media, &context.counts[i]);
-        context.valid &= read.ok();
-        return context.valid;
-    }
-    return true;
-}
-bool snapshot_excerpt(DecodeContext& context, const HitContext& hit,
-                      MessageSearchMessage& item) noexcept {
-    if (!hit.snapshots_seen)
-        return true;
-    JsonValue body{};
-    bool present = false;
-    const auto extracted = gateway_extract_message_snapshot(context.document, hit.snapshots,
-                                                            context.maximum_depth, &body, &present);
-    if (!extracted.ok()) {
-        context.result.message_error = extracted.error;
-        context.result.scan_error = extracted.scan_error;
-        context.result.read_error = extracted.read_error;
-        return reject(&context, MessageSearchDecodeError::message_decode, extracted.error_offset);
-    }
-    item.message.fields |= gateway_message_field_message_snapshots;
-    if (!present)
-        return true;
-    // The scoped core validates all child scalars/named mentions without an
-    // invented author. Its text is decoded into the arena's free tail; only the
-    // bounded quote is kept, moved down over it.
-    const u32 used = context.result.page.text_bytes + item.message.transient_bytes;
-    if (used >= context.text.count || !context.text.data) {
-        context.result.message_error = GatewayEventDecodeError::message_content_capacity;
-        return reject(&context, MessageSearchDecodeError::message_decode, body.source_offset);
-    }
-    GatewayMessageNamedUser mentions[kGatewayMessageMentionUserMaximum];
-    GatewayMessageEvent child;
-    const auto decoded = gateway_decode_message_snapshot_core(
-        context.document, body, context.maximum_depth, {context.text.data + used, context.text.count - used},
-        {mentions, kGatewayMessageMentionUserMaximum}, &child);
-    if (!decoded.ok()) {
-        context.result.message_error = decoded.error;
-        context.result.scan_error = decoded.scan_error;
-        context.result.read_error = decoded.read_error;
-        return reject(&context, MessageSearchDecodeError::message_decode, decoded.error_offset);
-    }
-    SnapshotCounts media{context.document, context.maximum_depth};
-    const auto read = json_visit_indexed_object(context.document, body, context.maximum_depth,
-                                                visit_snapshot_media, &media);
-    if (!read.ok() || !media.valid)
-        return reject(&context, MessageSearchDecodeError::invalid_field, body.source_offset);
-    const u32 quote_end = used + child.transient_bytes;
-    if (quote_end >= context.text.count) {
-        context.result.message_error = GatewayEventDecodeError::message_content_capacity;
-        return reject(&context, MessageSearchDecodeError::message_decode, body.source_offset);
-    }
-    const auto card =
-        message_card_excerpt({item.message.content, child.content, true, true, media.counts[0],
-                              media.counts[1], media.counts[2], media.counts[3]},
-                             {context.text.data + quote_end, context.text.count - quote_end});
-    if (!card.bytes)
-        return reject(&context, MessageSearchDecodeError::message_decode, body.source_offset);
-    // The quote was only needed to build the card; slide the card over it.
-    for (u32 at = 0; at < card.bytes; ++at)
-        context.text.data[used + at] = context.text.data[quote_end + at];
-    item.card_excerpt = {context.text.data + used, card.bytes};
-    item.forwarded = true;
-    item.excerpt_truncated = card.truncated;
-    item.snapshot_attachments = media.counts[0];
-    item.snapshot_embeds = media.counts[1];
-    item.snapshot_stickers = media.counts[2];
-    item.snapshot_components = media.counts[3];
-    auto& snapshot = item.message.snapshot;
-    snapshot.present = true;
-    snapshot.content = {item.card_excerpt.data + card.quoted_offset, card.quoted_bytes};
-    snapshot.timestamp_ms = child.timestamp_ms;
-    snapshot.edited_timestamp_ms = child.edited_timestamp_ms;
-    snapshot.flags = child.flags;
-    snapshot.fields = child.fields;
-    snapshot.type = child.type;
-    // No temporary mentions or media views escape; their counts live above.
-    item.message.transient_bytes += card.bytes;
     return true;
 }
 
@@ -246,7 +124,6 @@ void clear_borrowed_views(MessageSearchMessage& item) noexcept {
     reset_value(&child.stickers);
     reset_value(&child.components);
     reset_value(&child.mention_users);
-    reset_value(&item.card_excerpt);
 }
 
 bool visit_message(void* opaque, u32 index, JsonValue value) noexcept {
@@ -275,19 +152,11 @@ bool visit_message(void* opaque, u32 index, JsonValue value) noexcept {
     // Decoded in the result slot; it only counts once the message is kept.
     MessageSearchMessage& item = context->messages[page.message_count];
     GatewayMessageEvent& message = item.message;
-    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
-    GatewayMessageNamedUser mention_users[kGatewayMessageMentionUserMaximum];
+    const auto& scratch = *context->rich_scratch;
     const auto decoded =
-        context->rich_scratch
-            ? gateway_decode_message_create(
-                  context->document, value, context->maximum_depth, context->text,
-                  context->rich_scratch->mention_roles, context->rich_scratch->member_roles,
-                  context->rich_scratch->mention_users, context->rich_scratch->rich, 0, &message)
-            : gateway_decode_message_create(
-                  context->document, value, context->maximum_depth,
-                  {context->text.data + page.text_bytes, context->text.count - page.text_bytes},
-                  {mention_roles, kGatewayMessageMentionRoleMaximumIds},
-                  {mention_users, kGatewayMessageMentionUserMaximum}, 0, &message);
+        gateway_decode_message_create(context->document, value, context->maximum_depth, context->text,
+                                      scratch.mention_roles, scratch.member_roles, scratch.mention_users,
+                                      scratch.rich, 0, &message);
     if (!decoded.ok()) {
         context->result.message_error = decoded.error;
         context->result.scan_error = decoded.scan_error;
@@ -313,31 +182,13 @@ bool visit_message(void* opaque, u32 index, JsonValue value) noexcept {
             return reject(context, MessageSearchDecodeError::invalid_group, value.source_offset);
         }
     }
-    // Without a rich sink the excerpt keeps no mention views; a sink consumes the
-    // reusable named-mention and media pools before the next message is decoded.
-    if (!context->rich_scratch) {
-        reset_value(&message.mention_roles);
-        reset_value(&message.mention_users);
-    }
     item.guild_id = hit.guild_id;
     item.hit = hit.hit;
     item.guild_known = hit.guild_seen;
-    item.snapshot_attachments = item.snapshot_embeds = item.snapshot_stickers = item.snapshot_components = 0;
-    item.forwarded = item.excerpt_truncated = false;
-    // Ordinary cards borrow the already-owned message text. Only a forwarded
-    // quote needs an additional bounded copy in the same arena.
-    item.card_excerpt = message.content;
-    if (context->rich_scratch) {
-        item.forwarded = message.snapshot.present;
-        item.snapshot_attachments = static_cast<u16>(message.snapshot.attachments.count);
-        item.snapshot_embeds = static_cast<u16>(message.snapshot.embeds.count);
-        item.snapshot_stickers = static_cast<u16>(message.snapshot.stickers.count);
-        item.snapshot_components = static_cast<u16>(message.snapshot.components.count);
-        if (!context->sink.accept(context->sink.context, page.message_count, item))
-            return reject(context, MessageSearchDecodeError::sink_rejected, value.source_offset);
-        clear_borrowed_views(item);
-    } else if (!snapshot_excerpt(*context, hit, item))
-        return false;
+    // The sink consumes the reusable named-mention and media pools before the next message is decoded.
+    if (!context->sink.accept(context->sink.context, page.message_count, item))
+        return reject(context, MessageSearchDecodeError::sink_rejected, value.source_offset);
+    clear_borrowed_views(item);
     ++page.message_count;
     page.text_bytes += item.message.transient_bytes;
     ++group.message_count;
@@ -558,7 +409,7 @@ bool message_search_query_valid(const MessageSearchQuery& query) noexcept {
 MessageSearchWriteResult write_message_search_target(const MessageSearchQuery& query,
                                                      Slice<u8> output) noexcept {
     if (!message_search_query_valid(query) ||
-        query.scope == MessageSearchScope::private_channels || (!output.data && output.count))
+        query.scope == MessageSearchScope::private_channels)
         return {0, MessageSearchWriteError::invalid_input};
     ProtocolWriter writer{output, 0};
     bool written =
@@ -658,7 +509,7 @@ void json_tab(JsonBody& b, const MessageSearchQuery& query, MessageSearchTab tab
 
 MessageSearchTabsWriteResult write_message_search_tabs_request(
     const MessageSearchQuery& query, Slice<u8> target, Slice<u8> body) noexcept {
-    if (!message_search_query_valid(query) || (!target.data && target.count) ||
+    if (!message_search_query_valid(query) ||
         (!body.data && body.count))
         return {0, 0, MessageSearchWriteError::invalid_input};
     ProtocolWriter path{target, 0};
@@ -687,10 +538,10 @@ MessageSearchTabsWriteResult write_message_search_tabs_request(
                : MessageSearchTabsWriteResult{0, 0, MessageSearchWriteError::output_capacity};
 }
 
-static MessageSearchDecodeResult decode_search_page(
+MessageSearchDecodeResult decode_message_search_page(
     Utf8View body, const MessageSearchQuery& query, Slice<u32> page_structurals, u32 maximum_depth,
     Slice<char> text_output, Slice<MessageSearchGroup> groups, Slice<MessageSearchMessage> messages,
-    const MessageSearchRichScratch* rich_scratch, MessageSearchRichSink sink) noexcept {
+    const MessageSearchRichScratch& rich_scratch, MessageSearchRichSink sink) noexcept {
     if (!message_search_query_valid(query) || !body.data || !body.bytes || !page_structurals.data ||
         !page_structurals.count ||
         !maximum_depth || (!text_output.data && text_output.count) || (!groups.data && groups.count) ||
@@ -712,7 +563,7 @@ static MessageSearchDecodeResult decode_search_page(
     context.groups = groups;
     context.messages = messages;
     context.maximum_depth = maximum_depth;
-    context.rich_scratch = rich_scratch;
+    context.rich_scratch = &rich_scratch;
     context.sink = sink;
     auto read =
         json_visit_root_object(body, context.document.structurals, maximum_depth, visit_root, &context);
@@ -740,47 +591,6 @@ static MessageSearchDecodeResult decode_search_page(
         context.result.read_error = read.error;
     }
     return context.result;
-}
-
-MessageSearchDecodeResult decode_message_search_page(
-    Utf8View body, const MessageSearchQuery& query, Slice<u32> page_structurals, u32 maximum_depth,
-    Slice<char> text_output, Slice<MessageSearchGroup> groups, Slice<MessageSearchMessage> messages) noexcept {
-    return decode_search_page(body, query, page_structurals, maximum_depth, text_output, groups, messages,
-                              nullptr, {});
-}
-
-MessageSearchDecodeResult decode_message_search_page(
-    Utf8View body, const MessageSearchQuery& query, Slice<u32> page_structurals, u32 maximum_depth,
-    Slice<char> per_message_text, Slice<MessageSearchGroup> groups, Slice<MessageSearchMessage> messages,
-    const MessageSearchRichScratch& scratch, MessageSearchRichSink sink) noexcept {
-    const auto& rich = scratch.rich;
-    const auto& child = rich.snapshot;
-    if (!sink.accept || !per_message_text.data || !per_message_text.count || !scratch.mention_roles.data ||
-        scratch.mention_roles.count < kGatewayMessageMentionRoleMaximumIds || !scratch.member_roles.data ||
-        scratch.member_roles.count < kGatewayMessageMemberRoleMaximumIds || !scratch.mention_users.data ||
-        scratch.mention_users.count < kGatewayMessageMentionUserMaximum || !rich.reactions.data ||
-        rich.reactions.count < kGatewayMessageReactionMaximum || !rich.attachments.data ||
-        rich.attachments.count < kGatewayMessageAttachmentMaximum || !rich.embeds.data ||
-        rich.embeds.count < kGatewayMessageEmbedMaximum || !rich.embed_fields.data ||
-        rich.embed_fields.count < kGatewayMessageEmbedFieldMaximum || !rich.stickers.data ||
-        rich.stickers.count < kGatewayMessageStickerMaximum || !rich.components.data ||
-        rich.components.count < kGatewayMessageComponentMaximum || !child.attachments.data ||
-        child.attachments.count < kGatewayMessageAttachmentMaximum || !child.embeds.data ||
-        child.embeds.count < kGatewayMessageEmbedMaximum || !child.embed_fields.data ||
-        child.embed_fields.count < kGatewayMessageEmbedFieldMaximum || !child.stickers.data ||
-        child.stickers.count < kGatewayMessageStickerMaximum || !child.components.data ||
-        child.components.count < kGatewayMessageComponentMaximum || !child.mention_users.data ||
-        child.mention_users.count < kGatewayMessageMentionUserMaximum ||
-        (!rich.poll.answers.data && rich.poll.answers.count) ||
-        (!rich.poll.answer_counts.data && rich.poll.answer_counts.count) ||
-        !disjoint(scratch.mention_roles, scratch.member_roles) ||
-        !disjoint(rich.attachments, child.attachments) || !disjoint(rich.embeds, child.embeds) ||
-        !disjoint(rich.embed_fields, child.embed_fields) || !disjoint(rich.stickers, child.stickers) ||
-        !disjoint(rich.components, child.components) ||
-        !disjoint(scratch.mention_users, child.mention_users))
-        return {{}, 0, MessageSearchDecodeError::invalid_input};
-    return decode_search_page(body, query, page_structurals, maximum_depth, per_message_text, groups, messages,
-                              &scratch, sink);
 }
 
 } // namespace maicord

@@ -3,6 +3,7 @@
 #include "maicord/core/log.hpp"
 #include "../../src/app/shell/state.hpp"
 #include "../../src/app/chat/search/search.hpp"
+#include "../support/search_rows.hpp"
 
 namespace maicord {
 namespace {
@@ -28,7 +29,7 @@ bool search_probe_resolve(void* context, u32 index, UiSearchRow* row) noexcept {
             index % 3 == 1 ? utf8_literal("Match 2026-10-03 12:30")
                            : utf8_literal("Context 2026-10-03 12:29"),
             index % 3 == 1,
-            index % 3 == 0};
+            9000 + index};
     return true;
 }
 } // namespace
@@ -38,6 +39,10 @@ bool search_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) no
     UiSearchScene scene{};
     SearchProbeSource fixture{};
     UiSearchSource source{&fixture, 6, 1, search_probe_resolve};
+    // The client publishes a page without results as a source without rows or timeline.
+    UiSearchSource empty{&fixture, 0, 1, search_probe_resolve};
+    const UiSearchSource* shown = &source;
+    static SearchRows rows;
     UiSearchContent content{};
     content.edit = {utf8_literal("release has:image"), 0, 17, true, false, false};
     content.panel = true;
@@ -57,7 +62,7 @@ bool search_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) no
                                      maximum(0.f, original_width_dips - original_content.right) +
                                      app_detail::kMinimumAccountMessageWidthDips;
     u32 failure_stage = 0, capture_stage = 0;
-    bool valid = true;
+    bool valid = search_rows_publish(&rows, &source);
     const auto show = [&](const wchar_t* name) noexcept {
         const u32 stage = ++capture_stage * 10;
         const auto* title =
@@ -68,7 +73,7 @@ bool search_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) no
         }
         auto viewport = ui_scene_content_rectangle(*renderer.ui_scene, UiSemantic::content);
         viewport.right = static_cast<float>(renderer.width) * 96.f / renderer.dpi;
-        if (!ui_search_scene_update(&scene, &source, &content, viewport, title->rectangle)) {
+        if (!ui_search_scene_update(&scene, shown, &content, viewport, title->rectangle)) {
             failure_stage = stage + 2;
             return false;
         }
@@ -98,7 +103,9 @@ bool search_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) no
         }
         return true;
     };
-    valid = show(L"search-results-native.bmp");
+    if (!valid)
+        failure_stage = 1;
+    valid = valid && show(L"search-results-native.bmp");
     if (valid) {
         content.filters = true;
         ++content.revision;
@@ -108,8 +115,7 @@ bool search_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) no
     }
     content.filters = false;
     content.next = false;
-    source.count = 0;
-    ++source.revision;
+    shown = &empty;
     content.total = 0;
     content.phase = UiSearchPhase::loading;
     content.status = utf8_literal("Searching…");
@@ -126,7 +132,7 @@ bool search_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) no
     ++content.revision;
     if (valid)
         valid = show(L"search-empty-native.bmp");
-    source.count = 6;
+    shown = &source;
     ++source.revision;
     content.total = 64;
     content.phase = UiSearchPhase::loading;

@@ -18,7 +18,7 @@ u32 ui_search_scene_visible_tile_count(const UiSearchScene& s) noexcept {
                                                                       : 0;
 }
 bool ui_search_scene_visible_tile(const UiSearchScene& s, u32 slot, UiSearchTarget* target) noexcept {
-    if (!target || slot >= ui_search_scene_visible_tile_count(s))
+    if (slot >= ui_search_scene_visible_tile_count(s))
         return false;
     const auto& item = s.rich_projection->items[s.rich_projection->visible[slot]];
     *target = item_target(s, item, true);
@@ -316,21 +316,19 @@ bool ui_search_scene_rich_preview_geometry(const UiSearchScene& s, const UiSearc
 }
 bool ui_search_scene_update(UiSearchScene* s, const UiSearchSource* source, const UiSearchContent* content,
                             const UiRect& viewport, const UiRect& title, const UiShellHeaderGeometry* header) noexcept {
-    if (s && content && !choices_authorized(content->filter_choices)) {
+    // The one host (search.cpp) publishes at most kUiSearchFilterChoiceMaximum rows of its own storage with a selection
+    // inside them, at most kSearchRecentCapacity nonempty recent entries of up to kSearchRecentTextBytes, an active
+    // edit and a source with a resolver; every string is valid UTF-8 where it is made: the heading and placeholder are a
+    // literal prefix and a guild or channel name that the chat state store validated (cut at a scalar boundary), the
+    // filter summary, scope chip and choice heading and hint are literals, choice rows are cut at a scalar boundary
+    // from validated store names, and the recent list validates each entry when it adds or loads it.
+    const auto* choices = content->filter_choices;
+    if (choices && !choices->current(choices->context)) {
         s->active = false;
         return false;
     }
-    // The host strings are valid UTF-8 where they are made: the heading and placeholder are a literal prefix and a
-    // guild or channel name that the chat state store validated (cut at a scalar boundary), the filter summary and
-    // the scope chip are literals, and the recent list validates each entry when it adds or loads it.
-    bool recent_valid =
-        content && content->recent_count <= 5 && (!content->recent_count || content->recent);
-    for (u32 i = 0; recent_valid && i < content->recent_count; ++i)
-        recent_valid = content->recent[i].bytes && content->recent[i].bytes <= 256;
-    if (!s || !content || !recent_valid || !content->edit.active || !ui_rect_has_area(viewport) ||
-        ui_rect_width(title) < 120 ||
-        source && (!source->resolve || source->count > 125 ||
-                   (source->current && !source->current(source->context))))
+    if (!ui_rect_has_area(viewport) || ui_rect_width(title) < 120 ||
+        source && (source->count > 125 || (source->current && !source->current(source->context))))
         return false;
     const float width = minimum(280.f, maximum(120.f, ui_rect_width(title) - 96));
     const UiRect field =
@@ -351,7 +349,6 @@ bool ui_search_scene_update(UiSearchScene* s, const UiSearchSource* source, cons
     const u16 menu_layout = layout | (content->suggestions ? 1u << 10 : 0) |
                             (content->sort_menu ? 1u << 11 : 0) | (content->tabs ? 1u << 12 : 0) |
                             (static_cast<u16>(item_layout) << 13) | (recent ? 1u << 15 : 0);
-    const auto* choices = content->filter_choices;
     const u32 source_revision = source ? source->revision : 0;
     const u32 geometry_revision =
         s->theme_styles && s->theme_styles->ready ? s->theme_styles->geometry_revision : 0;
@@ -360,12 +357,6 @@ bool ui_search_scene_update(UiSearchScene* s, const UiSearchSource* source, cons
         s->choice_source_revision == (choices ? choices->revision : 0) &&
         s->choice_total == (choices ? choices->rows.count : 0) &&
         s->choice_selected == (choices ? choices->selected : kUiSearchFilterNoSelection);
-    // Host-owned strings are immutable under this publication. Warm frames
-    // recheck authority above, without rescanning any candidate text.
-    if (!same_publication && !choices_valid(choices)) {
-        s->active = false;
-        return false;
-    }
     const bool same_choices = same_publication && s->choice_geometry_revision == geometry_revision;
     const bool warm = !s->media_policy_dirty && same_choices && s->active && s->source == source &&
                       s->source_revision == source_revision && ui_rect_equal(s->viewport, viewport) &&
@@ -480,7 +471,7 @@ bool ui_search_scene_scroll(UiSearchScene* s, float offset) noexcept {
 }
 bool ui_search_scene_filter_choice_geometry(const UiSearchScene& scene, u32 source_index, UiRect* rectangle,
                                             UiRect* clip) noexcept {
-    if (!rectangle || !clip || !current(scene) || !scene.choice_source ||
+    if (!current(scene) || !scene.choice_source ||
         source_index < scene.choice_first || source_index >= u32{scene.choice_first} + scene.choice_count)
         return false;
     for (u32 slot = 1; slot < scene.widgets.count; ++slot) {
@@ -655,18 +646,16 @@ bool ui_search_scene_contains(const UiSearchScene& s, float x, float y) noexcept
             (chooser_open(s) && ui_rect_contains(s.chooser, x, y)));
 }
 bool ui_search_scene_avatar(const UiSearchScene& s, u32 slot, UiRect* rectangle, UiRect* clip) noexcept {
-    if (!rectangle || !clip || !current(s) || !s.content->panel || slot >= s.count ||
-        slot >= kUiSearchVisibleRows || !ui_widget_manager_resolve(s.widgets, s.rows[slot]))
+    // rebuild keeps count within kUiSearchVisibleRows.
+    if (!current(s) || !s.content->panel || slot >= s.count ||
+        !ui_widget_manager_resolve(s.widgets, s.rows[slot]))
         return false;
-    const auto r = s.row_rectangles[slot];
-    if (const auto* scene = ui_search_scene_message_scene(s)) {
-        const auto* row = message_scene_find_row(*scene, s.first + slot);
-        const auto* avatar = row ? message_scene_layout_node(*scene, row->avatar) : nullptr;
-        if (!avatar)
-            return false;
-        *rectangle = avatar->rectangle;
-    } else
-        *rectangle = {r.left + 12, r.top + 12, r.left + 44, r.top + 44};
+    const auto* scene = ui_search_scene_message_scene(s);
+    const auto* row = scene ? message_scene_find_row(*scene, s.first + slot) : nullptr;
+    const auto* avatar = row ? message_scene_layout_node(*scene, row->avatar) : nullptr;
+    if (!avatar)
+        return false;
+    *rectangle = avatar->rectangle;
     *clip = overlay_clip(s, *rectangle);
     return ui_rect_has_area(*clip);
 }

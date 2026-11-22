@@ -563,10 +563,6 @@ bool rebuild_probe_content_text() noexcept {
                     pass.command_count);
             log_u64(LogLevel::error, "probe", "content_text_coordinator_trace_measurements",
                     pass.measurement_count);
-            for (u32 item = 0; item < 4; ++item) {
-                log_u64(LogLevel::error, "probe", "content_text_coordinator_trace_item_units",
-                        pass.leading_item_units[item]);
-            }
             log_u64(LogLevel::error, "probe", "content_text_coordinator_trace_flags", pass.flags);
         }
     }

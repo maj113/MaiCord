@@ -31,9 +31,6 @@ inline bool search_avatar_media_resolve(const UiSearchScene& scene, u32 slot,
     MediaAssetKey key;
     if (!row.author_id || !avatar_media_key(row.author_id, row.avatar_hash, &key))
         return false;
-    if (const auto* native = ui_search_scene_message_scene(scene);
-        native && !message_scene_find_row(*native, scene.first + slot))
-        return false;
     *out = {key, row.avatar_hash, rectangle, clip};
     return true;
 }

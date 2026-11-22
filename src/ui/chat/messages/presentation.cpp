@@ -38,15 +38,13 @@ UiRect message_media_picture_rectangle(const MessageMediaCommand& command, u32 w
 namespace {
 
 // Fills the next command slot with the common fields and returns it (callers
-// set what else applies), or null when the id, rectangle or owner is unusable
-// or the stream is full.
+// set what else applies), or null when the id or rectangle is unusable or the
+// stream is full.
 MessageMediaCommand* append_media(MessageMediaCommandStream* stream, u64 id, MessageMediaCommandKind kind, u8 format,
                                   bool animated, const UiRect& rectangle, const UiRect& clip,
                                   const UiWidgetReference& owner) noexcept {
-    if (id == 0 || !ui_rect_has_area(rectangle) || !owner.manager || stream->count >= stream->storage.count) {
-        saturating_increment(stream->rejected);
+    if (id == 0 || !ui_rect_has_area(rectangle) || stream->count >= stream->storage.count)
         return nullptr;
-    }
     MessageMediaCommand* command = &stream->storage[stream->count++];
     *command = MessageMediaCommand{id, rectangle, clip, owner, 0, kind, format, 0, 0, animated, false, false, false, 0, 0};
     return command;
@@ -333,7 +331,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         !paint_stream_push_rounded(paint, avatar->rectangle, theme.avatar_placeholder,
                                    ui_rect_width(avatar->rectangle) * 0.5f))
         return false;
-    if (!row.forwarded_snapshot && record && message_type_is_system(record->type) && avatar &&
+    if (!row.forwarded_snapshot && record && message_type_is_system(record->type) &&
         !append_system_glyph(scene, *record, *avatar, *body, theme, paint))
         return false;
 
@@ -930,10 +928,7 @@ bool append_intro(const MessageScene& scene, const Theme& theme, PaintStream* pa
 
 bool message_media_command_stream_initialize(MessageMediaCommandStream* stream,
                                              Slice<MessageMediaCommand> storage) noexcept {
-    if (!stream || !storage.data || storage.count == 0) {
-        return false;
-    }
-    *stream = MessageMediaCommandStream{storage, 0, 0};
+    *stream = MessageMediaCommandStream{storage, 0};
     return true;
 }
 
@@ -959,13 +954,9 @@ bool append_code_blocks(const MessageScene& scene, const MessageTextPresentation
 bool message_presentation_build(const MessageScene& scene, const Theme& theme, PaintStream* paint,
                                 MessageMediaCommandStream* media, MessagePresentationResult* result,
                                 const MessageTextPresentation* text) noexcept {
-    if (result) {
-        reset_value<MessagePresentationResult>(result);
-    }
-    if (!paint || !media || !result || !scene.active || !scene.timeline ||
-        !ui_rect_has_area(scene.viewport) || !media->storage.data) {
+    reset_value<MessagePresentationResult>(result);
+    if (!scene.active || !scene.timeline || !ui_rect_has_area(scene.viewport))
         return false;
-    }
     const u32 paint_count = paint->count;
     const u32 paint_clip_count = paint->clip_count;
     const u32 paint_batch_count = paint->batch_count;
@@ -981,7 +972,6 @@ bool message_presentation_build(const MessageScene& scene, const Theme& theme, P
         reset_value<MessagePresentationResult>(result);
     };
     media->count = 0;
-    media->rejected = 0;
     if (!paint_stream_push_clip(paint, scene.viewport)) {
         rollback();
         return false;
@@ -1022,7 +1012,7 @@ bool message_presentation_build(const MessageScene& scene, const Theme& theme, P
         rollback();
         return false;
     }
-    if (!paint_stream_pop_clip(paint) || media->rejected != 0) {
+    if (!paint_stream_pop_clip(paint)) {
         rollback();
         return false;
     }

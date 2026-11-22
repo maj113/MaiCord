@@ -21,17 +21,15 @@ UiSearchFilterKind filter_kind(Utf8View key) noexcept {
     return UiSearchFilterKind::none;
 }
 bool decode(Utf8View query, u32 caret, UiSearchFilterContext& out) noexcept {
-    out.quoted = out.value_begin < out.value_end && query.data[out.value_begin] == '"';
-    out.quote_complete = !out.quoted;
-    u32 at = out.value_begin + (out.quoted ? 1u : 0u);
+    const bool quoted = out.value_begin < out.value_end && query.data[out.value_begin] == '"';
+    u32 at = out.value_begin + (quoted ? 1u : 0u);
     while (at < out.value_end) {
         char c = query.data[at++];
-        if (out.quoted && c == '"') {
+        if (quoted && c == '"') {
             if (at != out.value_end) return false;
-            out.quote_complete = true;
             break;
         }
-        if (out.quoted && c == '\\' && at < out.value_end &&
+        if (quoted && c == '\\' && at < out.value_end &&
             (query.data[at] == '"' || query.data[at] == '\\'))
             c = query.data[at++];
         out.decoded[out.value_bytes++] = c;

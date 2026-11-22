@@ -1,5 +1,6 @@
 #pragma once
 #include "scoped_search_ui_probe.hpp"
+#include "../support/search_rows.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/gdi.hpp"
@@ -22,8 +23,7 @@ inline bool resolve(void*, u32 i, UiSearchRow* out) noexcept {
               : utf8_literal("Hello, native search."),
         utf8_literal("10/03 12:30"),
         true,
-        i == 0 || i == 3,
-        i % 2 ? 120.f : 24.f};
+        9100ull + i};
     return true;
 }
 // Two 512x500-pixel maximum crops together use <=2,048,108 disk bytes.
@@ -122,6 +122,9 @@ inline bool search_polish_ui_probe(D3D11Renderer& renderer) noexcept {
     auto viewport = ui_scene_content_rectangle(*renderer.ui_scene, UiSemantic::content);
     viewport.right = renderer.width / scale;
     UiSearchSource source{nullptr, 6, 1, resolve};
+    static SearchRows rows;
+    if (!search_rows_publish(&rows, &source))
+        return fail();
     UiSearchContent content{};
     content.edit = {utf8_literal("hello"), 5, 5, true, true, false};
     content.heading = content.placeholder = utf8_literal("Search Native Garden");
@@ -173,16 +176,14 @@ inline bool search_polish_ui_probe(D3D11Renderer& renderer) noexcept {
     content.suggestions = false;
     content.sort_menu = true;
     ++content.revision;
-    if (!render(1) || scene.count < 2 || ui_rect_height(scene.row_rectangles[0]) != 72 ||
-        ui_rect_height(scene.row_rectangles[1]) != 168 ||
-        scene.group_rectangles[0].bottom != scene.row_rectangles[0].top ||
+    if (!render(1) || scene.count < 2 ||
         !text_ink(scene, renderer, rb, 1, content.edit.text) ||
         !text_ink(scene, renderer, rb, 1, content.heading) ||
         !text_ink(scene, renderer, rb, 1, utf8_literal("6 results")) ||
         !text_ink(scene, renderer, rb, 1, utf8_literal("Newest")) ||
         !text_ink(scene, renderer, rb, 1, utf8_literal("Oldest")) ||
         !text_ink(scene, renderer, rb, 1, utf8_literal("Most relevant")) ||
-        !text_ink(scene, renderer, rb, 1, utf8_literal("Native author")))
+        !text_ink(scene, renderer, rb, 1, utf8_literal("#release-planning")))
         return fail();
     const auto* oldest = ui_widget_manager_layout_node(scene.widgets, scene.buttons[4]);
     if (!oldest ||

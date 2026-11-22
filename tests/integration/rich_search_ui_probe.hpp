@@ -65,7 +65,7 @@ inline bool resolve(void* context,u32 index,UiSearchRow* row) noexcept {
     *row = {message->channel_id,message->id,
         author ? user_store_name(f.users,*author) : utf8_literal("Unknown author"),
         utf8_literal("#general"),message_store_content(f.published,handle),utf8_literal("10/05 12:30"),
-        true,true,0,message->author_id,author ? user_store_avatar_hash(*author) : Utf8View{}};
+        true,message->author_id,author ? user_store_avatar_hash(*author) : Utf8View{}};
     return true;
 }
 inline bool accept(void* context,u32 index,const MessageSearchMessage& result) noexcept {

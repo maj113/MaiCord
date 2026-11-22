@@ -307,10 +307,7 @@ ChatStateStoreError back_name_budget(const ChatStateStore& store, const NamePref
     return backed ? ChatStateStoreError::none : ChatStateStoreError::name_capacity;
 }
 
-ChatStateStoreResult state_error(ChatStateStore* store, ChatStateStoreError error) noexcept {
-    if (store) {
-        ++store->rejected;
-    }
+ChatStateStoreResult state_error(ChatStateStoreError error) noexcept {
     return ChatStateStoreResult{0, error, false, false};
 }
 
@@ -602,13 +599,13 @@ ChatStateStoreResult chat_state_store_upsert_guild(ChatStateStore* store,
         (input.settings && !guild_settings_valid(*input.settings)) ||
         (!input.nsfw_level_known && input.nsfw_level) || input.kind == GuildMutationKind::remove ||
         (input.icon_known && !asset_hash_valid(input.icon_hash))) {
-        return state_error(store, ChatStateStoreError::invalid_input);
+        return state_error(ChatStateStoreError::invalid_input);
     }
     bool found = false;
     const u32 order_index = find_guild_order(*store, input.id, &found);
     u32 slot = found ? store->guild_order[order_index] : empty_guild_slot(*store);
     if (!found && (store->guild_count >= store->guild_capacity || slot >= store->guild_capacity)) {
-        return state_error(store, ChatStateStoreError::guild_capacity);
+        return state_error(ChatStateStoreError::guild_capacity);
     }
     GuildRecord& record = store->guilds[slot];
     const bool replace_name =
@@ -617,7 +614,7 @@ ChatStateStoreResult chat_state_store_upsert_guild(ChatStateStore* store,
     const bool replace_icon = input.icon_known && (!found || !guild_icon_equals(record, input.icon_hash));
     u32 name_offset = record.name_offset;
     if (replace_name && !allocate_name(store, input.name, &name_offset)) {
-        return state_error(store, ChatStateStoreError::name_capacity);
+        return state_error(ChatStateStoreError::name_capacity);
     }
     if (!found) {
         open_order(store->guild_order, store->guild_count, store->guild_free_hint, order_index, slot);
@@ -899,20 +896,20 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
                                                            const ChannelInput& input) noexcept {
     const bool private_channel = channel_is_private(input.type);
     if (!store || !store->channels || channel_input_invalid(input)) {
-        return state_error(store, ChatStateStoreError::invalid_input);
+        return state_error(ChatStateStoreError::invalid_input);
     }
     bool found = false;
     const u32 order_index = find_channel_order(*store, input.id, &found);
     if (!found && (store->channel_count >= store->channel_capacity ||
                    !back_channels(*store, store->channel_count + 1)))
-        return state_error(store, ChatStateStoreError::channel_capacity);
+        return state_error(ChatStateStoreError::channel_capacity);
     u32 slot = found ? store->channel_order[order_index] : empty_channel_slot(*store);
     if (!found && slot >= store->channel_capacity) {
-        return state_error(store, ChatStateStoreError::channel_capacity);
+        return state_error(ChatStateStoreError::channel_capacity);
     }
     ChannelRecord& record = store->channels[slot];
     if (found && record.guild_id != input.guild_id) {
-        return state_error(store, ChatStateStoreError::invalid_input);
+        return state_error(ChatStateStoreError::invalid_input);
     }
     const ChannelActivity old = found ? channel_activity(*store, record) : ChannelActivity{};
     const bool replace_name =
@@ -920,7 +917,7 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
         (!found || !name_equals(*store, record.name_offset, record.name_bytes, input.name));
     u32 name_offset = record.name_offset;
     if (replace_name && !allocate_name(store, input.name, &name_offset)) {
-        return state_error(store, ChatStateStoreError::name_capacity);
+        return state_error(ChatStateStoreError::name_capacity);
     }
     if (!found) {
         open_order(store->channel_order, store->channel_count, store->channel_free_hint, order_index, slot);
@@ -1014,7 +1011,7 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
     // A READY read entry may precede its channel. Reconcile it before the
     // insertion contributes activity to the guild, avoiding a transient badge.
     if (!read_state_apply_pending(store, &record))
-        return state_error(store, ChatStateStoreError::invalid_input);
+        return state_error(ChatStateStoreError::invalid_input);
     commit_channel_activity(store, record, old);
     saturating_increment(record.revision);
     ++store->channel_mutations;
@@ -1230,7 +1227,6 @@ bool chat_state_store_upsert_role(ChatStateStore* store, const RoleInput& input)
         return true;
     }
     if (!chat_state_store_prepare_permissions(store, store->role_count, store->overwrite_count)) {
-        ++store->rejected;
         return false;
     }
     bool found = false;
@@ -1241,7 +1237,6 @@ bool chat_state_store_upsert_role(ChatStateStore* store, const RoleInput& input)
             input.name.bytes != 0 && !name_equals(*store, role.name_offset, role.name_bytes, input.name);
         u32 name_offset = role.name_offset;
         if (replace_name && !allocate_name(store, input.name, &name_offset)) {
-            ++store->rejected;
             return false;
         }
         if (replace_name) {
@@ -1252,12 +1247,10 @@ bool chat_state_store_upsert_role(ChatStateStore* store, const RoleInput& input)
     } else {
         if (store->role_count >= store->role_capacity ||
             !chat_state_store_prepare_permissions(store, store->role_count + 1, store->overwrite_count)) {
-            ++store->rejected;
             return false;
         }
         u32 name_offset = 0;
         if (!allocate_name(store, input.name, &name_offset)) {
-            ++store->rejected;
             return false;
         }
         // Keep the existing compact backing sorted: lookups need no extra index or cache.

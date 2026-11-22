@@ -100,7 +100,7 @@ void run() noexcept {
     if (body) {
         const auto copy = message_text_project_selection_for_copy(*body,
             message_text_presentation_command_source(store, &rich, *body), 0, body->text.bytes, {copied, 1024});
-        check(copy.ok && copy.transformed && test_contains({copied, copy.bytes}, utf8_literal("<:inner:23>")) &&
+        check(copy.ok && test_contains({copied, copy.bytes}, utf8_literal("<:inner:23>")) &&
               !test_contains({copied, copy.bytes}, utf8_literal("<:outer:22>")), utf8_literal("forwarded_text_copy_emoji_source"));
     }
     bool changed = false; const auto spoiler = hit(body, MessageMarkdownSemanticKind::spoiler);

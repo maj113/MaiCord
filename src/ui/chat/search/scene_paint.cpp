@@ -76,19 +76,12 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
             .clip(s.body);
         if (tiled(s))
             p.use<paint_items>(s, theme, rich_media);
-        for (u32 i = 0; p && i < s.count; ++i) {
-            const auto r = s.row_rectangles[i];
-            p.use<ui_background_paint_surface>(r, theme, s.visible[i].hit ? theme.surface : theme.base_lower,
+        for (u32 i = 0; p && i < s.count; ++i)
+            p.use<ui_background_paint_surface>(s.row_rectangles[i], theme,
+                                               s.visible[i].hit ? theme.surface : theme.base_lower,
                                                s.visible[i].hit ? theme.surface_high : Color{}, 10.f,
                                                s.visible[i].hit ? 1.f : 0.f, 1.f, kGradient, UiBackgroundTier::low,
                                                kSemantic);
-            if (rich_enabled(s))
-                continue;
-            const float x = r.left + 28, y = r.top + 28;
-            p.rounded({x - 16, y - 16, x + 16, y + 16}, theme.avatar_placeholder, theme.scale.radius_full)
-                .rounded({x - 5, y - 9, x + 5, y + 1}, theme.text_secondary, 5)
-                .rounded({x - 9, y + 3, x + 9, y + 11}, theme.text_secondary, 7);
-        }
         if (p && rich_enabled(s) && !tiled(s)) {
             const auto* scene = ui_search_scene_message_scene(s);
             MessagePresentationResult result{};
@@ -141,7 +134,7 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
         if ((!filter && chooser_open(s) && ui_rect_intersects(r, s.chooser)) ||
             (!sort && s.content->sort_menu && ui_rect_intersects(r, s.sort_chooser)))
             continue;
-        if (rich_enabled(s) && action == UiSearchAction::result)
+        if (action == UiSearchAction::result)
             p.surface(r, theme.surface_high, theme.interactive, ui_theme_metrics(s.theme_styles).control_radius);
         if (action == UiSearchAction::rich_item && s.targets[i].save) {
             if (p && !ui_attachment_save_paint(out, {&s.widgets, self}, r, ui_search_scene_content_clip(s, r), theme,
@@ -305,34 +298,21 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
         for (u32 i = 0; i < s.count; ++i) {
             const auto& row = s.visible[i];
             const auto r = s.row_rectangles[i];
-            if (rich_enabled(s)) {
-                if (row.unavailable) {
-                    text(out, s, s.root, row.body,
-                         {r.left + 16, r.top + 12, r.right - (row.access_check ? 88 : 16), r.bottom - 12},
-                         theme.text_secondary, text_style_subtext);
-                    if (row.access_check)
-                        if (const auto* check = ui_widget_manager_layout_node(s.widgets, s.rows[i]))
-                            centered(out, s, s.rows[i], utf8_literal("Check access"), check->rectangle,
-                                     theme.text_primary);
-                    continue;
-                }
-                const auto* jump = ui_widget_manager_layout_node(s.widgets, s.rows[i]);
-                text(out, s, s.rows[i], row.channel, s.group_rectangles[i], theme.text_secondary,
-                     text_style_subtext | text_style_bold);
-                if (jump)
-                    centered(out, s, s.rows[i], utf8_literal("Jump"), jump->rectangle, theme.text_primary);
+            if (row.unavailable) {
+                text(out, s, s.root, row.body,
+                     {r.left + 16, r.top + 12, r.right - (row.access_check ? 88 : 16), r.bottom - 12},
+                     theme.text_secondary, text_style_subtext);
+                if (row.access_check)
+                    if (const auto* check = ui_widget_manager_layout_node(s.widgets, s.rows[i]))
+                        centered(out, s, s.rows[i], utf8_literal("Check access"), check->rectangle,
+                                 theme.text_primary);
                 continue;
             }
-            const auto header = plain_header(r, row);
-            if (ui_rect_has_area(s.group_rectangles[i]))
-                text(out, s, s.rows[i], row.channel, s.group_rectangles[i], theme.text_secondary,
-                     text_style_subtext | text_style_bold);
-            text(out, s, s.rows[i], row.author, header.name, row.hit ? theme.text_primary : theme.text_secondary,
-                 text_style_bold);
-            text(out, s, s.rows[i], row.detail, header.timestamp, theme.text_secondary, text_style_subtext);
-            text(out, s, s.rows[i], row.body,
-                 ui_rect_edges(r, ui_start(52), ui_start(36), ui_end(-12), ui_end(-12)),
-                 row.hit ? theme.text_primary : theme.text_secondary, 0, ui_text_wrap);
+            const auto* jump = ui_widget_manager_layout_node(s.widgets, s.rows[i]);
+            text(out, s, s.rows[i], row.channel, s.group_rectangles[i], theme.text_secondary,
+                 text_style_subtext | text_style_bold);
+            if (jump)
+                centered(out, s, s.rows[i], utf8_literal("Jump"), jump->rectangle, theme.text_primary);
         }
     }
     if (s.choice_source) {
