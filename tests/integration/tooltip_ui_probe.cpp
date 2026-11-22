@@ -378,7 +378,8 @@ bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) n
         if (wrapping_passed && !valid)
             log_u64(LogLevel::error, "probe", "tooltip_native_failure_stage", 5);
         const bool presentation_passed = valid;
-        valid = valid && ui_page_registry_initialize(&registry, {pages, 1}) &&
+        ui_page_registry_initialize(&registry, {pages, 1});
+        valid = valid &&
                 ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Tooltip Modality"), &content})
                     .ok() &&
                 ui_settings_scene_update(&modal, &registry, viewport);

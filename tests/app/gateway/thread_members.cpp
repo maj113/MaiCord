@@ -184,10 +184,6 @@ void test_thread_members(void (*check)(bool, const char*) noexcept) noexcept {
     thread_member_store_snapshot_begin(&tiny, 7, 70);
     check(!thread_member_store_snapshot_append(&tiny, 0) && !thread_member_store_snapshot_commit(&tiny) &&
         backing.calls == calls_before_zero && tiny.count == 3, "zero staged identity aborts without requesting backing or changing active snapshot");
-    ThreadMemberStore invalid{}; u64 overlapping[8]{};
-    check(!thread_member_store_initialize(&invalid, {overlapping, 4}, {overlapping + 1, 4}) &&
-        !thread_member_store_initialize(&invalid, {overlapping, 4}, {overlapping, 4}),
-        "overlapping or identical identity banks cannot compromise atomic replacement");
     check(thread_member_store_select(&f.threads,7,70)&&
         thread_member_store_snapshot_begin(&f.threads,7,70)&&
         thread_member_store_snapshot_append(&f.threads,2)&&thread_member_store_snapshot_commit(&f.threads),

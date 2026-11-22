@@ -39,8 +39,6 @@ bool guild_ban_store_bind(GuildBanStore* store, Slice<GuildBanRecord> records) n
 }
 
 void guild_ban_store_reset(GuildBanStore* store, u64 guild_id) noexcept {
-    if (!store)
-        return;
     if (store->records && store->count)
         secure_clear_bytes(store->records, store->count * sizeof(GuildBanRecord));
     store->count = 0;
@@ -55,8 +53,8 @@ u64 guild_ban_store_next_after(const GuildBanStore& store) noexcept {
 
 bool guild_ban_store_append_page(GuildBanStore* store, u64 guild_id, ConstSlice<GuildAdminBan> page,
                                  bool last_page) noexcept {
-    if (!store || !store->records || !guild_id || guild_id != store->guild_id || store->complete ||
-        (!page.data && page.count) || page.count > store->capacity - store->count)
+    if (!store->records || !guild_id || guild_id != store->guild_id || store->complete ||
+        page.count > store->capacity - store->count)
         return false;
     u64 previous = guild_ban_store_next_after(*store);
     for (u32 i = 0; i < page.count; ++i) {
@@ -76,7 +74,7 @@ bool guild_ban_store_append_page(GuildBanStore* store, u64 guild_id, ConstSlice<
 }
 
 bool guild_ban_store_apply_add(GuildBanStore* store, u64 guild_id, u64 user_id, Utf8View name) noexcept {
-    if (!store || !store->records || !guild_id || guild_id != store->guild_id || !user_id)
+    if (!store->records || !guild_id || guild_id != store->guild_id || !user_id)
         return false;
     const u32 at = lower_bound(*store, user_id);
     if (at < store->count && store->records[at].user_id == user_id)
@@ -91,7 +89,7 @@ bool guild_ban_store_apply_add(GuildBanStore* store, u64 guild_id, u64 user_id, 
 }
 
 bool guild_ban_store_apply_remove(GuildBanStore* store, u64 guild_id, u64 user_id) noexcept {
-    if (!store || !store->records || !guild_id || guild_id != store->guild_id || !user_id)
+    if (!store->records || !guild_id || guild_id != store->guild_id || !user_id)
         return false;
     const u32 at = lower_bound(*store, user_id);
     if (at >= store->count || store->records[at].user_id != user_id)

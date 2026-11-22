@@ -82,17 +82,9 @@ void test_channel_context_policy(void (*check)(bool, const char*) noexcept) noex
         check(channel_context_policy_build(state, 7, mark, close, {items, 2}) == 1 && items[0].action == mark,
               "channel context: readable voice and stage chats offer Mark as read");
     }
-    channel.type = 1;
-    channel.guild_id = 0;
-    items[0] = {utf8_literal("unchanged"), 900, 0, 0};
-    items[1] = items[0];
-    check(channel_context_policy_build(state, 7, mark, close, {items, 1}) == 0 && items[0].action == 900 &&
-              items[1].action == 900 && utf8_equal(items[0].label, utf8_literal("unchanged")),
-          "channel context: insufficient output capacity leaves caller menu unchanged");
-    check(channel_context_policy_build(state, 9, mark, close, {items, 2}) == 0 &&
-              channel_context_policy_build(state, 7, 0, close, {items, 2}) == 0 &&
-              channel_context_policy_build(state, 7, mark, close, {}) == 0 && items[0].action == 900,
-          "channel context: missing identity, missing action ID and missing storage cannot publish partial items");
+    items[0].action = 900;
+    check(channel_context_policy_build(state, 9, mark, close, {items, 2}) == 0 && items[0].action == 900,
+          "channel context: an unknown channel publishes nothing");
 
     constexpr u32 edit = 703;
     channel.type = 0;
@@ -174,12 +166,6 @@ void test_channel_context_policy(void (*check)(bool, const char*) noexcept) noex
               !channel_context_target_current(state, 7, 3, 9) &&
               !channel_context_target_current(state, 7, 4, 8),
           "channel context: edit host can fence stale generation and revision before dispatch");
-    items[0] = {utf8_literal("unchanged"), 900, 0, 0};
-    items[1] = items[0];
-    channel.actions |= channel_action_read_history;
-    check(channel_context_policy_build(state, 7, mark, close, {items, 1}, edit) == 0 && items[0].action == 900 &&
-              items[1].action == 900,
-          "channel context: edit capacity denial preserves caller output");
     constexpr u32 unread = 704;
     PopupItem extended[3]{};
     channel.last_message_id = 900;
@@ -228,11 +214,6 @@ void test_channel_context_policy(void (*check)(bool, const char*) noexcept) noex
           "unread permission projection rejects stale read action when effective history permission was "
           "removed");
     channel.effective_permissions |= kPermissionReadMessageHistory;
-    extended[0] = {utf8_literal("unchanged"), 900, 0, 0};
-    extended[1] = extended[0];
-    check(channel_context_policy_build(state, 7, mark, close, {extended, 1}, 0, unread) == 0 &&
-              extended[0].action == 900 && extended[1].action == 900,
-          "unread extra row capacity denial leaves caller output intact");
     constexpr u32 retry_unread = 705;
     channel.type = 1;
     channel.guild_id = 0;
@@ -264,11 +245,6 @@ void test_channel_context_policy(void (*check)(bool, const char*) noexcept) noex
               extended[0].action == scoped_mark && extended[1].action == scoped_retry &&
               utf8_equal(extended[1].label, utf8_literal("Retry mark as read")),
           "failed scoped category read offers distinct explicit Retry");
-    extended[0].action = 900;
-    extended[1].action = 900;
-    check(channel_context_policy_build(state, 7, mark, close, {extended, 1}, 0, 0, 0, scoped) == 0 &&
-              extended[0].action == 900 && extended[1].action == 900,
-          "category capacity failure is transactional");
     scoped.available = false;
     check(channel_context_policy_build(state, 7, mark, close, {extended, 3}, 0, 0, 0, scoped) == 0,
           "category read is hidden when scoped host authority is unavailable");

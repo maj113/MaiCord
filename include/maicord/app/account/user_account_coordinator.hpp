@@ -106,8 +106,8 @@ bool user_account_coordinator_replace_credential(UserAccountCoordinator* coordin
 UserAccountCoordinatorResult user_account_coordinator_stop(UserAccountCoordinator* coordinator,
                                                            u32 timeout_ms,
                                                            GatewayUserSessionSnapshot* snapshot) noexcept;
-u32 user_account_coordinator_notification_handles(const UserAccountCoordinator* coordinator, HANDLE* output,
-                                                  u32 capacity) noexcept;
+// Writes at most three handles: the account module gives room for kAccountHostNotificationHandleCapacity.
+u32 user_account_coordinator_notification_handles(const UserAccountCoordinator* coordinator, HANDLE* output) noexcept;
 RestClient* user_account_coordinator_rest(UserAccountCoordinator* coordinator,
                                           bool details = false) noexcept;
 // The PRIMARY lane from start, before READY, for read-only startup history:

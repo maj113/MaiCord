@@ -1,5 +1,4 @@
 #include "maicord/protocol/guild/automation.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
@@ -20,7 +19,7 @@ bool space(char c) noexcept {
 
 // Every item of a list holds 1 to `codepoints` code points; at most `maximum` items.
 bool list_valid(const AutoModList& list, u32 maximum, u32 codepoints) noexcept {
-    if (!view_valid(list.text) || list.count > maximum || (!list.count && list.text.bytes))
+    if (list.count > maximum || (!list.count && list.text.bytes))
         return false;
     u32 at = 0, seen = 0;
     Utf8View item{};
@@ -34,7 +33,7 @@ bool list_valid(const AutoModList& list, u32 maximum, u32 codepoints) noexcept {
 }
 
 bool ids_valid(ConstSlice<u64> ids, u32 maximum) noexcept {
-    if ((!ids.data && ids.count) || ids.count > maximum)
+    if (ids.count > maximum)
         return false;
     for (u32 i = 0; i < ids.count; ++i)
         if (!ids[i])
@@ -43,8 +42,7 @@ bool ids_valid(ConstSlice<u64> ids, u32 maximum) noexcept {
 }
 
 bool webhook_valid(const GuildWebhookWrite* w, bool update) noexcept {
-    if (!w || !name_text_valid(w->name, kGuildWebhookNameBytes, kGuildWebhookNameCodepoints, true) ||
-        !view_valid(w->avatar))
+    if (!name_text_valid(w->name, kGuildWebhookNameBytes, kGuildWebhookNameCodepoints, true))
         return false;
     if (!update)
         return !w->avatar_set && !w->avatar.bytes && !w->channel_id;
@@ -56,7 +54,7 @@ bool webhook_valid(const GuildWebhookWrite* w, bool update) noexcept {
 }
 
 bool permissions_valid(ConstSlice<GuildCommandPermission> entries) noexcept {
-    if ((!entries.data && entries.count) || entries.count > kGuildCommandPermissionMaximum)
+    if (entries.count > kGuildCommandPermissionMaximum)
         return false;
     for (u32 i = 0; i < entries.count; ++i)
         if (!entries[i].id || entries[i].type < guild_command_permission_role ||
@@ -670,8 +668,6 @@ namespace {
 
 // Appends items split at `separators`, each with its runs of white space folded (fold) and trimmed.
 bool split(Utf8View input, Slice<char> output, AutoModList* list, bool fold) noexcept {
-    if (!list || !view_valid(input) || (!output.data && output.count))
-        return false;
     u32 used = 0, count = 0;
     for (u32 start = 0; start <= input.bytes;) {
         u32 end = start;
@@ -763,7 +759,7 @@ AutoModRuleProblem automod_rule_problem(const AutoModRuleWrite& r) noexcept {
                                              : r.timeout_seconds != 0)
         return P::timeout;
     if (r.custom_message.bytes) {
-        const auto valid = view_valid(r.custom_message) ? utf8_validate(r.custom_message) : Utf8Validation{};
+        const auto valid = utf8_validate(r.custom_message);
         if (!(r.actions & automod_action_block) || !valid.valid || valid.codepoints > kAutoModCustomMessageCodepoints)
             return P::custom_message;
     }
@@ -911,7 +907,7 @@ GuildAutomationResult guild_integrations_decode(Utf8View body, Slice<u32> scratc
 
 GuildAutomationResult guild_command_permissions_decode(Utf8View body, Slice<u32> scratch, u64 application_id,
                                                        GuildCommandPermissionsPage* page) noexcept {
-    if (!page || !application_id || (!page->entries.data && page->entries.count))
+    if (!application_id)
         return {0, GuildAutomationError::input};
     page->count = 0;
     const auto s = scan_json<GuildAutomationError>(body, scratch);
@@ -928,9 +924,6 @@ GuildAutomationResult guild_command_permissions_decode(Utf8View body, Slice<u32>
 
 GuildAutomationResult automod_rules_decode(Utf8View body, Slice<u32> scratch, Slice<AutoModRule> output, u32* count,
                                            AutoModPool* pool) noexcept {
-    if (!count || !pool || (!output.data && output.count) || (!pool->bytes.data && pool->bytes.count) ||
-        pool->used > pool->bytes.count)
-        return {0, GuildAutomationError::input};
     *count = 0;
     const auto s = scan_json<GuildAutomationError>(body, scratch);
     if (s.error != GuildAutomationError::none)
@@ -953,7 +946,7 @@ GuildAutomationResult automod_rules_decode(Utf8View body, Slice<u32> scratch, Sl
 
 GuildAutomationResult guild_application_commands_decode(Utf8View body, Slice<u32> scratch, u64 application_id,
                                                         Slice<GuildApplicationCommand> output, u32* count) noexcept {
-    if (!count || !application_id || (!output.data && output.count))
+    if (!application_id)
         return {0, GuildAutomationError::input};
     *count = 0;
     const auto s = scan_json<GuildAutomationError>(body, scratch);

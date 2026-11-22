@@ -851,9 +851,8 @@ void widget(UiStoreBuilder& b, u32 index, Need need_now, float width) noexcept {
         popular_games(b, w, data, need_now, width);
 }
 
+// The content page opens only while the account is available and closes before the account UI goes.
 void build(UiStoreBuilder& b, float width) noexcept {
-    if (!owner || !g_app.account_ui)
-        return;
     auto& p = *owner;
     p.media_count = p.image_count = p.people_count = 0;
     p.bank = {p.text, sizeof(p.text), 0};
@@ -911,8 +910,6 @@ inline const GuildSpaceLeader* leader_at(u32 index) noexcept {
 bool sharing_open(u64 guild_id, Need need_now, bool games) noexcept;
 
 void activate(u32 action, const UiRect& anchor) noexcept {
-    if (!owner)
-        return;
     auto& p = *owner;
     if (action == action_retry) {
         request();
@@ -939,7 +936,7 @@ void activate(u32 action, const UiRect& anchor) noexcept {
 }
 
 const UiSettingsAvatarMedia* media(u32 slot) noexcept {
-    return owner && slot && slot <= owner->media_count ? &owner->media[slot - 1] : nullptr;
+    return slot && slot <= owner->media_count ? &owner->media[slot - 1] : nullptr;
 }
 
 // Names, avatars, games and their covers arrive after the hub's own answers; the account's settings change what
@@ -1153,9 +1150,8 @@ bool sharing_open(u64 guild_id, Need need_now, bool games) noexcept {
 }
 } // namespace
 
+// Its one caller, synchronize_navigation_view, holds the account UI.
 void application_guild_hub_navigation(NavigationView* view) noexcept {
-    if (!g_app.account_ui)
-        return;
     const auto& ui = *g_app.account_ui;
     const auto& state = ui.chat_state;
     const u64 guild_id = state.home_selected ? 0 : state.selected_guild_id;
@@ -1176,7 +1172,7 @@ void application_guild_hub_navigation(NavigationView* view) noexcept {
 }
 
 bool application_guild_hub_open(u64 guild_id) noexcept {
-    if (!application_account_available() || !g_app.renderer_ready || !guild_id ||
+    if (!application_account_available() || !g_app.renderer_ready ||
         (!owner && !(owner = owner_allocate<Owner>())))
         return false;
     auto& p = *owner;
@@ -1203,7 +1199,7 @@ bool application_guild_hub_open(u64 guild_id) noexcept {
 
 bool application_guild_hub_remembered(u64 guild_id) noexcept {
     for (const u64 id : remembered)
-        if (id && id == guild_id)
+        if (id == guild_id)
             return true;
     return false;
 }
@@ -1280,8 +1276,7 @@ void application_guild_hub_profile(u64 guild_id, bool ok, Utf8View body) noexcep
 void application_guild_hub_release() noexcept {
     if (page_open())
         application_content_page_close();
-    if (owner)
-        owner_release(owner);
+    owner_release(owner);
     reset_value(&remembered);
 }
 

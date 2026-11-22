@@ -1,5 +1,4 @@
 #include "maicord/protocol/guild/moderation.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
@@ -19,7 +18,7 @@ constexpr u32 kDepth = 32;
 constexpr u32 kSearchPieces = 64;
 
 bool text_valid(Utf8View text, u32 maximum_bytes) noexcept {
-    if (!view_valid(text) || text.bytes > maximum_bytes || !utf8_validate(text).valid)
+    if (text.bytes > maximum_bytes || !utf8_validate(text).valid)
         return false;
     for (u32 i = 0; i < text.bytes; ++i)
         if (!text.data[i])
@@ -53,7 +52,7 @@ Pieces split(Utf8View text) noexcept {
 }
 
 bool bulk_ids_valid(ConstSlice<u64> ids) noexcept {
-    if (!ids.data || !ids.count || ids.count > kGuildBulkBanMaximumUsers)
+    if (!ids.count || ids.count > kGuildBulkBanMaximumUsers)
         return false;
     for (u32 i = 0; i < ids.count; ++i)
         if (!ids[i])
@@ -82,8 +81,6 @@ bool search_valid(const GuildMemberSearchQuery& q) noexcept {
 }
 
 bool reason_valid(const GuildModerationRequest& r) noexcept {
-    if (!view_valid(r.reason))
-        return false;
     if (!r.reason.data)
         return true;
     if (r.operation != Op::bulk_ban)
@@ -496,8 +493,7 @@ bool guild_moderation_request_valid(const GuildModerationRequest& r) noexcept {
     for (const u8 reserved : r.reserved)
         if (reserved)
             return false;
-    if (r.operation >= Op::count || !r.guild_id || !reason_valid(r) || !view_valid(r.query) ||
-        (!r.user_ids.data && r.user_ids.count))
+    if (r.operation >= Op::count || !r.guild_id || !reason_valid(r))
         return false;
     switch (r.operation) {
     case Op::members_search:
@@ -558,8 +554,6 @@ GuildModerationResult guild_moderation_write_body(const GuildModerationRequest& 
         return {0, GuildModerationError::input};
     if (r.operation == Op::ban_search)
         return {0, GuildModerationError::none};
-    if (!output.data || !output.count)
-        return {0, GuildModerationError::capacity};
     JsonBody b{output};
     if (r.operation == Op::members_search)
         write_search(b, *r.search);
@@ -580,7 +574,7 @@ GuildModerationResult guild_moderation_write_body(const GuildModerationRequest& 
 }
 
 GuildModerationResult guild_moderation_write_reason(const GuildModerationRequest& r, Slice<u8> output) noexcept {
-    if (!guild_moderation_request_valid(r) || !byte_range_valid({output.data, output.count}))
+    if (!guild_moderation_request_valid(r))
         return {0, GuildModerationError::input};
     if (!r.reason.bytes)
         return {0, GuildModerationError::none};
@@ -606,15 +600,11 @@ Utf8View guild_member_search_trim(Utf8View text) noexcept {
 
 u32 guild_member_search_snowflake_at(u64 unix_ms, Slice<char> output) noexcept {
     const u64 value = unix_ms > kSnowflakeEpochMilliseconds ? (unix_ms - kSnowflakeEpochMilliseconds) << 22 : 0;
-    if (!output.data || decimal_digits(value) > output.count)
-        return 0;
     return decimal_write(output.data, value);
 }
 
 GuildModerationResult guild_member_search_decode(Utf8View body, Slice<u32> scratch,
                                                  GuildMemberSearchPage* page) noexcept {
-    if (!page || (!page->members.data && page->members.count))
-        return {0, GuildModerationError::input};
     const auto s = scan_json<GuildModerationError>(body, scratch);
     if (s.error != GuildModerationError::none)
         return {0, s.error};
@@ -640,8 +630,6 @@ u64 guild_member_search_retry_after_ms(Utf8View body, Slice<u32> scratch) noexce
 }
 
 bool guild_bulk_ban_update_decode(Utf8View body, Slice<u32> scratch, GuildBulkBanUpdate* output) noexcept {
-    if (!output)
-        return false;
     const auto s = scan_json<GuildModerationError>(body, scratch);
     if (s.error != GuildModerationError::none)
         return false;

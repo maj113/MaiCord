@@ -3,7 +3,6 @@
 #include "maicord/protocol/encoding/base64.hpp"
 #include "../encoding/json_fields.hpp"
 #include "../encoding/proto_wire.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -182,8 +181,7 @@ GifFavoritesResult measure(const ProtoSource& w) noexcept {
     return result;
 }
 bool encoded_wire(Utf8View input, ProtoSource* wire, E* error) noexcept {
-    if (input.bytes > base64_encoded_size(kGifFavoritesMaximumProtoBytes) ||
-        !byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes})) {
+    if (input.bytes > base64_encoded_size(kGifFavoritesMaximumProtoBytes)) {
         *error = E::input;
         return false;
     }
@@ -331,12 +329,6 @@ void record_index(ConstSlice<GifFavoriteRecord> records, Index index) noexcept {
         }
     }
 }
-ConstSlice<u8> range(const Slice<u8>& s) noexcept {
-    return {s.data, s.count};
-}
-template <class T> ConstSlice<u8> range(Slice<T> s) noexcept {
-    return {reinterpret_cast<const u8*>(s.data), s.count * static_cast<u32>(sizeof(T))};
-}
 GifFavoritesResult decode(const ProtoSource& input, Slice<u8> output, Slice<GifFavoriteRecord> records,
                           Slice<u32> scratch) noexcept {
     auto result = measure(input);
@@ -375,14 +367,6 @@ GifFavoritesResult decode(const ProtoSource& input, Slice<u8> output, Slice<GifF
     record_index({records.data, written}, index);
     return result;
 }
-bool outputs_valid(ConstSlice<u8> input, Slice<u8> output, Slice<GifFavoriteRecord> records,
-                   Slice<u32> scratch) noexcept {
-    if (records.count > kGifFavoritesMaximumEntries ||
-        scratch.count > gif_favorites_index_words(kGifFavoritesMaximumEntries))
-        return false;
-    const ConstSlice<u8> ranges[]{input, range(output), range(records), range(scratch)};
-    return byte_ranges_all_disjoint({ranges, 4});
-}
 } // namespace
 GifFavoritesResult gif_favorites_measure_base64(Utf8View input) noexcept {
     ProtoSource wire{};
@@ -394,26 +378,16 @@ GifFavoritesResult gif_favorites_measure_base64(Utf8View input) noexcept {
 GifFavoritesResult gif_favorites_decode_base64(Utf8View input, Slice<u8> output,
                                                Slice<GifFavoriteRecord> records,
                                                Slice<u32> scratch) noexcept {
-    const ConstSlice<u8> bytes{reinterpret_cast<const u8*>(input.data), input.bytes};
     ProtoSource wire{};
     GifFavoritesResult result{};
-    if (!outputs_valid(bytes, output, records, scratch)) {
-        result.error = E::input;
-        return result;
-    }
     if (!encoded_wire(input, &wire, &result.error))
         return result;
     return decode(wire, output, records, scratch);
 }
 const GifFavoriteRecord* gif_favorites_find(ConstSlice<GifFavoriteRecord> records, ConstSlice<u32> scratch,
                                             Utf8View url) noexcept {
-    if (!records.data || !records.count || records.count > kGifFavoritesMaximumEntries ||
-        scratch.count < 4 || scratch.count > gif_favorites_index_words(kGifFavoritesMaximumEntries) ||
-        (scratch.count & (scratch.count - 1)) || !scratch.data ||
-        !byte_range_valid({reinterpret_cast<const u8*>(records.data),
-                           records.count * static_cast<u32>(sizeof(GifFavoriteRecord))}) ||
-        !byte_range_valid({reinterpret_cast<const u8*>(scratch.data), scratch.count * 4}) ||
-        !byte_range_valid({reinterpret_cast<const u8*>(url.data), url.bytes}))
+    // No favorites leave no index (gif_favorites_index_words(0) is 0).
+    if (!records.count)
         return nullptr;
     ProtoSource w{{reinterpret_cast<const u8*>(url.data), url.bytes}, {}, url.bytes};
     const u32 buckets = scratch.count / 2;
@@ -531,11 +505,7 @@ GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 d
                                                   const GifFavoriteMutation& mutation, Slice<u8> scratch,
                                                   Slice<u8> output) noexcept {
     const auto fail = [](E error) noexcept { return GifFavoritesWriteResult{0, error}; };
-    const ConstSlice<u8> url{reinterpret_cast<const u8*>(mutation.url.data), mutation.url.bytes};
-    const ConstSlice<u8> src{reinterpret_cast<const u8*>(mutation.src.data), mutation.src.bytes};
-    if (!byte_range_valid(observed) || observed.count > kGifFavoritesMaximumGroupBytes ||
-        !byte_range_valid(range(scratch)) || !byte_range_valid(range(output)) || !byte_range_valid(url) ||
-        !byte_range_valid(src) || !mutation.url.bytes ||
+    if (observed.count > kGifFavoritesMaximumGroupBytes || !mutation.url.bytes ||
         mutation.url.bytes > kGifFavoritesMaximumGroupBytes ||
         mutation.src.bytes > kGifFavoritesMaximumGroupBytes ||
         !utf8_validate(mutation.url).valid ||
@@ -543,12 +513,6 @@ GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 d
          (!mutation.src.bytes || !utf8_validate(mutation.src).valid ||
           (mutation.format != GifFavoriteFormat::image && mutation.format != GifFavoriteFormat::video))))
         return fail(E::input);
-    const ConstSlice<u8> inputs[]{observed, url, src};
-    if (byte_ranges_overlap(range(scratch), range(output)))
-        return fail(E::input);
-    for (const auto input : inputs)
-        if (byte_ranges_overlap(input, range(scratch)) || byte_ranges_overlap(input, range(output)))
-            return fail(E::input);
     ProtoSource group{observed, {}, observed.count};
     GifFavoritesResult measured{};
     measured.error = favorites(group, 0, group.size, measured);
@@ -603,8 +567,7 @@ GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 d
     return {json_bytes, E::none};
 }
 GifFavoritesError gif_favorites_validate_patch_json(Utf8View input) noexcept {
-    if (input.bytes > kGifFavoritesMaximumPatchBytes ||
-        !byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes}))
+    if (input.bytes > kGifFavoritesMaximumPatchBytes)
         return E::input;
     Utf8View encoded{};
     if (settings_patch_members(input, &encoded) != 3)

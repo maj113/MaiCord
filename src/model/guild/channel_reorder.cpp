@@ -170,7 +170,7 @@ bool channel_reorder_valid(const ChatStateStore& state, u64 source_id, u64 targe
 u32 channel_reorder_plan(const ChatStateStore& state, u64 source_id, u64 target_id, ChannelReorderDrop drop,
                          Slice<GuildAdminPosition> output) noexcept {
     Resolved r{};
-    if (!output.data || !resolve(state, source_id, target_id, drop, &r))
+    if (!resolve(state, source_id, target_id, drop, &r))
         return ~0u;
     struct Orders {
         Ordering category, old, next;

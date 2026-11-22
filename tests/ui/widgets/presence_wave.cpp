@@ -651,8 +651,6 @@ void requests() noexcept {
               same_bytes(body, w.body_bytes, utf8_literal(R"({"warning_ids":["900"]})")) &&
               private_channel_action_route(r).method == RestMethod::post,
           "safety: dismiss posts the warning ids to safety-warnings/ack");
-    r.recipient_count = 0;
-    check(!private_channel_action_valid(r), "safety: an acknowledgement needs a warning id");
 
     static Fixture f;
     check(f.ready() &&

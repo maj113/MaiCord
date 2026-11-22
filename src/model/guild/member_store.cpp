@@ -459,7 +459,7 @@ GuildMemberStoreResult fail(GuildMemberStoreError error) noexcept {
 bool guild_member_store_observe_role(GuildMemberStore* store, const ChatStateStore& state,
                                              u64 guild_id, u64 role_id,
                                              const RoleRecord* previous) noexcept {
-    if (!store || !guild_id || !role_id || !store->records)
+    if (!guild_id || !role_id)
         return false;
     const auto* current = chat_state_store_find_role(state, guild_id, role_id);
     if (previous && current && previous->position == current->position &&
@@ -491,10 +491,6 @@ bool guild_member_store_observe_role(GuildMemberStore* store, const ChatStateSto
 bool guild_member_store_initialize(GuildMemberStore* store,
                                            Slice<GuildMemberRecord> records,
                                            Slice<u32> order, bool zeroed) noexcept {
-    if (!store || !records.data || records.count == 0 || records.count > 1'000'000u || !order.data ||
-        order.count != records.count) {
-        return false;
-    }
     if (!zeroed)
         reset_value<GuildMemberStore>(store);
     store->records = records.data;
@@ -511,7 +507,7 @@ bool guild_member_store_initialize(GuildMemberStore* store,
 }
 
 bool guild_member_store_enable_role_overflow(GuildMemberStore* store, u32 members_with_maximum) noexcept {
-    if (!store || !store->records || store->capacity > kGuildMemberRoleOverflowMembers || !members_with_maximum ||
+    if (store->capacity > kGuildMemberRoleOverflowMembers || !members_with_maximum ||
         members_with_maximum > store->capacity || store->role_overflow.storage.arena.base)
         return false;
     store->role_overflow.limit = members_with_maximum * kGuildMemberRoleMaximum;
@@ -519,8 +515,6 @@ bool guild_member_store_enable_role_overflow(GuildMemberStore* store, u32 member
 }
 
 void guild_member_store_release(GuildMemberStore* store) noexcept {
-    if (!store)
-        return;
     for (u32 slot = 0; store->records && slot < store->slot_extent; ++slot) {
         auto& record = store->records[slot];
         if (record.role_overflow) {
@@ -533,8 +527,6 @@ void guild_member_store_release(GuildMemberStore* store) noexcept {
 }
 
 void guild_member_store_reset_lists(GuildMemberStore* store) noexcept {
-    if (!store || !store->records || !store->order)
-        return;
     bool changed = store->pin_count != 0 || store->visible.guild_id != 0;
     for (u32 slot = 0; slot < store->slot_extent; ++slot) {
         auto& member = store->records[slot];
@@ -566,8 +558,6 @@ void guild_member_store_reset_lists(GuildMemberStore* store) noexcept {
 }
 
 void guild_member_store_retire_role_authority(GuildMemberStore* store) noexcept {
-    if (!store || !store->records)
-        return;
     bool changed = false;
     for (u32 i = 0; i < store->slot_extent; ++i) {
         auto& member = store->records[i];
@@ -590,9 +580,7 @@ GuildMemberStoreResult guild_member_store_upsert(
     GuildMemberStore* store, const ChatStateStore& state, u64 guild_id, u64 user_id,
     Utf8View nickname, ConstSlice<u64> role_ids, bool roles_known, GuildMemberStatus status,
     u32 list_index, u64 list_id) noexcept {
-    if (!store || !store->records || !store->order || guild_id == 0 || user_id == 0 ||
-        (!nickname.data && nickname.bytes != 0) || (!role_ids.data && role_ids.count != 0) ||
-        !status_valid(status)) {
+    if (guild_id == 0 || user_id == 0 || !status_valid(status)) {
         return fail(GuildMemberStoreError::invalid_input);
     }
     if (nickname.bytes > kGuildMemberNicknameMaximumBytes) {
@@ -719,8 +707,7 @@ GuildMemberInPlaceResult guild_member_store_update_in_place(
     u64 user_id, Utf8View nickname, ConstSlice<u64> role_ids, bool roles_known,
     GuildMemberStatus status) noexcept {
     GuildMemberInPlaceResult result{};
-    if (!store || !store->records || !store->order || !guild_id || !list_id || !user_id ||
-        list_index == ~0u || (!nickname.data && nickname.bytes) || (!role_ids.data && role_ids.count) ||
+    if (!guild_id || !list_id || !user_id || list_index == ~0u ||
         !status_valid(status) || nickname.bytes > kGuildMemberNicknameMaximumBytes ||
         !utf8_validate(nickname).valid)
         return result;
@@ -764,7 +751,7 @@ GuildMemberInPlaceResult guild_member_store_update_in_place(
 
 const GuildMemberRecord* guild_member_store_find(const GuildMemberStore& store,
                                                                 u64 guild_id, u64 user_id) noexcept {
-    if (!store.records || !store.order || guild_id == 0 || user_id == 0) {
+    if (guild_id == 0 || user_id == 0) {
         return nullptr;
     }
     bool found = false;
@@ -774,7 +761,7 @@ const GuildMemberRecord* guild_member_store_find(const GuildMemberStore& store,
 
 bool guild_member_store_set_status(GuildMemberStore* store, u64 guild_id, u64 user_id,
                                            GuildMemberStatus status) noexcept {
-    if (!store || !store->records || !store->order || guild_id == 0 || user_id == 0 ||
+    if (guild_id == 0 || user_id == 0 ||
         !status_valid(status))
         return false;
     bool found = false;
@@ -804,7 +791,7 @@ ConstSlice<u64> guild_member_store_role_ids(const GuildMemberStore& store, const
 
 bool guild_member_store_set_timeout(GuildMemberStore* store, u64 guild_id, u64 user_id,
                                             u64 until_seconds) noexcept {
-    if (!store || !store->records || !store->order || !guild_id || !user_id)
+    if (!guild_id || !user_id)
         return false;
     bool found = false;
     const u32 index = find_order(*store, guild_id, user_id, &found);
@@ -825,7 +812,7 @@ Utf8View guild_member_store_nickname(const GuildMemberRecord& record) noexcept {
 }
 
 bool guild_member_store_remove(GuildMemberStore* store, u64 guild_id, u64 user_id) noexcept {
-    if (!store || guild_id == 0 || user_id == 0) {
+    if (guild_id == 0 || user_id == 0) {
         return false;
     }
     bool found = false;
@@ -842,7 +829,7 @@ bool guild_member_store_remove(GuildMemberStore* store, u64 guild_id, u64 user_i
 #pragma clang attribute pop
 bool guild_member_store_invalidate_list_range(GuildMemberStore* store, u64 guild_id,
                                                       u32 first, u32 last, u64 list_id) noexcept {
-    if (!store || !store->records || !store->order || guild_id == 0 || last < first) {
+    if (guild_id == 0 || last < first) {
         return false;
     }
     bool changed = false;
@@ -883,7 +870,7 @@ void guild_member_store_clear_visible_range(GuildMemberStore* store) noexcept {
 }
 bool guild_member_store_set_visible_range(GuildMemberStore* store, u64 guild_id, u64 list_id,
                                                   u32 first, u32 last) noexcept {
-    if (!store || !guild_id || !list_id || first == ~0u || last == ~0u || first > last ||
+    if (!guild_id || !list_id || first == ~0u || last == ~0u || first > last ||
         last - first >= 128)
         return false;
     store->visible = {guild_id, list_id, first, last};
@@ -899,7 +886,7 @@ bool guild_member_store_visible_index(const GuildMemberStore& store, u64 guild_i
 MAICORD_HASWELL u32 guild_member_store_refresh_visible_users(const GuildMemberStore& members,
                                                              UserStore* users) noexcept {
     user_store_clear_pins(users);
-    if (!members.records || !users)
+    if (!users)
         return 0;
     u32 count = 0;
     for (u32 slot = 0; slot < members.slot_extent; ++slot) {
@@ -931,15 +918,13 @@ void guild_member_store_clear_pins(GuildMemberStore* store) noexcept {
     guild_member_store_clear_user_pins(store);
 }
 void guild_member_store_clear_user_pins(GuildMemberStore* store) noexcept {
-    if (!store || !store->records)
-        return;
     ++store->user_pin_epoch;
     for (u32 slot = 0; slot < store->slot_extent; ++slot)
         store->records[slot].visible_pinned = false;
 }
 bool guild_member_store_pin_user(GuildMemberStore* store, u64 guild_id,
                                          u64 user_id) noexcept {
-    if (!store || !store->records || !store->order || !guild_id || !user_id)
+    if (!guild_id || !user_id)
         return false;
     bool found = false;
     const u32 order = find_order(*store, guild_id, user_id, &found);
@@ -950,7 +935,7 @@ bool guild_member_store_pin_user(GuildMemberStore* store, u64 guild_id,
 }
 bool guild_member_store_pin_range(GuildMemberStore* store, u64 guild_id, u64 list_id,
                                           u32 first, u32 last) noexcept {
-    if (!store || !guild_id || !list_id || first > last || store->pin_count >= 5)
+    if (!guild_id || !list_id || first > last || store->pin_count >= 5)
         return false;
     store->pins[store->pin_count++] = {guild_id, list_id, first, last};
     view_scope(store, guild_id, list_id);
@@ -965,8 +950,6 @@ const MemberListScope* guild_member_store_list(const GuildMemberStore& store,
 }
 namespace {
 MemberListScope* mutable_list(GuildMemberStore* store, u64 guild_id, u64 list_id) noexcept {
-    if (!store)
-        return nullptr;
     return const_cast<MemberListScope*>(guild_member_store_list(*store, guild_id, list_id));
 }
 // Withdraws a list: its rows, record positions and resident headers.
@@ -1005,7 +988,7 @@ u32 guild_member_store_list_users(const GuildMemberStore& store, u64 guild_id, u
                                   u32 last, Slice<u64> output) noexcept {
     const u8 scope = scope_slot(store, guild_id, list_id);
     u32 count = 0;
-    if (scope == kNoScope || !output.data)
+    if (scope == kNoScope)
         return 0;
     const auto& p = store.positions;
     const u8 tag = static_cast<u8>(scope + 1);
@@ -1018,7 +1001,7 @@ bool guild_member_store_observe_list(GuildMemberStore* store, u64 guild_id, u64 
                                              u32 member_count, u32 online_count, bool members_known,
                                              bool online_known, bool groups_known, u32 group_count,
                                              u32 logical_count) noexcept {
-    if (!store || !store->records || !store->order || !guild_id || !list_id)
+    if (!guild_id || !list_id)
         return false;
     auto* list = mutable_list(store, guild_id, list_id);
     const bool fresh = !list;
@@ -1180,7 +1163,7 @@ void guild_member_store_extend_list(GuildMemberStore* store, u64 guild_id, u64 l
 }
 bool guild_member_store_shift_list(GuildMemberStore* store, u64 guild_id, u64 list_id,
                                            u32 index, bool insert) noexcept {
-    if (!store || !store->records || !store->order || index == ~0u)
+    if (index == ~0u)
         return false;
     for (u32 slot = 0; slot < store->slot_extent; ++slot) {
         auto& member = store->records[slot];

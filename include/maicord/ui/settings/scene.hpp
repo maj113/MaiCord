@@ -574,7 +574,7 @@ bool ui_settings_scene_control_geometry(const UiSettingsScene&, const UiSettings
 // Only inline edit/multiline fields participate, never their labels or footer.
 bool ui_settings_scene_editor_hit(const UiSettingsScene&, float x, float y,
                                   UiSettingsControlGeometry*) noexcept;
-bool ui_settings_scene_bind_palette(UiSettingsScene*, UiSettingsPaletteSource) noexcept;
+void ui_settings_scene_bind_palette(UiSettingsScene*, UiSettingsPaletteSource) noexcept;
 bool ui_settings_scene_slider_geometry(const UiSettingsScene&, const UiSettingsTarget&,
                                        UiSettingsSliderGeometry*) noexcept;
 bool ui_settings_scene_slider_hit(const UiSettingsScene&, const UiSettingsTarget&, float x, float y) noexcept;

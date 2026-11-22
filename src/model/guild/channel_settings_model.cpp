@@ -89,7 +89,7 @@ bool channel_settings_supported(u8 type) noexcept {
 }
 
 bool channel_settings_decode(Utf8View body, ChannelSettingsDraft* output) noexcept {
-    if (!output || !body.bytes || body.bytes > 64 * 1024 || !utf8_validate(body).valid)
+    if (!body.bytes || body.bytes > 64 * 1024 || !utf8_validate(body).valid)
         return false;
     u32 offsets[4096];
     const auto scanned = json_scan_structurals_avx1(body, {offsets, 4096});
@@ -119,7 +119,7 @@ bool channel_settings_name_valid(Utf8View text) noexcept {
 
 bool channel_settings_patch(const ChannelSettingsDraft& baseline, const ChannelSettingsDraft& draft,
                             ChannelPatch* patch) noexcept {
-    if (!patch || baseline.channel_id != draft.channel_id || !draft.channel_id ||
+    if (baseline.channel_id != draft.channel_id || !draft.channel_id ||
         !channel_settings_supported(draft.type))
         return false;
     ChannelPatch value{};

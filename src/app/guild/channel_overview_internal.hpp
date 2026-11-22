@@ -72,8 +72,7 @@ struct Overview : SettingsModal {
     bool text, can_overview, can_permissions, can_delete;
     // Voice, stage and category overview.
     ChannelSettingsDraft base, draft;
-    bool loaded, fetch_failed, conflict, echo;
-    u64 echo_until;
+    bool loaded, fetch_failed, conflict;
     // Permission overrides.
     PermissionOverwriteDraft overwrite_base, overwrite_draft;
     u64 selected_target;

@@ -325,7 +325,6 @@ void test_server_profile() noexcept {
                        !draft.profile.traits[0].emoji_id && draft.profile.traits[0].emoji_name_bytes == 10;
     guild_server_profile_clear_trait(&draft, 1);
     check(label && emoji && !guild_server_profile_equal(base, draft) && !draft.profile.traits[1].label_bytes &&
-              !guild_server_profile_set_trait_label(&draft, 5, utf8_literal("x")) &&
               profile_body(draft, {},
                            R"({"name":"Guild","description":"","icon":"0123456789abcdef0123456789abcdef",)"
                            R"("custom_banner":null,"visibility":3,"brand_color_primary":null,)"
@@ -498,9 +497,8 @@ void test_overrides() noexcept {
               body_equals(request, R"({"permission_overwrites":[{"id":"100","type":0,"allow":"0","deny":"0"},)"
                                    R"({"id":"12","type":0,"allow":"32768","deny":"0"}]})"),
           "overrides: the channel PATCH replaces the full override list");
-    check(permission_overwrite_draft_remove(&draft, kRoleMid) && permission_overwrite_draft_find(draft, kRoleMid) == ~0u &&
-              permission_overwrite_draft_write(draft, {writes, 0}) == ~0u,
-          "overrides: removal and short output are handled");
+    check(permission_overwrite_draft_remove(&draft, kRoleMid) && permission_overwrite_draft_find(draft, kRoleMid) == ~0u,
+          "overrides: removal is handled");
     u32 voice = 0, text = 0, guild_only = 0;
     const auto entries = permission_grid_entries();
     for (u32 i = 0; i < entries.count; ++i) {

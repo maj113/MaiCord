@@ -70,8 +70,6 @@ void run() noexcept {
         !state.role_backed_count && !state.overwrite_backed_count &&
         prefix(owner->role_storage, 0, page) && prefix(owner->overwrite_storage, 0, page),
         "permission empty production bindings retain maximum caps with actual uncommitted VM");
-    check(!account_permission_storage_initialize(*owner) && owner->role_storage.arena.base == roles &&
-        owner->overwrite_storage.arena.base == overwrites, "permission repeated initialization preserves installed banks");
     check(chat_state_store_prepare_permissions(&state, 0, 0) &&
         !owner->role_storage.arena.committed && !owner->overwrite_storage.arena.committed,
         "permission zero admission commits no VM");
@@ -138,12 +136,6 @@ void run() noexcept {
     state = {}; account_permission_storage_release(*owner);
     check(!owner->role_storage.arena.base && !owner->overwrite_storage.arena.base &&
         memory_released(banks[0]) && memory_released(banks[1]), "permission detached production owner releases both actual VM reservations");
-    account_permission_storage_release(*owner);
-    RoleRecord fixed_roles[1]{}; PermissionOverwriteRecord fixed_overwrites[1]{};
-    const bool fixed = initialize_model(*owner) && chat_state_store_bind_permissions(&state, {fixed_roles, 1}, {fixed_overwrites, 1});
-    check(fixed && !account_permission_storage_initialize(*owner) && state.roles == fixed_roles && state.overwrites == fixed_overwrites &&
-        !owner->role_storage.arena.base && !owner->overwrite_storage.arena.base,
-        "permission failed production binding releases newly reserved banks and preserves existing fixed model binding");
     VirtualFree(owner, 0, MEM_RELEASE);
 }
 }

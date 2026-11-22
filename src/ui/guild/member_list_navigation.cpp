@@ -4,11 +4,9 @@
 
 namespace maicord {
 namespace {
+// member_list_scene_update admitted the source, stores, scroll and viewport; a view keeps its count within its rows.
 bool source_valid(const MemberListScene* scene) noexcept {
-    return scene && scene->active && scene->source && scene->source->rows.data &&
-        (!scene->source->authoritative ? scene->source->count <= scene->source->rows.count : scene->source->resident_count <= scene->source->rows.count) && scene->members && scene->members->records &&
-        scene->scroll_dips == scene->scroll_dips && scene->scroll_dips >= 0 && scene->scroll_dips <= 1'000'000'000.0f &&
-        ui_rect_valid(scene->viewport);
+    return scene->active && scene->source;
 }
 bool eligible(void* context, u32 index) noexcept {
     const auto& scene = *static_cast<const MemberListScene*>(context);

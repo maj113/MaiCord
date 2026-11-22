@@ -40,7 +40,8 @@ struct PrivateChannelActionRequest {
 static_assert(sizeof(PrivateChannelActionRequest) == 496);
 inline constexpr u32 kPrivateChannelActionTargetBytes = 96;
 inline constexpr u32 kPrivateChannelActionBodyBytes = 640;
-bool private_channel_action_valid(const PrivateChannelActionRequest& request) noexcept;
+// A group name from the user: at most kPrivateChannelNameMaximumCodepoints of UTF-8.
+bool private_channel_name_valid(Utf8View name) noexcept;
 PrivateConversationWriteResult private_channel_action_write(const PrivateChannelActionRequest& request,
     Slice<u8> target, Slice<u8> body) noexcept;
 RestRouteKey private_channel_action_route(const PrivateChannelActionRequest& request) noexcept;

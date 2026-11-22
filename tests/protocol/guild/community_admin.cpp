@@ -101,7 +101,7 @@ void test_targets() noexcept {
     check(added && written.ok() && written.method == RestMethod::delete_method,
           "discovery: subcategories are added with PUT and removed with DELETE on their id");
     const u32 visibility = guild_visibility_write(3, {output, sizeof(output)});
-    check(text_is(visibility, utf8_literal(R"({"visibility":3})")) && !guild_visibility_write(2, {output, 64}) &&
+    check(text_is(visibility, utf8_literal(R"({"visibility":3})")) &&
               utf8_equal(target(Op::guild_profile_visibility, {}, &method, R"({"visibility":3})"),
                          utf8_literal("/api/v9/guilds/10/profile")) &&
               method == RestMethod::patch,
@@ -141,14 +141,13 @@ void test_verification() noexcept {
     GuildVerificationFieldWrite bad = fields[1];
     bad.values = {};
     GuildVerificationFieldWrite twice[2]{terms, terms};
-    GuildVerificationFieldWrite six[6]{fields[0], fields[0], fields[0], fields[0], fields[0], fields[0]};
     GuildVerificationFieldWrite blank = fields[0];
     blank.label = utf8_literal("   ");
     check(!guild_verification_fields_valid({&bad, 1}) && !guild_verification_fields_valid({twice, 2}) &&
-              !guild_verification_fields_valid({six, 6}) && !guild_verification_fields_valid({&blank, 1}) &&
-              !guild_verification_write_update({six, 6}, true, GuildVerificationBulkAction::none,
+              !guild_verification_fields_valid({&blank, 1}) &&
+              !guild_verification_write_update({twice, 2}, true, GuildVerificationBulkAction::none,
                                                {output, sizeof(output)}),
-          "access: forms over five fields, with two rule fields, blank labels or choiceless choices are refused");
+          "access: forms with two rule fields, blank labels or choiceless choices are refused");
 }
 
 void test_templates() noexcept {

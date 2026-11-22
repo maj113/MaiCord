@@ -247,8 +247,8 @@ bool profile_editor_pages(D3D11Renderer& renderer, UiTextMeasureCache* measure, 
         ok = ok && require(profile_scene_open(&preview, &profile, state, users, 1, {0, 0, 300, 400}, view), 2);
         page.content.aside_height = preview.preview_height > 0 ? preview.preview_height : 400;
         int context = 0;
-        ok = ok && require(ui_page_registry_initialize(&page.registry, {page.pages, 3}) &&
-                               ui_page_registry_register(&page.registry, {{1, 2}, utf8_literal("Profiles"), &page.content})
+        ui_page_registry_initialize(&page.registry, {page.pages, 3});
+        ok = ok && require(ui_page_registry_register(&page.registry, {{1, 2}, utf8_literal("Profiles"), &page.content})
                                    .ok() &&
                                ui_page_registry_register(&page.registry, {{1, 1}, utf8_literal("My Account"), &page.other})
                                    .ok() &&
@@ -441,8 +441,8 @@ bool profile_name_styles(D3D11Renderer& renderer, UiTextMeasureCache* measure, c
     page = {};
     draft = {};
     build(&page, false, false);
+    ui_page_registry_initialize(&page.registry, {page.pages, 3});
     if (!require(user_profile_decode(json, {scratch, 2048}, 4242, 0, &profile) &&
-                     ui_page_registry_initialize(&page.registry, {page.pages, 3}) &&
                      ui_page_registry_register(&page.registry, {{1, 2}, utf8_literal("Profiles"), &page.content}).ok() &&
                      ui_page_registry_register(&page.registry, {{1, 1}, utf8_literal("My Account"), &page.other})
                          .ok() &&

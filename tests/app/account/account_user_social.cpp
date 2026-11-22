@@ -47,12 +47,6 @@ void test_notes() noexcept {
     check(submitted(put, M::put, P::none, 0, utf8_literal("/api/v9/users/@me/notes/80351110224678912"),
                     utf8_literal(R"({"note":""})")),
           "user social: an empty note clears it");
-    char long_note[1100];
-    for (auto& c : long_note)
-        c = 'n';
-    put.text = {long_note, 256};
-    check(user_social_request_valid(put), "user social: a 256-code-point note is accepted");
-
     UserNoteRecord note{};
     check(user_note_decode(utf8_literal(R"({"user_id":"1","note_user_id":"42","note":"hi é"})"),
                            {structurals, 16384}, false, &note) &&

@@ -3,7 +3,6 @@
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/protocol/http/rest_route.hpp"
 #include "maicord/protocol/user/settings_proto.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
@@ -337,7 +336,7 @@ bool hashes_valid(ConstSlice<u8> hashes) noexcept {
     return hashes.count != 0;
 }
 bool mfa_valid(const Utf8View& token) noexcept {
-    if (token.bytes > kAccountSettingsMfaTokenBytes || (!token.data && token.bytes))
+    if (token.bytes > kAccountSettingsMfaTokenBytes)
         return false;
     for (u32 i = 0; i < token.bytes; ++i)
         if (static_cast<u8>(token.data[i]) <= 0x20 || static_cast<u8>(token.data[i]) >= 0x7F)
@@ -347,11 +346,11 @@ bool mfa_valid(const Utf8View& token) noexcept {
 bool text_request_valid(const AccountSettingsRequest& r, const TextOperation& spec) noexcept {
     const u32 count = r.texts.count;
     if (r.payload.count || r.required_data_version || r.field != AccountProfileField::pronouns ||
-        (!r.texts.data && count) || (count != spec.texts && !(spec.extra == Extra::create_key && !count)))
+        (count != spec.texts && !(spec.extra == Extra::create_key && !count)))
         return false;
     for (u32 i = 0; i < count; ++i) {
         const Utf8View text = r.texts[i];
-        if (text.bytes > kAccountSettingsTextBytes || (!text.data && text.bytes) || !utf8_validate(text).valid ||
+        if (text.bytes > kAccountSettingsTextBytes || !utf8_validate(text).valid ||
             (!text.bytes && !(spec.optional & (1u << i))))
             return false;
     }
@@ -460,7 +459,7 @@ bool account_settings_primary(AccountSettingsOperation operation) noexcept {
 }
 
 bool account_settings_request_valid(const AccountSettingsRequest& r) noexcept {
-    if (!byte_range_valid(r.payload) || !mfa_valid(r.mfa) ||
+    if (!mfa_valid(r.mfa) ||
         (r.required_data_version_present && r.operation != Op::settings_patch) ||
         static_cast<u8>(r.field) > static_cast<u8>(AccountProfileField::bio))
         return false;
@@ -470,7 +469,8 @@ bool account_settings_request_valid(const AccountSettingsRequest& r) noexcept {
         return false;
     switch (r.operation) {
     case Op::settings_patch:
-        return user_settings_proto_patch_valid(r.payload) && !r.id;
+        // user_settings.cpp and folders.cpp send only the messages that settings_proto.hpp describes.
+        return !r.id;
     case Op::session_logout:
         return hashes_valid(r.payload) && !r.id && !r.required_data_version;
     case Op::token_revoke:
@@ -493,7 +493,7 @@ bool account_settings_request_valid(const AccountSettingsRequest& r) noexcept {
 AccountSettingsWriteResult account_settings_write_request(const AccountSettingsRequest& r, Slice<u8> target,
                                                           Slice<u8> body) noexcept {
     AccountSettingsWriteResult result{0, 0, 0, RestMethod::get, W::invalid_input};
-    if (!account_settings_request_valid(r) || !byte_range_valid({body.data, body.count}))
+    if (!account_settings_request_valid(r))
         return result;
     RouteWriter route{};
     if (!route_writer_initialize(&route, target))
@@ -943,8 +943,7 @@ bool account_settings_decode_mfa_challenge(Utf8View body, Slice<u32> structurals
         !c.challenge.ticket_bytes || !c.challenge.methods)
         return false;
     copy_value(challenge, c.challenge);
-    if (webauthn_bytes)
-        *webauthn_bytes = (c.challenge.methods & kAccountAuthenticatorWebauthn) ? c.webauthn_bytes : 0;
+    *webauthn_bytes = (c.challenge.methods & kAccountAuthenticatorWebauthn) ? c.webauthn_bytes : 0;
     return true;
 }
 

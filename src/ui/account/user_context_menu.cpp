@@ -90,8 +90,6 @@ u32 user_context_menu_build(const UserContextFacts& f, const Slice<PopupItem>& o
 
 u32 user_context_roles_build(ConstSlice<UserContextRole> roles, Slice<PopupItem> output) noexcept {
     const u32 count = minimum<u32>(roles.count, kUserContextRoleItems);
-    if (!output.data || output.count < count || (!roles.data && roles.count))
-        return 0;
     for (u32 i = 0; i < count; ++i) {
         const auto& role = roles[i];
         PopupItem item{};
@@ -110,8 +108,6 @@ u32 user_context_roles_build(ConstSlice<UserContextRole> roles, Slice<PopupItem>
 
 u32 user_context_invites_build(ConstSlice<UserContextChoice> guilds, Slice<PopupItem> output) noexcept {
     const u32 count = minimum<u32>(guilds.count, kUserContextGuildItems);
-    if (!output.data || output.count < count || (!guilds.data && guilds.count))
-        return 0;
     for (u32 i = 0; i < count; ++i) {
         PopupItem item{};
         item.label = guilds[i].done ? utf8_literal("Invite sent") : guilds[i].label;
@@ -126,8 +122,6 @@ u32 user_context_invites_build(ConstSlice<UserContextChoice> guilds, Slice<Popup
 
 u32 user_context_apps_build(ConstSlice<UserContextChoice> apps, bool loading, Slice<PopupItem> output) noexcept {
     const u32 count = minimum<u32>(apps.count, kUserContextAppItems);
-    if (!output.data || output.count < maximum(count, 1u) || (!apps.data && apps.count))
-        return 0;
     if (!count) {
         PopupItem item{};
         item.label = loading ? utf8_literal("Loading apps\xE2\x80\xA6") : utf8_literal("No apps");

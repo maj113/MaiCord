@@ -58,7 +58,7 @@ bool result_kind(UiSettingsControlKind kind) noexcept {
 
 bool ui_settings_schema_find(const UiSettingsSchema& schema, Utf8View key,
                              UiSettingsSchemaLocation* location) noexcept {
-    if (!key.bytes || !location)
+    if (!key.bytes)
         return false;
     for (u32 p = 0; p < schema.panels.count; ++p) {
         const auto& panel = schema.panels[p];
@@ -85,7 +85,7 @@ u32 ui_settings_schema_search(const UiSettingsSchema& schema, Utf8View query,
                               Slice<UiSettingsSearchHit> output) noexcept {
     Word words[kUiSettingsSearchMaximumWords]{};
     const u32 count = split(query, words, kUiSettingsSearchMaximumWords);
-    if (!count || count > kUiSettingsSearchMaximumWords || !output.data || !output.count)
+    if (!count || count > kUiSettingsSearchMaximumWords)
         return 0;
     const u32 all = (1u << count) - 1;
     u32 used = 0;

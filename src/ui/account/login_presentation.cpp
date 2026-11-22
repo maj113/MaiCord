@@ -52,10 +52,8 @@ UiRect inside_field(const UiRect& field, const UiRect& r) noexcept {
 bool login_presentation_build(const LoginScene& scene, const LoginPresentationInput& input,
                               const Theme& theme, float viewport_width, float viewport_height, u32 dpi,
                               PaintStream* stream) noexcept {
-    if (!stream || dpi == 0 || !ui_extent_valid(viewport_width) || !ui_extent_valid(viewport_height) ||
-        viewport_width <= 0.0f || viewport_height <= 0.0f || scene.widgets.count == 0 ||
-        (!input.edit_selections.data && input.edit_selections.count != 0) ||
-        (!input.edit_composition.data && input.edit_composition.count != 0)) {
+    if (dpi == 0 || !ui_extent_valid(viewport_width) || !ui_extent_valid(viewport_height) ||
+        viewport_width <= 0.0f || viewport_height <= 0.0f || scene.widgets.count == 0) {
         return false;
     }
 

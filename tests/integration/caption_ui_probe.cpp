@@ -491,8 +491,8 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
                 }
             } restore{renderer, modal, renderer.settings_scene};
             const UiRect viewport{0, 0, width, static_cast<float>(renderer.height) / scale};
-            if (!ui_page_registry_initialize(&registry, {pages, 2}) ||
-                !ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Plugins"), &plugins}).ok() ||
+            ui_page_registry_initialize(&registry, {pages, 2});
+            if (!ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Plugins"), &plugins}).ok() ||
                 !ui_page_registry_register(&registry, {{1, 2}, utf8_literal("Updates"), &updates}).ok() ||
                 !ui_settings_scene_update(&modal, &registry, viewport))
                 return fail(126);

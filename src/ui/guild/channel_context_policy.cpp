@@ -23,7 +23,7 @@ u32 channel_context_policy_build(const ChatStateStore& state, u64 channel_id, u3
                                  u32 mark_unread_action, u32 retry_unread_action,
                                  UiScopedReadMenuState scoped) noexcept {
     const auto* channel = chat_state_store_find_channel(state, channel_id);
-    if (!channel || !output.data || !mark_read_action || !close_dm_action || !context_eligible(state, channel))
+    if (!context_eligible(state, channel))
         return 0;
     const bool readable = channel_is_message_capable(channel->type) &&
                           (channel->actions & channel_action_read_history) != 0;
@@ -45,12 +45,6 @@ u32 channel_context_policy_build(const ChatStateStore& state, u64 channel_id, u3
     const bool unread = mark_unread_action && unread_eligible;
     const bool retry_unread = retry_unread_action && unread_eligible;
     const bool editable = edit_action && channel_controls_can_edit(*channel);
-    const u32 count = static_cast<u32>(readable) + static_cast<u32>(unread) +
-                      static_cast<u32>(retry_unread) + static_cast<u32>(close) +
-                      static_cast<u32>(editable) + static_cast<u32>(category_mark) +
-                      static_cast<u32>(category_retry);
-    if (!count || output.count < count)
-        return 0;
     u32 used = 0;
     if (category_mark)
         popup_item_set(&output[used++], utf8_literal("Mark as read"), scoped.mark_action,

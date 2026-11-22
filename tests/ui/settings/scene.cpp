@@ -305,12 +305,12 @@ void test_modal_scene(Check check) noexcept {
     UiSettingsScene scene{};
     const UiRect viewport{0, 0, 1400, 900};
     int palette_context = 0;
-    check(ui_page_registry_initialize(&f.registry, {f.pages, 3}) &&
-              ui_page_registry_register(&f.registry, {{1, 1}, utf8_literal("Appearance"), &f.content}).ok() &&
+    ui_settings_scene_bind_palette(&scene, {&palette_context, resolve_palette, 1});
+    ui_page_registry_initialize(&f.registry, {f.pages, 3});
+    check(ui_page_registry_register(&f.registry, {{1, 1}, utf8_literal("Appearance"), &f.content}).ok() &&
               ui_page_registry_register(&f.registry, {{1, 2}, utf8_literal("Advanced"), &f.other}).ok() &&
               ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal) &&
               ui_settings_scene_bind_navigation(&scene, {f.navigation, 6}, 1) &&
-              ui_settings_scene_bind_palette(&scene, {&palette_context, resolve_palette, 1}) &&
               ui_settings_scene_update(&scene, &f.registry, viewport) && scene.opens == 1,
           "settings modal: catalog-shaped page with navigation builds");
     if (!scene.active)
@@ -457,8 +457,8 @@ void test_modal_scene(Check check) noexcept {
     // Each theme swatch paints its own resolved theme: flat themes solid in
     // their own colour, so distinct themes never share a fill.
     UiSettingsControlGeometry themes{};
-    bool solid = ui_settings_scene_bind_palette(&scene, {&palette_context, resolve_flat, 2}) &&
-                 ui_settings_scene_control_geometry(scene, {UiSettingsTargetKind::control, page, 1}, &themes) &&
+    ui_settings_scene_bind_palette(&scene, {&palette_context, resolve_flat, 2});
+    bool solid = ui_settings_scene_control_geometry(scene, {UiSettingsTargetKind::control, page, 1}, &themes) &&
                  paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
                  ui_settings_scene_paint(scene, kDefaultTheme, &paint, 96, nullptr);
     const UiSettingsThemeTokens swatch_tokens(kDefaultTheme);
@@ -476,8 +476,8 @@ void test_modal_scene(Check check) noexcept {
         }
         solid = found;
     }
-    check(solid && ui_settings_scene_bind_palette(&scene, {&palette_context, resolve_palette, 1}),
-          "settings modal: theme swatches fill with their own resolved theme colours");
+    ui_settings_scene_bind_palette(&scene, {&palette_context, resolve_palette, 1});
+    check(solid, "settings modal: theme swatches fill with their own resolved theme colours");
     bool page_started = false, contiguous = true, header = false, escape = false, marks = false, logout = false;
     for (u32 i = 0; painted && i < text.count; ++i) {
         const bool owned = ui_settings_scene_page_owner(scene, commands[i].owner);
@@ -510,9 +510,6 @@ void test_modal_scene(Check check) noexcept {
     check(scene.opens == opens && scene.presentation == UiSettingsPresentation::modal &&
               ui_settings_scene_update(&scene, &f.registry, viewport) && scene.opens == opens + 1,
           "settings modal: reopening keeps the presentation and counts a fresh entrance");
-    UiSettingsNavEntry invalid{UiSettingsNavKind::action, false, UiIcon::count, utf8_literal("x"), {}, 0};
-    check(!ui_settings_scene_bind_navigation(&scene, {&invalid, 1}, 2),
-          "settings modal: navigation actions require an id");
     ui_settings_scene_release(&scene);
     paint_stream_release(&paint);
 }
@@ -536,8 +533,8 @@ void test_layer_scene(Check check) noexcept {
     content.navigation_label = utf8_literal("#native-room");
     const UiPageKey key{9, 1};
     const UiRect viewport{0, 0, 1280, 900};
-    check(ui_page_registry_initialize(&registry, {&page, 1}) &&
-              ui_page_registry_register(&registry, {key, utf8_literal("Overview"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {&page, 1});
+    check(ui_page_registry_register(&registry, {key, utf8_literal("Overview"), &content}).ok() &&
               ui_settings_scene_update(&scene, &registry, viewport) &&
               scene.presentation == UiSettingsPresentation::layer && !scene.search_field.generation &&
               ui_settings_scene_focused(scene).kind == UiSettingsTargetKind::close,
@@ -660,8 +657,8 @@ void test_dialog_scene(Check check) noexcept {
     content = {utf8_literal("Report message"), {}, {controls, 3}, 1, kUiSettingsPageFormat, nullptr, &footer};
     UiSettingsScene scene{};
     const UiRect viewport{0, 0, 1200, 970};
-    check(ui_page_registry_initialize(&registry, {pages, 1}) &&
-              ui_page_registry_register(&registry, {{9, 1}, content.title, &content}).ok() &&
+    ui_page_registry_initialize(&registry, {pages, 1});
+    check(ui_page_registry_register(&registry, {{9, 1}, content.title, &content}).ok() &&
               ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::dialog) &&
               ui_settings_scene_update(&scene, &registry, viewport),
           "settings dialog: a report step with an unlabelled radio group builds");
@@ -728,8 +725,8 @@ void test_focus_recovery(Check check) noexcept {
     };
     content = {utf8_literal("Updates"), {}, {controls, 4}, 1};
     navigation[0] = {UiSettingsNavKind::page, false, UiIcon::palette, utf8_literal("Updates"), key, 0};
-    check(ui_page_registry_initialize(&registry, {pages, 1}) &&
-              ui_page_registry_register(&registry, {key, utf8_literal("Updates"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {pages, 1});
+    check(ui_page_registry_register(&registry, {key, utf8_literal("Updates"), &content}).ok() &&
               ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal) &&
               ui_settings_scene_bind_navigation(&scene, {navigation, 1}, 1) && idle() &&
               ui_settings_scene_focused(scene).kind == UiSettingsTargetKind::search,
@@ -882,8 +879,8 @@ void test_card_pages(Check check) noexcept {
     UiSettingsScene scene{};
     const UiRect viewport{0, 0, 1440, 2400}, host_viewport{0, 0, 1440, 900};
     const UiPageKey page{1, 1};
-    check(ui_page_registry_initialize(&registry, {pages, 3}) &&
-              ui_page_registry_register(&registry, {page, utf8_literal("Updates"), &f.content}).ok() &&
+    ui_page_registry_initialize(&registry, {pages, 3});
+    check(ui_page_registry_register(&registry, {page, utf8_literal("Updates"), &f.content}).ok() &&
               ui_page_registry_register(&registry, {{1, 2}, utf8_literal("Plugins"), &other}).ok() &&
               ui_page_registry_register(&registry, {{1, 3}, utf8_literal("Developer"), &developer}).ok() &&
               ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal) &&
@@ -1037,8 +1034,8 @@ void test_card_pages(Check check) noexcept {
     UiPage layer_page{};
     UiPageRegistry layer_registry{};
     UiSettingsControlGeometry flat_toggle{};
-    check(ui_page_registry_initialize(&layer_registry, {&layer_page, 1}) &&
-              ui_page_registry_register(&layer_registry, {page, utf8_literal("Updates"), &flat.content}).ok() &&
+    ui_page_registry_initialize(&layer_registry, {&layer_page, 1});
+    check(ui_page_registry_register(&layer_registry, {page, utf8_literal("Updates"), &flat.content}).ok() &&
               ui_settings_scene_update(&layer, &layer_registry, {0, 0, 1280, 900}) &&
               ui_settings_scene_control_geometry(layer, target(2), &flat_toggle) &&
               close_to(flat_toggle.field.right, layer.layout.column.right),
@@ -1054,8 +1051,8 @@ void test_card_pages(Check check) noexcept {
     UiSettingsScene host{};
     UiRect host_page{}, host_clip{};
     const UiPageKey store_key{1, 7};
-    check(ui_page_registry_initialize(&store_registry, {store_pages, 1}) &&
-              ui_page_registry_register(&store_registry, {store_key, utf8_literal("Plugins"), &store}).ok() &&
+    ui_page_registry_initialize(&store_registry, {store_pages, 1});
+    check(ui_page_registry_register(&store_registry, {store_key, utf8_literal("Plugins"), &store}).ok() &&
               ui_settings_scene_set_presentation(&host, UiSettingsPresentation::modal) &&
               ui_settings_scene_update(&host, &store_registry, host_viewport) && ui_settings_scene_host_rect(host, &host_page, &host_clip) &&
               close_to(ui_rect_width(host_page), 792) && close_to(host_page.left, host.layout.column.left) &&
@@ -1088,7 +1085,8 @@ void test_sidebar_follows_selection(Check check) noexcept {
     static UiSettingsNavEntry navigation[kPages];
     UiPageRegistry registry{};
     UiSettingsScene scene{};
-    bool built = ui_page_registry_initialize(&registry, {pages, kPages});
+    ui_page_registry_initialize(&registry, {pages, kPages});
+    bool built = true;
     for (u32 i = 0; built && i < kPages; ++i) {
         navigation[i] = {UiSettingsNavKind::page, false, UiIcon::puzzle, utf8_literal("Entry"), {1, i + 1}, 0};
         built = ui_page_registry_register(&registry, {{1, i + 1}, utf8_literal("Entry"), &content}).ok();
@@ -1131,8 +1129,8 @@ void test_segment_hover(Check check) noexcept {
     const UiPageKey page{1, 1};
     const UiRect viewport{0, 0, 1440, 900};
     PaintStream paint{};
-    const bool built = ui_page_registry_initialize(&registry, {pages, 1}) &&
-                       ui_page_registry_register(&registry, {page, utf8_literal("Segments"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {pages, 1});
+    const bool built = ui_page_registry_register(&registry, {page, utf8_literal("Segments"), &content}).ok() &&
                        ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal) &&
                        ui_settings_scene_update(&scene, &registry, viewport) && paint_stream_initialize(&paint);
     check(built, "settings segments: a page of 2, 3 and 5 segment rows builds");
@@ -1215,8 +1213,8 @@ void test_segment_motion(Check check) noexcept {
     UiTextCommandStream stream{};
     UiTextOutput output{&stream, nullptr};
     UiRect first{}, last{};
-    const bool built = ui_page_registry_initialize(&registry, {pages, 1}) &&
-                       ui_page_registry_register(&registry, {page, utf8_literal("Segments"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {pages, 1});
+    const bool built = ui_page_registry_register(&registry, {page, utf8_literal("Segments"), &content}).ok() &&
                        ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal) &&
                        ui_settings_scene_update(&scene, &registry, viewport) && paint_stream_initialize(&paint) &&
                        ui_settings_scene_choice_rectangle(scene, target, 0, &first) &&
@@ -1346,8 +1344,8 @@ void test_status_meta_wrap(Check check) noexcept {
     UiPageRegistry registry{};
     UiSettingsScene scene{};
     const UiPageKey page{1, 1};
-    check(ui_page_registry_initialize(&registry, {pages, 1}) &&
-              ui_page_registry_register(&registry, {page, utf8_literal("Updates"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {pages, 1});
+    check(ui_page_registry_register(&registry, {page, utf8_literal("Updates"), &content}).ok() &&
               ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal),
           "settings status meta: a status page builds");
     const UiSettingsThemeTokens tokens(kDefaultTheme);
@@ -1435,8 +1433,8 @@ void test_preview_row(Check check) noexcept {
     UiSettingsScene scene{};
     const UiPageKey page{1, 1};
     const UiRect viewport{0, 0, 1440, 900};
-    const bool registered = ui_page_registry_initialize(&registry, {pages, 1}) &&
-                            ui_page_registry_register(&registry, {page, utf8_literal("Accessibility"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {pages, 1});
+    const bool registered = ui_page_registry_register(&registry, {page, utf8_literal("Accessibility"), &content}).ok() &&
                             ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal);
     check(registered && !ui_settings_scene_update(&scene, &registry, viewport),
           "settings preview: a preview row without the page's sample is refused");
@@ -1645,8 +1643,8 @@ void test_glyph_pictures(Check check) noexcept {
     UiPageRegistry registry{};
     UiSettingsScene scene{};
     const UiRect viewport{0, 0, 1440, 900};
-    const bool built = ui_page_registry_initialize(&registry, {pages, 1}) &&
-                       ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Server Tag"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {pages, 1});
+    const bool built = ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Server Tag"), &content}).ok() &&
                        ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal) &&
                        ui_settings_scene_update(&scene, &registry, viewport);
     UiSettingsAvatarGeometry tile{}, chip{}, extra{};

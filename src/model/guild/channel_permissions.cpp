@@ -137,29 +137,21 @@ void recount_guild_activity(ChatStateStore* store, GuildRecord* guild) noexcept 
 
 } // namespace
 
-bool chat_state_store_bind_permissions_reserved(ChatStateStore* store, Slice<RoleRecord> roles,
-                                                   Slice<PermissionOverwriteRecord> overwrites,
-                                                   PermissionReserve reserve,
-                                                   void* context) noexcept {
-    if (!store || !store->guilds || !store->channels || !roles.data || roles.count == 0 ||
-        roles.count > 65'535 || !overwrites.data || overwrites.count == 0 || overwrites.count > 65'535 ||
-        !reserve || store->roles || store->overwrites || store->role_count || store->overwrite_count ||
-        store->permission_reserve || store->permission_reserve_context || store->role_backed_count ||
-        store->overwrite_backed_count)
-        return false;
+// The one caller (account_permission_storage_initialize) binds a fresh store once, to its two reserved banks of
+// 65,535 rows each with its reserve callback.
+void chat_state_store_bind_permissions_reserved(ChatStateStore* store, Slice<RoleRecord> roles,
+                                                Slice<PermissionOverwriteRecord> overwrites,
+                                                PermissionReserve reserve, void* context) noexcept {
     store->roles = roles.data;
     store->overwrites = overwrites.data;
     store->role_capacity = roles.count;
     store->overwrite_capacity = overwrites.count;
     store->permission_reserve = reserve;
     store->permission_reserve_context = context;
-    return true;
 }
 
 bool chat_state_store_prepare_permissions(ChatStateStore* store, u32 required_roles,
                                              u32 required_overwrites) noexcept {
-    if (!store)
-        return false;
     // Without installed permission backing, only an empty store is valid.
     if (!store->roles && !store->overwrites)
         return !store->permission_reserve && !store->permission_reserve_context && !store->role_count &&
@@ -575,7 +567,7 @@ bool chat_state_store_can_replace_channel_overwrites(const ChatStateStore& store
 }
 
 void chat_state_store_remove_guild_roles(ChatStateStore* store, u64 guild_id) noexcept {
-    if (!store || guild_id == 0) {
+    if (guild_id == 0) {
         return;
     }
     // A replacement role table cannot retain authority for assignments that
@@ -599,7 +591,7 @@ void chat_state_store_remove_guild_roles(ChatStateStore* store, u64 guild_id) no
 }
 
 bool chat_state_store_remove_role(ChatStateStore* store, u64 guild_id, u64 role_id) noexcept {
-    if (!store || guild_id == 0 || role_id == 0) {
+    if (guild_id == 0 || role_id == 0) {
         return false;
     }
     if (!store->roles) {
@@ -620,7 +612,7 @@ bool chat_state_store_remove_role(ChatStateStore* store, u64 guild_id, u64 role_
 
 bool chat_state_store_set_self_roles(ChatStateStore* store, u64 guild_id, u64 owner_id,
                                         u64 self_user_id, ConstSlice<u64> role_ids) noexcept {
-    if (!store || guild_id == 0 || owner_id == 0 || self_user_id == 0 ||
+    if (guild_id == 0 || owner_id == 0 || self_user_id == 0 ||
         role_ids.count > kGuildRoleMaximum || (!role_ids.data && role_ids.count != 0) ||
         (store->self_user_id != 0 && store->self_user_id != self_user_id)) {
         return false;
@@ -687,7 +679,7 @@ void chat_state_store_clear_channel_overwrites(ChatStateStore* store, u64 channe
 
 bool chat_state_store_append_channel_overwrite(ChatStateStore* store, u64 channel_id,
                                                   const PermissionOverwriteInput& input) noexcept {
-    if (!store || channel_id == 0 || input.id == 0 || input.type > 1) {
+    if (channel_id == 0 || input.id == 0 || input.type > 1) {
         return false;
     }
     ChannelRecord* channel = mutable_channel(store, channel_id);
@@ -742,7 +734,7 @@ u32 chat_state_store_view_roles(const ChatStateStore& store, u64 guild_id, Slice
 
 namespace {
 bool set_view(ChatStateStore* store, u64 guild_id, ConstSlice<u64> role_ids, bool active) noexcept {
-    if (!store || !guild_id || !store->roles || !chat_state_store_find_guild(*store, guild_id) ||
+    if (!guild_id || !store->roles || !chat_state_store_find_guild(*store, guild_id) ||
         !chat_state_store_find_role(*store, guild_id, guild_id))
         return false;
     const RoleRun run = guild_role_run(*store, guild_id);
@@ -763,7 +755,7 @@ bool chat_state_store_view_as_roles(ChatStateStore* store, u64 guild_id, ConstSl
 }
 
 bool chat_state_store_end_view_as(ChatStateStore* store, u64 guild_id) noexcept {
-    if (!store || !chat_state_store_viewing_as(*store, guild_id))
+    if (!chat_state_store_viewing_as(*store, guild_id))
         return false;
     return set_view(store, guild_id, {}, false);
 }

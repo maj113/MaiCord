@@ -8,8 +8,6 @@ static_assert(kUserSocialMaximumBodyBytes <= kRestClientMaximumRequestBodyBytes)
 
 RestClientSubmitResult account_user_social_submit(RestClient* rest, const UserSocialRequest* request,
                                                   u64 request_id) noexcept {
-    if (!user_social_request_valid(*request))
-        return {RestClientSubmitError::invalid_input};
     u8 target[kUserSocialMaximumTargetBytes];
     const auto path = user_social_write_target(*request, {target, sizeof(target)});
     if (!path.ok())

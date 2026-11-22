@@ -117,7 +117,7 @@ bool guild_tag_draft_equal(const GuildTagDraft& a, const GuildTagDraft& b) noexc
 }
 
 void guild_tag_set_text(GuildTagDraft* draft, Utf8View text) noexcept {
-    if (!draft || (!text.data && text.bytes))
+    if (!text.data && text.bytes)
         return;
     utf8_assign(draft->tag, draft->tag_bytes, text);
 }
@@ -138,7 +138,7 @@ u32 guild_tag_palette_choice(const GuildTagDraft& draft) noexcept {
 }
 
 void guild_tag_set_palette(GuildTagDraft* draft, u32 choice) noexcept {
-    if (!draft || choice > kGuildTagPaletteDefault)
+    if (choice > kGuildTagPaletteDefault)
         return;
     const bool preset = choice < kGuildTagPaletteCount;
     draft->primary_set = draft->secondary_set = preset;
@@ -166,7 +166,7 @@ bool guild_tag_draft_valid(const GuildTagDraft& draft) noexcept {
 }
 
 bool guild_tag_write(const GuildTagDraft& draft, GuildTagColorText* colors, GuildTagWrite* write) noexcept {
-    if (!colors || !write || !guild_tag_draft_valid(draft))
+    if (!guild_tag_draft_valid(draft))
         return false;
     GuildTagWrite value{};
     if (draft.enabled)

@@ -593,7 +593,7 @@ u32 resolve_order(const RoleRecord** output) noexcept {
 }
 
 void roles_drop(u64 dragged, u64 target, bool after) noexcept {
-    if (!owner || owner->page != Page::roles || owner->editing_role || !editable() ||
+    if (owner->page != Page::roles || owner->editing_role || !editable() ||
         editor_text(editor_search).bytes || dragged < kRowBase || target < kRowBase)
         return;
     auto& p = *owner;
@@ -694,7 +694,7 @@ bool application_view_as_role_end(u64 guild_id, bool back_to_settings) noexcept 
 
 UiBannerNotice application_view_as_role_notice(u64 channel_id, Slice<char> text) noexcept {
     UiBannerNotice notice{};
-    if (!g_app.account_ui || !text.data)
+    if (!g_app.account_ui)
         return notice;
     const auto& s = g_app.account_ui->chat_state;
     const auto* channel = chat_state_store_find_channel(s, channel_id);

@@ -522,8 +522,8 @@ void server_settings() noexcept {
     static UiSettingsPageContent content{utf8_literal("Overview"), {}, {controls, 6}, 1, kUiSettingsPageFormat, nullptr,
                                          &footer};
     content.navigation_label = utf8_literal("#native-room");
-    bool ok = ui_page_registry_initialize(&registry, {&page, 1}) &&
-              ui_page_registry_register(&registry, {{9, 1}, utf8_literal("Overview"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {&page, 1});
+    bool ok = ui_page_registry_register(&registry, {{9, 1}, utf8_literal("Overview"), &content}).ok() &&
               ui_settings_scene_update(&scene, &registry, {0, 0, 1280, 900}) && begin(1280, 900) &&
               ui_settings_scene_paint(scene, kDefaultTheme, &g.paint);
     check(ok, "server settings fixture");

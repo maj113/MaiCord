@@ -36,10 +36,8 @@ bool line_valid(Utf8View text, u32 maximum) noexcept {
 }
 // Optional free text of at most maximum code points.
 bool text_within(Utf8View text, u32 maximum) noexcept {
-    if (!text.bytes)
-        return !text.data || view_valid(text);
     const auto checked = utf8_validate(text);
-    return view_valid(text) && checked.valid && checked.codepoints <= maximum;
+    return checked.valid && checked.codepoints <= maximum;
 }
 
 const char* field_type_name(GuildVerificationFieldType type) noexcept {
@@ -372,15 +370,12 @@ bool category_element(void* opaque, u32, JsonValue value) noexcept {
 // Membership screening
 
 bool guild_verification_fields_valid(ConstSlice<GuildVerificationFieldWrite> fields) noexcept {
-    if (fields.count > kGuildVerificationEditFieldMaximum || (fields.count && !fields.data))
-        return false;
     u32 terms = 0;
     for (u32 i = 0; i < fields.count; ++i) {
         const auto& f = fields[i];
         if (!field_type_name(f.type) || !line_valid(f.label, kGuildVerificationLabelCodepoints) ||
             !text_within(f.description, kGuildVerificationLabelCodepoints) ||
-            !text_within(f.placeholder, kGuildVerificationLabelCodepoints) ||
-            (f.values.count && !f.values.data))
+            !text_within(f.placeholder, kGuildVerificationLabelCodepoints))
             return false;
         u32 maximum_values = 0, codepoints = kGuildVerificationLabelCodepoints;
         if (f.type == GuildVerificationFieldType::terms) {
@@ -401,8 +396,7 @@ bool guild_verification_fields_valid(ConstSlice<GuildVerificationFieldWrite> fie
 
 u32 guild_verification_write_update(ConstSlice<GuildVerificationFieldWrite> fields, bool enabled,
                                     GuildVerificationBulkAction bulk_action, Slice<u8> output) noexcept {
-    if (!output.data || !guild_verification_fields_valid(fields) ||
-        bulk_action > GuildVerificationBulkAction::rejected)
+    if (!guild_verification_fields_valid(fields))
         return 0;
     JsonBody b(output);
     b.begin_object();
@@ -435,7 +429,7 @@ u32 guild_verification_write_update(ConstSlice<GuildVerificationFieldWrite> fiel
 // Server templates
 
 bool guild_template_code_valid(Utf8View code) noexcept {
-    if (!code.data || !code.bytes || code.bytes > kGuildTemplateCodeBytes)
+    if (!code.bytes || code.bytes > kGuildTemplateCodeBytes)
         return false;
     for (u32 i = 0; i < code.bytes; ++i)
         if (!ascii_is_alnum(code.data[i]))
@@ -454,7 +448,7 @@ bool guild_template_description_valid(Utf8View description) noexcept {
 }
 
 u32 guild_template_write(Utf8View name, Utf8View description, Slice<u8> output) noexcept {
-    if (!output.data || !guild_template_title_valid(name) || !guild_template_description_valid(description))
+    if (!guild_template_title_valid(name) || !guild_template_description_valid(description))
         return 0;
     ProtocolWriter w{output, 0};
     return protocol_write(&w, "{\"name\":", json_text(name), ",\"description\":", json_text(description), "}")
@@ -464,14 +458,14 @@ u32 guild_template_write(Utf8View name, Utf8View description, Slice<u8> output) 
 
 bool guild_template_decode(Utf8View body, Slice<u32> scratch, GuildTemplate* output) noexcept {
     JsonIndexedDocument document{};
-    if (!output || !scan(body, scratch, &document))
+    if (!scan(body, scratch, &document))
         return false;
     return decode_template(document, nullptr, output);
 }
 
 u32 guild_template_decode_list(Utf8View body, Slice<u32> scratch, GuildTemplate* first) noexcept {
     JsonIndexedDocument document{};
-    if (!first || !scan(body, scratch, &document))
+    if (!scan(body, scratch, &document))
         return ~0u;
     struct Pass {
         const JsonIndexedDocument* document;
@@ -493,7 +487,7 @@ u32 guild_template_decode_list(Utf8View body, Slice<u32> scratch, GuildTemplate*
 }
 
 u32 guild_template_write_link(Utf8View code, Slice<char> output) noexcept {
-    if (!output.data || !guild_template_code_valid(code))
+    if (!guild_template_code_valid(code))
         return 0;
     ProtocolWriter w{{reinterpret_cast<u8*>(output.data), output.count}, 0};
     return protocol_write(&w, "https://discord.new/", code) ? w.used : 0;
@@ -519,7 +513,7 @@ u32 guild_join_requests_decode_total(Utf8View body, Slice<u32> scratch) noexcept
 bool guild_discovery_requirements_decode(Utf8View body, Slice<u32> scratch,
                                          GuildDiscoveryRequirements* output) noexcept {
     JsonIndexedDocument document{};
-    if (!output || !scan(body, scratch, &document))
+    if (!scan(body, scratch, &document))
         return false;
     GuildDiscoveryRequirements decoded{};
     RequirementsReader pass{{{&document, 0}, &kRequirementsSpec, reinterpret_cast<u8*>(&decoded), 0}, false};
@@ -531,7 +525,7 @@ bool guild_discovery_requirements_decode(Utf8View body, Slice<u32> scratch,
 
 bool guild_discovery_metadata_decode(Utf8View body, Slice<u32> scratch, GuildDiscoveryMetadata* output) noexcept {
     JsonIndexedDocument document{};
-    if (!output || body.bytes > kGuildDiscoveryMetadataMaximumBytes || !scan(body, scratch, &document))
+    if (body.bytes > kGuildDiscoveryMetadataMaximumBytes || !scan(body, scratch, &document))
         return false;
     GuildDiscoveryMetadata decoded{};
     MetadataPass pass{&document, &decoded, true};
@@ -545,7 +539,7 @@ u32 guild_discovery_metadata_write(Utf8View read_body, Slice<u32> scratch, u32 p
                                    ConstSlice<Utf8View> keywords, bool emoji_discoverability_enabled,
                                    Slice<u8> output) noexcept {
     JsonIndexedDocument document{};
-    if (!output.data || keywords.count > kGuildDiscoveryKeywordMaximum || (keywords.count && !keywords.data) ||
+    if (keywords.count > kGuildDiscoveryKeywordMaximum ||
         read_body.bytes > kGuildDiscoveryMetadataMaximumBytes || !scan(read_body, scratch, &document))
         return 0;
     for (u32 i = 0; i < keywords.count; ++i)
@@ -578,7 +572,7 @@ u32 guild_discovery_metadata_write(Utf8View read_body, Slice<u32> scratch, u32 p
 u32 guild_discovery_decode_categories(Utf8View body, Slice<u32> scratch,
                                       Slice<GuildDiscoveryCategory> output) noexcept {
     JsonIndexedDocument document{};
-    if (!output.data || !scan(body, scratch, &document))
+    if (!scan(body, scratch, &document))
         return ~0u;
     CategoryPass pass{&document, output, 0, {}, false};
     return json_visit_root_array(body, document.structurals, kDepth, category_element, &pass).ok() ? pass.count
@@ -586,8 +580,6 @@ u32 guild_discovery_decode_categories(Utf8View body, Slice<u32> scratch,
 }
 
 u32 guild_visibility_write(u8 visibility, Slice<u8> output) noexcept {
-    if (!output.data || (visibility != 1 && visibility != 3))
-        return 0;
     ProtocolWriter w{output, 0};
     return protocol_write(&w, "{\"visibility\":", visibility, "}") ? w.used : 0;
 }

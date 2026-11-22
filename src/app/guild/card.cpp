@@ -296,7 +296,7 @@ void retry() noexcept {
 } // namespace
 
 bool application_guild_card_open(u64 guild_id, UiRect anchor) noexcept {
-    if (!available() || !guild_id || !ensure())
+    if (!available() || !ensure())
         return false;
     auto& c = *g_card;
     if (open_now() && c.guild_id == guild_id) {
@@ -538,28 +538,29 @@ UiGuildCardScene* application_guild_card_spinner_scene() noexcept {
     return open_now() && ui_guild_card_spinner_visible(g_card->scene) ? &g_card->scene : nullptr;
 }
 
-u32 application_guild_card_media(GuildCardMedia* output, u32 capacity) noexcept {
+u32 application_guild_card_media(GuildCardMedia (&output)[kGuildCardMediaCapacity]) noexcept {
     if (!open_now() || g_card->phase != Phase::ready)
         return 0;
+    // The capacity holds the icon, the badge, the banner and every game.
     u32 count = 0;
-    if (count < capacity && g_card->icon_url_bytes)
+    if (g_card->icon_url_bytes)
         output[count++] = {{g_card->icon_url, g_card->icon_url_bytes}, g_card->icon_key};
-    if (count < capacity && g_card->badge_url_bytes)
+    if (g_card->badge_url_bytes)
         output[count++] = {{g_card->badge_url, g_card->badge_url_bytes}, g_card->badge_key};
-    if (count < capacity && g_card->banner.url_bytes)
+    if (g_card->banner.url_bytes)
         output[count++] = {g_card->banner.url_view(), g_card->banner.key};
     for (const auto& game : g_card->games)
-        if (count < capacity && game.url_bytes)
+        if (game.url_bytes)
             output[count++] = {game.url_view(), game.key};
     return count;
 }
 
-u32 application_guild_card_emoji_media(MediaAssetKey* output, u32 capacity) noexcept {
+u32 application_guild_card_emoji_media(MediaAssetKey (&output)[kUiGuildCardTraits]) noexcept {
     if (!open_now() || g_card->phase != Phase::ready)
         return 0;
     const auto& s = g_card->scene;
     u32 count = 0;
-    for (u32 i = 0; i < s.visible_traits && count < capacity; ++i)
+    for (u32 i = 0; i < s.visible_traits; ++i)
         if (media_asset_key_valid(s.trait_emoji_keys[i]))
             output[count++] = s.trait_emoji_keys[i];
     return count;

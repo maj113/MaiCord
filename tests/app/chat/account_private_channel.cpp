@@ -86,34 +86,15 @@ void transport() noexcept {
     check(account_private_channel_submit(&details, &stop, 111).ok() && body(utf8_literal(R"({"recipients":["4"]})")),
           "private channel: stop ringing can target listed members");
 
-    const u32 before = capture.submissions;
-    auto invalid = action(PrivateChannelActionKind::create, 0);
-    bool rejected = !account_private_channel_submit(&details, &invalid, 120).ok();
-    invalid.recipient_count = kPrivateChannelRecipientMaximum + 1;
-    rejected = rejected && !account_private_channel_submit(&details, &invalid, 120).ok();
-    invalid.recipients[0] = invalid.recipients[1] = 5;
-    invalid.recipient_count = 2;
-    rejected = rejected && !account_private_channel_submit(&details, &invalid, 120).ok();
-    invalid.recipients[1] = 0;
-    rejected = rejected && !account_private_channel_submit(&details, &invalid, 120).ok();
-    const PrivateChannelActionRequest missing[]{action(PrivateChannelActionKind::add_recipient, 10, 0),
-                                                action(PrivateChannelActionKind::remove_recipient, 0, 4),
-                                                action(PrivateChannelActionKind::leave, 0),
-                                                action(PrivateChannelActionKind::none)};
-    for (const auto& request : missing)
-        rejected = rejected && !account_private_channel_submit(&details, &request, 120).ok();
+    // Names come from the user: too many codepoints and invalid UTF-8 are refused.
     char long_name[kPrivateChannelNameMaximumCodepoints + 1];
     for (auto& c : long_name)
         c = 'a';
-    copy_bytes(rename.name, long_name, sizeof(long_name));
-    rename.name_bytes = sizeof(long_name);
-    rejected = rejected && !account_private_channel_submit(&details, &rename, 120).ok();
-    rename.name_bytes = sizeof(long_name) - 1;
-    const bool longest = private_channel_action_valid(rename);
-    rename.name[0] = static_cast<char>(0xff);
-    rejected = rejected && !account_private_channel_submit(&details, &rename, 120).ok();
-    check(rejected && longest && capture.submissions == before,
-          "private channel: invalid recipients and names never reach transport");
+    const bool longest = private_channel_name_valid({long_name, sizeof(long_name) - 1});
+    const bool over = !private_channel_name_valid({long_name, sizeof(long_name)});
+    long_name[0] = static_cast<char>(0xff);
+    check(longest && over && !private_channel_name_valid({long_name, 1}),
+          "private channel: names over the limit or not UTF-8 are refused");
 }
 } // namespace private_channel_account_test
 } // namespace maicord

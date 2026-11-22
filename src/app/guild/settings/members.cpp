@@ -816,6 +816,8 @@ void members_bulk_ban_update(const GuildBulkBanUpdate& update) noexcept {
     owner->selected_count = 0;
     owner->bulk_failed = update.failed_count && !update.banned_count;
     owner->bulk_notice = owner->bulk_failed ? utf8_literal("Mass ban failed") : utf8_literal("Mass ban successful");
+    if (owner->scene.active)
+        repaint();
 }
 
 void members_release() noexcept {
@@ -824,8 +826,6 @@ void members_release() noexcept {
         secure_clear_bytes(p.search_bank.arena.base, SIZE_T{p.search_bank.capacity} * sizeof(GuildSearchMember));
         stable_storage_release(&p.search_bank);
     }
-    reset_value(&p.search);
-    p.selected_count = 0;
 }
 
 const PageOps kMembersPage{load,    project_members, activate,    choose,  nullptr, nullptr,

@@ -534,15 +534,16 @@ inline void preview_content(UiGuildCardContent* c, char (*traits)[kUiGuildCardTr
 
 } // namespace
 
+// The callers of these profile helpers are the pages and the palette of the open layer, so the owner exists.
 const GuildAdminProfile* server_profile(bool* settled) noexcept {
-    const bool current = owner && cache.guild_id == owner->guild_id && cache.fetched_at;
+    const bool current = cache.guild_id == owner->guild_id && cache.fetched_at;
     if (settled)
         *settled = current;
     return current && cache.ok ? &cache.profile : nullptr;
 }
 
 bool profile_fetch_due() noexcept {
-    return !owner || cache.guild_id != owner->guild_id || !cache.fetched_at ||
+    return cache.guild_id != owner->guild_id || !cache.fetched_at ||
            deadline_due(clock_monotonic_milliseconds(), deadline_after(cache.fetched_at, kProfileFreshMs));
 }
 
@@ -682,9 +683,8 @@ bool profile_place_preview() noexcept {
     return true;
 }
 
+// Its callers (profile_place_preview, application_guild_settings_close) have an owner.
 void profile_close_preview() noexcept {
-    if (!owner)
-        return;
     if (g_app.renderer.settings_guild_preview == &owner->preview)
         g_app.renderer.settings_guild_preview = nullptr;
     if (owner->preview.active)
@@ -692,7 +692,7 @@ void profile_close_preview() noexcept {
 }
 
 u32 profile_icon_color() noexcept {
-    return owner && owner->has_icon_color ? owner->icon_color : 0;
+    return owner->has_icon_color ? owner->icon_color : 0;
 }
 
 const PageOps kProfilePage{load,        project,       activate, choose, dirty, can_save, next_save, nullptr,

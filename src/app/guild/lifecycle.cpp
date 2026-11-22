@@ -289,9 +289,8 @@ bool read_icon(ConstSlice<wchar_t> path, Utf8View* error) noexcept {
     owner->icon = picked;
     return true;
 }
+// The one caller (application_guild_lifecycle_synchronize) calls it for an active owner with a running picker.
 void poll_picker() noexcept {
-    if (!owner || !owner->picker.runtime)
-        return;
     const auto status = native_file_picker_status(&owner->picker);
     if (status.phase != NativeFilePickerPhase::complete)
         return;
@@ -343,7 +342,7 @@ UiSettingsControl& add_control(u64 id, const Utf8View& label, const Utf8View& de
                            id, label, description, kind, enabled, checked, presentation);
 }
 bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
-    if (!owner || !theme || id != control_color || choice > kGuildRoleColorCount)
+    if (id != control_color || choice > kGuildRoleColorCount)
         return false;
     const u32 color = choice ? kGuildRoleColors[choice - 1] : kGuildFolderDefaultColor;
     reset_value(theme);
@@ -601,8 +600,7 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
             queue(Op::create);
         else if (p.mode == Mode::folder)
             save_folder();
-        if (owner)
-            repaint();
+        repaint();
         return;
     case UiSettingsTargetKind::control:
         break;

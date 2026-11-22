@@ -276,17 +276,14 @@ void project_generic_overview() noexcept {
     Bank text{p.bitrate_text, sizeof(p.bitrate_text), 0};
     u32 selected = 0;
     for (const u32 value : kChannelSettingsBitrates) {
-        const u32 start = text.used;
-        text.number(value / 1000);
-        p.bitrate_labels[p.bitrate_count] = {text.data + start, text.used - start};
+        p.bitrate_labels[p.bitrate_count] = text.number(value / 1000);
         if (value <= d.bitrate)
             selected = p.bitrate_count;
         p.bitrate_values[p.bitrate_count++] = value;
     }
-    if (d.bitrate > kChannelSettingsBitrates[7] && p.bitrate_count < 16) {
-        const u32 start = text.used;
-        text.number(d.bitrate / 1000);
-        p.bitrate_labels[p.bitrate_count] = {text.data + start, text.used - start};
+    // The eight steps leave room for the stored value (16 labels).
+    if (d.bitrate > kChannelSettingsBitrates[7]) {
+        p.bitrate_labels[p.bitrate_count] = text.number(d.bitrate / 1000);
         selected = p.bitrate_count;
         p.bitrate_values[p.bitrate_count++] = d.bitrate;
     }
@@ -495,7 +492,7 @@ bool footer_can_save() noexcept {
     return p.can_overview && !p.conflict && connected() && channel_settings_patch(p.base, p.draft, &patch);
 }
 bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
-    if (!owner || !theme || choice != kUiSettingsAccentChoice || id < kTargetBase ||
+    if (choice != kUiSettingsAccentChoice || id < kTargetBase ||
         id > kTargetBase + kPermissionOverwriteDraftMaximum)
         return false;
     const u32 rgba = owner->row_accent[id - kTargetBase];
@@ -865,13 +862,13 @@ void choose_hook(SettingsLayer*, u32 action) noexcept {
     p.menu = Menu::none;
     if (!action || !editable())
         return;
-    if (menu == Menu::slowmode && action >= 700 && action < 714) {
+    if (menu == Menu::slowmode) {
         if (p.text)
             channel_overview_controller_edit(&p.controller,
                                              {{}, {}, slowmode_values[action - 700], channel_overview_slowmode, false});
         else
             p.draft.slowmode_seconds = slowmode_values[action - 700];
-    } else if (menu == Menu::target && action >= 2'000 && action < 2'000 + kPopupCapacity) {
+    } else if (menu == Menu::target) {
         const u32 index = action - 2'000;
         if (permission_overwrite_draft_add(&p.overwrite_draft, p.menu_ids[index], p.menu_types[index]))
             p.selected_target = p.menu_ids[index];
@@ -904,9 +901,8 @@ void close_hook(SettingsLayer*) noexcept {
 } // namespace channel_overview_detail
 namespace {
 
+// Its callers are the layer's activate and close hooks, so the owner exists.
 void request_close() noexcept {
-    if (!owner)
-        return;
     settings_layer_close_choice(&owner->layer);
     if (guard_dirty()) {
         repaint();
@@ -940,8 +936,6 @@ bool reconcile() noexcept {
             }
         }
     }
-    if (p.echo && deadline_due(now, p.echo_until))
-        p.echo = false;
     return changed;
 }
 

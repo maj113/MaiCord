@@ -776,8 +776,8 @@ void release_uri(u8** uri, u32* bytes) noexcept;
 // one time. False: there is no file, or the system refused the memory.
 bool file_uri(const Picked& picked, u8** uri, u32* bytes) noexcept;
 
-// Members: the search request of the current filters and page, its
-// outcome, the debounced text and the bulk ban update.
+// Members: the search request of the current filters and page, its outcome, the debounced text and a bulk ban's
+// outcome (the Gateway's, or a request that failed; nothing without an owner of that server).
 bool members_search_request(GuildModerationRequest* request, GuildMemberSearchQuery* query) noexcept;
 void members_search_sent() noexcept;
 void members_search_response(const RestClientResponse& response, const Utf8View& body, u64 now) noexcept;

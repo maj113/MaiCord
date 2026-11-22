@@ -196,7 +196,7 @@ float profile_scene_effect_opacity(const ProfileScene& s, u64 now) noexcept {
 }
 bool profile_scene_open(ProfileScene* s, const UserProfile* p, const ChatStateStore* state, const UserStore* users,
                         u64 self_id, const UiRect& anchor, const UiRect& viewport) noexcept {
-    if (!s || !p || !p->user_id || !ui_rect_has_area(viewport))
+    if (!p->user_id || !ui_rect_has_area(viewport))
         return false;
     if (!s->storage.base && !arena_initialize(&s->storage, sizeof(Storage), sizeof(Storage), 4096, ArenaTag::ui))
         return false;
@@ -228,7 +228,7 @@ bool profile_scene_open(ProfileScene* s, const UserProfile* p, const ChatStateSt
 }
 bool profile_scene_layout(ProfileScene* s, const UiRect& viewport_view, bool force) noexcept {
     const UiRect viewport = viewport_view; // the scene is written below
-    if (!s || !s->active || !s->profile || !ui_rect_has_area(viewport))
+    if (!s->active || !s->profile || !ui_rect_has_area(viewport))
         return false;
     // Guild presences that skip users->revision still move activities; voice
     // states move the voice card.
@@ -294,7 +294,7 @@ bool profile_scene_layout(ProfileScene* s, const UiRect& viewport_view, bool for
     return true;
 }
 bool profile_scene_tick(ProfileScene* s, u64 now) noexcept {
-    if (!s || !s->active || !s->activity_set || !s->activity_timed || now / 1000 == s->activity_clock_s)
+    if (!s->active || !s->activity_set || !s->activity_timed || now / 1000 == s->activity_clock_s)
         return false;
     s->activity_clock_s = now / 1000;
     auto& l = labels(s);
@@ -333,8 +333,7 @@ Utf8View profile_scene_hint(const ProfileScene& s, UiWidgetHandle widget, UiRect
     const auto visible = ui_rect_intersection(node->rectangle, ui_rect_intersection(node->clip_rectangle, s.rectangle));
     if (!ui_rect_has_area(visible))
         return {};
-    if (anchor)
-        *anchor = visible;
+    *anchor = visible;
     return part->hint;
 }
 namespace {
@@ -367,13 +366,13 @@ UiScrollBinding profile_scene_scroll_binding(ProfileScene* s, bool secondary) no
     return {s, secondary ? 1ull : 0ull, read_profile_scroll, write_profile_scroll};
 }
 bool profile_scene_scroll(ProfileScene* s, float delta, bool right) noexcept {
-    if (s && right && ui_rect_has_area(s->secondary_viewport)) {
+    if (right && ui_rect_has_area(s->secondary_viewport)) {
         s->secondary_scroll = maximum(
             0.f, minimum(s->secondary_scroll + delta,
                          maximum(0.f, s->secondary_height - ui_rect_height(s->secondary_viewport))));
         return profile_scene_layout(s, s->viewport, true);
     }
-    if (!s || !s->active || !ui_coordinate_valid(delta))
+    if (!s->active || !ui_coordinate_valid(delta))
         return false;
     const float next = maximum(
         0.f, minimum(s->scroll + delta, maximum(0.f, s->content_height - ui_rect_height(s->scroll_viewport))));
@@ -383,10 +382,8 @@ bool profile_scene_scroll(ProfileScene* s, float delta, bool right) noexcept {
     return profile_scene_layout(s, s->viewport, true);
 }
 void profile_scene_release(ProfileScene* s) noexcept {
-    if (s) {
-        arena_release(&s->storage);
-        reset_value(s);
-    }
+    arena_release(&s->storage);
+    reset_value(s);
 }
 void profile_scene_publish_text_hit(const ProfileScene& scene, UiWidgetReference owner, const UiRect& layout,
                                     const UiRect& ink, const UiRect& clip) noexcept {

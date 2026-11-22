@@ -115,7 +115,7 @@ bool guild_invite_request_valid(const GuildInviteRequest& request) noexcept {
 GuildInviteWriteResult guild_invite_write_request(const GuildInviteRequest& request, Slice<u8> target,
                                                   Slice<u8> body, Utf8View session_id) noexcept {
     GuildInviteWriteResult result{};
-    if (!guild_invite_request_valid(request) || !target.data) {
+    if (!guild_invite_request_valid(request)) {
         result.error = GuildInviteWriteError::invalid_input;
         return result;
     }
@@ -125,7 +125,7 @@ GuildInviteWriteResult guild_invite_write_request(const GuildInviteRequest& requ
         route_writer_initialize(&route, target) &&
         route_write(&route, "/api/v9/invites/", Utf8View{request.code, request.code_bytes}) &&
         (accept || route_write(&route, "?with_counts=true&with_expiration=true"));
-    if (!written || (accept && (!body.data || body.count < 2))) {
+    if (!written) {
         result.error = GuildInviteWriteError::output_capacity;
         return result;
     }
@@ -173,8 +173,6 @@ u32 guild_invite_write_context_header(const GuildInviteRequest& request, Slice<u
 
 GuildInviteOutcome guild_invite_decode_response(u16 http_status, Utf8View body, Slice<u32> scratch,
                                                 GuildInvite* output) noexcept {
-    if (!output)
-        return GuildInviteOutcome::malformed;
     if (http_status == 429)
         return GuildInviteOutcome::rate_limited;
     GuildInvite invite{};

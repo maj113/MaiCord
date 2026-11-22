@@ -1038,8 +1038,8 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     UiPage page{};
     UiPageRegistry registry{};
     static UiSettingsScene scene{};
-    bool valid = ui_page_registry_initialize(&registry, {&page, 1}) &&
-                 ui_page_registry_register(&registry, {{1, 4}, utf8_literal("My account"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {&page, 1});
+    bool valid = ui_page_registry_register(&registry, {{1, 4}, utf8_literal("My account"), &content}).ok() &&
                  ui_settings_scene_update(&scene, &registry, {0, 0, 1280, 800});
     auto* previous = g_app.renderer.settings_scene;
     g_app.renderer.settings_scene = &scene;
@@ -1189,8 +1189,8 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     preview_content.preview = &sample;
     UiPage preview_page{};
     UiPageRegistry preview_registry{};
-    valid = ui_page_registry_initialize(&preview_registry, {&preview_page, 1}) &&
-            ui_page_registry_register(&preview_registry, {{1, 5}, utf8_literal("Accessibility"), &preview_content}).ok() &&
+    ui_page_registry_initialize(&preview_registry, {&preview_page, 1});
+    valid = ui_page_registry_register(&preview_registry, {{1, 5}, utf8_literal("Accessibility"), &preview_content}).ok() &&
             ui_settings_scene_update(&scene, &preview_registry, {0, 0, 1280, 800});
     MediaAssetKey shown[8]{};
     UiRect shown_rect[8]{};
@@ -1266,8 +1266,8 @@ void run_profile_editor_preview_test(ApplicationMediaPump& pump) noexcept {
     UiPage page{};
     UiPageRegistry registry{};
     static UiSettingsScene scene{};
-    const bool paged = ui_page_registry_initialize(&registry, {&page, 1}) &&
-                       ui_page_registry_register(&registry, {{1, 2}, utf8_literal("Profiles"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {&page, 1});
+    const bool paged = ui_page_registry_register(&registry, {{1, 2}, utf8_literal("Profiles"), &content}).ok() &&
                        ui_settings_scene_update(&scene, &registry, {0, 0, 1280, 800});
     check(paged, "profile editor preview: the editor's settings scene opens");
     valid = valid && paged;

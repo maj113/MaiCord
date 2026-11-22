@@ -72,7 +72,7 @@ void image_crop_clamp(ImageCropState* s) noexcept {
 }
 
 void image_crop_resize(ImageCropState* s, float editor_width, float editor_height) noexcept {
-    if (!s || (s->editor_width == editor_width && s->editor_height == editor_height))
+    if (s->editor_width == editor_width && s->editor_height == editor_height)
         return;
     const float bx = image_crop_bound_x(*s), by = image_crop_bound_y(*s);
     const float rx = bx > 0 ? s->offset_x / bx : 0, ry = by > 0 ? s->offset_y / by : 0;
@@ -85,24 +85,18 @@ void image_crop_resize(ImageCropState* s, float editor_width, float editor_heigh
 }
 
 void image_crop_pan(ImageCropState* s, float dx, float dy) noexcept {
-    if (!s)
-        return;
     s->offset_x += dx;
     s->offset_y += dy;
     image_crop_clamp(s);
 }
 
 void image_crop_set_zoom(ImageCropState* s, float zoom) noexcept {
-    if (!s)
-        return;
     // The offset stays in screen units; zooming out clamps it.
     s->zoom = zoom;
     image_crop_clamp(s);
 }
 
 void image_crop_rotate(ImageCropState* s) noexcept {
-    if (!s)
-        return;
     s->rotation = static_cast<u16>((s->rotation + 90) % 360);
     const float x = s->offset_x;
     s->offset_x = -s->offset_y;
@@ -112,8 +106,6 @@ void image_crop_rotate(ImageCropState* s) noexcept {
 }
 
 void image_crop_reset(ImageCropState* s) noexcept {
-    if (!s)
-        return;
     s->zoom = kImageCropMinimumZoom;
     s->rotation = 0;
     s->offset_x = s->offset_y = 0;

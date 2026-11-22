@@ -685,7 +685,8 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
         if (!n || n >= 500)
             g_preview_directory[0] = 0;
     }
-    bool valid = bind_page_atlases(renderer) && ui_page_registry_initialize(&f.registry, {f.pages, kSettingsPanelCount + 1});
+    ui_page_registry_initialize(&f.registry, {f.pages, kSettingsPanelCount + 1});
+    bool valid = bind_page_atlases(renderer);
     for (u32 panel = 0; valid && panel < kSettingsPanelCount; ++panel) {
         const auto& source = settings_catalog_panel(static_cast<SettingsPanel>(panel));
         f.contents[panel] = {source.title, {}, {}, 1};

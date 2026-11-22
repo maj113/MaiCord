@@ -294,7 +294,7 @@ bool expression_save(TextFormOwnerKey key, Utf8View text) noexcept {
         break;
     case form_sound_emoji:
     case form_sound_emoji_edit:
-        if (!soundboard_emoji_name_valid(text) || text.bytes > 32)
+        if (!soundboard_emoji_name_valid(text)) // the form holds at most 32 bytes
             return reject(utf8_literal("Enter one emoji, or leave it empty."));
         if (key.collection == form_sound_emoji) {
             if (!p.upload.data || !application_soundboard_create(p.guild_id, {p.sound_name, p.sound_name_bytes}, text,

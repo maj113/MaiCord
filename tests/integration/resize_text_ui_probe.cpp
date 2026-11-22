@@ -86,8 +86,7 @@ bool settings_titles(D3D11Renderer& renderer, UiTextMeasureCache& cache, bool (*
             ui_page_registry_clear(&s.registry);
         }
     } restore{renderer, s};
-    if (!ui_page_registry_initialize(&s.registry, {s.pages, kSettingsPanelCount}))
-        return fail(1);
+    ui_page_registry_initialize(&s.registry, {s.pages, kSettingsPanelCount});
     for (u32 panel = 0; panel < kSettingsPanelCount; ++panel) {
         const auto& source = settings_catalog_panel(static_cast<SettingsPanel>(panel));
         s.controls[panel] = {1000u + panel, source.title, source.summary, UiSettingsControlKind::toggle, true, false};

@@ -207,10 +207,9 @@ void test_protocol() noexcept {
     const u32 uri_bytes = guild_image_write_data_uri(GuildImageKind::png, {png, sizeof(png)}, {uri, sizeof(uri)});
     check(uri_bytes == guild_image_data_uri_bytes(GuildImageKind::png, 5) &&
               same(uri, uri_bytes, utf8_literal("data:image/png;base64,AQIDBAU=")) &&
-              !guild_image_write_data_uri(GuildImageKind::png, {png, 5}, {uri, uri_bytes - 1}) &&
               !guild_image_data_uri_bytes(GuildImageKind::none, 5) &&
               utf8_equal(guild_image_mime(GuildImageKind::lottie), utf8_literal("application/json")),
-          "data URI: exact framing and padding; short output and unknown kinds are refused");
+          "data URI: exact framing and padding; unknown kinds have no size");
 
     struct Row {
         GuildAssetRequest request;

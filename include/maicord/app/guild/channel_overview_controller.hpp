@@ -44,7 +44,6 @@ struct ChannelOverviewCompletion {
 struct ChannelOverviewRequest {
     ChannelOverviewScope scope{};
     ChannelOverviewPatch patch{}; // Borrows the locked draft until the request is accepted.
-    u64 revision{}, remote_revision{};
     ChannelOverviewOperation operation{};
     bool ready{};
 };
@@ -63,8 +62,8 @@ struct ChannelOverviewController {
         permission_denied{};
 };
 bool channel_overview_scope_equal(ChannelOverviewScope, ChannelOverviewScope) noexcept;
-bool channel_overview_controller_open(ChannelOverviewController*, ChannelOverviewScope, bool available,
-                                      bool can_manage) noexcept;
+// Opens with no request out, online and with the right to manage the channel (the caller checks all three).
+bool channel_overview_controller_open(ChannelOverviewController*, ChannelOverviewScope) noexcept;
 // A different scope cancels without overwriting the outstanding request ID.
 void channel_overview_controller_authority(ChannelOverviewController*, ChannelOverviewScope, bool available,
                                            bool can_manage) noexcept;
@@ -79,15 +78,16 @@ bool channel_overview_controller_reload(ChannelOverviewController*) noexcept;
 bool channel_overview_controller_rebase(ChannelOverviewController*) noexcept;
 ChannelOverviewRequest channel_overview_controller_request(const ChannelOverviewController&,
                                                            u64 now_ms) noexcept;
-bool channel_overview_controller_submitted(ChannelOverviewController*, const ChannelOverviewRequest&,
-                                           u64 request_id) noexcept;
-// A busy result leaves the queued request intact. Other synchronous failures
-// cancel only the matching queued revision and keep the editable draft.
-bool channel_overview_controller_admission_failed(ChannelOverviewController*, const ChannelOverviewRequest&,
-                                                  ChannelOverviewFailure) noexcept;
+// The two calls below take the request channel_overview_controller_request returned just before, with no other
+// controller call between: the submission of that request under a request_id that is not zero, or its failure.
+void channel_overview_controller_submitted(ChannelOverviewController*, u64 request_id) noexcept;
+// A busy result leaves the queued request intact. Another synchronous failure is
+// a rejection: it cancels the request and keeps the editable draft.
+void channel_overview_controller_admission_failed(ChannelOverviewController*) noexcept;
 // Mailbox channel updates currently omit overview fields. Invalidate on their
-// scoped update and fetch; never attempt to decode binary mailbox data as JSON.
-bool channel_overview_controller_invalidate(ChannelOverviewController*, ChannelOverviewScope) noexcept;
+// update of the open controller's own channel and fetch; never attempt to decode
+// binary mailbox data as JSON.
+void channel_overview_controller_invalidate(ChannelOverviewController*) noexcept;
 // Reports response consumption, separate from server mutation success.
 bool channel_overview_controller_complete(ChannelOverviewController*, ChannelOverviewScope, u64 request_id,
                                           ChannelOverviewCompletion, const ChannelOverviewSnapshot*,

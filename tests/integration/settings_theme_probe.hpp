@@ -140,9 +140,9 @@ inline bool settings_theme_ui_probe(BackgroundThemeProbeContext c) noexcept {
                                   1};
     int context = 0;
     const UiRect viewport{0, 0, r.width * 96.f / r.dpi, r.height * 96.f / r.dpi};
-    if (!ui_page_registry_initialize(&registry, {&page, 1}) ||
-        !ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Appearance"), &content}).ok() ||
-        !ui_settings_scene_bind_palette(&scene, {&context, palette, 1}) ||
+    ui_settings_scene_bind_palette(&scene, {&context, palette, 1});
+    ui_page_registry_initialize(&registry, {&page, 1});
+    if (!ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Appearance"), &content}).ok() ||
         !ui_settings_scene_update(&scene, &registry, viewport))
         return false;
     renderer_bind_theme_editor_scene(&r, nullptr);

@@ -201,9 +201,8 @@ inline bool native_pane_glyph_stress_probe(D3D11Renderer& renderer) noexcept {
                                            utf8_literal("Original offline cover fixture"),
                                            {&control, 1},
                                            1};
-    if (!ui_page_registry_initialize(&registry, {&page, 1}) ||
-        !ui_page_registry_register(&registry, {{0x72, 1}, utf8_literal("Appearance"), &settings_content})
-             .ok())
+    ui_page_registry_initialize(&registry, {&page, 1});
+    if (!ui_page_registry_register(&registry, {{0x72, 1}, utf8_literal("Appearance"), &settings_content}).ok())
         return fail();
     surface_motion_probe_detail::Readback readback;
     if (!readback.initialize(renderer))

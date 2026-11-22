@@ -190,7 +190,7 @@ bool user_store_initialize(UserStore* store, Slice<UserRecord> records, Slice<u3
 }
 
 bool user_store_initialize_owned(UserStore* store, u32 capacity, u32 name_bank_bytes) noexcept {
-    if (!store || capacity == 0 || capacity > 1'000'000 || name_bank_bytes == 0 || name_bank_bytes > (1u << 30))
+    if (capacity == 0 || capacity > 1'000'000 || name_bank_bytes == 0 || name_bank_bytes > (1u << 30))
         return false;
     // Each region starts on a page, so a bank's pages return to the system alone.
     const usize bank = page_round(name_bank_bytes);
@@ -211,8 +211,6 @@ bool user_store_initialize_owned(UserStore* store, u32 capacity, u32 name_bank_b
 }
 
 void user_store_release(UserStore* store) noexcept {
-    if (!store)
-        return;
     user_appearance_release(&store->appearance);
     user_activity_release(&store->activities);
     if (store->reservation)
@@ -224,7 +222,7 @@ void user_store_release(UserStore* store) noexcept {
 // The next mark matches no record. Once each 255 clears the marks start again at 1, so the marks of the last
 // 255 clears go first: only occupied records hold one (removal resets a record), and they lie below slot_extent.
 void user_store_clear_pins(UserStore* store) noexcept {
-    if (!store || !store->records || !store->order)
+    if (!store)
         return;
     ++store->pin_epoch;
     if (++store->pin_mark == 0) {
@@ -234,7 +232,7 @@ void user_store_clear_pins(UserStore* store) noexcept {
     }
 }
 bool user_store_pin(UserStore* store, u64 id) noexcept {
-    if (!store || !store->records || !store->order || !id) return false;
+    if (!store || !id) return false;
     bool found = false;
     const u32 order = find_order(*store, id, &found);
     if (!found) return false;
@@ -245,8 +243,7 @@ bool user_store_pin(UserStore* store, u64 id) noexcept {
 UserStoreResult user_store_upsert(UserStore* store, u64 id,
                                                  const Utf8View& display_name_view, const Utf8View& username_view) noexcept {
     Utf8View display_name = display_name_view, username = username_view; // the store is written below
-    if (!store || !store->records || !store->order || !store->names || id == 0 || !display_name.data ||
-        display_name.bytes == 0) {
+    if (!store || id == 0 || !display_name.data || display_name.bytes == 0) {
         return store_error(store, UserStoreError::invalid_input);
     }
     bool found = false;
@@ -397,7 +394,7 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
 
 bool user_store_set_avatar(UserStore* store, u64 id, const Utf8View& avatar_view) noexcept {
     const Utf8View avatar_hash = avatar_view; // the store is written below
-    if (!store || !store->records || !store->order || id == 0 || !asset_hash_valid(avatar_hash)) {
+    if (!store || id == 0 || !asset_hash_valid(avatar_hash)) {
         return false;
     }
     bool found = false;
@@ -425,7 +422,7 @@ bool user_store_set_avatar(UserStore* store, u64 id, const Utf8View& avatar_view
 }
 
 bool user_store_set_client_status(UserStore* store, u64 id, u8 client_status) noexcept {
-    if (!store || !store->records || !store->order || !id) return false;
+    if (!store || !id) return false;
     bool found = false;
     const u32 order = find_order(*store, id, &found);
     if (!found) return false;
@@ -441,7 +438,7 @@ u8 user_store_client_status(const UserStore& store, u64 id) noexcept {
 }
 
 bool user_store_clear_client_status(UserStore* store) noexcept {
-    if (!store || !store->records || !store->order) return false;
+    if (!store) return false;
     bool changed = false;
     for (u32 slot = 0; slot < store->slot_extent; ++slot) {
         UserRecord& record = store->records[slot];
@@ -454,7 +451,7 @@ bool user_store_clear_client_status(UserStore* store) noexcept {
 }
 
 const UserRecord* user_store_find(const UserStore& store, u64 id) noexcept {
-    if (!store.records || !store.order || id == 0) {
+    if (id == 0) {
         return nullptr;
     }
     bool found = false;
@@ -463,20 +460,19 @@ const UserRecord* user_store_find(const UserStore& store, u64 id) noexcept {
 }
 
 Utf8View user_store_name(const UserStore& store, const UserRecord& record) noexcept {
-    return record.occupied && record.name_bytes != 0 && store.names &&
-                   record.name_offset + record.name_bytes <= store.name_bank_bytes * 2
+    return record.occupied && record.name_bytes != 0
                ? Utf8View{reinterpret_cast<const char*>(store.names + record.name_offset),
                           record.name_bytes}
                : Utf8View{};
 }
 
 Utf8View user_store_username(const UserStore& store, const UserRecord& record) noexcept {
-    return record.occupied && store.names && record.name_offset + name_size(record) <= store.name_bank_bytes * 2
+    return record.occupied
         ? Utf8View{reinterpret_cast<const char*>(store.names + username_offset(record)), record.username_bytes} : Utf8View{};
 }
 
 Utf8View user_store_avatar_hash(const UserRecord& record) noexcept {
-    return record.occupied && record.avatar_hash_bytes <= kUserAvatarHashMaximumBytes
+    return record.occupied
                ? Utf8View{record.avatar_hash, record.avatar_hash_bytes}
                : Utf8View{};
 }

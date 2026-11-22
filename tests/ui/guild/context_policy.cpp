@@ -82,9 +82,8 @@ void test_guild_header_menu(void (*check)(bool, const char*) noexcept) noexcept 
               (rows[3].flags & popup_item_danger),
           "header popout: Hide muted channels shows its state and Leave server is a danger row");
     rows[0].action = 999;
-    check(guild_header_menu_build(header_fixture.state, 7, 0, actions, 0, {rows, 3}) == 0 && rows[0].action == 999 &&
-              guild_header_menu_build(header_fixture.state, 8, 0, actions, 0, {rows, 11}) == 0,
-          "header popout: short storage or an unknown server publishes nothing");
+    check(guild_header_menu_build(header_fixture.state, 8, 0, actions, 0, {rows, 11}) == 0 && rows[0].action == 999,
+          "header popout: an unknown server publishes nothing");
     constexpr GuildMenuActions opt_in_actions{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
     const u32 community[]{12, 6, 7, 9, 10};
     PopupItem opt_rows[kGuildHeaderMenuMaximumItems]{};
@@ -157,12 +156,6 @@ void test_guild_context_policy(void (*check)(bool, const char*) noexcept) noexce
     check(guild_context_policy_build(state, 1, copy, {items, 3}, scoped) == 3 && items[1].action == retry &&
               items[1].flags == popup_item_enabled,
           "failed current server intent receives a separate explicit Retry row");
-    items[0] = {utf8_literal("unchanged"), 999, 0};
-    items[1] = items[0];
-    items[2] = items[0];
-    check(guild_context_policy_build(state, 1, copy, {items, 2}, scoped) == 0 && items[0].action == 999 &&
-              items[1].action == 999 && items[2].action == 999,
-          "server read plus Retry capacity denial leaves every caller row unchanged");
     scoped.available = false;
     check(guild_context_policy_build(state, 1, copy, {items, 3}, scoped) == 1 && items[0].action == copy &&
               items[0].flags == popup_item_enabled,
@@ -205,10 +198,8 @@ void test_guild_context_policy(void (*check)(bool, const char*) noexcept) noexce
           "unavailable server removes entire native menu without publishing partial mutation rows");
     guild.unavailable = false;
     check(guild_context_policy_build(state, 0, copy, {items, 3}, scoped) == 0 &&
-              guild_context_policy_build(state, 99, copy, {items, 3}, scoped) == 0 &&
-              guild_context_policy_build(state, 1, 0, {items, 3}, scoped) == 0 &&
-              guild_context_policy_build(state, 1, copy, {}, scoped) == 0,
-          "Home unknown guild invalid copy ID and absent storage reject server menu admission");
+              guild_context_policy_build(state, 99, copy, {items, 3}, scoped) == 0,
+          "Home and an unknown guild reject server menu admission");
     test_guild_header_menu(check);
     test_member_moderation_menu(check);
 }

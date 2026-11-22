@@ -137,10 +137,12 @@ bool application_theme_accessibility_refresh() noexcept {
 namespace {
 // Publishes the source's look (application_custom_theme_publish). A change of colours from what shows glides for
 // glide_ms (0: only as a scheduled look's own change asks, see look()); a glide under way carries on to the new look.
+// The document and the preferences are valid: every document comes from the parser, the theme store, an offer
+// that was checked or a background edit that the theme editor checked, and every preference write is checked or
+// in range.
 bool publish(const ClientThemeDocument* document, u32 glide_ms) noexcept {
     auto& publication = theme_publication;
-    if (publication.publishing ||
-        (document ? !client_theme_document_valid(*document) : !client_preferences_valid(g_app.preferences)))
+    if (publication.publishing)
         return false;
     publication.publishing = true;
     struct EndPublication {

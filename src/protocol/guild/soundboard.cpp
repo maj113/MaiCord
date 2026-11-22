@@ -1,5 +1,4 @@
 #include "maicord/protocol/guild/soundboard.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
@@ -68,7 +67,7 @@ bool small_body(const SoundboardRequest& r, ProtocolWriter* w) noexcept {
 } // namespace
 
 bool soundboard_name_valid(Utf8View name) noexcept {
-    if (!view_valid(name) || !name.bytes || name.bytes > kSoundboardNameBytes)
+    if (!name.bytes || name.bytes > kSoundboardNameBytes)
         return false;
     const auto validation = utf8_validate(name);
     if (!validation.valid || validation.codepoints < kSoundboardNameMinimum ||
@@ -85,7 +84,7 @@ bool soundboard_name_valid(Utf8View name) noexcept {
 }
 
 bool soundboard_emoji_name_valid(Utf8View name) noexcept {
-    if (!view_valid(name) || name.bytes > kSoundboardEmojiNameBytes || !utf8_validate(name).valid)
+    if (name.bytes > kSoundboardEmojiNameBytes || !utf8_validate(name).valid)
         return false;
     for (u32 i = 0; i < name.bytes; ++i)
         if (static_cast<u8>(name.data[i]) < 0x20)
@@ -94,8 +93,7 @@ bool soundboard_emoji_name_valid(Utf8View name) noexcept {
 }
 
 bool soundboard_request_valid(const SoundboardRequest& r) noexcept {
-    if (r.operation >= Op::count || !soundboard_emoji_name_valid(r.emoji_name) || !view_valid(r.name) ||
-        !view_valid(r.reason) || !byte_range_valid(r.sound) || r.volume > kSoundboardVolumeScale)
+    if (r.operation >= Op::count || !soundboard_emoji_name_valid(r.emoji_name) || r.volume > kSoundboardVolumeScale)
         return false;
     if (guild_operation(r.operation) && !r.guild_id)
         return false;
@@ -228,7 +226,7 @@ u32 soundboard_format_volume(u32 per_mille, Slice<char> output) noexcept {
 }
 
 bool soundboard_parse_volume(Utf8View text, u32* per_mille) noexcept {
-    if (!text.data || !text.bytes)
+    if (!text.bytes)
         return false;
     u32 i = 0;
     if (text.data[0] == '-') {

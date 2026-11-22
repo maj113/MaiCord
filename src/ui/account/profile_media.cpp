@@ -20,7 +20,7 @@
 #include "maicord/media/core/asset.hpp"
 namespace maicord {
 bool profile_media_use_compatibility_banner(ProfileScene* scene) noexcept {
-    if (!scene || scene->banner_compatibility) return false;
+    if (scene->banner_compatibility) return false;
     scene->banner_compatibility = true;
     return true;
 }
@@ -153,7 +153,7 @@ bool pending_media(const ProfilePendingImage& image, const UiRect& target, const
 namespace {
 bool guild_badge_media(bool enabled, u64 guild_id, const Utf8View& badge, const UiRect& rectangle, const UiRect& clip,
                        ProfileMedia* out) noexcept {
-    if (!out || !enabled || !guild_id || !asset(badge))
+    if (!enabled || !guild_id || !asset(badge))
         return false;
     ProfileMedia& result = start(out);
     cdn_root(&result.url);
@@ -176,7 +176,7 @@ bool user_guild_badge_media(const UserAppearanceRecord& appearance, const UiRect
 }
 bool user_nameplate_media(const UserAppearanceRecord& appearance, bool animated, const UiRect& rectangle,
                           const UiRect& clip, ProfileMedia* out) noexcept {
-    if (!out || !appearance.nameplate_sku)
+    if (!appearance.nameplate_sku)
         return false;
     ProfileMedia& result = start(out);
     cdn_root(&result.url);
@@ -189,7 +189,7 @@ bool user_nameplate_media(const UserAppearanceRecord& appearance, bool animated,
 }
 bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* out) noexcept {
     // Most parts (text, buttons) have no media: the renderer and the media scans ask for every part each frame.
-    if (!out || !scene.active || !scene.profile || index >= scene.part_count ||
+    if (!scene.active || !scene.profile || index >= scene.part_count ||
         scene.parts[index].media == ProfileMediaKind::none)
         return false;
     const auto& part = scene.parts[index];
@@ -432,7 +432,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
     return media_asset_key_valid(result.key);
 }
 bool profile_avatar_still_media(const ProfileScene& scene, float dips, ProfileMedia* out) noexcept {
-    if (!out || !scene.active || !scene.profile)
+    if (!scene.active || !scene.profile)
         return false;
     const auto& p = *scene.profile;
     const auto display = profile_display(p);
@@ -609,7 +609,7 @@ bool member_plain_avatar(const MemberListScene& s, const MemberListRowWidget& ro
 bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer, ProfileMedia* out,
                           bool visible_only) noexcept {
     MemberRowMedia m;
-    return out && member_row_media(s, index, visible_only, &m) && member_layer_media(s, index, m, layer, nullptr, out);
+    return member_row_media(s, index, visible_only, &m) && member_layer_media(s, index, m, layer, nullptr, out);
 }
 void member_media_cache_fill(const MemberListScene& s, u32 index, const UiBadgeWidget& badge, float dx, float dy,
                              MemberMediaCacheEntry* entry) noexcept {
@@ -637,7 +637,7 @@ void member_media_cache_fill(const MemberListScene& s, u32 index, const UiBadgeW
     }
 }
 bool member_plain_avatar_resolve(const MemberListScene& s, u32 index, AvatarMedia* out) noexcept {
-    if (!out || !s.active || !s.users || !s.source || index >= s.count)
+    if (!s.active || !s.users || !s.source || index >= s.count)
         return false;
     const auto& row = s.rows[index];
     if (!member_list_scene_row_resident(s, index) || row.kind != MemberListRowKind::member || !row.user_id)
@@ -659,7 +659,7 @@ bool member_plain_avatar_current(const MemberListScene& s, MediaAssetKey key) no
     });
 }
 bool profile_effect_media_resolve(const ProfileScene& s, u32 index, u64 now, ProfileMedia* out) noexcept {
-    if (!out || !s.active || !s.effect || !s.effect->sku)
+    if (!s.active || !s.effect || !s.effect->sku)
         return false;
     ProfileMedia& result = start(out);
     auto& url = result.url;

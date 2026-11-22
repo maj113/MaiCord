@@ -15,6 +15,7 @@ namespace maicord::app_detail {
 // (an invite seen in chat, or a discoverable server). Without a brand colour
 // the banner takes the icon's dominant colour once the icon is resident. A
 // limited profile (50001) shows "Private Server"; other failures retry on click.
+// guild_id is not zero (each caller checks).
 bool application_guild_card_open(u64 guild_id, UiRect anchor) noexcept;
 void application_guild_card_close() noexcept;
 // The community lane's answer for the card: its profile, or its join.
@@ -40,9 +41,9 @@ struct GuildCardMedia {
     Utf8View url; // Borrowed until the next guild card call.
     MediaAssetKey key;
 };
-u32 application_guild_card_media(GuildCardMedia* output, u32 capacity) noexcept;
+u32 application_guild_card_media(GuildCardMedia (&output)[kGuildCardMediaCapacity]) noexcept;
 // The shown traits' custom emoji, by key.
-u32 application_guild_card_emoji_media(MediaAssetKey* output, u32 capacity) noexcept;
+u32 application_guild_card_emoji_media(MediaAssetKey (&output)[kUiGuildCardTraits]) noexcept;
 bool application_guild_card_key_current(MediaAssetKey key) noexcept;
 // A refused or failed fetch of the icon, badge or banner: logged once per
 // opening with its state and codec/HTTP errors (the banner is a JPEG).

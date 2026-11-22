@@ -194,8 +194,6 @@ u64 guild_folders_new_id(const GuildFolderSettings& settings, u64 seed) noexcept
 
 GuildFolderEditError guild_folders_canonical(const GuildFolderSettings* current, const ChatStateStore& state,
                                              GuildFolderSettings* output) noexcept {
-    if (!output)
-        return E::input;
     // Editing scratch is far larger than a comfortable stack frame.
     struct Scratch {
         GuildDisplayEntry entries[kGuildFoldersMaximumGuilds];
@@ -237,8 +235,7 @@ GuildFolderEditError guild_folders_canonical(const GuildFolderSettings* current,
 GuildFolderEditError guild_folders_move(GuildFolderSettings* settings, GuildFolderItem source,
                                         GuildFolderItem target, GuildFolderDrop drop,
                                         u64 new_folder_id) noexcept {
-    if (!settings || !source.id || !target.id || (source.id == target.id && source.folder == target.folder) ||
-        static_cast<u8>(drop) > static_cast<u8>(GuildFolderDrop::combine))
+    if (!source.id || !target.id || (source.id == target.id && source.folder == target.folder))
         return E::input;
     struct Scratch {
         Tree tree;
@@ -318,7 +315,7 @@ GuildFolderEditError guild_folders_move(GuildFolderSettings* settings, GuildFold
 
 GuildFolderEditError guild_folders_edit(GuildFolderSettings* settings, u64 folder_id, Utf8View name, u32 color,
                                         bool has_color) noexcept {
-    if (!settings || !folder_id || name.bytes > kGuildFolderNameBytes || (name.bytes && !name.data) ||
+    if (!folder_id || name.bytes > kGuildFolderNameBytes || (name.bytes && !name.data) ||
         !utf8_validate(name).valid || (has_color && color > 0xFFFFFF))
         return E::input;
     const u32 index = guild_folders_find_folder(*settings, folder_id);

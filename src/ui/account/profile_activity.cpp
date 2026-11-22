@@ -65,8 +65,6 @@ u32 word_number(const Utf8View& s, u32 at, u32* digits_begin) noexcept {
 } // namespace
 
 u32 profile_activity_order(const UserActivitySet& set, const Slice<u8>& order) noexcept {
-    if (!order.data)
-        return 0;
     u8 sorted[kUserActivityMaximum];
     u32 count = 0;
     for (u32 i = 0; i < set.count && i < kUserActivityMaximum; ++i) {
@@ -204,7 +202,7 @@ u32 profile_activity_episode_text(const Utf8View& s, const Slice<char>& output) 
     return 0;
 }
 bool profile_activity_content(const UserActivity& a, bool bot, bool self, ProfileActivityContent* out) noexcept {
-    if (!out || a.type == UserActivityType::custom)
+    if (a.type == UserActivityType::custom)
         return false;
     reset_value(out);
     auto& c = *out;

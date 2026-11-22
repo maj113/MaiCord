@@ -958,7 +958,7 @@ bool ApplicationMediaPump::request_stream_previews(bool* stop) noexcept {
     // The server tag popout's icon, tag badge, banner and game pictures, fetched by URL, then its traits' custom
     // emoji by key.
     GuildCardMedia cards[kGuildCardMediaCapacity];
-    const u32 card_count = application_guild_card_media(cards, kGuildCardMediaCapacity);
+    const u32 card_count = application_guild_card_media(cards);
     // Their URLs (at most 384 bytes) fit the request as they are.
     for (u32 i = 0; i < card_count && !*stop; ++i) {
         AccountMediaRequestResult failure{};
@@ -969,7 +969,7 @@ bool ApplicationMediaPump::request_stream_previews(bool* stop) noexcept {
     }
     // An animated trait emoji joins the shared animation timeline while shown, as the composer's do.
     MediaAssetKey trait_emoji[kUiGuildCardTraits];
-    const u32 trait_emoji_count = application_guild_card_emoji_media(trait_emoji, kUiGuildCardTraits);
+    const u32 trait_emoji_count = application_guild_card_emoji_media(trait_emoji);
     for (u32 i = 0; i < trait_emoji_count && !*stop; ++i) {
         bool force = false;
         if ((trait_emoji[i].flags & media_asset_flag_animated) && animation_resident(trait_emoji[i], &force))

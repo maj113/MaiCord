@@ -109,11 +109,8 @@ void test_tag_badge_urls() noexcept {
               !media_asset_key_equal(tile.key, tile_hidpi.key),
           "tag badge: each size is its own profile_image PNG identity");
     check(!ui_guild_tag_badge_media(222333444555666777ull, {}, 32, 96, &bad) &&
-              !ui_guild_tag_badge_media(222333444555666777ull, utf8_literal("zz"), 32, 96, &bad) &&
-              !ui_guild_tag_badge_media(0, kStill, 32, 96, &bad) &&
-              !ui_guild_tag_badge_media(222333444555666777ull, kStill, 0, 96, &bad) &&
-              !ui_guild_tag_badge_media(222333444555666777ull, kStill, 32, 96, nullptr),
-          "tag badge: no hash, a malformed one, no guild or no size builds nothing (the glyph stays)");
+              !ui_guild_tag_badge_media(222333444555666777ull, utf8_literal("zz"), 32, 96, &bad),
+          "tag badge: no hash or a malformed one builds nothing (the glyph stays)");
 }
 
 void test_geometry() noexcept {

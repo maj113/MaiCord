@@ -145,18 +145,15 @@ void pop_request() noexcept {
     --b.queue_count;
 }
 
-// These bounds describe what the modal can show, independently of the larger
-// decoded models. Recompute before submission instead of trusting footer state.
+// These bounds describe what the modal can show, independently of the larger decoded models (whose counts the decoders
+// cap at their arrays). Recompute before submission instead of trusting footer state.
 bool rules_presentation_complete(const Owner& p) noexcept {
-    if (p.form.truncated || p.form.field_count > kGuildVerificationFieldMaximum ||
-        !guild_verification_supported(p.form))
+    if (p.form.truncated || !guild_verification_supported(p.form))
         return false;
     u32 text_bytes = 0, controls = 0, editors = 0;
     bool agree = false;
     for (u32 f = 0; f < p.form.field_count; ++f) {
         const auto& field = p.form.fields[f];
-        if (field.value_count > kGuildVerificationValueMaximum)
-            return false;
         if (field.type == GuildVerificationFieldType::terms) {
             ++controls;
             if (field.value_count)
@@ -195,16 +192,12 @@ namespace community_detail {
 
 bool onboarding_presentation_complete(const Owner& p) noexcept {
     const auto& model = p.onboarding;
-    if (model.truncated || model.prompt_count > kGuildOnboardingPromptMaximum ||
-        model.option_count > kGuildOnboardingOptionMaximum)
+    if (model.truncated)
         return false;
     const u32 flow_count = guild_onboarding_flow_prompts(model, {});
     u32 flow_step = 0;
     for (u32 i = 0; i < model.prompt_count; ++i) {
         const auto& prompt = model.prompts[i];
-        if (prompt.first_option > model.option_count ||
-            prompt.option_count > model.option_count - prompt.first_option)
-            return false;
         if (!prompt.option_count || !prompt.in_onboarding)
             continue;
         // Reserve the largest footer used on this page, including the
@@ -276,8 +269,6 @@ namespace community_detail {
 
 bool rules_answers(GuildVerificationAnswer* answers) noexcept {
     const auto& p = *owner;
-    if (p.form.field_count > kGuildVerificationFieldMaximum)
-        return false;
     for (u32 f = 0; f < p.form.field_count; ++f) {
         answers[f] = p.answers[f];
         const auto type = p.form.fields[f].type;

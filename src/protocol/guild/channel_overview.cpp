@@ -82,7 +82,7 @@ bool channel_overview_patch_valid(const ChannelOverviewPatch& patch) noexcept {
             patch.slowmode_seconds <= kChannelOverviewMaximumSlowmodeSeconds);
 }
 ChannelOverviewResult channel_overview_decode(Utf8View input, ChannelOverviewSnapshot* output) noexcept {
-    if (!output || !byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes}) || !input.bytes ||
+    if (!byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes}) || !input.bytes ||
         input.bytes > 64 * 1024 || !utf8_validate(input).valid)
         return {0, ChannelOverviewError::input};
     // Application bound, not a wire-schema limit. Refuse structural overflow

@@ -41,8 +41,8 @@ void test_selected_empty_line() noexcept {
     const UiRect viewport{0, 0, 1280, 900};
     const UiSettingsTarget target{UiSettingsTargetKind::control, key, 1};
     UiSettingsControlGeometry field{};
-    const bool ready = ui_page_registry_initialize(&registry, {&page, 1}) &&
-                       ui_page_registry_register(&registry, {key, utf8_literal("Profiles"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {&page, 1});
+    const bool ready = ui_page_registry_register(&registry, {key, utf8_literal("Profiles"), &content}).ok() &&
                        ui_settings_scene_update(&scene, &registry, viewport) && ui_settings_scene_focus(&scene, target) &&
                        ui_settings_scene_control_geometry(scene, target, &field) && field.multiline;
     check(ready, "settings editor: a focused multi-line field");

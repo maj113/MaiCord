@@ -46,7 +46,7 @@ inline bool member_list_subscription_pins_stale(const MemberListSubscriptionRetr
         retry.user_pin_revision != user_revision;
 }
 
-bool member_list_subscription_select(MemberListSubscriptionRetry* retry,
+void member_list_subscription_select(MemberListSubscriptionRetry* retry,
                                      u64 guild_id, u64 channel_id, u64 now_ms) noexcept;
 bool member_list_subscription_due(const MemberListSubscriptionRetry& retry, u64 now_ms) noexcept;
 bool member_list_subscription_fail(MemberListSubscriptionRetry* retry, u64 now_ms) noexcept;

@@ -3,7 +3,6 @@
 #include "../encoding/json_fields.hpp"
 #include "../encoding/proto_wire.hpp"
 #include "frecency_wire.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -132,8 +131,6 @@ struct Visitors {
 };
 // The caller's visitor over a validated favorites (map false) or frecency group.
 EmojiPreferencesError visit_group(ConstSlice<u8> group, bool map, Visitors visitors) noexcept {
-    if (!byte_range_valid(group))
-        return E::input;
     const E checked = check_group(group, map);
     if (checked != E::none)
         return checked;
@@ -296,11 +293,6 @@ bool entries_valid(ConstSlice<EmojiFrecencyEntry> entries) noexcept {
 EmojiPreferencesResult emoji_preferences_decode(ConstSlice<u8> proto, Slice<u8> output,
                                                 EmojiPreferencesSnapshot* snapshot) noexcept {
     EmojiPreferencesResult result{};
-    if (!byte_range_valid(proto) || (output.data && !byte_range_valid({output.data, output.count})) ||
-        (output.data && byte_ranges_overlap(proto, {output.data, output.count}))) {
-        result.error = E::input;
-        return result;
-    }
     reset_value(snapshot);
     u32 sizes[4]{};
     bool sticker_ok = true;
@@ -388,12 +380,9 @@ EmojiPreferencesWriteResult emoji_preferences_write_patch(const EmojiPreferences
     const ConstSlice<u8> groups[]{patch.observed_favorites, patch.observed_frecency,
                                   patch.observed_reaction_frecency};
     for (const auto observed : groups)
-        if (!byte_range_valid(observed) || observed.count > kEmojiPreferencesMaximumGroupBytes)
+        if (observed.count > kEmojiPreferencesMaximumGroupBytes)
             return fail(E::input);
-    if (!byte_range_valid({scratch.data, scratch.count}) || !byte_range_valid({json.data, json.count}) ||
-        byte_ranges_overlap({scratch.data, scratch.count}, {json.data, json.count}) ||
-        (patch.favorite_edits.count && !patch.favorite_edits.data) ||
-        patch.favorite_edits.count > 64 || (!patch.favorite_edits.count && !patch.write_frecency) ||
+    if (patch.favorite_edits.count > 64 ||
         !entries_valid(patch.frecency) || !entries_valid(patch.reaction_frecency))
         return fail(E::input);
     for (u32 i = 0; i < patch.favorite_edits.count; ++i)
@@ -453,8 +442,7 @@ EmojiPreferencesWriteResult emoji_preferences_write_patch(const EmojiPreferences
 }
 
 EmojiPreferencesError emoji_preferences_validate_patch_json(Utf8View input) noexcept {
-    if (input.bytes > kEmojiPreferencesMaximumPatchBytes ||
-        !byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes}))
+    if (input.bytes > kEmojiPreferencesMaximumPatchBytes)
         return E::input;
     Utf8View encoded{};
     if (settings_patch_members(input, &encoded) != 3 || !encoded.bytes)

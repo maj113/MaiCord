@@ -38,8 +38,6 @@ void move_count(ScheduledEvent* event, bool added) noexcept {
 } // namespace
 
 void scheduled_event_store_reset(ScheduledEventStore* store) noexcept {
-    if (!store)
-        return;
     store->count = 0;
     ++store->revision;
 }
@@ -49,7 +47,7 @@ const ScheduledEvent* scheduled_event_store_find(const ScheduledEventStore& stor
 }
 
 bool scheduled_event_store_upsert(ScheduledEventStore* store, const ScheduledEvent& event) noexcept {
-    if (!store || !event.id || !event.guild_id)
+    if (!event.id || !event.guild_id)
         return false;
     ScheduledEvent* existing = find(store, event.id);
     if (!scheduled_event_listed(event)) {
@@ -88,7 +86,7 @@ bool scheduled_event_store_upsert(ScheduledEventStore* store, const ScheduledEve
 }
 
 bool scheduled_event_store_remove(ScheduledEventStore* store, u64 event_id) noexcept {
-    ScheduledEvent* existing = store ? find(store, event_id) : nullptr;
+    ScheduledEvent* existing = find(store, event_id);
     if (!existing)
         return false;
     erase(store, static_cast<u32>(existing - store->entries));
@@ -96,7 +94,7 @@ bool scheduled_event_store_remove(ScheduledEventStore* store, u64 event_id) noex
 }
 
 bool scheduled_event_store_clear_guild(ScheduledEventStore* store, u64 guild_id) noexcept {
-    if (!store || !guild_id)
+    if (!guild_id)
         return false;
     bool changed = false;
     for (u32 i = store->count; i-- > 0;)
@@ -109,7 +107,7 @@ bool scheduled_event_store_clear_guild(ScheduledEventStore* store, u64 guild_id)
 
 bool scheduled_event_store_user(ScheduledEventStore* store, u64 event_id, u64 user_id, u64 self_user_id,
                                 bool added) noexcept {
-    ScheduledEvent* event = store ? find(store, event_id) : nullptr;
+    ScheduledEvent* event = find(store, event_id);
     if (!event)
         return false;
     const bool self = user_id && user_id == self_user_id;
@@ -128,7 +126,7 @@ bool scheduled_event_store_user(ScheduledEventStore* store, u64 event_id, u64 us
 
 bool scheduled_event_store_set_interest(ScheduledEventStore* store, u64 event_id, bool interested,
                                         bool adjust_count) noexcept {
-    ScheduledEvent* event = store ? find(store, event_id) : nullptr;
+    ScheduledEvent* event = find(store, event_id);
     if (!event || (event->interested_known && event->interested == interested))
         return false;
     if (adjust_count && event->user_count_known)
@@ -140,8 +138,6 @@ bool scheduled_event_store_set_interest(ScheduledEventStore* store, u64 event_id
 }
 
 void scheduled_event_store_reset_interest(ScheduledEventStore* store, u64 guild_id) noexcept {
-    if (!store)
-        return;
     for (u32 i = 0; i < store->count; ++i)
         if (store->entries[i].guild_id == guild_id) {
             store->entries[i].interested = false;
@@ -157,7 +153,7 @@ u32 scheduled_event_store_guild_events(const ScheduledEventStore& store, u64 gui
         const auto& event = store.entries[i];
         if (event.guild_id != guild_id || !scheduled_event_listed(event))
             continue;
-        if (output.data && count < output.count) {
+        if (count < output.count) {
             // Insertion sort: the store is small.
             u32 at = count;
             while (at && earlier(event, *output[at - 1])) {
@@ -168,7 +164,7 @@ u32 scheduled_event_store_guild_events(const ScheduledEventStore& store, u64 gui
         }
         ++count;
     }
-    return minimum<u32>(count, output.data ? output.count : count);
+    return minimum<u32>(count, output.count);
 }
 
 u32 scheduled_event_store_guild_count(const ScheduledEventStore& store, u64 guild_id) noexcept {

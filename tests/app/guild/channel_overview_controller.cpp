@@ -13,19 +13,18 @@ ChannelOverviewSnapshot initial() noexcept {
     return value;
 }
 bool submit(ChannelOverviewController& value, u64 id, u64 now = 1) noexcept {
-    const auto request = channel_overview_controller_request(value, now);
-    return request.ready && channel_overview_controller_submitted(&value, request, id);
+    if (!channel_overview_controller_request(value, now).ready)
+        return false;
+    channel_overview_controller_submitted(&value, id);
+    return true;
 }
 } // namespace
 void test_channel_overview_controller(void (*check)(bool, const char*) noexcept) noexcept {
     const ChannelOverviewScope scope{1, 2, 3, 10, 20, 1};
     ChannelOverviewController value{};
     const auto remote = initial();
-    check(!channel_overview_controller_next_wake(value) &&
-              !channel_overview_controller_open(&value, scope, true, false),
-          "channel overview controller: dormant owner does no work and cannot open without permission "
-          "authority");
-    check(channel_overview_controller_open(&value, scope, true, true) && submit(value, 100) &&
+    check(!channel_overview_controller_next_wake(value), "channel overview controller: dormant owner does no work");
+    check(channel_overview_controller_open(&value, scope) && submit(value, 100) &&
               !channel_overview_controller_edit(&value, {utf8_literal("x"), {}, 0, 1, false}) &&
               !channel_overview_controller_complete(&value, scope, 999, {}, &remote, 1),
           "channel overview controller: loading locks edits and unrelated receipts cannot consume its "
@@ -64,8 +63,8 @@ void test_channel_overview_controller(void (*check)(bool, const char*) noexcept)
     auto newer = accepted;
     newer.topic_bytes = 6;
     copy_bytes(newer.topic, "remote", 6);
-    check(channel_overview_controller_invalidate(&value, scope) &&
-              channel_overview_controller_complete(&value, scope, 102, {}, &accepted, 3) &&
+    channel_overview_controller_invalidate(&value);
+    check(channel_overview_controller_complete(&value, scope, 102, {}, &accepted, 3) &&
               value.phase == ChannelOverviewPhase::refetch &&
               value.operation == ChannelOverviewOperation::fetch &&
               utf8_equal(channel_overview_topic_view(value.draft), utf8_literal("mine")) && submit(value, 103),
@@ -122,14 +121,12 @@ void test_channel_overview_controller(void (*check)(bool, const char*) noexcept)
     successor.account_scope = 2;
     channel_overview_controller_authority(&value, successor, true, true);
     check(value.phase == ChannelOverviewPhase::retired &&
-              !channel_overview_controller_open(&value, successor, true, true) &&
               !channel_overview_controller_complete(&value, successor, 110, {}, &remote, 10) &&
               channel_overview_controller_complete(
                   &value, scope, 110, {ChannelOverviewCompletionKind::cancelled}, nullptr, 10) &&
               !channel_overview_controller_next_wake(value),
-          "channel overview controller: scope replacement preserves exact old-ticket drainage and forbids "
-          "reuse until consumed");
-    check(channel_overview_controller_open(&value, successor, true, true) && submit(value, 111) &&
+          "channel overview controller: scope replacement preserves exact old-ticket drainage");
+    check(channel_overview_controller_open(&value, successor) && submit(value, 111) &&
               channel_overview_controller_complete(&value, successor, 111, {}, &remote, 11) &&
               channel_overview_controller_edit(&value, {{}, {}, 5, 4, false}) &&
               channel_overview_controller_reset(&value) && !value.dirty_fields &&
@@ -144,20 +141,20 @@ void test_channel_overview_controller(void (*check)(bool, const char*) noexcept)
           "losing owner state");
     channel_overview_controller_cancel(&value);
     ChannelOverviewController receipt{};
-    check(channel_overview_controller_open(&receipt, scope, true, true) && submit(receipt, 200) &&
+    check(channel_overview_controller_open(&receipt, scope) && submit(receipt, 200) &&
               channel_overview_controller_complete(&receipt, scope, 200, {}, &remote, 1) &&
               channel_overview_controller_edit(&receipt, {{}, {}, 5, 4, false}) &&
               channel_overview_controller_save(&receipt),
           "channel overview controller: admission/invalidation fixture stages a real dirty slowmode edit");
-    const auto refused = channel_overview_controller_request(receipt, 1);
-    check(
-        channel_overview_controller_admission_failed(&receipt, refused, ChannelOverviewFailure::rejected) &&
-            !receipt.queued && receipt.dirty_fields == 4 &&
-            !channel_overview_controller_next_wake(receipt) && channel_overview_controller_save(&receipt) &&
-            submit(receipt, 201),
-        "channel overview controller: synchronous refusal retires admission without losing draft or "
-        "polling forever");
-    check(channel_overview_controller_invalidate(&receipt, scope) && !receipt.authoritative &&
+    check(channel_overview_controller_request(receipt, 1).ready,
+          "channel overview controller: the dirty slowmode edit is ready to send");
+    channel_overview_controller_admission_failed(&receipt);
+    check(!receipt.queued && receipt.dirty_fields == 4 && !channel_overview_controller_next_wake(receipt) &&
+              channel_overview_controller_save(&receipt) && submit(receipt, 201),
+          "channel overview controller: synchronous refusal retires admission without losing draft or "
+          "polling forever");
+    channel_overview_controller_invalidate(&receipt);
+    check(!receipt.authoritative &&
               channel_overview_controller_complete(
                   &receipt, scope, 201, {ChannelOverviewCompletionKind::rate_limited, 1000}, nullptr, 2) &&
               receipt.operation == ChannelOverviewOperation::fetch && submit(receipt, 202) &&
@@ -166,15 +163,5 @@ void test_channel_overview_controller(void (*check)(bool, const char*) noexcept)
           "channel overview controller: binary Gateway invalidation fences even a429 response and "
           "refreshes before another explicit PATCH");
     channel_overview_controller_cancel(&receipt);
-    ChannelOverviewController reopened{};
-    check(channel_overview_controller_open(&reopened, scope, true, true),
-          "channel overview controller: same-scope reopening fixture has an initial queued request");
-    const auto before_close = channel_overview_controller_request(reopened, 12);
-    channel_overview_controller_cancel(&reopened);
-    check(channel_overview_controller_open(&reopened, scope, true, true) &&
-              !channel_overview_controller_submitted(&reopened, before_close, 300) && submit(reopened, 302),
-          "channel overview controller: same-scope reopening advances admission revision and rejects "
-          "captured requests from a retired lifetime");
-    channel_overview_controller_cancel(&reopened);
 }
 } // namespace maicord

@@ -52,8 +52,7 @@ bool ensure_owner() noexcept {
 // The user settings pages (their sidebar), with this page as Profiles.
 bool register_pages() noexcept {
     auto& p = *owner;
-    if (!ui_page_registry_initialize(&p.registry, {p.pages, kPageCapacity}))
-        return false;
+    ui_page_registry_initialize(&p.registry, {p.pages, kPageCapacity});
     p.content = {utf8_literal("Profiles"), {}, {}, 1, kUiSettingsPageFormat, &kEditorStyle, nullptr};
     p.other = {utf8_literal("Settings"), {}, {}, 1, kUiSettingsPageFormat, nullptr, nullptr};
     const auto* settings = application_settings_pages();

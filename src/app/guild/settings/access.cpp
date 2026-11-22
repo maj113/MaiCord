@@ -497,8 +497,8 @@ bool question_saved(TextFormOwnerKey key, Utf8View text) noexcept {
         return false;
     auto& s = st();
     if (s.question_type == GuildVerificationFieldType::multiple_choice) {
-        // The answers follow in a second form.
-        if (!text.bytes || text.bytes > sizeof(s.question_label))
+        // The answers follow in a second form. The form holds at most sizeof(question_label) bytes.
+        if (!text.bytes)
             return false;
         copy_bytes(s.question_label, text.data, text.bytes);
         s.question_label_bytes = static_cast<u16>(text.bytes);
@@ -852,7 +852,7 @@ bool can_save() noexcept {
 
 Op next_save() noexcept {
     auto* s = owner->server_access;
-    if (!s || !can_save())
+    if (!can_save()) // false without the access state
         return Op::none;
     const u32 plan = save_plan();
     if ((plan & part(AccessStep::verification_update)) && (s->features_base & guild_feature_manual_approval) &&

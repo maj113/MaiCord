@@ -39,7 +39,6 @@ enum class UserSocialWriteError : u8 { none, input, capacity };
 using UserSocialWriteResult = ByteResult<UserSocialWriteError>;
 
 bool user_note_valid(const Utf8View& note) noexcept;
-bool user_social_request_valid(const UserSocialRequest&) noexcept;
 bool user_social_has_body(UserSocialOperation) noexcept;
 RestRouteKey user_social_route(const UserSocialRequest&) noexcept;
 // Writers leave output untouched on failure.

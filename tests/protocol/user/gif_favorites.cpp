@@ -259,22 +259,16 @@ void test_gif_favorites(void (*check)(bool, const char*) noexcept) noexcept {
               utf8_equal(records[0].url, collision_b) &&
               gif_favorites_find({records, 2}, {index, 8}, collision_a) &&
               gif_favorites_find({records, 2}, {index, 8}, collision_b) &&
-              !gif_favorites_find({records, 2}, {index, 8}, collision_absent) &&
-              !gif_favorites_find({records, 2}, {index, 3}, collision_a),
+              !gif_favorites_find({records, 2}, {index, 8}, collision_absent),
           "GIF favorites: real colliding buckets resolve exact keys and saved-order ties without hash-only "
           "matches");
     changed[0] = 95;
     records[0].width = 987;
     const Utf8View collision_text = encode(collision_top.view());
-    const char collision_first = collision_text.data[0];
     check(gif_favorites_decode_base64(collision_text, {changed, sizeof(changed)}, {records, 16}, {index, 1})
                       .error == GifFavoritesError::capacity &&
-              changed[0] == 95 && records[0].width == 987 &&
-              gif_favorites_decode_base64(collision_text, {reinterpret_cast<u8*>(g_encoded), sizeof(g_encoded)},
-                                          {records, 16}, {index, 8})
-                      .error == GifFavoritesError::input &&
-              g_encoded[0] == collision_first,
-          "GIF favorites: short index and aliased source bank reject before owned publication");
+              changed[0] == 95 && records[0].width == 987,
+          "GIF favorites: a short index rejects before owned publication");
     u8 overflow_group[512]{};
     FixtureWire overflow{{overflow_group, sizeof(overflow_group)}};
     favorite(overflow, key_b, src_a, ~u32{0}, 1, 1);

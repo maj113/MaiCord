@@ -25,7 +25,8 @@ bool channels_visible() noexcept {
     for (auto* listed = chat_state_store_first_guild_channel(s, owner->guild_id); listed;
          listed = chat_state_store_next_guild_channel(s, *listed)) {
         const auto& c = *listed;
-        if (c.occupied && c.guild_id == owner->guild_id && c.permissions_resolved &&
+        // A guild channel list holds occupied records only: the store unlinks a channel before it clears it.
+        if (c.guild_id == owner->guild_id && c.permissions_resolved &&
             !(c.effective_permissions & kPermissionViewChannel))
             return false;
     }
@@ -175,10 +176,9 @@ bool can_save() noexcept {
 }
 
 Op next_save() noexcept {
-    auto* s = owner->server_access;
-    if (!s || !can_save())
+    if (!can_save()) // false without the access state
         return Op::none;
-    s->step = AccessStep::template_update;
+    owner->server_access->step = AccessStep::template_update;
     return Op::server_access;
 }
 

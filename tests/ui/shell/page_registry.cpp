@@ -5,8 +5,8 @@ namespace maicord {
 void test_ui_page_registry(void (*check)(bool, const char*) noexcept) noexcept {
     UiPage storage[5]{};
     UiPageRegistry registry{};
-    check(ui_page_registry_initialize(&registry, {storage, 5}) && !ui_page_registry_selected(registry) &&
-              !ui_page_registry_at(registry, 0),
+    ui_page_registry_initialize(&registry, {storage, 5});
+    check(!ui_page_registry_selected(registry) && !ui_page_registry_at(registry, 0),
           "page registry starts empty");
 
     u32 native_context = 0, plugin_context = 0;

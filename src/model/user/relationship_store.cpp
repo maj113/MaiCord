@@ -1,16 +1,10 @@
 #include "maicord/model/user/relationship_store.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {
-bool valid(const RelationshipStore& store) noexcept {
-    return store.records.data && store.records.count && store.records.count <= kRelationshipMaximumRecords &&
-        store.count <= store.records.count && byte_range_valid({reinterpret_cast<const u8*>(store.records.data),
-            store.records.count * static_cast<u32>(sizeof(RelationshipRecord))});
-}
 bool valid(const RelationshipRecord& record) noexcept {
     return record.user_id && record.type <= RelationshipType::suggestion &&
         record.presence <= RelationshipPresence::unknown && record.nickname_bytes <= kRelationshipNicknameMaximumBytes &&
@@ -27,12 +21,12 @@ u32 lower(const RelationshipStore& store, u64 id) noexcept {
 RelationshipStoreResult result(RelationshipStoreError error, bool changed = false) noexcept { return {error, changed}; }
 } // namespace
 const RelationshipRecord* relationship_store_find(const RelationshipStore& store, u64 id) noexcept {
-    if (!valid(store) || !id) return nullptr;
+    if (!id) return nullptr;
     const u32 index = lower(store, id);
     return index < store.count && store.records[index].user_id == id ? &store.records[index] : nullptr;
 }
 RelationshipStoreResult relationship_store_upsert(RelationshipStore* store, const RelationshipRecord& record) noexcept {
-    if (!store || !valid(*store) || !valid(record)) return result(RelationshipStoreError::invalid_input);
+    if (!valid(record)) return result(RelationshipStoreError::invalid_input);
     const RelationshipRecord owned = record;
     const u32 index = lower(*store, owned.user_id);
     if (index < store->count && store->records[index].user_id == owned.user_id) {
@@ -48,7 +42,7 @@ RelationshipStoreResult relationship_store_upsert(RelationshipStore* store, cons
     return result(RelationshipStoreError::none, true);
 }
 RelationshipStoreResult relationship_store_remove(RelationshipStore* store, u64 id) noexcept {
-    if (!store || !valid(*store) || !id) return result(RelationshipStoreError::invalid_input);
+    if (!id) return result(RelationshipStoreError::invalid_input);
     const u32 index = lower(*store, id);
     if (index == store->count || store->records[index].user_id != id) return result(RelationshipStoreError::none);
     sorted_erase_gap(store->records.data, store->count, index);
@@ -56,21 +50,13 @@ RelationshipStoreResult relationship_store_remove(RelationshipStore* store, u64 
     saturating_increment(store->revision);
     return result(RelationshipStoreError::none, true);
 }
+// Both callers give records the decoder validated, sorted and without duplicates (relationships_replace, the
+// friends snapshot), in a separate bank.
 RelationshipStoreResult relationship_store_replace(RelationshipStore* store, ConstSlice<RelationshipRecord> sorted) noexcept {
-    if (!store || !valid(*store) || sorted.count > kRelationshipMaximumRecords ||
-        !byte_range_valid({reinterpret_cast<const u8*>(sorted.data), sorted.count * static_cast<u32>(sizeof(*sorted.data))}))
-        return result(RelationshipStoreError::invalid_input);
     if (sorted.count > store->records.count) return result(RelationshipStoreError::capacity);
-    const ConstSlice<u8> source{reinterpret_cast<const u8*>(sorted.data), sorted.count * static_cast<u32>(sizeof(*sorted.data))};
-    if (byte_ranges_overlap(source, {reinterpret_cast<const u8*>(store), sizeof(*store)}) ||
-        (sorted.data != store->records.data && byte_ranges_overlap(source, {reinterpret_cast<const u8*>(store->records.data),
-            store->records.count * static_cast<u32>(sizeof(*store->records.data))}))) return result(RelationshipStoreError::invalid_input);
     bool unchanged = sorted.count == store->count;
-    for (u32 i = 0; i < sorted.count; ++i) {
-        if (!valid(sorted[i])) return result(RelationshipStoreError::invalid_input);
-        if (i && sorted[i - 1].user_id >= sorted[i].user_id) return result(RelationshipStoreError::duplicate);
-        if (unchanged && !equal(sorted[i], store->records[i])) unchanged = false;
-    }
+    for (u32 i = 0; unchanged && i < sorted.count; ++i)
+        unchanged = equal(sorted[i], store->records[i]);
     if (unchanged) return result(RelationshipStoreError::none);
     const u32 previous = store->count;
     copy_bytes(store->records.data, sorted.data, sorted.count * static_cast<u32>(sizeof(*sorted.data)));
@@ -80,7 +66,7 @@ RelationshipStoreResult relationship_store_replace(RelationshipStore* store, Con
     return result(RelationshipStoreError::none, true);
 }
 RelationshipStoreResult relationship_store_presence(RelationshipStore* store, u64 id, RelationshipPresence presence) noexcept {
-    if (!store || !valid(*store) || !id || presence > RelationshipPresence::unknown) return result(RelationshipStoreError::invalid_input);
+    if (!id || presence > RelationshipPresence::unknown) return result(RelationshipStoreError::invalid_input);
     const u32 index = lower(*store, id);
     if (index == store->count || store->records[index].user_id != id || store->records[index].presence == presence)
         return result(RelationshipStoreError::none);

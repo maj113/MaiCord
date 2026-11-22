@@ -162,7 +162,7 @@ void publish_dm_names() noexcept {
 }
 bool application_friends_notification_gates(u64 user_id, u32* gates) noexcept {
     const auto* store = application_friends_relationships();
-    if (!gates || !store)
+    if (!store)
         return false;
     const auto* row = relationship_store_find(*store, user_id);
     *gates = (row && row->type == RelationshipType::blocked ? notification_gate_blocked : 0) |
@@ -798,7 +798,7 @@ bool queue(RelationshipOperation operation, u64 id = 0, Utf8View username = {}, 
         return true;
     auto* friends = ensure();
     if (!friends || !g_app.account_ui || !g_app.account.instance || request_busy(*friends) ||
-        username.bytes > sizeof(FriendsRequest::username) || (!username.data && username.bytes)) return false;
+        username.bytes > sizeof(FriendsRequest::username)) return false;
     u8 target[96], body[kRelationshipBodyMaximumBytes];
     if (!write_relationship_target(operation, id, {target, sizeof(target)}).ok() ||
         !write_relationship_body(operation, username, {body, sizeof(body)}).ok()) return false;

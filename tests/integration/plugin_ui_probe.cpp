@@ -68,8 +68,8 @@ bool feedback_geometry(D3D11Renderer& renderer, UiRect viewport,
         D3D11Renderer& renderer; UiSettingsScene& scene; const UiSettingsScene* previous;
         ~Restore() noexcept { renderer_bind_settings_scene(&renderer, previous); ui_settings_scene_release(&scene); }
     } restore{renderer, scene, previous};
-    if (!ui_page_registry_initialize(&registry, {&page, 1}) ||
-        !ui_page_registry_register(&registry, {{1, 4}, utf8_literal("Plugins"), &content}).ok() ||
+    ui_page_registry_initialize(&registry, {&page, 1});
+    if (!ui_page_registry_register(&registry, {{1, 4}, utf8_literal("Plugins"), &content}).ok() ||
         !ui_settings_scene_update(&scene, &registry, viewport)) return false;
     renderer_bind_settings_scene(&renderer, &scene);
     UiTextCommand commands[16]{}; UiTextCommandStream text{};

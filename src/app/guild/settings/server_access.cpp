@@ -27,9 +27,8 @@ bool community_lane(AccessStep step) noexcept {
 
 } // namespace
 
+// Its callers are the pages and their requests, so the owner exists.
 ServerAccessState* server_access_state() noexcept {
-    if (!owner)
-        return nullptr;
     auto*& s = owner->server_access;
     if (!s)
         s = static_cast<ServerAccessState*>(commit_pages(sizeof(ServerAccessState))); // zeroed pages
@@ -47,10 +46,11 @@ void server_access_queue(AccessStep step) noexcept {
     }
 }
 
+// Op::server_access comes only from server_access_queue, which made the state, and the layer releases the state.
 bool server_access_request(GuildAdminRequest* admin, GuildSettingsPatch* patch, RolePatch* role,
                            GuildCommunityRequest* community, bool* lane) noexcept {
     auto* s = owner->server_access;
-    if (!s || s->lifetime != owner->lifetime || s->step == AccessStep::none)
+    if (s->lifetime != owner->lifetime || s->step == AccessStep::none)
         return false;
     const AccessStep step = s->step;
     *lane = community_lane(step);
@@ -79,18 +79,15 @@ bool server_access_request(GuildAdminRequest* admin, GuildSettingsPatch* patch, 
 }
 
 bool server_access_reading() noexcept {
-    const auto* s = owner ? owner->server_access : nullptr;
-    if (!s)
-        return false;
-    const AccessStep step = s->step;
+    const AccessStep step = owner->server_access->step;
     return step == AccessStep::verification_get || step == AccessStep::requirements_get ||
            step == AccessStep::categories_get || step == AccessStep::metadata_get ||
            step == AccessStep::join_requests_get || step == AccessStep::templates_get;
 }
 
 void server_access_response(const RestClientResponse& response, const Utf8View& body) noexcept {
-    auto* s = owner ? owner->server_access : nullptr;
-    if (!s || s->lifetime != owner->lifetime)
+    auto* s = owner->server_access;
+    if (s->lifetime != owner->lifetime)
         return;
     const AccessStep step = s->step;
     s->step = AccessStep::none;
@@ -103,29 +100,24 @@ void server_access_response(const RestClientResponse& response, const Utf8View& 
 }
 
 void server_access_release() noexcept {
-    if (owner && owner->server_access) {
+    if (owner->server_access) {
         pages_release(owner->server_access);
         owner->server_access = nullptr;
     }
 }
 
+// The callers are page activations that hold the state.
 void access_open_channels(AccessMenu menu, u64 current, bool none_row, bool create_row, const UiRect& anchor) noexcept {
-    auto* s = server_access_state();
-    if (!s)
-        return;
-    s->menu = menu;
+    owner->server_access->menu = menu;
     open_channel_menu(Menu::server_access, 1u << 0, current, none_row ? "None" : nullptr, 0, anchor, create_row);
 }
 
 void access_open_locales(Utf8View current, const UiRect& anchor) noexcept {
-    auto* s = server_access_state();
-    if (!s)
-        return;
     for (u32 i = 0; i < kGuildLocaleCount; ++i) {
         const auto locale = guild_locale(i);
         popup_row(i, locale.name, i, utf8_equal(current, locale.code) ? popup_item_checked : 0);
     }
-    s->menu = AccessMenu::locale;
+    owner->server_access->menu = AccessMenu::locale;
     open_popup(Menu::server_access, owner->guild_id, kGuildLocaleCount, anchor, 240);
 }
 

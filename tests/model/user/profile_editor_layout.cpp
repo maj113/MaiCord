@@ -134,10 +134,10 @@ void test_page(Check check) noexcept {
         build(&p);
         UiSettingsScene scene{};
         int context = 0;
-        const bool built = ui_page_registry_initialize(&p.registry, {p.pages, 2}) &&
-                           ui_page_registry_register(&p.registry, {{1, 1}, utf8_literal("Profiles"), &p.content}).ok() &&
+        ui_settings_scene_bind_palette(&scene, {&context, palette, 1});
+        ui_page_registry_initialize(&p.registry, {p.pages, 2});
+        const bool built = ui_page_registry_register(&p.registry, {{1, 1}, utf8_literal("Profiles"), &p.content}).ok() &&
                            ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal) &&
-                           ui_settings_scene_bind_palette(&scene, {&context, palette, 1}) &&
                            ui_settings_scene_update(&scene, &p.registry, viewport);
         check(built, "profile editor page: the sectioned page with an aside builds at every window size");
         if (!built)
@@ -208,8 +208,8 @@ bool open_page(Page* p, UiSettingsScene* scene, const UiRect& viewport) noexcept
     static int context;
     ui_settings_scene_set_presentation(scene, UiSettingsPresentation::modal);
     ui_settings_scene_bind_palette(scene, {&context, palette, 1});
-    return ui_page_registry_initialize(&p->registry, {p->pages, 2}) &&
-           ui_page_registry_register(&p->registry, {{1, 1}, utf8_literal("Profiles"), &p->content}).ok() &&
+    ui_page_registry_initialize(&p->registry, {p->pages, 2});
+    return ui_page_registry_register(&p->registry, {{1, 1}, utf8_literal("Profiles"), &p->content}).ok() &&
            ui_settings_scene_update(scene, &p->registry, viewport);
 }
 // The points on one line that press option `choice` of a row: the first and the last x. The scene presses nothing

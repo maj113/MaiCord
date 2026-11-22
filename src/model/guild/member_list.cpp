@@ -13,8 +13,7 @@ namespace maicord {
 namespace {
 
 MemberListViewResult fail(const MemberListView* projection, MemberListViewError error) noexcept {
-    return MemberListViewResult{error, projection ? projection->count : 0,
-                                             projection ? projection->member_count : 0, false};
+    return MemberListViewResult{error, projection->count, projection->member_count, false};
 }
 
 inline bool offline(const GuildMemberRecord& member) noexcept {
@@ -80,10 +79,6 @@ inline bool member_less(const GuildMemberStore& members, const MemberListSortKey
 bool member_list_view_initialize(MemberListView* projection,
                                                Slice<MemberListRow> rows,
                                                Slice<MemberListSortKey> member_scratch) noexcept {
-    if (!projection || !rows.data || rows.count == 0 || !member_scratch.data || member_scratch.count == 0 ||
-        rows.count < member_scratch.count) {
-        return false;
-    }
     reset_value<MemberListView>(projection);
     projection->rows = rows;
     projection->member_scratch = member_scratch;
@@ -93,11 +88,6 @@ bool member_list_view_initialize(MemberListView* projection,
 MemberListViewResult member_list_view_rebuild(
     MemberListView* projection, const GuildMemberStore& members,
     const UserStore& users, const ChatStateStore& state, u64 guild_id, u64 list_id) noexcept {
-    if (!projection || !projection->rows.data || !projection->member_scratch.data || !members.records ||
-        !members.order || !users.records || !users.order || !state.guilds ||
-        members.count > members.capacity) {
-        return fail(projection, MemberListViewError::invalid_input);
-    }
     if (!projection->thread_mode && !projection->presence_regroup && projection->guild_id == guild_id &&
         projection->list_id == list_id && projection->source_member_revision == members.revision &&
         projection->source_user_revision == users.revision &&
@@ -254,8 +244,6 @@ GuildMemberStatus private_status(const MemberListPrivatePresence& presence, cons
 MemberListViewResult member_list_view_private(
     MemberListView* projection, const UserStore& users,
     const ChatStateStore& state, u64 channel_id, const MemberListPrivatePresence& presence) noexcept {
-    if (!projection || !projection->rows.data || !state.private_channels)
-        return fail(projection, MemberListViewError::invalid_input);
     const auto& store = *state.private_channels;
     const auto* channel = private_channel_store_find(store, channel_id);
     if (!projection->thread_mode && projection->guild_id == 0 && projection->list_id == channel_id &&
@@ -289,7 +277,7 @@ MemberListViewResult member_list_view_private(
 
 bool member_list_view_await_sync(MemberListView* projection,
     u64 guild_id, u64 list_id, u32 logical_count) noexcept {
-    if (!projection || !projection->rows.data || !guild_id || !list_id || !logical_count) return false;
+    if (!guild_id || !list_id || !logical_count) return false;
     const bool changed = !projection->awaiting_sync || projection->guild_id != guild_id ||
         projection->list_id != list_id || projection->count != logical_count || projection->resident_count != 0;
     projection->guild_id = guild_id; projection->list_id = list_id; projection->count = logical_count;
@@ -303,10 +291,10 @@ MemberListPresenceResult member_list_view_refresh_presence(
     MemberListView* projection, const GuildMemberStore& members,
     u32 visible_first, u32 visible_count) noexcept {
     MemberListPresenceResult result{};
-    if (!projection || projection->source_presence_revision == members.presence_revision)
+    if (projection->source_presence_revision == members.presence_revision)
         return result;
     projection->source_presence_revision = members.presence_revision;
-    if (!projection->rows.data || !members.records || projection->awaiting_sync || !projection->guild_id)
+    if (projection->awaiting_sync || !projection->guild_id)
         return result;
     const bool sorted = !projection->authoritative;
     const u32 resident = minimum(projection->resident_count, projection->rows.count);

@@ -21,7 +21,7 @@ ProfileAction hint_action(const ProfileScene& s) noexcept {
     return modal(s) ? ProfileAction::hint : ProfileAction::card;
 }
 u16 part_index(const ProfileScene& s, const ProfilePart* part) noexcept {
-    return part && part >= s.parts && part < s.parts + s.part_count ? static_cast<u16>(part - s.parts) : kNoPart;
+    return part >= s.parts && part < s.parts + s.part_count ? static_cast<u16>(part - s.parts) : kNoPart;
 }
 bool application_icon(const ProfileScene& s, u64 application, bool* known) noexcept {
     *known = false;
@@ -283,12 +283,12 @@ float voice_card(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
             caption(s, owner, r, label.view(), kXs | text_style_bold, ProfileTone::strong)->centered = true;
             continue;
         }
-        const auto* state = &states[i];
-        const auto* member = state ? user_store_find(*s->users, state->user_id) : nullptr;
+        const auto& state = states[i];
+        const auto* member = user_store_find(*s->users, state.user_id);
         auto* face = blank(s, owner, r, member ? hint_action(*s) : ProfileAction::none);
         face->media = ProfileMediaKind::voice_avatar;
         face->source = kVoiceSource;
-        face->target = state ? state->user_id : 0;
+        face->target = state.user_id;
         face->hint = member ? keep(&l.voice_names[i], {}, user_store_name(*s->users, *member)) : Utf8View{};
         unfocusable(s, face);
     }

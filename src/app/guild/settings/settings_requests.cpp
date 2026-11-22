@@ -589,11 +589,8 @@ void application_guild_settings_gateway(const GatewayClientEvent& event, const U
         return;
     if (event.dispatch_kind == GatewayClientDispatchKind::guild_bulk_ban_update) {
         GuildBulkBanUpdate update{};
-        if (guild_bulk_ban_update_decode(body, {owner->scratch, kScratchUnits}, &update)) {
+        if (guild_bulk_ban_update_decode(body, {owner->scratch, kScratchUnits}, &update))
             members_bulk_ban_update(update);
-            if (owner->scene.active)
-                repaint();
-        }
         return;
     }
     if (event.dispatch_kind == GatewayClientDispatchKind::guild_stickers_update) {
@@ -629,13 +626,7 @@ void application_guild_settings_gateway(const GatewayClientEvent& event, const U
 }
 
 void application_guild_settings_bulk_ban_failed(u64 guild_id) noexcept {
-    if (!owner || owner->guild_id != guild_id)
-        return;
-    owner->selected_count = 0;
-    owner->bulk_failed = true;
-    owner->bulk_notice = utf8_literal("Mass ban failed");
-    if (owner->scene.active)
-        repaint();
+    members_bulk_ban_update({guild_id, 0, 1});
 }
 
 u64 application_guild_settings_caret_wake() noexcept {

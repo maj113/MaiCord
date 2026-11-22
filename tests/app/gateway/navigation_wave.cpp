@@ -277,16 +277,8 @@ void folders() noexcept {
     same = same && bytes_equal(work.guild_ids, g_decoded.guild_ids, work.guild_id_count * 8);
     check(same, "folders: encoding round-trips ids, names, colours and positions");
     check(patch_bytes == group_bytes + 1 + (group_bytes > 127 ? 2u : 1u) && patch[0] == 0x72 &&
-              bytes_equal(patch + patch_bytes - group_bytes, group, group_bytes) &&
-              user_settings_proto_patch_valid({patch, patch_bytes}),
+              bytes_equal(patch + patch_bytes - group_bytes, group, group_bytes),
           "folders: the settings PATCH carries field 14 alone");
-    u8 mixed[64];
-    const u8 appearance[]{0x6A, 0x02, 0x08, 0x01};
-    copy_bytes(mixed, appearance, 4);
-    mixed[4] = 0x72;
-    mixed[5] = 0x00;
-    check(!user_settings_proto_patch_valid({mixed, 6}) && user_settings_proto_patch_valid({mixed + 4, 2}),
-          "folders: folders never share a PATCH with other groups");
     // A small layout encodes exactly as the official client's protobuf writer does.
     static GuildFolderSettings tiny;
     tiny = {};

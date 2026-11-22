@@ -1,7 +1,6 @@
 #include "maicord/protocol/user/notification_settings.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "../encoding/proto_wire.hpp"
 #include "../encoding/json_field_lists.hpp"
 namespace maicord {
@@ -111,17 +110,7 @@ bool proto(const Wire&w,u32 begin,u32 end,u32 context,MessageNotificationGlobal&
 }
 NotificationSettingsDecodeError decode_notification_settings(const JsonIndexedDocument&d,JsonValue v,
     Slice<MessageNotificationGuildSetting>g,Slice<MessageNotificationOverride>o,NotificationSettingsPacket*out) noexcept {
-    if(v.source.bytes>kNotificationSettingsMaximumBytes||g.count>~u32{0}/sizeof(*g.data)||o.count>~u32{0}/sizeof(*o.data)||
-       d.structurals.count>~u32{0}/sizeof(u32))return E::input;
-    const ConstSlice<u8> gb{reinterpret_cast<const u8*>(g.data),g.count*static_cast<u32>(sizeof(*g.data))};
-    const ConstSlice<u8> ob{reinterpret_cast<const u8*>(o.data),o.count*static_cast<u32>(sizeof(*o.data))};
-    const ConstSlice<u8> source{reinterpret_cast<const u8*>(d.input.data),d.input.bytes};
-    const ConstSlice<u8> index{reinterpret_cast<const u8*>(d.structurals.data),d.structurals.count*static_cast<u32>(sizeof(u32))};
-    const ConstSlice<u8> header{reinterpret_cast<const u8*>(out),sizeof(*out)};
-    if(!byte_range_valid(gb)||!byte_range_valid(ob)||!byte_range_valid(source)||!byte_range_valid(index)||byte_ranges_overlap(gb,ob)||
-       byte_ranges_overlap(gb,source)||byte_ranges_overlap(ob,source)||byte_ranges_overlap(header,gb)||
-       byte_ranges_overlap(header,ob)||byte_ranges_overlap(header,source)||byte_ranges_overlap(gb,index)||
-       byte_ranges_overlap(ob,index)||byte_ranges_overlap(header,index))return E::input;
+    if(v.source.bytes>kNotificationSettingsMaximumBytes)return E::input;
     Batch b{};b.doc=&d;b.g=g;b.o=o;
     if(!guild_item(b,v))return b.error;
     *out=b.packet;return E::none;

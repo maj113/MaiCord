@@ -1231,7 +1231,9 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
 }
 bool open_settings(Fixture& f, D3D11Renderer& r, SettingsPanel shown = SettingsPanel::appearance) noexcept {
     static bool registered;
-    bool ok = registered || ui_page_registry_initialize(&f.registry, {f.pages, kSettingsPanelCount});
+    if (!registered)
+        ui_page_registry_initialize(&f.registry, {f.pages, kSettingsPanelCount});
+    bool ok = true;
     for (u32 panel = 0; ok && panel < kSettingsPanelCount; ++panel) {
         const auto& source = settings_catalog_panel(static_cast<SettingsPanel>(panel));
         // As settings_projection's ensure(): the store pages are wide hosts without a summary or rows of their own.
@@ -1251,8 +1253,8 @@ bool open_settings(Fixture& f, D3D11Renderer& r, SettingsPanel shown = SettingsP
     }
     if (!registered) {
         ok = ok && ui_settings_scene_set_presentation(&f.settings, UiSettingsPresentation::modal) &&
-             ui_settings_scene_bind_navigation(&f.settings, settings_catalog_navigation(true), 1) &&
-             ui_settings_scene_bind_palette(&f.settings, {&f, palette, 1});
+             ui_settings_scene_bind_navigation(&f.settings, settings_catalog_navigation(true), 1);
+        ui_settings_scene_bind_palette(&f.settings, {&f, palette, 1});
         if (!check(ok, "settings_registry_failed"))
             return false;
         registered = true;

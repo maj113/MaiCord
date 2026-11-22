@@ -398,8 +398,8 @@ static void store_focus_rings(void (*check)(bool, const char*) noexcept) noexcep
     const UiSettingsThemeTokens t(kDefaultTheme);
     const float reach = ui_settings_focus_reach(t.metric);
     PaintStream paint{};
-    const bool ready = ui_page_registry_initialize(&registry, {pages, 1}) &&
-                       ui_page_registry_register(&registry, {{1, 7}, utf8_literal("Store"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {pages, 1});
+    const bool ready = ui_page_registry_register(&registry, {{1, 7}, utf8_literal("Store"), &content}).ok() &&
                        ui_settings_scene_set_presentation(&settings, UiSettingsPresentation::modal) &&
                        ui_settings_scene_update(&settings, &registry, {0, 32, 1440, 900}) &&
                        ui_settings_scene_host_rect(settings, &page, &clip) && ui_store_scene_open(&g_scene) &&

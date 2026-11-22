@@ -638,9 +638,7 @@ bool application_settings_synchronize() noexcept {
         application_request_frame();
     const auto palette_revision =
         hash64_counted_bytes(kHash64Seed, &g_app.preferences.gradient, sizeof(g_app.preferences.gradient));
-    if (!ui_settings_scene_bind_palette(&settings->scene,
-                                        {settings, resolve_palette, palette_revision ? palette_revision : 1}))
-        return false;
+    ui_settings_scene_bind_palette(&settings->scene, {settings, resolve_palette, palette_revision});
     if (settings->choice.active) {
         UiRect anchor{};
         if (!ui_settings_scene_control_anchor(

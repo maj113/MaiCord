@@ -262,7 +262,7 @@ UiRect ui_profile_dialog_crop_editor(const UiRect& viewport) noexcept {
 }
 
 bool ui_profile_dialog_update(UiProfileDialogScene* s, const UiProfileDialogContent& content, const UiRect& viewport) noexcept {
-    if (!s || content.kind == UiProfileDialogKind::none || !ui_rect_has_area(viewport))
+    if (content.kind == UiProfileDialogKind::none || !ui_rect_has_area(viewport))
         return false;
     // The host rebuilds every frame; a press, hover or focus carries over to the
     // rebuilt part with the same role and source, or a click never completes.
@@ -312,7 +312,7 @@ bool ui_profile_dialog_update(UiProfileDialogScene* s, const UiProfileDialogCont
 }
 
 void ui_profile_dialog_close(UiProfileDialogScene* s) noexcept {
-    if (!s || !s->active)
+    if (!s->active)
         return;
     s->active = false;
     reset_value(&s->content);
@@ -353,7 +353,7 @@ float ui_profile_dialog_zoom_at(const UiProfileDialogScene& s, float x) noexcept
 }
 
 bool ui_profile_dialog_scroll(UiProfileDialogScene* s, float delta) noexcept {
-    if (!s || !s->active || crop(*s))
+    if (!s->active || crop(*s))
         return false;
     const float next =
         maximum(0.f, minimum(s->grid_scroll + delta, maximum(0.f, s->grid_height - ui_rect_height(s->grid_viewport))));
@@ -367,7 +367,7 @@ bool ui_profile_dialog_scroll(UiProfileDialogScene* s, float delta) noexcept {
 }
 
 bool ui_profile_dialog_next_media(const UiProfileDialogScene& s, u32* cursor, ProfileMedia* out) noexcept {
-    if (!s.active || !cursor || !out)
+    if (!s.active)
         return false;
     reset_value(out);
     const auto& c = s.content;

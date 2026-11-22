@@ -36,9 +36,9 @@ bool seed(Fixture* fixture, u64 existing_id = 500) noexcept {
     clear_bytes(fixture, sizeof(*fixture));
     auto& state = fixture->state;
     if (!chat_state_store_initialize(&state, {fixture->guilds, 2}, {fixture->guild_order, 2},
-            {fixture->channels, kRows}, {fixture->channel_order, kRows}, {fixture->names, sizeof(fixture->names)}) ||
-        !chat_state_store_bind_permissions_reserved(&state, {fixture->roles, 2}, {fixture->overwrites, kRows},
-            reserve, fixture)) return false;
+            {fixture->channels, kRows}, {fixture->channel_order, kRows}, {fixture->names, sizeof(fixture->names)}))
+        return false;
+    chat_state_store_bind_permissions_reserved(&state, {fixture->roles, 2}, {fixture->overwrites, kRows}, reserve, fixture);
     state.self_user_id = kSelf;
     if (!chat_state_store_upsert_guild(&state, {9, utf8_literal("Other"), GuildMutationKind::create, kOwner}).ok() ||
         !chat_state_store_upsert_role(&state, {9, 9, kBase, utf8_literal("OtherRole")}) ||

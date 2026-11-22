@@ -1260,14 +1260,11 @@ bool valid_content(const UiSettingsPageContent& content) noexcept {
     return true;
 }
 bool valid_navigation(ConstSlice<UiSettingsNavEntry> navigation) noexcept {
-    if (navigation.count > kUiSettingsNavigationMaximum || (navigation.count && !navigation.data))
+    if (navigation.count > kUiSettingsNavigationMaximum)
         return false;
     for (u32 i = 0; i < navigation.count; ++i) {
         const auto& e = navigation[i];
-        if (e.kind > UiSettingsNavKind::action || !valid_text(e.label) ||
-            (e.kind != UiSettingsNavKind::separator && !e.label.bytes) ||
-            (e.kind == UiSettingsNavKind::action && !e.action) ||
-            (e.icon > UiIcon::count))
+        if (!valid_text(e.label) || (e.kind != UiSettingsNavKind::separator && !e.label.bytes))
             return false;
     }
     return true;

@@ -88,8 +88,8 @@ bool settings_choice_ui_probe(D3D11Renderer& renderer, PopupScene& popup,
         ~Restore() noexcept { popup_scene_close(&popup); renderer_bind_settings_scene(&renderer, old_scene);
             ui_settings_scene_release(&f.scene); renderer_resize(&renderer, width, height); }
     } restore{renderer, popup, f, old_scene, width, height};
-    bool valid = ui_page_registry_initialize(&f.registry, {&f.page, 1}) &&
-        ui_page_registry_register(&f.registry, {{1, 9}, utf8_literal("Choices"), &f.content}).ok();
+    ui_page_registry_initialize(&f.registry, {&f.page, 1});
+    bool valid = ui_page_registry_register(&f.registry, {{1, 9}, utf8_literal("Choices"), &f.content}).ok();
     const u32 pages[] = {0, 512, 992};
     const wchar_t* names[] = {L"settings-choice-first.bmp", L"settings-choice-middle-compact.bmp", L"settings-choice-last.bmp"};
     u32 stage = __LINE__;

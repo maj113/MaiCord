@@ -11,6 +11,7 @@
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/virtual_memory.hpp"
+#include "maicord/model/chat/sorted_search.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 
 // Integrations: an overview of the server's webhooks, followed channels and
@@ -244,14 +245,6 @@ void draft_set(u64 id, u8 type, bool permission) noexcept {
         a.draft[at].permission = permission;
     else if (a.draft_count < kGuildCommandPermissionMaximum)
         a.draft[a.draft_count++] = {id, type, permission};
-}
-inline void draft_remove(u32 at) noexcept {
-    auto& a = *apps();
-    if (at >= a.draft_count)
-        return;
-    for (u32 i = at + 1; i < a.draft_count; ++i)
-        a.draft[i - 1] = a.draft[i];
-    --a.draft_count;
 }
 
 // Add Members ----------------------------------------------------------------
@@ -675,9 +668,9 @@ void load() noexcept {
 }
 
 // Add Members: a name (or user ID) searched among the members this client has loaded; the Gateway is asked
-// for more when none match, as the composer's '@' asks.
+// for more when none match, as the composer's '@' asks. The page's forms open only once its state is made.
 bool member_form_saved(TextFormOwnerKey key, Utf8View entered) noexcept {
-    if (!form_valid(key) || !apps() || !permission_view() || !can_edit_permissions())
+    if (!form_valid(key) || !permission_view() || !can_edit_permissions())
         return false;
     auto& a = *apps();
     auto& p = *owner;
@@ -740,7 +733,7 @@ void copy_url(const GuildWebhook& hook) noexcept {
 }
 
 bool form_confirmed(TextFormOwnerKey key, Utf8View) noexcept {
-    if (!form_valid(key) || busy() || !apps())
+    if (!form_valid(key) || busy())
         return false;
     application_text_form_close(false, false);
     if (key.collection == form_webhook_delete && can_manage_webhooks() && webhook(key.item))
@@ -876,8 +869,10 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         const u32 at = static_cast<u32>(id - kRowBase);
         if (choice == 0)
             a.draft[at].permission = !a.draft[at].permission;
-        else
-            draft_remove(at);
+        else {
+            sorted_erase_gap(a.draft, a.draft_count, at);
+            --a.draft_count;
+        }
     } else
         return;
     repaint();
@@ -996,9 +991,8 @@ void release_avatar_uri() noexcept {
 const PageOps kIntegrationsPage{load,   project, activate,    choose, dirty,  can_save, next_save,
                                 nullptr, ensure_data, notice, invalid, nullptr};
 
+// Op::apps comes only from send, so the state exists in these three.
 bool apps_request(GuildAutomationRequest* request) noexcept {
-    if (!apps())
-        return false;
     auto& a = *apps();
     auto& p = *owner;
     reset_value(request);
@@ -1059,16 +1053,12 @@ bool apps_request(GuildAutomationRequest* request) noexcept {
 }
 
 bool apps_reading() noexcept {
-    if (!apps())
-        return false;
     const auto op = apps()->sent;
     return op == Op_::integration_list || op == Op_::webhook_list || op == Op_::command_permissions_list ||
            op == Op_::command_list;
 }
 
 void apps_response(const RestClientResponse& response, const Utf8View& body) noexcept {
-    if (!apps())
-        return;
     auto& a = *apps();
     auto& p = *owner;
     const bool ok = response.succeeded();
@@ -1201,8 +1191,9 @@ void apps_response(const RestClientResponse& response, const Utf8View& body) noe
     ensure_page_data();
 }
 
+// The one caller (application_guild_settings_release) has an owner.
 void apps_release() noexcept {
-    if (!owner || !apps())
+    if (!apps())
         return;
     release_avatar_uri();
     secure_clear_bytes(apps()->webhooks, sizeof(apps()->webhooks));

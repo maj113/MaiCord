@@ -1,6 +1,5 @@
 #include "maicord/protocol/guild/admin.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"
 #include "maicord/core/time.hpp"
@@ -24,7 +23,7 @@ constexpr u64 kTimestampLimitMs = kTimestampLimitSeconds * 1000;
 
 // Single-line or multi-line UTF-8 text with a codepoint range and no NULs.
 bool text_valid(const Utf8View& text, u32 minimum_codepoints, u32 maximum_codepoints, bool single_line) noexcept {
-    if (!view_valid(text) || text.bytes > maximum_codepoints * 4)
+    if (text.bytes > maximum_codepoints * 4)
         return false;
     const auto validation = utf8_validate(text);
     if (!validation.valid || validation.codepoints < minimum_codepoints ||
@@ -39,7 +38,7 @@ bool text_valid(const Utf8View& text, u32 minimum_codepoints, u32 maximum_codepo
 // data:image/<type>;base64,<payload>
 bool data_uri_valid(Utf8View uri) noexcept {
     static constexpr char prefix[] = "data:image/";
-    if (!view_valid(uri) || uri.bytes < sizeof(prefix) - 1 + 8)
+    if (uri.bytes < sizeof(prefix) - 1 + 8)
         return false;
     for (u32 i = 0; i < sizeof(prefix) - 1; ++i)
         if (uri.data[i] != prefix[i])
@@ -59,7 +58,7 @@ bool data_uri_valid(Utf8View uri) noexcept {
 
 // A stored image hash: 32 lowercase hex characters, "a_" first when animated.
 bool image_hash_valid(Utf8View hash) noexcept {
-    if (!view_valid(hash) || (hash.bytes != 32 && hash.bytes != 34))
+    if (hash.bytes != 32 && hash.bytes != 34)
         return false;
     u32 at = 0;
     if (hash.bytes == 34) {
@@ -90,7 +89,7 @@ bool vanity_code_valid(Utf8View code) noexcept {
 bool brand_color_valid(Utf8View color) noexcept {
     if (!color.bytes)
         return true;
-    if (!view_valid(color) || color.bytes != 7 || color.data[0] != '#')
+    if (color.bytes != 7 || color.data[0] != '#')
         return false;
     for (u32 i = 1; i < 7; ++i) {
         const char c = color.data[i];
@@ -199,7 +198,7 @@ static_assert(sizeof(kOperations) / sizeof(kOperations[0]) == static_cast<usize>
 
 // A complete run of non-empty names whose count matches.
 bool feature_names_valid(ConstSlice<u8> names, u16 count) noexcept {
-    if ((!names.data && names.count) || names.count > 0xFFFF)
+    if (names.count > 0xFFFF)
         return false;
     u32 cursor = 0, seen = 0;
     while (cursor < names.count) {
@@ -286,8 +285,7 @@ bool member_patch_valid(const MemberPatch& patch, bool self) noexcept {
 }
 
 bool member_role_patch_valid(const MemberPatch& patch) noexcept {
-    return patch.fields == member_patch_roles && patch.role_ids.count == 1 && patch.role_ids.data &&
-           byte_range_valid({reinterpret_cast<const u8*>(patch.role_ids.data), sizeof(u64)}) &&
+    return patch.fields == member_patch_roles && patch.role_ids.count == 1 &&
            patch.role_ids[0] && !patch.nickname.data && !patch.nickname.bytes &&
            !patch.communication_disabled_until_ms;
 }
@@ -326,7 +324,7 @@ bool channel_patch_valid(const ChannelPatch& patch, bool create) noexcept {
 }
 
 bool positions_valid(ConstSlice<GuildAdminPosition> positions, bool channels) noexcept {
-    if (!positions.data || !positions.count || positions.count > kGuildAdminMaximumPositions)
+    if (!positions.count || positions.count > kGuildAdminMaximumPositions)
         return false;
     for (u32 i = 0; i < positions.count; ++i) {
         const auto& p = positions[i];
@@ -352,8 +350,6 @@ bool page_valid(const GuildAdminPageQuery* page, bool audit) noexcept {
 
 // A null reason sends nothing; any other, even empty, is sent.
 bool reason_valid(const GuildAdminRequest& request) noexcept {
-    if (!view_valid(request.reason))
-        return false;
     if (!request.reason.data)
         return true;
     // Lifting a ban and revoking an invite carry no reason.
@@ -676,15 +672,15 @@ void write_body(const GuildAdminRequest& r, JsonBody& b) noexcept {
 } // namespace
 
 RestMethod guild_admin_method(GuildAdminOperation op) noexcept {
-    return op < Op::count ? kOperations[static_cast<u32>(op)].method : RestMethod::get;
+    return kOperations[static_cast<u32>(op)].method;
 }
 
 bool guild_admin_has_body(GuildAdminOperation op) noexcept {
-    return op < Op::count && (kOperations[static_cast<u32>(op)].flags & kBody);
+    return kOperations[static_cast<u32>(op)].flags & kBody;
 }
 
 bool guild_admin_request_valid(const GuildAdminRequest& r) noexcept {
-    if (r.operation >= Op::count || !reason_valid(r) || (!r.positions.data && r.positions.count))
+    if (!reason_valid(r))
         return false;
     const Op op = r.operation;
     const auto& row = kOperations[static_cast<u32>(op)];
@@ -739,12 +735,12 @@ bool guild_admin_request_valid(const GuildAdminRequest& r) noexcept {
     // The search sends its normalized query; the games list 1-25 nonzero ids.
     if (f & kGameQuery) {
         char query[kGuildAdminGameQueryCodepoints * 4];
-        if (!view_valid(r.game_query) || !guild_admin_game_query(r.game_query, {query, sizeof(query)}))
+        if (!guild_admin_game_query(r.game_query, {query, sizeof(query)}))
             return false;
     } else if (r.game_query.bytes)
         return false;
     if (f & kGameIds) {
-        if (!r.game_ids.data || !r.game_ids.count || r.game_ids.count > kGuildAdminGamesListMaximum)
+        if (!r.game_ids.count || r.game_ids.count > kGuildAdminGamesListMaximum)
             return false;
         for (u32 i = 0; i < r.game_ids.count; ++i)
             if (!r.game_ids[i])
@@ -861,12 +857,8 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
 }
 
 GuildAdminResult guild_admin_write_body(const GuildAdminRequest& r, Slice<u8> output) noexcept {
-    if (!byte_range_valid({output.data, output.count}))
-        return {0, 0, GuildAdminError::input};
     if (!guild_admin_has_body(r.operation))
         return {0, 0, GuildAdminError::none};
-    if (!output.data || !output.count)
-        return {0, 0, GuildAdminError::capacity};
     JsonBody body{output};
     write_body(r, body);
     if (!body.ok) {
@@ -924,8 +916,6 @@ u32 guild_admin_write_md5_header(Utf8View banner_md5, Utf8View splash_md5, Slice
         const char* key;
         Utf8View md5;
     } entries[]{{"guild_banner", banner_md5}, {"guild_invite_splash", splash_md5}};
-    if (!output.data && output.count)
-        return 0;
     ProtocolWriter w{output, 0};
     bool ok = true, any = false;
     for (const auto& entry : entries) {
@@ -939,8 +929,6 @@ u32 guild_admin_write_md5_header(Utf8View banner_md5, Utf8View splash_md5, Slice
 }
 
 GuildAdminResult guild_admin_write_reason(const GuildAdminRequest& r, Slice<u8> output) noexcept {
-    if (!byte_range_valid({output.data, output.count}))
-        return {0, 0, GuildAdminError::input};
     if (!r.reason.bytes || r.operation == Op::member_kick)
         return {0, 0, GuildAdminError::none};
     const auto encoded = rest_encode_audit_reason(r.reason, output);
@@ -969,7 +957,7 @@ void write_civil_time(u64 unix_seconds, const Slice<char>& output) noexcept {
 
 u32 guild_admin_format_timestamp(u64 unix_seconds, Slice<char> output) noexcept {
     constexpr u32 bytes = 25; // YYYY-MM-DDTHH:MM:SS+00:00
-    if (!output.data || output.count < bytes || unix_seconds >= kTimestampLimitSeconds)
+    if (unix_seconds >= kTimestampLimitSeconds)
         return 0;
     write_civil_time(unix_seconds, output);
     static constexpr char zone[] = "+00:00";
@@ -980,7 +968,7 @@ u32 guild_admin_format_timestamp(u64 unix_seconds, Slice<char> output) noexcept 
 
 u32 guild_admin_format_timestamp_ms(u64 unix_milliseconds, Slice<char> output) noexcept {
     constexpr u32 bytes = 24; // YYYY-MM-DDTHH:MM:SS.mmmZ
-    if (!output.data || output.count < bytes || unix_milliseconds >= kTimestampLimitMs)
+    if (unix_milliseconds >= kTimestampLimitMs)
         return 0;
     write_civil_time(unix_milliseconds / 1000, output);
     const u32 millis = static_cast<u32>(unix_milliseconds % 1000);
@@ -994,7 +982,7 @@ u32 guild_admin_format_timestamp_ms(u64 unix_milliseconds, Slice<char> output) n
 
 u32 guild_admin_member_roles_toggle(ConstSlice<u64> current, u64 role_id, bool add,
                                     Slice<u64> output) noexcept {
-    if (!role_id || (!current.data && current.count) || (!output.data && output.count))
+    if (!role_id)
         return ~0u;
     u32 count = 0;
     bool held = false;
@@ -1017,7 +1005,7 @@ u32 guild_admin_member_roles_toggle(ConstSlice<u64> current, u64 role_id, bool a
 }
 
 u32 guild_admin_game_query(Utf8View typed, Slice<char> output) noexcept {
-    if (!view_valid(typed) || !output.data || !utf8_validate(typed).valid)
+    if (!utf8_validate(typed).valid)
         return 0;
     u32 begin = 0, end = typed.bytes;
     const auto space = [](char c) noexcept { return c == ' ' || (c >= '\t' && c <= '\r'); };

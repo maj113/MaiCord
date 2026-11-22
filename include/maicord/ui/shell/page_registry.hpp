@@ -45,7 +45,9 @@ struct UiPageRegistry {
     u32 revision;
 };
 
-bool ui_page_registry_initialize(UiPageRegistry* registry, Slice<UiPage> storage) noexcept;
+inline void ui_page_registry_initialize(UiPageRegistry* registry, Slice<UiPage> storage) noexcept {
+    *registry = {storage, 0, kUiPageNoSelection, 0};
+}
 UiPageResult ui_page_registry_register(UiPageRegistry* registry, const UiPage& page) noexcept;
 UiPageResult ui_page_registry_select(UiPageRegistry* registry, UiPageKey key) noexcept;
 bool ui_page_registry_clear(UiPageRegistry* registry) noexcept;

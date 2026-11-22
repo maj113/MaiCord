@@ -29,7 +29,7 @@ void action(PopupItem* item, Utf8View label, UiAccountMenuAction value, UiIcon i
 }
 } // namespace
 bool ui_account_menu_build(UiAccountMenuModel* model, const UiAccountMenuIdentity& identity) noexcept {
-    if (!model || !identity.user_id || !valid_identity_label(identity.display_name) ||
+    if (!identity.user_id || !valid_identity_label(identity.display_name) ||
         !valid_identity_label(identity.username) || identity.presence > UiPresence::offline ||
         identity.shown > UiPresence::offline)
         return false;
@@ -111,7 +111,7 @@ bool ui_account_menu_build(UiAccountMenuModel* model, const UiAccountMenuIdentit
     return true;
 }
 ConstSlice<PopupItem> ui_account_menu_items(const UiAccountMenuModel& model) noexcept {
-    return {model.items, model.count <= kUiAccountMenuItemCapacity ? model.count : 0};
+    return {model.items, model.count};
 }
 bool ui_account_menu_action_enabled(const UiAccountMenuModel& model, u32 value) noexcept {
     const auto items = ui_account_menu_items(model);

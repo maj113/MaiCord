@@ -248,7 +248,7 @@ bool application_guild_invite_pending(u64 now_ms) noexcept {
 }
 
 bool application_guild_invite_submit(u64 request_id, u64 now_ms) noexcept {
-    if (!request_id || !application_guild_invite_pending(now_ms))
+    if (!application_guild_invite_pending(now_ms))
         return false;
     GuildInviteRequest request{};
     copy_bytes(request.code, g_invite.code, g_invite.code_bytes);

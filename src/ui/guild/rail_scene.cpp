@@ -28,9 +28,8 @@ inline constexpr float kGuildRailOverscanDips = 2 * kGuildRailRowStride;
 inline constexpr UiMotionStyle kFolderMotion{150, UiMotionCurve::css_ease_out};
 
 GuildRailSceneResult scene_error(GuildRailScene* scene, GuildRailSceneError error) noexcept {
-    saturating_increment_if(scene, scene->rejected);
-    return GuildRailSceneResult{error, scene ? scene->first : 0, scene ? scene->count : 0,
-                                scene ? scene->scroll_dips : 0.0f, false};
+    saturating_increment(scene->rejected);
+    return GuildRailSceneResult{error, scene->first, scene->count, scene->scroll_dips, false};
 }
 
 // Rows are centred in whatever width the theme gives the rail.
@@ -51,29 +50,26 @@ const UiMotionTransition* folder_slot(const GuildRailScene& scene, u64 folder_id
 }
 
 // Settled extents use only the view; the scene adds running transitions.
-float reveal_of(const GuildRailScene* scene, const GuildViewRow& row) noexcept {
+float reveal_of(const GuildRailScene& scene, const GuildViewRow& row) noexcept {
     if (row.folder_role != GuildFolderRole::member)
         return 1.0f;
-    if (scene)
-        if (const auto* slot = folder_slot(*scene, row.folder_id); slot && slot->active)
-            return slot->value;
+    if (const auto* slot = folder_slot(scene, row.folder_id); slot && slot->active)
+        return slot->value;
     return row.folder_expanded ? 1.0f : 0.0f;
 }
 
-float content_height(const GuildRailScene* scene, const NavigationView* view) noexcept {
+float content_height(const GuildRailScene& scene, const NavigationView* view) noexcept {
     if (!view)
         return 0.0f;
-    float height = kGuildRailTopInset;
-    if (scene)
-        height += static_cast<float>(scene->plugin_top + scene->plugin_bottom) * kGuildRailRowStride;
+    float height = kGuildRailTopInset + static_cast<float>(scene.plugin_top + scene.plugin_bottom) * kGuildRailRowStride;
     for (u32 i = 0; i < view->guild_count; ++i)
         height += reveal_of(scene, view->guild_rows[i]) * kGuildRailRowStride;
     return height + kGuildRailRowStride; // "Add a server"
 }
 
 // Content-space top of a source row, plus its stride.
-float row_top(const GuildRailScene* scene, const NavigationView& view, u32 index) noexcept {
-    float top = kGuildRailTopInset + (scene ? static_cast<float>(scene->plugin_top) * kGuildRailRowStride : 0.0f);
+float row_top(const GuildRailScene& scene, const NavigationView& view, u32 index) noexcept {
+    float top = kGuildRailTopInset + static_cast<float>(scene.plugin_top) * kGuildRailRowStride;
     for (u32 i = 0; i < index && i < view.guild_count; ++i)
         top += reveal_of(scene, view.guild_rows[i]) * kGuildRailRowStride;
     return top;
@@ -93,7 +89,7 @@ VisibleRange visible_range(const GuildRailScene& scene, const NavigationView& vi
     float top = kGuildRailTopInset + tiles_extent;
     bool started = false, below = true; // below: the rows end inside the window, so the add button may too
     for (u32 i = 0; i < view.guild_count; ++i) {
-        const float stride = reveal_of(&scene, view.guild_rows[i]) * kGuildRailRowStride;
+        const float stride = reveal_of(scene, view.guild_rows[i]) * kGuildRailRowStride;
         if (stride > 0 && top + stride > low && top < high) {
             if (!started) {
                 started = true;
@@ -135,7 +131,7 @@ template <typename Visit> void each_visible(const GuildRailScene& scene, const N
                                             VisibleRange range, Visit visit) noexcept {
     u32 local = 0;
     for (u32 i = range.first; i < view.guild_count && local < range.count; ++i)
-        if (reveal_of(&scene, view.guild_rows[i]) > 0)
+        if (reveal_of(scene, view.guild_rows[i]) > 0)
             visit(local++, i);
 }
 
@@ -174,7 +170,7 @@ bool materialization_matches(const GuildRailScene& scene, const NavigationView& 
         const GuildViewRow& source = view.guild_rows[index];
         matches = matches && retained.source_index == index && retained.view.id == source.id &&
                   retained.view.generation == source.generation &&
-                  retained.reveal == reveal_of(&scene, source);
+                  retained.reveal == reveal_of(scene, source);
     });
     return matches;
 }
@@ -219,10 +215,6 @@ static u8 plugin_tile_count(u32 surface) noexcept {
 bool guild_rail_scene_initialize(GuildRailScene* scene, Slice<GuildRailRowWidget> row_storage,
                                  Slice<UiWidget> widget_storage,
                                  Slice<UiLayoutNode> layout_storage) noexcept {
-    if (!scene || !row_storage.data || row_storage.count == 0 || !widget_storage.data ||
-        !layout_storage.data) {
-        return false;
-    }
     reset_value<GuildRailScene>(scene);
     scene->rows = row_storage;
     scene->root = ui_widget_invalid_handle();
@@ -280,7 +272,7 @@ __declspec(noinline) GuildRailSceneResult materialize(GuildRailScene* scene, con
         if (!added_all)
             return;
         const GuildViewRow& source = view->guild_rows[index];
-        const float reveal = reveal_of(scene, source);
+        const float reveal = reveal_of(*scene, source);
         const u32 widget_id = index + 3;
         const UiWidgetResult added = ui_widget_manager_add_keyed(
             &scene->widgets, root.handle, widget_id, UiWidgetKind::button, row_flags(source), "GuildRow",
@@ -337,10 +329,7 @@ __declspec(noinline) GuildRailSceneResult materialize(GuildRailScene* scene, con
 
 GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const NavigationView* view,
                                              const UiRect& viewport, float requested_scroll_dips) noexcept {
-    if (!scene || !scene->rows.data || !scene->widgets.storage.data || !ui_rect_valid_or_empty(viewport) ||
-        !ui_coordinate_valid(requested_scroll_dips) ||
-        (view &&
-         (view->guild_count > view->guild_capacity || (view->guild_count != 0 && !view->guild_rows)))) {
+    if (!ui_rect_valid_or_empty(viewport) || !ui_coordinate_valid(requested_scroll_dips)) {
         return scene_error(scene, GuildRailSceneError::invalid_input);
     }
     // The tiles take rail rows of their own, so their number is part of every height and offset below.
@@ -357,7 +346,7 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
         scene->source_rows = view ? view->guild_rows : nullptr;
         scene->source_revision = view ? view->guild_revision : 0;
         scene->source_count = view ? view->guild_count : 0;
-        scene->content_height = content_height(scene, view);
+        scene->content_height = content_height(*scene, view);
         scene->scroll_dips = 0.0f;
         if (!view) {
             scene->focused_guild_id = 0;
@@ -369,7 +358,7 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
                                 scene->source_revision != view->guild_revision ||
                                 scene->source_count != view->guild_count;
     // Folder transitions change extents without a source revision.
-    const float height = content_height(scene, view);
+    const float height = content_height(*scene, view);
     const float maximum_scroll =
         height > ui_rect_height(viewport) ? height - ui_rect_height(viewport) : 0.0f;
     const float scroll = minimum(maximum(requested_scroll_dips, 0.0f), maximum_scroll);
@@ -421,7 +410,7 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
 
 GuildRailSceneResult guild_rail_scene_scroll(GuildRailScene* scene, const NavigationView* view,
                                              float delta_dips) noexcept {
-    if (!scene || !ui_coordinate_valid(delta_dips)) {
+    if (!ui_coordinate_valid(delta_dips)) {
         return scene_error(scene, GuildRailSceneError::invalid_input);
     }
     return guild_rail_scene_update(scene, view, scene->viewport, scene->scroll_dips + delta_dips);
@@ -458,7 +447,6 @@ GuildRailHit guild_rail_scene_hit_test(const GuildRailScene& scene, float x, flo
 }
 
 UiRect guild_rail_scene_plugin_rectangle(const GuildRailScene& scene, u32 end, u32 index) noexcept {
-    if (end < 1 || end > 2 || index >= kGuildRailPluginTiles) return {};
     const UiWidgetHandle handle = scene.plugin_tiles[(end - 1) * kGuildRailPluginTiles + index];
     const UiLayoutNode* node = handle.generation ? ui_widget_manager_layout_node(scene.widgets, handle) : nullptr;
     return node ? node->rectangle : UiRect{};
@@ -471,9 +459,6 @@ UiRect guild_rail_scene_add_rectangle(const GuildRailScene& scene) noexcept {
 }
 
 bool guild_rail_scene_focus_guild(GuildRailScene* scene, u64 guild_id) noexcept {
-    if (!scene) {
-        return false;
-    }
     if (guild_id == 0) {
         scene->focused_guild_id = 0;
         return ui_widget_manager_focus(&scene->widgets, ui_widget_invalid_handle());
@@ -490,8 +475,7 @@ bool guild_rail_scene_focus_guild(GuildRailScene* scene, u64 guild_id) noexcept 
 }
 
 bool guild_rail_scene_reveal_guild(GuildRailScene* scene, const NavigationView& view, u64 guild_id) noexcept {
-    if (!scene || !scene->active || !guild_id || view.guild_count > view.guild_capacity ||
-        (view.guild_count && !view.guild_rows)) return false;
+    if (!scene->active || !guild_id) return false;
     for (u32 i = 0; i < view.guild_count; ++i) {
         if (view.guild_rows[i].id != guild_id) continue;
         if (view.guild_rows[i].unavailable) return false;
@@ -500,11 +484,11 @@ bool guild_rail_scene_reveal_guild(GuildRailScene* scene, const NavigationView& 
         if (guild_view_row_hidden(view.guild_rows[i]))
             while (target && view.guild_rows[target].folder_role != GuildFolderRole::header)
                 --target;
-        const float top = row_top(scene, view, target);
+        const float top = row_top(*scene, view, target);
         const float height = ui_rect_height(scene->viewport);
         float scroll = scene->scroll_dips;
         if (!ui_scroll_reveal_offset(top, top + kGuildRailRowExtent, scroll, scroll + height, scroll,
-                maximum(0.0f, content_height(scene, &view) - height), &scroll)) return false;
+                maximum(0.0f, content_height(*scene, &view) - height), &scroll)) return false;
         return guild_rail_scene_update(scene, &view, scene->viewport, scroll).ok() &&
             guild_rail_scene_focus_guild(scene, view.guild_rows[target].id);
     }
@@ -514,8 +498,8 @@ bool guild_rail_scene_reveal_guild(GuildRailScene* scene, const NavigationView& 
 GuildRailHit guild_rail_scene_page(GuildRailScene* scene, const NavigationView& view,
                                   bool reverse, bool from_home) noexcept {
     constexpr u32 kTops = 1024;
-    if (!scene || !scene->active || !ui_coordinate_valid(scene->scroll_dips) || scene->scroll_dips < 0 ||
-        !ui_rect_valid(scene->viewport) || view.guild_count > view.guild_capacity || !view.guild_rows ||
+    if (!scene->active || !ui_coordinate_valid(scene->scroll_dips) || scene->scroll_dips < 0 ||
+        !ui_rect_valid(scene->viewport) || !view.guild_rows ||
         view.guild_count > kTops) return {};
     struct Source {
         const NavigationView* view;
@@ -527,7 +511,7 @@ GuildRailHit guild_rail_scene_page(GuildRailScene* scene, const NavigationView& 
     source.view = &view;
     float top = kGuildRailTopInset + static_cast<float>(scene->plugin_top) * kGuildRailRowStride;
     for (u32 i = 0; i < view.guild_count; ++i) {
-        const float reveal = reveal_of(scene, view.guild_rows[i]);
+        const float reveal = reveal_of(*scene, view.guild_rows[i]);
         source.tops[i] = ui_extent_units(top);
         source.extents[i] = ui_extent_units(kGuildRailRowExtent * reveal);
         top += kGuildRailRowStride * reveal;
@@ -537,7 +521,7 @@ GuildRailHit guild_rail_scene_page(GuildRailScene* scene, const NavigationView& 
         for (u32 i = 0; i < view.guild_count; ++i)
             if (view.guild_rows[i].id == scene->focused_guild_id) { current = i; break; }
     const auto target = ui_list_page(view.guild_count, current, ui_extent_units(scene->scroll_dips),
-        ui_extent_units(ui_rect_height(scene->viewport)), ui_extent_units(content_height(scene, &view)), reverse,
+        ui_extent_units(ui_rect_height(scene->viewport)), ui_extent_units(content_height(*scene, &view)), reverse,
         [](void* context, u32 index) noexcept {
             const auto& s = *static_cast<Source*>(context);
             return UiListRowBounds{s.tops[index], s.tops[index] + s.extents[index]};
@@ -556,7 +540,7 @@ GuildRailHit guild_rail_scene_page(GuildRailScene* scene, const NavigationView& 
 
 bool guild_rail_scene_folder_toggled(GuildRailScene* scene, u64 folder_id, bool expanded, u64 now_ms,
                                      bool animate) noexcept {
-    if (!scene || !folder_id)
+    if (!folder_id)
         return false;
     UiMotionTransition* slot = nullptr;
     for (auto& candidate : scene->folder_motion)
@@ -583,8 +567,6 @@ bool guild_rail_scene_folder_toggled(GuildRailScene* scene, u64 folder_id, bool 
 }
 
 bool guild_rail_scene_tick(GuildRailScene* scene, u64 now_ms, bool animate) noexcept {
-    if (!scene)
-        return false;
     bool changed = false;
     for (auto& slot : scene->folder_motion) {
         if (!slot.scope.owner)

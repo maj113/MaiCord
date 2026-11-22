@@ -165,7 +165,7 @@ void append(UserActivityStore* s, u32 slot, ConstSlice<u8> encoded) noexcept {
 } // namespace
 
 u32 user_activities_write(const UserActivitySet& set, Slice<u8> output) noexcept {
-    if (!output.data || set.count > kUserActivityMaximum)
+    if (set.count > kUserActivityMaximum)
         return 0;
     Out w{output};
     w.scalar(kWireMarker);

@@ -103,8 +103,11 @@ bool initialize(bool reserved = true, bool bind = true) noexcept {
     if (!chat_state_store_initialize(&prefix.state, {prefix.guilds, 4}, {prefix.guild_order, 4},
         {prefix.channels, 5}, {prefix.channel_order, 5}, {prefix.names, sizeof(prefix.names)})) return false;
     if (!bind) return true;
-    if (reserved) return chat_state_store_bind_permissions_reserved(&prefix.state,
-        {prefix.roles, kPrefixRoles}, {prefix.overwrites, kPrefixOverwrites}, reserve_prefix, &prefix.reserve);
+    if (reserved) {
+        chat_state_store_bind_permissions_reserved(&prefix.state, {prefix.roles, kPrefixRoles},
+                                                   {prefix.overwrites, kPrefixOverwrites}, reserve_prefix, &prefix.reserve);
+        return true;
+    }
     const bool bound = chat_state_store_bind_permissions(&prefix.state,
         {prefix.roles, kPrefixRoles}, {prefix.overwrites, kPrefixOverwrites});
     if (bound) { prefix.reserve.physical_roles = kPrefixRoles; prefix.reserve.physical_overwrites = kPrefixOverwrites; }
@@ -168,19 +171,10 @@ const Utf8View kChannelUpdate = utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d"
 void test_permission_prefix(void (*check)(bool, const char*) noexcept) noexcept {
     auto& state = prefix.state;
     check(initialize(true, false), "permission prefix: unbound fixture initializes with suffix sentinels");
-    prefix_before = prefix;
-    check(!chat_state_store_bind_permissions_reserved(&state, {nullptr, 8}, {prefix.overwrites, 8}, reserve_prefix, &prefix.reserve) &&
-        !chat_state_store_bind_permissions_reserved(&state, {prefix.roles, 8}, {prefix.overwrites, 0}, reserve_prefix, &prefix.reserve) &&
-        !chat_state_store_bind_permissions_reserved(&state, {prefix.roles, 65536}, {prefix.overwrites, 8}, reserve_prefix, &prefix.reserve) &&
-        !chat_state_store_bind_permissions_reserved(&state, {prefix.roles, 8}, {prefix.overwrites, 8}, nullptr, &prefix.reserve) &&
-        semantic_unchanged(true) && prefix.reserve.calls == 0,
-        "permission prefix: invalid reserved bindings publish neither bank callback metadata nor writes");
-    check(chat_state_store_bind_permissions_reserved(&state, {prefix.roles, 8}, {prefix.overwrites, 8}, reserve_prefix, &prefix.reserve) &&
-        state.role_backed_count == 0 && state.overwrite_backed_count == 0 && suffix_untouched(),
+    chat_state_store_bind_permissions_reserved(&state, {prefix.roles, 8}, {prefix.overwrites, 8}, reserve_prefix, &prefix.reserve);
+    check(state.role_backed_count == 0 && state.overwrite_backed_count == 0 && suffix_untouched(),
         "permission prefix: nonnull zero-backed banks bind without touching any reserved slot");
     prefix_before = prefix;
-    check(!chat_state_store_bind_permissions_reserved(&state, {prefix.roles, 8}, {prefix.overwrites, 8}, reserve_prefix, &prefix.reserve) &&
-        semantic_unchanged(true), "permission prefix: rebinding rejection preserves installed ownership");
     check(chat_state_store_upsert_guild(&state, {20, utf8_literal("Empty"), GuildMutationKind::create, 999}).ok() &&
         chat_state_store_upsert_channel(&state, {200, 20, 0, utf8_literal("Parent"), 0, 0, 0}).ok() &&
         chat_state_store_upsert_channel(&state, {201, 20, 200, utf8_literal("Thread"), 1, 0, 11}).ok(),
@@ -500,10 +494,6 @@ void test_permission_prefix(void (*check)(bool, const char*) noexcept) noexcept 
     for (u32 i = 0; i < 8; ++i) fixed = fixed && role_equal(prefix.roles[i], {}) && overwrite_equal(prefix.overwrites[i], {});
     check(fixed && chat_state_store_prepare_permissions(&state, 8, 8),
         "permission prefix: fixed binder zeroes complete banks and marks full capacity backed without callback");
-    check(initialize(true, false) && chat_state_store_bind_permissions_reserved(&state, {prefix.roles, 8},
-        {prefix.overwrites, 8}, reserve_prefix, nullptr) &&
-        chat_state_store_prepare_permissions(&state, 0, 0) && suffix_untouched(),
-        "permission prefix: reserved binder accepts an opaque null context and zero admission never invokes it");
     check(initialize(true, false) && chat_state_store_upsert_guild(&state,
         {20, utf8_literal("Legacy"), GuildMutationKind::create, 999}).ok() &&
         chat_state_store_upsert_channel(&state, {200, 20, 0, utf8_literal("Legacy"), 0, 0, 0}).ok() &&

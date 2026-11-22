@@ -84,8 +84,5 @@ void test_hidden_channel_menu(void (*check)(bool, const char*) noexcept) noexcep
             distinct = distinct && rows[j].action != rows[i].action;
     }
     check(distinct, "hidden channel menu: every row has its own action and none is enabled");
-    PopupItem small[2]{};
-    check(hidden_channel_menu_build(state, users, *hidden, 0, &bank, {small, 2}) == 0,
-          "hidden channel menu: too little output builds nothing");
 }
 } // namespace maicord

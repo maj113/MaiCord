@@ -108,8 +108,8 @@ void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noex
         19, utf8_literal("Appearance"), {}, UiSettingsControlKind::choice, true, false, {choices, 2}, 0};
     UiSettingsPageContent page{utf8_literal("Style controls"), {}, {&choice, 1}, 1};
     UiSettingsScene settings{};
-    valid = ui_page_registry_initialize(&registry, {pages, 1}) &&
-            ui_page_registry_register(&registry, {{1, 4}, utf8_literal("Appearance"), &page}).ok() &&
+    ui_page_registry_initialize(&registry, {pages, 1});
+    valid = ui_page_registry_register(&registry, {{1, 4}, utf8_literal("Appearance"), &page}).ok() &&
             ui_settings_scene_update(&settings, &registry, viewport);
     UiSettingsControlGeometry previous{}, current{};
     const UiSettingsTarget target{UiSettingsTargetKind::control, {1, 4}, 19};

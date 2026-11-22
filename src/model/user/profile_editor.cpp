@@ -157,13 +157,9 @@ bool profile_editor_changes_allowed(ProfileEditorTab tab, const ProfileEditorBas
 bool profile_editor_patches(ProfileEditorTab tab, const ProfileEditorBase& base, const ProfileEditorDraft& draft,
                             ProfileEditorGate gate, UserPatch* user, MemberEditPatch* member,
                             ProfilePatch* profile) noexcept {
-    if (!profile || (tab == ProfileEditorTab::main ? !user : !member))
-        return false;
     reset_value(profile);
-    if (user)
-        reset_value(user);
-    if (member)
-        reset_value(member);
+    reset_value(user);
+    reset_value(member);
     const u16 changed = profile_editor_changes(tab, base, draft);
     if (!allowed(tab, changed, draft, gate))
         return false;

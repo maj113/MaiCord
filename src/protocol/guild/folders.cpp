@@ -1,7 +1,6 @@
 #include "maicord/protocol/guild/folders.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
 #include "maicord/protocol/user/settings_proto.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "../encoding/proto_wire.hpp"
@@ -166,7 +165,7 @@ E extract(const Wire& w, Slice<u8> output, u32* bytes, bool* present) noexcept {
         total += stop - p;
         p = stop;
     }
-    if (total > output.count || (total && !output.data))
+    if (total > output.count)
         return E::capacity;
     u32 written = 0;
     for (u32 p = 0; p < w.size;) {
@@ -183,9 +182,6 @@ E extract(const Wire& w, Slice<u8> output, u32* bytes, bool* present) noexcept {
     *bytes = total;
     *present = found;
     return E::none;
-}
-bool output_valid(const Slice<u8>& output) noexcept {
-    return byte_range_valid({output.data, output.count});
 }
 
 // Encoded sizes of wrapper messages {value = 1}.
@@ -234,7 +230,7 @@ bool settings_valid(const GuildFolderSettings& s) noexcept {
 } // namespace
 
 u32 guild_folders_encode(const GuildFolderSettings& settings, Slice<u8> output) noexcept {
-    if (!output.data || !output_valid(output) || !settings_valid(settings))
+    if (!settings_valid(settings))
         return 0;
     ProtoWriter out{output, 0, true};
     for (u32 i = 0; i < settings.folder_count && out.ok; ++i) {
@@ -269,8 +265,6 @@ u32 guild_folders_encode(const GuildFolderSettings& settings, Slice<u8> output) 
 }
 
 u32 guild_folders_encode_settings_patch(const GuildFolderSettings& settings, Slice<u8> output) noexcept {
-    if (!output.data || !output_valid(output) || output.count < 4)
-        return 0;
     // Field 14 tag (0x72), a varint length of up to 3 bytes, then the group.
     const Slice<u8> body{output.data + 4, output.count - 4};
     const u32 bytes = guild_folders_encode(settings, body);
@@ -289,9 +283,7 @@ u32 guild_folders_encode_settings_patch(const GuildFolderSettings& settings, Sli
 
 GuildFoldersError guild_folders_extract_base64(Utf8View settings, Slice<u8> group, u32* bytes,
                                                bool* present) noexcept {
-    if (!bytes || !present || settings.bytes > base64_encoded_size(kUserSettingsProtoMaximumProtoBytes) ||
-        !output_valid(group) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(settings.data), settings.bytes}, {group.data, group.count}))
+    if (settings.bytes > base64_encoded_size(kUserSettingsProtoMaximumProtoBytes))
         return E::input;
     const auto valid = base64_decode(settings, {});
     if (!valid.ok() && valid.error != Base64Error::output_too_small)
@@ -300,7 +292,7 @@ GuildFoldersError guild_folders_extract_base64(Utf8View settings, Slice<u8> grou
 }
 
 GuildFoldersError guild_folders_decode(const ConstSlice<u8>& input, GuildFolderSettings* output) noexcept {
-    if (!output || input.count > kGuildFoldersMaximumGroupBytes || !byte_range_valid(input))
+    if (input.count > kGuildFoldersMaximumGroupBytes)
         return E::input;
     const Wire w{input, {}, input.count};
     Counts counts{};

@@ -523,8 +523,6 @@ Op next_save_op() noexcept {
 namespace {
 
 bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
-    if (!owner || !theme)
-        return false;
     auto& p = *owner;
     u32 rgba = 0;
     if (id >= kRowBase && id < kRowBase + kRowCapacity) {
@@ -1267,9 +1265,8 @@ void select_page(Page page) noexcept {
     repaint();
 }
 
+// Its callers are the layer's activate and close hooks, so the owner exists.
 void request_close() noexcept {
-    if (!owner)
-        return;
     settings_layer_close_choice(&owner->layer);
     if (guard_dirty()) {
         repaint();
@@ -1376,8 +1373,9 @@ bool application_guild_settings_active() noexcept {
     return owner && owner->scene.active;
 }
 
+// The one caller (the guild menu) gives action_settings_page, which is not zero.
 u32 application_guild_settings_page_items(u64 guild_id, u32 action_base, Slice<PopupItem> output) noexcept {
-    if (!g_app.account_ui || !action_base || !output.data)
+    if (!g_app.account_ui)
         return 0;
     const u32 sections = guild_settings_access(g_app.account_ui->chat_state, guild_id).sections;
     u32 used = 0;
@@ -1448,17 +1446,15 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     next_form = next_form_item = 0;
     guild_ban_store_reset(&p.bans, guild_id);
     settings_layer_reset(&p.layer);
-    if (!ui_page_registry_initialize(&p.registry, {p.pages, kPageCount}))
-        return false;
+    ui_page_registry_initialize(&p.registry, {p.pages, kPageCount});
     u32 i = 0;
     for (NameList label{kPageLabels}; label; label.next(), ++i) {
         p.content[i] = {label.name(), {}, {}, 1, kUiSettingsPageFormat, nullptr, nullptr};
         if (!ui_page_registry_register(&p.registry, {page_key(kPages[i].page), label.name(), &p.content[i]}).ok())
             return false;
     }
-    p.page = requested_page && requested_page <= kPageCount && page_allowed(static_cast<Page>(requested_page))
-                 ? static_cast<Page>(requested_page)
-                 : first_page();
+    // page_allowed refuses none and anything past the last page.
+    p.page = page_allowed(static_cast<Page>(requested_page)) ? static_cast<Page>(requested_page) : first_page();
     if (p.page == Page::none)
         return false;
     settings_modal_take_input();

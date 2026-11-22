@@ -33,7 +33,7 @@ GuildMemberSearchMode guild_member_search_mode(u32 page, u32 previous_page, u32 
 }
 
 bool guild_member_search_bind(GuildMemberSearchStore* store, Slice<GuildSearchMember> members) noexcept {
-    if (!store || !members.data || !members.count)
+    if (!members.data || !members.count)
         return false;
     reset_value(store);
     store->members = members.data;
@@ -44,8 +44,6 @@ bool guild_member_search_bind(GuildMemberSearchStore* store, Slice<GuildSearchMe
 }
 
 void guild_member_search_reset(GuildMemberSearchStore* store, bool forget) noexcept {
-    if (!store)
-        return;
     store->count = store->total = 0;
     store->total_known = false;
     store->page = 1;
@@ -62,8 +60,6 @@ void guild_member_search_reset(GuildMemberSearchStore* store, bool forget) noexc
 }
 
 void guild_member_search_plan(const GuildMemberSearchStore& store, GuildMemberSearchQuery* query) noexcept {
-    if (!query)
-        return;
     query->limit = guild_member_search_limit(store.page_size);
     query->after = query->before = {};
     switch (guild_member_search_mode(store.page, store.last_page, store.page_size, store.cursors_known)) {
@@ -76,7 +72,7 @@ void guild_member_search_plan(const GuildMemberSearchStore& store, GuildMemberSe
 
 bool guild_member_search_begin(GuildMemberSearchStore* store, const GuildMemberSearchQuery& planned, u64 body_hash,
                                u32 body_bytes) noexcept {
-    if (!store || (body_hash == store->last_body_hash && body_bytes == store->last_body_bytes))
+    if (body_hash == store->last_body_hash && body_bytes == store->last_body_bytes)
         return false;
     store->last_body_hash = body_hash;
     store->last_body_bytes = body_bytes;
@@ -89,8 +85,6 @@ bool guild_member_search_begin(GuildMemberSearchStore* store, const GuildMemberS
 }
 
 void guild_member_search_apply(GuildMemberSearchStore* store, const GuildMemberSearchPage& page) noexcept {
-    if (!store)
-        return;
     for (u32 i = 0; i < page.member_count; ++i) {
         const auto& member = page.members[i];
         u32 at = 0;
@@ -120,8 +114,6 @@ void guild_member_search_apply(GuildMemberSearchStore* store, const GuildMemberS
 }
 
 bool guild_member_search_indexing(GuildMemberSearchStore* store, u64 retry_after_ms, u64 now_ms) noexcept {
-    if (!store)
-        return false;
     if (!retry_after_ms || store->retries >= kGuildMemberSearchRetryMaximum) {
         store->phase = GuildMemberSearchPhase::failed;
         return false;
@@ -133,8 +125,7 @@ bool guild_member_search_indexing(GuildMemberSearchStore* store, u64 retry_after
 }
 
 void guild_member_search_failed(GuildMemberSearchStore* store) noexcept {
-    if (store)
-        store->phase = GuildMemberSearchPhase::failed;
+    store->phase = GuildMemberSearchPhase::failed;
 }
 
 u32 guild_member_search_page_rows(const GuildMemberSearchStore& store, u8 sort, Slice<u32> scratch,
@@ -172,7 +163,7 @@ u32 guild_member_search_pages(const GuildMemberSearchStore& store) noexcept {
 }
 
 void guild_member_search_set_page_size(GuildMemberSearchStore* store, u32 page_size) noexcept {
-    if (!store || !size_valid(page_size) || page_size == store->page_size)
+    if (!size_valid(page_size) || page_size == store->page_size)
         return;
     // As the official store computes it: the old page scaled to the new size
     // when new size x old size members are held, else page 1.

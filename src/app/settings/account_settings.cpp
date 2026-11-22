@@ -1672,7 +1672,7 @@ bool application_account_settings_project(SettingBinding binding, UiSettingsCont
         control->enabled = self && idle;
         return true;
     case SettingBinding::devices_logout_all: {
-        if (!b || !(g_owner.loaded & load_sessions))
+        if (!(g_owner.loaded & load_sessions))
             return false;
         bool others = false;
         for (u32 i = 0; i < g_owner.session_count; ++i)
@@ -1681,7 +1681,7 @@ bool application_account_settings_project(SettingBinding binding, UiSettingsCont
         return others;
     }
     case SettingBinding::data_usage_statistics:
-        if (!b || !(g_owner.loaded & load_consents))
+        if (!(g_owner.loaded & load_consents))
             return false;
         control->checked = b->consents.usage_statistics;
         control->enabled = idle;
@@ -1738,7 +1738,7 @@ u32 application_account_settings_list(SettingBinding binding, Slice<UiSettingsCo
                     : binding == SettingBinding::connections_list   ? load_connections
                     : binding == SettingBinding::security_keys_list ? load_keys
                                                                     : 0;
-    if (!b || !load || !(g_owner.loaded & load))
+    if (!(g_owner.loaded & load))
         return 0;
     if (binding == SettingBinding::connections_list) {
         const u32 count = connection_rows(binding, controls, presentation);

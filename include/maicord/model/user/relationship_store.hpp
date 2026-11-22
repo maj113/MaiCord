@@ -30,7 +30,7 @@ struct RelationshipStore {
     Slice<RelationshipRecord> records;
     u32 count, revision;
 };
-enum class RelationshipStoreError : u8 { none, invalid_input, capacity, duplicate };
+enum class RelationshipStoreError : u8 { none, invalid_input, capacity };
 struct RelationshipStoreResult {
     RelationshipStoreError error;
     bool changed;

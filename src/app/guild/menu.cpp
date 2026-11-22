@@ -91,8 +91,6 @@ inline UiRect header_rectangle() noexcept {
 }
 inline bool enabled_in_popup(u32 action) noexcept {
     const auto& popup = g_app.popup_scene;
-    if (!popup.items.data || popup.item_count > popup.items.count)
-        return false;
     for (u32 i = 0; i < popup.item_count; ++i)
         if (popup.items[i].action == action && (popup.items[i].flags & popup_item_enabled))
             return true;
@@ -278,7 +276,7 @@ bool application_guild_menu_activate(u32 action) noexcept {
 
 u32 application_guild_menu_context_items(u64 guild_id, GuildMenuContextGroup group,
                                          Slice<PopupItem> output) noexcept {
-    if (!available() || !output.data || !output.count || !guild_context_target_valid(state(), guild_id))
+    if (!available() || !guild_context_target_valid(state(), guild_id))
         return 0;
     const auto& s = state();
     u32 used = 0;

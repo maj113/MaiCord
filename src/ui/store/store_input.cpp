@@ -232,7 +232,7 @@ bool ui_store_scene_tooltip_at(const UiStoreScene& s, float x, float y, Utf8View
 }
 
 bool ui_store_scene_hover(UiStoreScene* s, float x, float y) noexcept {
-    if (!s || !s->active)
+    if (!s->active)
         return false;
     const u16 hit = hit_node(*s, x, y);
     const u32 action = hit == kUiStoreNone ? 0 : s->nodes[hit].action;
@@ -252,7 +252,7 @@ bool ui_store_scene_modal_hit(const UiStoreScene& s, float x, float y) noexcept 
 }
 
 bool ui_store_scene_slider(UiStoreScene* s, u32 action, float x, UiStoreEvent* event) noexcept {
-    const u16 index = s ? find_action(*s, action) : kUiStoreNone;
+    const u16 index = find_action(*s, action);
     if (index == kUiStoreNone || s->nodes[index].kind != UiStoreKind::slider)
         return false;
     const u32 value = slider_value_at(s->nodes[index], screen_rect(*s, index), x);
@@ -262,7 +262,7 @@ bool ui_store_scene_slider(UiStoreScene* s, u32 action, float x, UiStoreEvent* e
 }
 
 bool ui_store_scene_press(UiStoreScene* s, float x, float y, UiStoreEvent* event) noexcept {
-    if (!s || !s->active)
+    if (!s->active)
         return false;
     const u16 hit = hit_node(*s, x, y);
     if (hit == kUiStoreNone) {
@@ -282,8 +282,6 @@ bool ui_store_scene_press(UiStoreScene* s, float x, float y, UiStoreEvent* event
 }
 
 bool ui_store_scene_release_pointer(UiStoreScene* s, float x, float y, UiStoreEvent* event) noexcept {
-    if (!s)
-        return false;
     const u32 pressed = s->press_action;
     s->press_action = 0;
     if (!pressed)
@@ -318,7 +316,7 @@ u32 ui_store_scene_value(const UiStoreScene& s, u32 action) noexcept {
 }
 
 bool ui_store_scene_key(UiStoreScene* s, UiStoreKey key, UiStoreEvent* event) noexcept {
-    if (!s || !s->active)
+    if (!s->active)
         return false;
     u16 current = s->focus_action ? find_action(*s, s->focus_action) : kUiStoreNone;
     const Range range = active_range(*s);
@@ -430,8 +428,6 @@ bool ui_store_scene_key(UiStoreScene* s, UiStoreKey key, UiStoreEvent* event) no
 }
 
 bool ui_store_scene_tick(UiStoreScene* s, u64 now_ms, bool reduced_motion, u32 switch_ms) noexcept {
-    if (!s)
-        return false;
     s->reduced_motion = reduced_motion;
     s->toggle_ms = switch_ms;
     // The last switch's slide starts at its first tick and ends a frame after its duration, so the last frame paints

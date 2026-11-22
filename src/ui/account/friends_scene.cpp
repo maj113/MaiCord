@@ -794,7 +794,7 @@ bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* sourc
                              UiFriendsPhase phase, const Utf8View& status, const UiRect& viewport,
                              const UiFriendsContent* content, const UiFriendsSections* sections,
                              const UiFriendsActiveNow* active_now, const UiRect& toolbar) noexcept {
-    if (!scene || tab > UiFriendsTab::spam || phase > UiFriendsPhase::error ||
+    if (tab > UiFriendsTab::spam || phase > UiFriendsPhase::error ||
         !ui_rect_valid(viewport) || ui_rect_width(viewport) < 320 || ui_rect_height(viewport) < 200 ||
         ui_rect_height(viewport) > 8192 || status.bytes > 512 || !utf8_validate(status).valid ||
         (source && (source->count > 16384 || (source->count && !source->resolve))) ||
@@ -898,15 +898,13 @@ bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* sourc
     return true;
 }
 void ui_friends_scene_release(UiFriendsScene* s) noexcept {
-    if (!s)
-        return;
     const auto revision = s->revision + 1;
     ui_fixed_widget_storage_release(&s->storage);
     reset_value(s);
     s->revision = revision;
 }
 bool ui_friends_scene_scroll(UiFriendsScene* s, float delta) noexcept {
-    if (!s || !current(*s) || !ui_coordinate_valid(delta))
+    if (!current(*s) || !ui_coordinate_valid(delta))
         return false;
     const auto next = clamp(*s, s->scroll_dips + delta);
     if (next == s->scroll_dips)
@@ -982,8 +980,6 @@ bool offered(const UiFriendsScene& s, const UiFriendsTarget& t) noexcept {
 } // namespace
 bool ui_friends_scene_activation(const UiFriendsScene& s, const UiFriendsTarget& t,
                                  UiFriendsTarget* out) noexcept {
-    if (!out)
-        return false;
     reset_value(out);
     if (!offered(s, t))
         return false;
@@ -992,7 +988,7 @@ bool ui_friends_scene_activation(const UiFriendsScene& s, const UiFriendsTarget&
 }
 bool ui_friends_scene_focus(UiFriendsScene* s, const UiFriendsTarget& t, bool scroll) noexcept {
     UiFriendsTarget checked{};
-    if (!s || !ui_friends_scene_activation(*s, t, &checked))
+    if (!ui_friends_scene_activation(*s, t, &checked))
         return false;
     if (t.user_id && scroll) {
         float offset = 0;
@@ -1033,8 +1029,8 @@ u64 ui_friends_scene_hovered_row(const UiFriendsScene& s) noexcept {
     return entries(s)[h.slot].row.user_id;
 }
 bool ui_friends_scene_name_hover(UiFriendsScene* s) noexcept {
-    const u64 row = s ? ui_friends_scene_hovered_row(*s) : 0;
-    if (!s || row == s->name_row)
+    const u64 row = ui_friends_scene_hovered_row(*s);
+    if (row == s->name_row)
         return false;
     s->name_row = row;
     ++s->revision;
@@ -1044,7 +1040,7 @@ bool ui_friends_scene_contains(const UiFriendsScene& s, float x, float y) noexce
     return ui_rect_contains(s.viewport, x, y) || (in_toolbar(s) && ui_rect_contains(s.toolbar, x, y));
 }
 void ui_friends_scene_set_focus_visible(UiFriendsScene* s, bool visible) noexcept {
-    if (s && s->focus_visible != visible) {
+    if (s->focus_visible != visible) {
         s->focus_visible = visible;
         ++s->revision;
     }
@@ -1080,7 +1076,7 @@ UiFriendsTarget ui_friends_scene_hit_test(const UiFriendsScene& s, float x, floa
     return {};
 }
 UiFriendsTarget ui_friends_scene_navigate(UiFriendsScene* s, UiListMove move) noexcept {
-    if (!s || !current(*s) || !expanded_count(*s))
+    if (!current(*s) || !expanded_count(*s))
         return {};
     u32 at = kUiListNoSelection;
     UiFriendsRow row{};
@@ -1094,7 +1090,7 @@ UiFriendsTarget ui_friends_scene_navigate(UiFriendsScene* s, UiListMove move) no
     return ui_friends_scene_focus(s, t) ? t : UiFriendsTarget{};
 }
 UiFriendsTarget ui_friends_scene_page(UiFriendsScene* s, bool reverse) noexcept {
-    if (!s || !current(*s) || !expanded_count(*s))
+    if (!current(*s) || !expanded_count(*s))
         return {};
     u32 at = s->first;
     UiFriendsRow row{};
@@ -1146,10 +1142,8 @@ u32 ui_friends_scene_visible_count(const UiFriendsScene& s) noexcept {
     return current(s) ? s.count : 0;
 }
 bool ui_friends_scene_visible_row(const UiFriendsScene& s, u32 slot, UiFriendsVisibleRow* out) noexcept {
-    if (!out)
-        return false;
     reset_value(out);
-    if (!current(s) || slot >= s.count)
+    if (!current(s))
         return false;
     const auto h = s.visible_rows[slot];
     const auto* node = ui_widget_manager_layout_node(s.widgets, h);
@@ -1661,7 +1655,7 @@ u32 ui_friends_scene_active_avatar_count(const UiFriendsScene& s) noexcept {
     return count;
 }
 bool ui_friends_scene_active_avatar(const UiFriendsScene& s, u32 index, UiFriendsActiveAvatar* out) noexcept {
-    if (!out || !current(s))
+    if (!current(s))
         return false;
     for (u32 i = 0; i < active_card_count(s); ++i) {
         const auto& card = s.active_now->cards[i];
@@ -1677,14 +1671,14 @@ bool ui_friends_scene_active_avatar(const UiFriendsScene& s, u32 index, UiFriend
     return false;
 }
 bool ui_friends_scene_active_card(const UiFriendsScene& s, u32 index, UiRect* card, UiPoint* activity) noexcept {
-    if (!card || !activity || !current(s) || index >= active_card_count(s))
+    if (!current(s) || index >= active_card_count(s))
         return false;
     *card = active_card_rect(s, index);
     *activity = active_detail_origin(*card, s.active_now->cards[index]);
     return true;
 }
 bool ui_friends_scene_active_hover(UiFriendsScene* s, float x, float y) noexcept {
-    if (!s || !current(*s))
+    if (!current(*s))
         return false;
     u32 hover = 0;
     if (s->active_visible && ui_rect_contains(s->active_rect, x, y)) {
@@ -1702,7 +1696,7 @@ bool ui_friends_scene_active_hover(UiFriendsScene* s, float x, float y) noexcept
 }
 bool ui_friends_scene_icon_action(const UiFriendsScene& s, bool keyboard, float x, float y,
                                   UiWidgetHandle* widget, UiFriendsTarget* target, Utf8View* tooltip) noexcept {
-    if (!widget || !target || !tooltip || !current(s))
+    if (!current(s))
         return false;
     for (u32 i = 0; i < s.widgets.count; ++i) {
         const auto& e = entries(s)[i];

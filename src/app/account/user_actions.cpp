@@ -950,9 +950,8 @@ bool application_user_actions_owns_response(u64 request_id) noexcept {
     return g_state && request_id && g_state->request_id == request_id;
 }
 
+// The one caller (application_channel_overview_response) checks application_user_actions_owns_response first.
 bool application_user_actions_response(const RestClientResponse& response, Utf8View body) noexcept {
-    if (!application_user_actions_owns_response(response.request_id))
-        return true;
     auto& s = *g_state;
     const Work work = s.work;
     const u64 user = s.request_user;

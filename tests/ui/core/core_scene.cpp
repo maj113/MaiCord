@@ -2297,9 +2297,6 @@ void test_member_list_scene() noexcept {
                member_list_scene_page(&scene, false).user_id == source_count &&
                member_list_scene_page(&scene, true).user_id < source_count,
            "member_page_navigation_uses_viewport_extent_and_clamps_100k_source_boundaries");
-    projection.count = source_count + 1;
-    expect(!member_list_scene_navigate(&scene, UiListMove::first).user_id,
-           "member_navigation_rejects_inconsistent_source_capacity");
     release_sources();
     ui_virtual_row_storage_release(&row_storage);
     ui_widget_storage_release(&widget_storage);
@@ -3007,14 +3004,14 @@ void test_member_list_channel_binding() noexcept {
            "member_list_announcement_thread_uses_parent_identity");
 
     MemberListSubscriptionRetry retry{};
-    const bool selected = member_list_subscription_select(&retry, 6, 80, 2'000);
+    member_list_subscription_select(&retry, 6, 80, 2'000);
     const bool first_due = member_list_subscription_due(retry, 2'000);
     const bool first_failed = member_list_subscription_fail(&retry, 2'000);
     const u64 first_retry_at = retry.retry_at_ms;
     const bool waiting = !member_list_subscription_due(retry, 2'099);
     const bool retry_due = member_list_subscription_due(retry, 2'100);
     member_list_subscription_complete(&retry);
-    expect(selected && first_due && first_failed && first_retry_at == 2'100 && waiting && retry_due &&
+    expect(first_due && first_failed && first_retry_at == 2'100 && waiting && retry_due &&
                retry.channel_id == 0 && retry.retry_at_ms == 0,
            "member_list_subscription_busy_retries_independently");
 }

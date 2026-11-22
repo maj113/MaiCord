@@ -161,8 +161,8 @@ inline bool channel_overview_ui_probe(D3D11Renderer& renderer, UiTextMeasureCach
     const UiSettingsTarget topic_target{UiSettingsTargetKind::control, key, 2};
     const UiSettingsTarget save_target{UiSettingsTargetKind::save, key, 0};
     const UiSettingsTarget reset_target{UiSettingsTargetKind::reset, key, 0};
-    if (!ui_page_registry_initialize(&registry, {&page, 1}) ||
-        !ui_page_registry_register(&registry, {key, utf8_literal("Overview"), &content}).ok() ||
+    ui_page_registry_initialize(&registry, {&page, 1});
+    if (!ui_page_registry_register(&registry, {key, utf8_literal("Overview"), &content}).ok() ||
         !ui_settings_scene_update(&scene, &registry, viewport))
         return fail();
     renderer_bind_settings_scene(&renderer, &scene);

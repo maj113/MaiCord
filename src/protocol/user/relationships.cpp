@@ -5,7 +5,6 @@
 #include "../encoding/json_helpers.hpp"
 #include "../encoding/json_field_lists.hpp"
 #include "maicord/protocol/http/rest_route.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/protocol/http/rest.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
@@ -126,13 +125,9 @@ bool scan_document(Utf8View input, Slice<u32> scratch, JsonIndexedDocument* docu
     *document = {input, {scratch.data, scan.count}};
     return true;
 }
+// The scratch is missing when its pages could not be committed.
 bool valid_input(const Utf8View& input, const Slice<u32>& scratch) noexcept {
-    return input.bytes && input.bytes <= kRelationshipsMaximumBytes && scratch.count &&
-        scratch.count <= ~u32{0} / sizeof(u32) &&
-        byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes}) &&
-        byte_range_valid({reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))}) &&
-        !byte_ranges_overlap({reinterpret_cast<const u8*>(input.data), input.bytes},
-            {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))});
+    return input.bytes && input.bytes <= kRelationshipsMaximumBytes && scratch.count;
 }
 struct Snapshot {
     const JsonIndexedDocument* document;
@@ -172,33 +167,21 @@ RestMethod relationship_method(RelationshipOperation operation) noexcept {
     default: return RestMethod::get;
     }
 }
+// The friends code gives a user ID exactly to the operations on one relationship (queue in friends.cpp).
 RelationshipWriteResult write_relationship_target(RelationshipOperation operation, u64 user_id, Slice<u8> output) noexcept {
-    const bool individual = operation == RelationshipOperation::accept || operation == RelationshipOperation::remove ||
-        operation == RelationshipOperation::block || operation == RelationshipOperation::accept_stranger ||
-        operation == RelationshipOperation::ignore || operation == RelationshipOperation::unignore ||
-        operation == RelationshipOperation::nickname;
-    if (operation > RelationshipOperation::nickname || individual != (user_id != 0) ||
-        !byte_range_valid({output.data, output.count})) return {0, RelationshipWriteError::invalid_input};
-    char temporary[96];
     RouteWriter writer{};
-    route_writer_initialize(&writer, {reinterpret_cast<u8*>(temporary), sizeof(temporary)});
+    route_writer_initialize(&writer, output);
     route_write(&writer, "/api/v9/users/@me/relationships");
-    if (individual) route_write(&writer, '/', user_id);
+    if (user_id) route_write(&writer, '/', user_id);
     if (operation == RelationshipOperation::ignore || operation == RelationshipOperation::unignore)
         route_write(&writer, "/ignore");
     if (operation == RelationshipOperation::clear_incoming || operation == RelationshipOperation::clear_hidden)
         route_write(&writer, "?relationship_type=3");
-    if (!writer.valid || writer.bytes > output.count) return {0, RelationshipWriteError::output_too_small};
-    copy_bytes(output.data, temporary, writer.bytes);
+    if (!writer.valid) return {0, RelationshipWriteError::output_too_small};
     return {writer.bytes, RelationshipWriteError::none};
 }
 RelationshipWriteResult write_relationship_body(RelationshipOperation operation, Utf8View username, Slice<u8> output) noexcept {
-    const bool text = operation == RelationshipOperation::request || operation == RelationshipOperation::nickname;
-    if (operation > RelationshipOperation::nickname || !byte_range_valid({output.data, output.count}) ||
-        !byte_range_valid({reinterpret_cast<const u8*>(username.data), username.bytes}) ||
-        (!text && username.bytes)) return {0, RelationshipWriteError::invalid_input};
-    u8 staged[kRelationshipBodyMaximumBytes];
-    ProtocolWriter writer{{staged, sizeof(staged)}, 0};
+    ProtocolWriter writer{output, 0};
     bool written;
     if (operation == RelationshipOperation::nickname) {
         // 1-32 characters on one line; empty text clears the nickname (null).
@@ -211,7 +194,8 @@ RelationshipWriteResult write_relationship_body(RelationshipOperation operation,
         while (name < username.bytes && username.data[name] != '\n') ++name;
         const Utf8View note = name < username.bytes ? Utf8View{username.data + name + 1, username.bytes - name - 1}
                                                      : Utf8View{};
-        if (name < 2 || name > kRelationshipUsernameMaximumBytes) return {0, RelationshipWriteError::invalid_input};
+        // friends.cpp submit_add admits at most kRelationshipUsernameMaximumBytes of username.
+        if (name < 2) return {0, RelationshipWriteError::invalid_input};
         for (u32 i = 0; i < name; ++i) {
             const char c = username.data[i];
             if (!(ascii_is_alnum(c) || c == '_' || c == '.'))
@@ -233,12 +217,10 @@ RelationshipWriteResult write_relationship_body(RelationshipOperation operation,
         else if (operation == RelationshipOperation::clear_hidden) body = "{\"filters\":[1,2]}";
         written = protocol_write(&writer, body);
     }
-    if (!written || writer.used > output.count) return {0, RelationshipWriteError::output_too_small};
-    copy_bytes(output.data, staged, writer.used);
+    if (!written) return {0, RelationshipWriteError::output_too_small};
     return {writer.used, RelationshipWriteError::none};
 }
 RelationshipWriteResult write_relationship_context(RelationshipLocation location, Slice<u8> output) noexcept {
-    if (location > RelationshipLocation::spam_requests) return {0, RelationshipWriteError::invalid_input};
     if (location == RelationshipLocation::none) return {0, RelationshipWriteError::none};
     // base64 of {"location":"Friends"} and of {"location":"Spam requests modal"}, as the client's JSON writer
     // writes them (no spaces).
@@ -252,11 +234,7 @@ RelationshipWriteResult write_relationship_context(RelationshipLocation location
 }
 RelationshipsDecodeResult relationship_decode_record(Utf8View input, Slice<u32> scratch,
     RelationshipEvent event, RelationshipMutation* output) noexcept {
-    if (event > RelationshipEvent::update || !valid_input(input, scratch)) return failure(RelationshipsDecodeError::invalid_input);
-    const ConstSlice<u8> destination{reinterpret_cast<const u8*>(output), sizeof(*output)};
-    if (!byte_range_valid(destination) || byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(input.data), input.bytes}) ||
-        byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))}))
-        return failure(RelationshipsDecodeError::invalid_input);
+    if (!valid_input(input, scratch)) return failure(RelationshipsDecodeError::invalid_input);
     JsonIndexedDocument document{};
     if (!scan_document(input, scratch, &document)) return failure(RelationshipsDecodeError::scan);
     RelationshipMutation candidate;
@@ -267,7 +245,6 @@ RelationshipsDecodeResult relationship_decode_record(Utf8View input, Slice<u32> 
 }
 RelationshipStoreResult relationship_apply_decoded(RelationshipStore* store,
     RelationshipEvent event, const RelationshipMutation& mutation) noexcept {
-    if (event > RelationshipEvent::update) return {RelationshipStoreError::invalid_input, false};
     if (event == RelationshipEvent::remove) return relationship_store_remove(store, mutation.record.user_id);
     auto record = mutation.record;
     if (const auto* old = relationship_store_find(*store, record.user_id)) {
@@ -284,17 +261,7 @@ RelationshipStoreResult relationship_apply_decoded(RelationshipStore* store,
 }
 RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8View input, Slice<u32> scratch,
     Slice<RelationshipRecord> candidate, RelationshipsAdmission admission, JsonIndexedDocument* indexed) noexcept {
-    if (!store->records.data || !store->records.count || store->records.count > kRelationshipMaximumRecords ||
-        store->count > store->records.count || !valid_input(input, scratch) || !candidate.data || !candidate.count ||
-        candidate.count > kRelationshipMaximumRecords)
-        return failure(RelationshipsDecodeError::invalid_input);
-    const ConstSlice<u8> ranges[]{
-        {reinterpret_cast<const u8*>(input.data), input.bytes},
-        {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))},
-        {reinterpret_cast<const u8*>(candidate.data), candidate.count * static_cast<u32>(sizeof(*candidate.data))},
-        {reinterpret_cast<const u8*>(store), sizeof(*store)},
-        {reinterpret_cast<const u8*>(store->records.data), store->records.count * static_cast<u32>(sizeof(*store->records.data))}};
-    if (!byte_ranges_all_disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])}))
+    if (!valid_input(input, scratch))
         return failure(RelationshipsDecodeError::invalid_input);
     JsonIndexedDocument document{};
     if (!scan_document(input, scratch, &document)) return failure(RelationshipsDecodeError::scan);
@@ -331,9 +298,6 @@ RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8Vi
     return {RelationshipsDecodeError::none};
 }
 RelationshipUserApplyResult relationship_users_apply(UserStore* users, ConstSlice<RelationshipUser> snapshots) noexcept {
-    if (snapshots.count > kRelationshipMaximumRecords ||
-        !byte_range_valid({reinterpret_cast<const u8*>(snapshots.data), snapshots.count * static_cast<u32>(sizeof(*snapshots.data))}))
-        return {UserStoreError::invalid_input, 0};
     for (u32 i = 0; i < snapshots.count; ++i) {
         const auto& snapshot = snapshots[i];
         if (!snapshot.id || snapshot.username_bytes > sizeof(snapshot.username) || snapshot.display_name_bytes > sizeof(snapshot.display_name) ||

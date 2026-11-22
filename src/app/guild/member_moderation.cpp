@@ -495,10 +495,9 @@ bool application_member_moderation_action(u32 action) noexcept {
     return action > kMemberModerationActionBase && action < kActions.choice_first + kChoiceCount;
 }
 
+// The one caller (application_user_menu_open) has an account UI, a user and a guild.
 u32 application_member_moderation_menu_items(u64 guild_id, u64 user_id, u64 voice_channel_id,
                                               Slice<PopupItem> output) noexcept {
-    if (!g_app.account_ui || !guild_id || !user_id)
-        return 0;
     moderation.menu_guild_id = guild_id;
     moderation.menu_user_id = user_id;
     moderation.menu_channel_id = voice_channel_id;
@@ -566,20 +565,17 @@ bool application_member_moderation_start(u64 guild_id, u64 user_id, u8 action, u
                       : action == moderation_action_timeout     ? Kind::timeout
                       : action == moderation_action_end_timeout ? Kind::end_timeout
                       : action == moderation_action_kick        ? Kind::kick
-                      : action == moderation_action_ban         ? Kind::ban
-                                                                : Kind::none;
-    bool listed = kind != Kind::timeout;
-    for (const u32 value : kModerationTimeoutChoices)
-        listed = listed || value == choice;
-    if (kind == Kind::none || !listed || !begin(kind, guild_id, user_id))
+                                                                : Kind::ban;
+    if (!begin(kind, guild_id, user_id))
         return false;
     moderation.choice = kind == Kind::timeout ? choice : 0;
     return open_form();
 }
 
+// The one caller (the Members page) passes its guild and 1 to kGuildBulkBanMaximumUsers selected members.
 bool application_member_moderation_bulk_ban(u64 guild_id, ConstSlice<u64> user_ids) noexcept {
-    if (moderation.step == Step::queued || moderation.step == Step::sending || g_app.text_form || !guild_id ||
-        !user_ids.data || !user_ids.count || user_ids.count > kGuildBulkBanMaximumUsers || !bulk_allowed(guild_id))
+    if (moderation.step == Step::queued || moderation.step == Step::sending || g_app.text_form ||
+        !bulk_allowed(guild_id))
         return false;
     reset();
     moderation.actor = current_actor();
@@ -597,7 +593,7 @@ bool application_member_moderation_pending(u64 now_ms) noexcept {
 }
 
 bool application_member_moderation_submit(u64 request_id, u64 now_ms) noexcept {
-    if (!request_id || !application_member_moderation_pending(now_ms))
+    if (!application_member_moderation_pending(now_ms))
         return false;
     if (!still_allowed())
         return fail(utf8_literal("You can't do this to this member anymore."));

@@ -1,6 +1,5 @@
 #include "maicord/protocol/guild/assets.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
@@ -20,7 +19,7 @@ using Op = GuildAssetOperation;
 
 // Single-line UTF-8 with a codepoint range and no controls.
 bool line_valid(Utf8View text, u32 minimum_codepoints, u32 maximum_codepoints) noexcept {
-    if (!view_valid(text) || text.bytes > maximum_codepoints * 4)
+    if (text.bytes > maximum_codepoints * 4)
         return false;
     const auto validation = utf8_validate(text);
     if (!validation.valid || validation.codepoints < minimum_codepoints || validation.codepoints > maximum_codepoints)
@@ -74,8 +73,6 @@ bool guild_image_kind_allowed(GuildImageProfile profile, GuildImageKind kind) no
 namespace {
 
 bool reason_valid(const GuildAssetRequest& request) noexcept {
-    if (!view_valid(request.reason))
-        return false;
     if (!request.reason.bytes)
         return true;
     if (request.operation == Op::image_probe || guild_asset_method(request.operation) == RestMethod::get)
@@ -254,8 +251,6 @@ void serialize(const GuildAssetRequest& r, GuildPreparedImage image, const Const
 // The prepared image must suit the operation: required for creation,
 // optional (clear) for icons, absent otherwise.
 bool image_suits(const GuildAssetRequest& r, GuildPreparedImage image) noexcept {
-    if (!byte_range_valid(image.bytes))
-        return false;
     if (!guild_asset_has_image(r.operation) || r.operation == Op::image_probe)
         return !image.bytes.count && image.kind == GuildImageKind::none;
     const auto profile = guild_asset_profile(r);
@@ -411,8 +406,7 @@ GuildImageProfile guild_asset_profile(const GuildAssetRequest& r) noexcept {
 bool guild_asset_request_valid(const GuildAssetRequest& r) noexcept {
     const Op op = r.operation;
     if (op >= Op::count || r.reserved[0] || r.reserved[1] || r.reserved[2] || r.reserved[3] || !reason_valid(r) ||
-        !view_valid(r.name) || !view_valid(r.tags) || !view_valid(r.description) || !byte_range_valid(r.image) ||
-        !byte_range_valid({r.data_uri.data, r.data_uri.count}) || (op != Op::image_probe && r.data_uri.count))
+        (op != Op::image_probe && r.data_uri.count))
         return false;
     if ((op == Op::image_probe) ? r.profile >= GuildImageProfile::count : r.profile != GuildImageProfile::icon)
         return false;
@@ -493,7 +487,7 @@ GuildAssetResult guild_asset_write_target(const GuildAssetRequest& r, Slice<u8> 
 }
 
 GuildAssetResult guild_asset_write_reason(const GuildAssetRequest& r, Slice<u8> output) noexcept {
-    if (!guild_asset_request_valid(r) || !byte_range_valid({output.data, output.count}))
+    if (!guild_asset_request_valid(r))
         return {0, 0, GuildAssetError::input};
     if (!r.reason.bytes)
         return {0, 0, GuildAssetError::none};
@@ -514,14 +508,12 @@ u32 guild_asset_body_bytes(const GuildAssetRequest& r, GuildPreparedImage image,
 
 GuildAssetResult guild_asset_write_body(const GuildAssetRequest& r, GuildPreparedImage image, ConstSlice<u8> boundary,
                                         Slice<u8> output) noexcept {
-    if (!guild_asset_request_valid(r) || !byte_range_valid({output.data, output.count}) || !image_suits(r, image) ||
+    if (!guild_asset_request_valid(r) || !image_suits(r, image) ||
         ((r.operation == Op::sticker_create) != (boundary.count != 0)) ||
         (boundary.count && !rest_multipart_boundary_valid(boundary)))
         return {0, 0, GuildAssetError::input};
     if (!guild_asset_has_body(r.operation))
         return {0, 0, GuildAssetError::none};
-    if (!output.data || !output.count)
-        return {0, 0, GuildAssetError::capacity};
     Sink s{output.data, output.count, 0, true};
     serialize(r, image, boundary, s);
     if (!s.ok) {
@@ -536,8 +528,6 @@ bool guild_asset_choose_boundary(const GuildAssetRequest& r, GuildPreparedImage 
     static constexpr char prefix[] = "MaiCordFormBoundary";
     constexpr u32 prefix_bytes = sizeof(prefix) - 1;
     static_assert(prefix_bytes + 13 == kGuildAssetBoundaryBytes);
-    if (!output.data || output.count < kGuildAssetBoundaryBytes || !byte_range_valid(image.bytes))
-        return false;
     for (u32 attempt = 0; attempt < 32; ++attempt) {
         copy_bytes(output.data, prefix, prefix_bytes);
         u64 value = seed;
@@ -581,27 +571,18 @@ u32 guild_image_data_uri_bytes(GuildImageKind kind, u32 image_bytes) noexcept {
 
 u32 guild_image_write_data_uri(GuildImageKind kind, const ConstSlice<u8>& image,
                                const Slice<u8>& output) noexcept {
-    const u32 needed = guild_image_data_uri_bytes(kind, image.count);
-    if (!needed || !byte_range_valid(image) || !output.data || output.count < needed)
-        return 0;
+    // Every caller sizes the output with guild_image_data_uri_bytes for this image: a nonzero count it then compares
+    // the result with.
     const auto mime = guild_image_mime(kind);
     Sink s{output.data, output.count, 0, true};
     s.literal("data:");
     s.text(mime);
     s.literal(";base64,");
-    if (!s.ok)
-        return 0;
-    const auto encoded =
-        base64_encode(image, {reinterpret_cast<char*>(output.data + s.used), output.count - s.used});
-    if (!encoded.ok() || s.used + encoded.bytes != needed) {
-        secure_clear_bytes(output.data, needed);
-        return 0;
-    }
-    return needed;
+    return s.used + base64_encode(image, {reinterpret_cast<char*>(output.data + s.used), output.count - s.used}).bytes;
 }
 
 bool guild_emoji_name_valid(Utf8View name) noexcept {
-    if (!view_valid(name) || name.bytes < kGuildEmojiNameMinimum || name.bytes > kGuildEmojiNameMaximum)
+    if (name.bytes < kGuildEmojiNameMinimum || name.bytes > kGuildEmojiNameMaximum)
         return false;
     for (u32 i = 0; i < name.bytes; ++i) {
         const char c = name.data[i];
@@ -626,8 +607,6 @@ bool guild_sticker_description_valid(const Utf8View& description) noexcept {
 
 GuildAssetResult guild_asset_decode_stickers(Utf8View body, Slice<u32> scratch,
                                              Slice<GuildStickerRecord> output) noexcept {
-    if (!output.data && output.count)
-        return {0, 0, GuildAssetError::input};
     const auto s = scan_json<GuildAssetError>(body, scratch);
     if (s.error != GuildAssetError::none)
         return {0, 0, s.error};

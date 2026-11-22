@@ -745,8 +745,8 @@ UiStoreMeasure ui_store_cache_measure(UiTextMeasureCache* cache) noexcept {
 }
 
 bool ui_store_scene_open(UiStoreScene* s) noexcept {
-    if (!s || s->nodes)
-        return s && s->nodes;
+    if (s->nodes)
+        return true;
     const u32 sidecar = kUiStoreNodeCapacity * sizeof(UiStoreNode) + kUiStoreTextBytes;
     if (!ui_scene_open(&s->storage, &s->widgets, 8, sidecar, alignof(UiStoreNode)))
         return false;
@@ -762,8 +762,7 @@ bool ui_store_scene_open(UiStoreScene* s) noexcept {
 }
 
 void ui_store_scene_release(UiStoreScene* s) noexcept {
-    if (s)
-        ui_scene_release(s);
+    ui_scene_release(s);
 }
 
 void ui_store_scene_begin(UiStoreScene* s) noexcept {
@@ -862,9 +861,8 @@ void layout_pane(UiStoreScene* s) noexcept {
 } // namespace
 
 bool ui_store_scene_commit(UiStoreScene* s, const UiRect& panel, const UiRect& column, const UiRect& modal) noexcept {
-    if (s)
-        g_measure = s->measure;
-    if (!s || !s->nodes || s->page_root == kUiStoreNone || !ui_rect_has_area(column))
+    g_measure = s->measure;
+    if (!s->nodes || s->page_root == kUiStoreNone || !ui_rect_has_area(column))
         return false;
     s->panel = panel;
     s->column = column;
@@ -880,7 +878,7 @@ bool ui_store_scene_commit(UiStoreScene* s, const UiRect& panel, const UiRect& c
 }
 
 bool ui_store_scene_scroll_to(UiStoreScene* s, float offset) noexcept {
-    if (!s || !s->active)
+    if (!s->active)
         return false;
     const float before = s->scroll;
     s->scroll = offset;
@@ -892,8 +890,6 @@ bool ui_store_scene_scroll_to(UiStoreScene* s, float offset) noexcept {
 }
 
 bool ui_store_scene_scroll(UiStoreScene* s, float delta) noexcept {
-    if (!s)
-        return false;
     if (s->dialog_open) {
         const float before = s->dialog_scroll;
         s->dialog_scroll += delta;
@@ -926,7 +922,7 @@ bool ui_store_scene_pane_range(const UiStoreScene& s, UiRect* viewport, float* o
 }
 
 bool ui_store_scene_pane_scroll_to(UiStoreScene* s, float offset) noexcept {
-    if (!s || !s->active || s->pane == kUiStoreNone || s->pane >= s->count)
+    if (!s->active || s->pane == kUiStoreNone || s->pane >= s->count)
         return false;
     const float next = minimum(maximum(offset, 0.f), s->pane_most);
     if (next == s->pane_scroll)

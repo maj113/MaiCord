@@ -17,10 +17,10 @@ u32 application_stream_preview_media(StreamPreviewMedia*, u32) noexcept {
     return 0;
 }
 // Nor is the server tag popout.
-u32 application_guild_card_media(GuildCardMedia*, u32) noexcept {
+u32 application_guild_card_media(GuildCardMedia (&)[kGuildCardMediaCapacity]) noexcept {
     return 0;
 }
-u32 application_guild_card_emoji_media(MediaAssetKey*, u32) noexcept {
+u32 application_guild_card_emoji_media(MediaAssetKey (&)[kUiGuildCardTraits]) noexcept {
     return 0;
 }
 bool application_guild_card_key_current(MediaAssetKey) noexcept {

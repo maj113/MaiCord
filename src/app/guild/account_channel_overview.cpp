@@ -8,11 +8,6 @@ RestClientSubmitResult account_channel_overview_submit(RestClient* rest,
                                                        u64 channel_id,
                                                        const ChannelOverviewPatch* patch,
                                                        u64 request_id) noexcept {
-    if (!rest || !request_id ||
-        (operation != ChannelOverviewOperation::fetch && operation != ChannelOverviewOperation::update) ||
-        (operation == ChannelOverviewOperation::fetch && patch) ||
-        (operation == ChannelOverviewOperation::update && !patch))
-        return {RestClientSubmitError::invalid_input};
     // Only the written prefixes are sent.
     u8 target[64], body[kChannelOverviewMaximumBodyBytes];
     const auto path = channel_overview_write_target(channel_id, {target, sizeof(target)});

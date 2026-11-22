@@ -60,8 +60,6 @@ void project_invites(Bank& bank) noexcept {
 }
 
 void confirm_revoke_invite(u32 index) noexcept {
-    if (index >= owner->invite_count)
-        return;
     static char title[96];
     Bank bank{title, sizeof(title), 0};
     bank.add("Revoke invite ");

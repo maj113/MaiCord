@@ -173,8 +173,9 @@ __declspec(noinline) void toast(bool ok, const char* good, const char* bad) noex
 }
 
 // ---- Menus -----------------------------------------------------------------------------------------------------
+// Every caller runs while the host exists.
 void close_menu() noexcept {
-    if (!g || !g->menu_open)
+    if (!g->menu_open)
         return;
     g->menu_open = false;
     g->menu_pressed = 0;

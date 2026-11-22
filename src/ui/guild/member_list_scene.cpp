@@ -58,9 +58,8 @@ UiLayoutStyle status_style() noexcept {
 }
 
 MemberListSceneResult failure(MemberListScene* scene, MemberListSceneError error) noexcept {
-    saturating_increment_if(scene, scene->rejected);
-    return MemberListSceneResult{error, scene ? scene->first : 0, scene ? scene->count : 0,
-                                 scene ? scene->scroll_dips : 0.0f, false};
+    saturating_increment(scene->rejected);
+    return MemberListSceneResult{error, scene->first, scene->count, scene->scroll_dips, false};
 }
 
 float clamp_scroll(const MemberListView& source, const UiRect& viewport,
@@ -115,10 +114,6 @@ bool source_current(const MemberListView* source,
 
 bool member_list_scene_initialize(MemberListScene* scene, Slice<MemberListRowWidget> rows,
                                   Slice<UiWidget> widgets, Slice<UiLayoutNode> layout_nodes) noexcept {
-    if (!scene || !rows.data || rows.count == 0 || !widgets.data || widgets.count == 0 ||
-        !layout_nodes.data || layout_nodes.count < widgets.count) {
-        return false;
-    }
     reset_value<MemberListScene>(scene);
     scene->focused_source_index = kUiListNoSelection;
     scene->rows = rows;
@@ -131,7 +126,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
                                                const UserStore* users,
                                                const ChatStateStore* state, const UiRect& viewport,
                                                float requested_scroll_dips) noexcept {
-    if (!scene || !scene->rows.data || !ui_rect_valid_or_empty(viewport) ||
+    if (!ui_rect_valid_or_empty(viewport) ||
         requested_scroll_dips != requested_scroll_dips || requested_scroll_dips < -1'000'000'000.0f ||
         requested_scroll_dips > 1'000'000'000.0f ||
         (source && (!source->rows.data || (!source->authoritative && source->count > source->rows.count) || (source->authoritative && source->resident_count > source->rows.count))) ||
@@ -296,7 +291,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
 }
 
 MemberListSceneResult member_list_scene_scroll(MemberListScene* scene, float delta_dips) noexcept {
-    if (!scene || !ui_coordinate_valid(delta_dips)) {
+    if (!ui_coordinate_valid(delta_dips)) {
         return failure(scene, MemberListSceneError::invalid_input);
     }
     return member_list_scene_update(scene, scene->source, scene->members, scene->users, scene->state,
@@ -333,9 +328,6 @@ bool member_list_scene_row_resident(const MemberListScene& scene, u32 index) noe
 }
 
 bool member_list_scene_focus_user(MemberListScene* scene, u64 user_id) noexcept {
-    if (!scene) {
-        return false;
-    }
     if (user_id == 0) {
         scene->focused_user_id = 0;
         return ui_widget_manager_focus(&scene->widgets, ui_widget_invalid_handle());
@@ -495,8 +487,8 @@ UiRect member_list_app_check_hit(const MemberListScene& s, float x, float y, u64
     const auto badge = member_list_badge(s, static_cast<u32>(row - s.rows.data));
     const auto check = ui_app_badge_check(badge);
     if (!ui_rect_contains(check, x, y)) return {};
-    if (user_id) *user_id = row->user_id;
-    if (row_widget) *row_widget = row->widget;
+    *user_id = row->user_id;
+    *row_widget = row->widget;
     return check;
 }
 

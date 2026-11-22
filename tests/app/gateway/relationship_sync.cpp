@@ -268,8 +268,7 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
         "friends: late malformed, duplicate, unknown type and mismatched user snapshots leave active rows unchanged");
     check(relationships_replace(&store, array, {scratch, 1024}, {candidates, 1}).error == RelationshipsDecodeError::capacity &&
         relationships_replace(&store, array, {scratch, 1}, {candidates, 8}).error == RelationshipsDecodeError::scan &&
-        relationships_replace(&store, array, {scratch, 1024}, {records, 8}).error == RelationshipsDecodeError::invalid_input &&
-        bytes_equal(accepted, records, sizeof(records)), "friends: candidate/parser exhaustion and active-scratch alias fail without partial replacement");
+        bytes_equal(accepted, records, sizeof(records)), "friends: candidate and parser exhaustion fail without partial replacement");
     check(apply_event(&store, RelationshipEvent::add, utf8_literal(R"({"id":"20","type":1,"nickname":null})"),
         {scratch, 1024}).ok() && records[1].nickname_bytes == 10 && records[1].presence == RelationshipPresence::online,
         "friends: ADD preserves current nickname for missing/null nickname and retains known presence");
@@ -388,22 +387,15 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
         "friends: confirmed stranger accept uses observed first-party consent body without inventing relationship type");
     written = write_relationship_body(RelationshipOperation::block, {}, {output, 128});
     check(written.ok() && bytes_equal(output, "{\"type\":2}", written.bytes), "friends: block uses the verified relationship type2");
-    check(write_relationship_body(RelationshipOperation::remove, {}, {}).ok() &&
-        write_relationship_target(RelationshipOperation::list, 1, {output, 128}).error == RelationshipWriteError::invalid_input &&
-        write_relationship_body(RelationshipOperation::request, utf8_literal("quote\"name"), {output, 128}).error == RelationshipWriteError::invalid_input &&
-        write_relationship_body(RelationshipOperation::block, utf8_literal("extra"), {output, 128}).error == RelationshipWriteError::invalid_input,
-        "friends: bodyless removal, ID scope and bounded username validation prevent guessed or malformed requests");
+    check(write_relationship_body(RelationshipOperation::remove, {}, {output, 128}).ok() &&
+        write_relationship_body(RelationshipOperation::request, utf8_literal("quote\"name"), {output, 128}).error == RelationshipWriteError::invalid_input,
+        "friends: bodyless removal and username validation prevent malformed requests");
     for (auto& byte : output) byte = 0xCC;
     check(write_relationship_body(RelationshipOperation::block, {}, {output, 1}).error == RelationshipWriteError::output_too_small &&
         output[0] == 0xCC, "friends: failed request writes are atomic even at exact buffer capacity boundaries");
-    const auto invalid_operation = static_cast<RelationshipOperation>(11);
-    check(write_relationship_target(RelationshipOperation::accept_stranger, 0, {output, 128}).error == RelationshipWriteError::invalid_input &&
-        write_relationship_body(RelationshipOperation::accept_stranger, utf8_literal("extra"), {output, 128}).error == RelationshipWriteError::invalid_input &&
-        write_relationship_target(invalid_operation, 42, {output, 128}).error == RelationshipWriteError::invalid_input &&
-        write_relationship_body(invalid_operation, {}, {output, 128}).error == RelationshipWriteError::invalid_input &&
-        write_relationship_body(RelationshipOperation::accept_stranger, {}, {output, 32}).error == RelationshipWriteError::output_too_small &&
+    check(write_relationship_body(RelationshipOperation::accept_stranger, {}, {output, 32}).error == RelationshipWriteError::output_too_small &&
         output[0] == 0xCC && output[32] == 0xCC,
-        "friends: consent writer rejects missing identity, username scope, unknown operation and short buffer atomically");
+        "friends: consent writer rejects a short buffer atomically");
     written = write_relationship_body(RelationshipOperation::accept_stranger, {}, {output, 33});
     check(written.ok() && written.bytes == 33 && output[33] == 0xCC,
         "friends: consent body succeeds at exact capacity without writing a terminator or trailing storage");
@@ -413,8 +405,7 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
         check(ignore_target.ok() && utf8_equal({reinterpret_cast<const char*>(output), ignore_target.bytes},
                 utf8_literal("/api/v9/users/@me/relationships/18446744073709551615/ignore")) &&
             relationship_method(operation) == (operation == RelationshipOperation::ignore ? RestMethod::put : RestMethod::delete_method) &&
-            write_relationship_body(operation, {}, {}).ok() &&
-            write_relationship_target(operation, 0, {output, 128}).error == RelationshipWriteError::invalid_input,
+            write_relationship_body(operation, {}, {output, 128}).ok(),
             "friends: ignore and unignore use observed individual ignore route with bodyless PUT and DELETE");
     }
     const RelationshipOperation clears[]{RelationshipOperation::clear_incoming, RelationshipOperation::clear_hidden};
@@ -422,11 +413,10 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
         const auto clear_target = write_relationship_target(operation, 0, {output, 128});
         check(clear_target.ok() && utf8_equal({reinterpret_cast<const char*>(output), clear_target.bytes},
                 utf8_literal("/api/v9/users/@me/relationships?relationship_type=3")) &&
-            relationship_method(operation) == RestMethod::delete_method &&
-            write_relationship_target(operation, 1, {output, 128}).error == RelationshipWriteError::invalid_input,
+            relationship_method(operation) == RestMethod::delete_method,
             "friends: clear actions use collection DELETE constrained to incoming relationship type");
     }
-    check(write_relationship_body(RelationshipOperation::clear_incoming, {}, {}).ok(),
+    check(write_relationship_body(RelationshipOperation::clear_incoming, {}, {output, 128}).ok(),
         "friends: clearing all incoming requests has no JSON body");
     written = write_relationship_body(RelationshipOperation::clear_hidden, {}, {output, 17});
     check(written.ok() && written.bytes == 17 && bytes_equal(output, "{\"filters\":[1,2]}", 17),
@@ -435,14 +425,12 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     check(write_relationship_body(RelationshipOperation::clear_hidden, {}, {output, 16}).error == RelationshipWriteError::output_too_small &&
         output[0] == 0xCC && output[16] == 0xCC &&
         write_relationship_target(RelationshipOperation::clear_hidden, 0, {output, 1}).error == RelationshipWriteError::output_too_small &&
-        output[0] == 0xCC &&
-        write_relationship_body(RelationshipOperation::ignore, utf8_literal("extra"), {output, 128}).error == RelationshipWriteError::invalid_input,
-        "friends: hidden filters and new operation scope failures preserve output atomically");
+        output[0] == 0xCC,
+        "friends: hidden filters and the clear route fail atomically on a short buffer");
     const auto nickname_target = write_relationship_target(RelationshipOperation::nickname, ~u64{0}, {output, 128});
     check(nickname_target.ok() && utf8_equal({reinterpret_cast<const char*>(output), nickname_target.bytes},
             utf8_literal("/api/v9/users/@me/relationships/18446744073709551615")) &&
-        relationship_method(RelationshipOperation::nickname) == RestMethod::patch &&
-        write_relationship_target(RelationshipOperation::nickname, 0, {output, 128}).error == RelationshipWriteError::invalid_input,
+        relationship_method(RelationshipOperation::nickname) == RestMethod::patch,
         "friends: friend nicknames PATCH the individual relationship route");
     written = write_relationship_body(RelationshipOperation::nickname, utf8_literal("Ada \"the\" \xC3\xA9"), {output, 128});
     check(written.ok() && utf8_equal({reinterpret_cast<const char*>(output), written.bytes},

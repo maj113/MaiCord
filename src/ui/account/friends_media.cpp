@@ -10,7 +10,6 @@ u32 friends_avatar_media_count(const UiFriendsScene& scene) noexcept {
 }
 bool friends_avatar_media_resolve(const UiFriendsScene& scene, const UserStore& users,
     u32 slot, AvatarMedia* output) noexcept {
-    if (!output) return false;
     u64 user_id = 0;
     UiRect avatar{}, clip{};
     const u32 rows = ui_friends_scene_visible_count(scene);
@@ -65,7 +64,7 @@ FriendsAvatarMediaVisitResult friends_avatar_media_visit(const UiFriendsScene& s
     return result;
 }
 bool friends_activity_media_resolve(const UiFriendsScene& scene, u32 index, ProfileMedia* output) noexcept {
-    if (!output || !scene.active_now) return false;
+    if (!scene.active_now) return false;
     UiRect card{};
     UiPoint origin{};
     for (u32 i = 0; ui_friends_scene_active_card(scene, i, &card, &origin); ++i) {

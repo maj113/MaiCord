@@ -147,8 +147,8 @@ bool show_dialog(D3D11Renderer& renderer, UiRect viewport, bool (*capture)(const
                 utf8_literal("Clear status"), true, true, false, false};
     p.page_content = {utf8_literal("Set a custom status"), {}, {p.controls, 3}, 1, kUiSettingsPageFormat,
                       nullptr, &p.footer};
-    if (!ui_page_registry_initialize(&p.registry, {&p.page, 1}) ||
-        !ui_page_registry_register(&p.registry, {{0x4d41494353544154ull, 1}, p.page_content.title, &p.page_content}).ok())
+    ui_page_registry_initialize(&p.registry, {&p.page, 1});
+    if (!ui_page_registry_register(&p.registry, {{0x4d41494353544154ull, 1}, p.page_content.title, &p.page_content}).ok())
         return dialog_stage(11);
     ui_settings_scene_set_presentation(&p.dialog, UiSettingsPresentation::dialog);
     if (!ui_settings_scene_update(&p.dialog, &p.registry, viewport))

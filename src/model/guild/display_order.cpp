@@ -39,7 +39,7 @@ bool append(Slice<GuildDisplayEntry> output, u32* count, const ChatStateStore& s
 
 u32 guild_display_order_build(const GuildFolderSettings* settings, const ChatStateStore& state,
                               Slice<GuildDisplayEntry> output) noexcept {
-    if (!output.data || !state.guilds || !state.guild_order)
+    if (!state.guilds || !state.guild_order)
         return 0;
     u32 count = 0;
     Placed placed{};
@@ -87,7 +87,7 @@ u64 guild_folder_row_key(const GuildFolderSettings& settings, u32 folder) noexce
 
 u32 guild_folder_display_name(const GuildFolderSettings& settings, u32 folder, const ChatStateStore& state,
                               Slice<char> output) noexcept {
-    if (folder >= settings.folder_count || !output.data)
+    if (folder >= settings.folder_count)
         return 0;
     const auto& record = settings.folders[folder];
     if (record.name_bytes) {

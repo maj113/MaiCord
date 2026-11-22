@@ -108,11 +108,10 @@ ConstSlice<u8> user_settings_proto_group(ConstSlice<u8> extracted, u32 group) no
 
 // PATCH /users/@me/settings-proto/1 body: {"settings":"<base64>"} plus
 // "required_data_version" when nonzero or `required` (an edit made offline
-// pins the data version it was made against, which may be 0). The partial message may contain only
-// length-delimited top-level groups 2..31 other than status; guild folders
-// (group 14) travel alone, from their own owner. The writer takes a partial message that passed
-// user_settings_proto_patch_valid and a valid output range (account_settings_write_request checks both).
-bool user_settings_proto_patch_valid(const ConstSlice<u8>& partial) noexcept;
+// pins the data version it was made against, which may be 0). The partial message holds only length-delimited
+// top-level groups 2..31 other than status, and guild folders (group 14) travel alone: the two writers
+// (user_settings_store_begin and guild_folders_encode_settings_patch) make only such messages, of at most
+// kUserSettingsPartialMaximumBytes. The output range must be valid (account_settings_write_request checks it).
 u32 user_settings_proto_write_patch_json(ConstSlice<u8> partial, u32 required_data_version,
                                          Slice<u8> output, bool required = false) noexcept;
 // {"settings":"<base64>","out_of_date":bool} from GET/PATCH. A string with JSON escapes is refused (capacity).
@@ -167,7 +166,7 @@ bool user_settings_store_due(const UserSettingsStore&, u64 now_ms) noexcept;
 // flight. Returns the message bytes (0 when nothing to send or on failure).
 // *required reports whether required_data_version must be sent.
 u32 user_settings_store_begin(UserSettingsStore*, Slice<u8> partial, u32* required_data_version,
-                              bool* required = nullptr) noexcept;
+                              bool* required) noexcept;
 // response is the extracted message of the reply (empty on failure).
 UserSettingsCompletion user_settings_store_complete(UserSettingsStore*, UserSettingsOutcome,
                                                     const ConstSlice<u8>& response,

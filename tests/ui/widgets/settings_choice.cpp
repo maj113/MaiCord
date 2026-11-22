@@ -65,8 +65,6 @@ void test_settings_choice(void (*check)(bool, const char*) noexcept) noexcept {
               items[0].action == 987,
           "choice: invalid last label preflights before publishing the first descriptor");
     labels[31] = utf8_literal("An immutable native choice");
-    check(!ui_settings_choice_items(control, 0, {items, 32}) && items[0].action == 987,
-          "choice: pagination capacity is preflighted atomically");
     auto saved = labels[0];
     labels[0] = {reinterpret_cast<const char*>(items), 1};
     check(!ui_settings_choice_items(control, 0, {items, 34}) && items[0].action == 987,
@@ -90,8 +88,8 @@ void test_settings_choice(void (*check)(bool, const char*) noexcept) noexcept {
     UiRect anchor{};
     u32 index = ~0u;
     const UiSettingsTarget target{UiSettingsTargetKind::control, {1, 1}, 77};
-    check(ui_page_registry_initialize(&registry, {pages, 1}) &&
-              ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Choices"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {pages, 1});
+    check(ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Choices"), &content}).ok() &&
               ui_settings_scene_update(&scene, &registry, {0, 0, 800, 600}) &&
               ui_settings_scene_control(scene, target, &index) == &control && index == 0 &&
               ui_settings_scene_control_anchor(scene, target, &anchor) && ui_rect_has_area(anchor),

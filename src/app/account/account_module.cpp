@@ -304,15 +304,15 @@ AccountModuleStatus account_module_pump(void* instance, u64 monotonic_now_ms) no
 
 u32 account_module_notification_handles(void* instance, HANDLE* output, u32 capacity) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    u32 count = user_account_coordinator_notification_handles(&runtime->coordinator, output, capacity);
+    // The coordinator writes at most three handles, so the media, upload and download handles always fit.
+    u32 count = user_account_coordinator_notification_handles(&runtime->coordinator, output);
     const HANDLE media = account_media_worker_notification_handle(&runtime->media);
-    if (media && count < capacity) {
+    if (media) {
         output[count++] = media;
     }
-    if (runtime->upload.notification && !runtime->upload.stop_requested && count < capacity)
+    if (runtime->upload.notification && !runtime->upload.stop_requested)
         output[count++] = runtime->upload.notification;
-    if (runtime->download && runtime->download->transfer.notification &&
-        !runtime->download->transfer.stop_requested && count < capacity)
+    if (runtime->download && runtime->download->transfer.notification && !runtime->download->transfer.stop_requested)
         output[count++] = runtime->download->transfer.notification;
     if (const HANDLE soundboard = account_soundboard_notification_handle(&runtime->soundboard);
         soundboard && count < capacity)

@@ -27,15 +27,14 @@ constexpr PermissionLook kPermissions[]{
     {UiIcon::copy, 0, false},         {UiIcon::warning, 2, true},  {UiIcon::file_text, 2, true},
 };
 constexpr u32 kPermissionCount = sizeof(kPermissions) / sizeof(kPermissions[0]);
-static_assert(name_list_count(kSentences) == kPermissionCount && name_list_count(kNames) == kPermissionCount);
+// add_permissions (store_source.cpp) walks these 11 bits.
+static_assert(name_list_count(kSentences) == kPermissionCount && name_list_count(kNames) == kPermissionCount &&
+              kPermissionCount == 11);
 } // namespace
 
-bool store_permission_text(u32 bit, StorePermission* out) noexcept {
-    if (bit >= kPermissionCount)
-        return false;
+void store_permission_text(u32 bit, StorePermission* out) noexcept {
     const auto& row = kPermissions[bit];
     *out = {name_at(kSentences, bit), name_at(kNames, bit), {}, row.glyph, row.risk, false, row.critical};
-    return true;
 }
 
 u8 store_permission_risk(u64 permissions, bool has_hosts) noexcept {

@@ -164,8 +164,6 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
               ui_rect_width(visible.presence) == 10 && ui_rect_has_area(visible.clip) &&
               fixture.calls == resolver_before,
           "friends_visible_avatar_geometry_borrows_retained_row_without_resolving");
-    check(!ui_friends_scene_visible_row(scene, scene.count, &visible) && !visible.row.user_id,
-          "friends_visible_avatar_geometry_rejects_out_of_range");
     UiFriendsVisibleRow pointed{};
     const bool pointed_row = ui_friends_scene_visible_row(scene, 0, &pointed);
     const float pointed_y = (pointed.rectangle.top + pointed.rectangle.bottom) * .5f;

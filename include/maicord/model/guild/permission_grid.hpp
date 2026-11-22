@@ -69,7 +69,7 @@ bool permission_overwrite_draft_remove(PermissionOverwriteDraft*, u64 id) noexce
 bool permission_overwrite_draft_set(PermissionOverwriteDraft*, u64 id, PermissionSet bit, PermissionTriState) noexcept;
 bool permission_overwrite_draft_equal(const PermissionOverwriteDraft&,
                                       ConstSlice<PermissionOverwriteRecord>) noexcept;
-// Wire form for a channel PATCH; returns the number written or ~0u when output is short.
+// Wire form for a channel PATCH into output, which holds kPermissionOverwriteDraftMaximum entries; returns the count.
 u32 permission_overwrite_draft_write(const PermissionOverwriteDraft&, Slice<PermissionOverwriteWrite>) noexcept;
 
 } // namespace maicord

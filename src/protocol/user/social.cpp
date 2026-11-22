@@ -28,29 +28,10 @@ Utf8View report_menu_name(ReportMenuName name) noexcept {
 } // namespace
 
 bool user_note_valid(const Utf8View& note) noexcept {
-    if ((!note.data && note.bytes) || note.bytes > kUserNoteMaximumBytes)
+    if (note.bytes > kUserNoteMaximumBytes)
         return false;
     const auto validation = utf8_validate(note);
     return validation.valid && validation.codepoints <= kUserNoteMaximumCodepoints;
-}
-
-bool user_social_request_valid(const UserSocialRequest& r) noexcept {
-    switch (r.operation) {
-    case UserSocialOperation::note_get:
-        return r.user_id != 0;
-    case UserSocialOperation::note_put:
-        return r.user_id != 0 && user_note_valid(r.text);
-    case UserSocialOperation::report_menu:
-        return r.report < ReportMenuName::count;
-    case UserSocialOperation::report_submit:
-        return r.report < ReportMenuName::count && r.text.data && r.text.bytes >= 2 &&
-               r.text.bytes <= kUserSocialMaximumBodyBytes && r.text.data[0] == '{' &&
-               r.text.data[r.text.bytes - 1] == '}' && utf8_validate(r.text).valid;
-    case UserSocialOperation::message_flags:
-        return r.channel_id && r.message_id;
-    default:
-        return false;
-    }
 }
 
 namespace {
@@ -88,8 +69,9 @@ RestRouteKey user_social_route(const UserSocialRequest& r) noexcept {
     }
 }
 
-// account_user_social_submit validates the request first and gives kUserSocialMaximumTargetBytes and
-// kUserSocialMaximumBodyBytes; a report body comes from report_write_submit into a buffer of that size.
+// account_user_social_submit gives kUserSocialMaximumTargetBytes and kUserSocialMaximumBodyBytes. A note passed
+// user_note_valid in note_form_save or the note store, and a report body was written by report_write_submit into a
+// kUserSocialMaximumBodyBytes buffer. The ProtocolWriter stops at the end of the output.
 UserSocialWriteResult user_social_write_target(const UserSocialRequest& r, Slice<u8> output) noexcept {
     ProtocolWriter w{output, 0};
     bool ok = protocol_write(&w, "/api/v9");
@@ -128,7 +110,7 @@ UserSocialWriteResult user_social_write_body(const UserSocialRequest& r, Slice<u
 }
 
 bool user_note_decode(Utf8View body, Slice<u32> scratch, bool gateway, UserNoteRecord* output) noexcept {
-    if (!body.data || !body.bytes)
+    if (!body.bytes)
         return false;
     const auto scan = json_scan_structurals_avx1(body, scratch);
     if (!scan.ok())
@@ -350,7 +332,7 @@ void report_menu_release(ReportMenu* menu) noexcept {
 }
 
 bool report_menu_decode(Utf8View body, Slice<u32> scratch, ReportMenu* output) noexcept {
-    if (!body.data || body.bytes < 2 || body.data[0] != '{')
+    if (body.bytes < 2 || body.data[0] != '{')
         return false;
     const auto scan = json_scan_structurals_avx1(body, scratch);
     if (!scan.ok())

@@ -44,7 +44,7 @@ bool application_channel_overview_open(u64 channel_id) noexcept {
     p.can_overview = p.text || (channel_settings_supported(p.type) && rights.channel);
     p.can_permissions = rights.overrides;
     p.can_delete = rights.channel;
-    p.loaded = p.fetch_failed = p.conflict = p.echo = false;
+    p.loaded = p.fetch_failed = p.conflict = false;
     p.op = Op::none;
     p.queued = p.failed = false;
     p.request_id = 0;
@@ -55,7 +55,7 @@ bool application_channel_overview_open(u64 channel_id) noexcept {
     for (auto& model : p.models)
         message_composer_release(&model);
     if (p.text) {
-        if (!channel_overview_controller_open(&p.controller, p.identity, true, true))
+        if (!channel_overview_controller_open(&p.controller, p.identity))
             return false;
         message_composer_initialize(&p.models[0], {p.controller.draft.name, kChannelOverviewNameBytes});
         message_composer_initialize(&p.models[1], {p.controller.draft.topic, kChannelOverviewTopicBytes});
@@ -74,8 +74,8 @@ bool application_channel_overview_open(u64 channel_id) noexcept {
     p.content = {utf8_literal("Overview"), Utf8View{}, {}, 1, kUiSettingsPageFormat, nullptr, &p.footer};
     p.permissions_content = {utf8_literal("Permissions"), Utf8View{}, {}, 1, kUiSettingsPageFormat, nullptr,
                              nullptr};
-    if (!ui_page_registry_initialize(&p.registry, {p.pages, 2}) ||
-        !ui_page_registry_register(&p.registry, {page_key, utf8_literal("Overview"), &p.content}).ok() ||
+    ui_page_registry_initialize(&p.registry, {p.pages, 2});
+    if (!ui_page_registry_register(&p.registry, {page_key, utf8_literal("Overview"), &p.content}).ok() ||
         !ui_page_registry_register(&p.registry, {permissions_key, utf8_literal("Permissions"), &p.permissions_content})
              .ok()) {
         application_channel_overview_close(false);
@@ -203,14 +203,12 @@ bool application_channel_overview_submit(u64 now) noexcept {
                 if (submitted.error == RestClientSubmitError::busy)
                     p.controller.retry_at_ms = deadline_after(now, 50);
                 else {
-                    channel_overview_controller_admission_failed(&p.controller, request,
-                                                                 ChannelOverviewFailure::rejected);
+                    channel_overview_controller_admission_failed(&p.controller);
                     repaint();
                 }
                 return true;
             }
-            if (!channel_overview_controller_submitted(&p.controller, request, id))
-                return false;
+            channel_overview_controller_submitted(&p.controller, id);
             g_app.details_request_owner = MessageHistoryRequestOwner::channel_overview;
             g_app.details_request_id = id;
             repaint();
@@ -237,10 +235,9 @@ bool application_channel_overview_submit(u64 now) noexcept {
             request.channel = &patch;
         } else if (p.op == Op::overwrites) {
             request.operation = GuildAdminOperation::channel_update;
-            const u32 count = permission_overwrite_draft_write(p.overwrite_draft, {overwrites, kPermissionOverwriteDraftMaximum});
-            valid = count != ~0u;
             patch.fields = channel_patch_overwrites;
-            patch.overwrites = {overwrites, valid ? count : 0};
+            patch.overwrites = {overwrites, permission_overwrite_draft_write(
+                                                p.overwrite_draft, {overwrites, kPermissionOverwriteDraftMaximum})};
             request.channel = &patch;
         } else
             request.operation = GuildAdminOperation::channel_delete;
@@ -307,11 +304,9 @@ bool application_channel_overview_response(const RestClientResponse& response, U
                 p.fetch_failed = true;
                 p.status = utf8_literal("The channel details couldn't be read.");
             }
-        } else if (p.op == Op::update) {
+        } else if (p.op == Op::update)
             copy_bytes(&p.base, &p.draft, sizeof(p.base));
-            p.echo = true;
-            p.echo_until = deadline_after(now, kEchoMs);
-        } else if (p.op == Op::overwrites) {
+        else if (p.op == Op::overwrites) {
             p.overwrite_base = p.overwrite_draft;
             p.overwrite_echo = true;
             p.overwrite_echo_until = deadline_after(now, kEchoMs);
@@ -365,7 +360,7 @@ void application_channel_overview_gateway(const GatewayClientEvent& event, Utf8V
     if (event.dispatch_kind == GatewayClientDispatchKind::channel_update) {
         if (event.state.id == owner->controller.scope.channel_id &&
             event.state.guild_id == owner->controller.scope.guild_id) {
-            channel_overview_controller_invalidate(&owner->controller, owner->controller.scope);
+            channel_overview_controller_invalidate(&owner->controller);
             if (event.state.fields & gateway_client_state_field_permission_overwrites)
                 owner->permission_observed = true;
         }

@@ -243,8 +243,8 @@ void test_settings(Check check) noexcept {
                                   &footer};
     const UiPageKey key{9, 1};
     const UiRect viewport{0, 0, 1280, 900};
-    const bool built = ui_page_registry_initialize(&registry, {&page, 1}) &&
-                       ui_page_registry_register(&registry, {key, utf8_literal("Overview"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {&page, 1});
+    const bool built = ui_page_registry_register(&registry, {key, utf8_literal("Overview"), &content}).ok() &&
                        ui_settings_scene_update(&scene, &registry, viewport);
     const auto cursor_of = [&](u64 id) noexcept {
         UiSettingsControlGeometry geometry{};

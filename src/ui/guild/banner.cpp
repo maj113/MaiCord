@@ -56,7 +56,7 @@ bool ui_guild_banner_animated_hash(const Utf8View& hash) noexcept {
 
 bool ui_guild_banner_media(u64 guild_id, const Utf8View& hash, u32 dpi, bool animate, bool gif,
                            UiGuildImageMedia* output) noexcept {
-    if (!output || !guild_id || !hash_valid(hash))
+    if (!guild_id || !hash_valid(hash))
         return false;
     reset_value(output);
     const bool animated = animate && ui_guild_banner_animated_hash(hash);
@@ -74,7 +74,7 @@ bool ui_guild_banner_media(u64 guild_id, const Utf8View& hash, u32 dpi, bool ani
 
 bool ui_guild_splash_media(u64 guild_id, Utf8View hash, bool discovery, u32 size_dips, u32 dpi,
                            UiGuildImageMedia* output) noexcept {
-    if (!output || !guild_id || !size_dips || !hash_valid(hash))
+    if (!guild_id || !hash_valid(hash))
         return false;
     reset_value(output);
     TextWriter w{{output->url, kUiGuildImageUrlBytes}};
@@ -90,15 +90,14 @@ bool ui_guild_splash_media(u64 guild_id, Utf8View hash, bool discovery, u32 size
 
 bool ui_guild_card_banner_media(u64 guild_id, Utf8View custom_banner, bool discoverable, u32 dpi,
                                 UiGuildImageMedia* output) noexcept {
-    if (output)
-        reset_value(output);
-    return output && discoverable && custom_banner.bytes &&
+    reset_value(output);
+    return discoverable && custom_banner.bytes &&
            ui_guild_splash_media(guild_id, custom_banner, true, kUiGuildCardBannerRequestDips, dpi, output);
 }
 
 bool ui_guild_tag_badge_media(u64 guild_id, const Utf8View& hash, u32 size_dips, u32 dpi,
                               UiGuildImageMedia* output) noexcept {
-    if (!output || !guild_id || !size_dips || !hash_valid(hash))
+    if (!hash_valid(hash))
         return false;
     reset_value(output);
     TextWriter w{{output->url, kUiGuildImageUrlBytes}};
@@ -138,8 +137,6 @@ UiGuildBannerGeometry ui_guild_banner_geometry(const UiRect& sidebar, const UiRe
 
 bool ui_guild_banner_animate(UiGuildBannerAnimation* s, u64 guild_id, bool eligible, bool visible, bool hovered,
                              bool gif_autoplay, u64 now_ms) noexcept {
-    if (!s)
-        return false;
     if (s->guild_id != guild_id)
         *s = {guild_id, 0, false, false};
     if (!guild_id || !eligible) {

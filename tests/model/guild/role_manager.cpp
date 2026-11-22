@@ -191,8 +191,8 @@ void test_tristate_control() noexcept {
     content.presentation = looks;
     const UiPageKey key{7, 1};
     const UiSettingsTarget target{UiSettingsTargetKind::control, key, 1};
-    const bool ready = ui_page_registry_initialize(&registry, {&page, 1}) &&
-                       ui_page_registry_register(&registry, {key, utf8_literal("Permissions"), &content}).ok() &&
+    ui_page_registry_initialize(&registry, {&page, 1});
+    const bool ready = ui_page_registry_register(&registry, {key, utf8_literal("Permissions"), &content}).ok() &&
                        ui_settings_scene_update(&scene, &registry, {0, 0, 1280, 900});
     UiRect rect[kUiTristateCount]{};
     bool geometry = ready;
@@ -330,7 +330,7 @@ void test_view_as() noexcept {
     check(chat_state_store_view_as_roles(&model.state, kGuild, {low, 1}) &&
               model.state.selected_channel_id != kChannelStaff,
           "view as: a channel the viewed role cannot see is left");
-    check(!chat_state_store_view_as_roles(&model.state, 999, {low, 1}) && !chat_state_store_end_view_as(nullptr, kGuild),
+    check(!chat_state_store_view_as_roles(&model.state, 999, {low, 1}),
           "view as: unknown guilds are refused");
 }
 

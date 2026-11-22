@@ -59,7 +59,7 @@ bool visible_invites(bool touch, u64 now_ms) noexcept {
                                                         {links, kMessageInviteCardMaximum});
         row.invite_scan_negative = current && count == 0;
         found = found || count != 0;
-        for (u32 l = 0; touch && owner && l < count; ++l) {
+        for (u32 l = 0; touch && l < count; ++l) {
             // Event links read the scheduled events store; unknown ones are fetched.
             if (invite_link_event(links[l]))
                 application_guild_community_want_event(links[l].event_guild_id, links[l].event_id);

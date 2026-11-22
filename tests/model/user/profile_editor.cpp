@@ -1,5 +1,4 @@
 #include "maicord/app/account/account_profile_edit.hpp"
-#include "maicord/core/color_hex.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/user/profile_editor.hpp"
 #include "../../support/rest_submit_hook.hpp"
@@ -482,12 +481,6 @@ void test_patches() noexcept {
               profile_editor_changes_allowed(ProfileEditorTab::guild, guild, unstyle, guild_free),
           "profile save: removing a per-server style needs no Nitro");
     guild.name_style = {};
-
-    u32 color = 0;
-    check(color_hex_parse_rgb24(utf8_literal("5865f2"), &color) && color == 0x5865F2 &&
-              !color_hex_parse_rgb24(utf8_literal("#12345G"), &color) &&
-              !color_hex_parse_rgb24(utf8_literal("#1234"), &color),
-          "profile colours: hex input converts to the API's integer RGB");
 }
 
 void test_decode() noexcept {

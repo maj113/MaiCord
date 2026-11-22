@@ -931,10 +931,8 @@ bool remote_auth_client_copy_user(const RemoteAuthClient& client, const Slice<ch
 
 SecureBufferResult remote_auth_client_take_credential(RemoteAuthClient* client,
                                                       SecureBuffer* output) noexcept {
-    auto* runtime =
-        client && client->runtime ? static_cast<RemoteAuthClientRuntime*>(client->runtime) : nullptr;
-    if (!runtime || !output || !output->data || !output->locked || output->capacity == 0 ||
-        load_phase(client) != RemoteAuthClientPhase::authenticated ||
+    auto* runtime = static_cast<RemoteAuthClientRuntime*>(client->runtime);
+    if (!runtime || load_phase(client) != RemoteAuthClientPhase::authenticated ||
         !thread_wait(client->thread, 0)) {
         return SecureBufferResult{0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
     }

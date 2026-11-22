@@ -24,32 +24,14 @@ RestRouteKey private_conversation_route(PrivateConversationOperation operation, 
         RestRouteKey{0x444d434c4f5345ull, id, RestMethod::delete_method, RestMajorParameter::channel};
 }
 
-bool private_channel_action_valid(const PrivateChannelActionRequest& r) noexcept {
-    if (r.recipient_count > kPrivateChannelRecipientMaximum || r.name_bytes > kPrivateChannelNameMaximumBytes) return false;
-    for (u32 i = 0; i < r.recipient_count; ++i) {
-        if (!r.recipients[i]) return false;
-        for (u32 j = 0; j < i; ++j) if (r.recipients[j] == r.recipients[i]) return false;
-    }
-    switch (r.kind) {
-    case PrivateChannelActionKind::create: return r.recipient_count != 0;
-    case PrivateChannelActionKind::add_recipient:
-    case PrivateChannelActionKind::remove_recipient: return r.channel_id && r.user_id;
-    case PrivateChannelActionKind::rename: {
-        const auto checked = utf8_validate({r.name, r.name_bytes});
-        return r.channel_id && checked.valid && checked.codepoints <= kPrivateChannelNameMaximumCodepoints;
-    }
-    case PrivateChannelActionKind::leave:
-    case PrivateChannelActionKind::ring:
-    case PrivateChannelActionKind::stop_ringing:
-    case PrivateChannelActionKind::accept_request:
-    case PrivateChannelActionKind::ignore_request: return r.channel_id != 0;
-    case PrivateChannelActionKind::acknowledge_safety: return r.channel_id && r.recipient_count;
-    default: return false;
-    }
+bool private_channel_name_valid(Utf8View name) noexcept {
+    if (name.bytes > kPrivateChannelNameMaximumBytes) return false;
+    const auto checked = utf8_validate(name);
+    return checked.valid && checked.codepoints <= kPrivateChannelNameMaximumCodepoints;
 }
+// The action controller builds each request from its picker and stores (private_channel_actions.cpp).
 PrivateConversationWriteResult private_channel_action_write(const PrivateChannelActionRequest& r,
     Slice<u8> target, Slice<u8> body) noexcept {
-    if (!private_channel_action_valid(r)) return {};
     ProtocolWriter path{target, 0}, json{body, 0};
     bool ok = false;
     const auto channel = [&]() __attribute__((noinline)) noexcept {

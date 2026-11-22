@@ -77,10 +77,9 @@ bool read_image(Pick pick, ConstSlice<wchar_t> path, FileSnapshot snapshot, Utf8
 } // namespace
 namespace profile_editor_detail {
 
+// The one caller (application_profile_editor_synchronize) calls it only while the picker runs.
 void poll_picker() noexcept {
     auto& p = *owner;
-    if (!p.picker.runtime)
-        return;
     const auto status = native_file_picker_status(&p.picker);
     if (status.phase != NativeFilePickerPhase::complete)
         return;

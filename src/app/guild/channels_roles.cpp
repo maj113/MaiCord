@@ -618,7 +618,7 @@ void browse(UiStoreBuilder& b) noexcept {
 
 // The official client lays the page out by the window's width (window_width), not by the column's.
 void build(UiStoreBuilder& b, float) noexcept {
-    if (!page || !g_app.account_ui)
+    if (!g_app.account_ui)
         return;
     auto& p = *page;
     p.media_count = 0;
@@ -722,8 +722,6 @@ void follow(const ChannelRecord& c) noexcept {
 }
 
 void activate(u32 action, const UiRect&) noexcept {
-    if (!page)
-        return;
     auto& p = *page;
     const auto* c = action >= action_channel && (action & 0xFFF) < p.row_count
                         ? chat_state_store_find_channel(state(), p.rows[action & 0xFFF])
@@ -748,7 +746,7 @@ void activate(u32 action, const UiRect&) noexcept {
 }
 
 const UiSettingsAvatarMedia* media(u32 slot) noexcept {
-    return page && slot && slot <= page->media_count ? &page->media[slot - 1] : nullptr;
+    return slot && slot <= page->media_count ? &page->media[slot - 1] : nullptr;
 }
 
 // Roles (GUILD_MEMBER_UPDATE), follows, channels and names change what the page shows. Another account or server
@@ -798,8 +796,7 @@ void channels_roles_response(u64 guild_id, bool ok, Utf8View body) noexcept {
 void channels_roles_release() noexcept {
     if (application_content_page() == &kRolesPage)
         application_content_page_close();
-    if (page)
-        owner_release(page);
+    owner_release(page);
     reset_value(&remembered);
     nux_closed = false;
 }
@@ -835,7 +832,7 @@ bool application_guild_channels_roles_open(u64 guild_id) noexcept {
 
 bool application_guild_channels_roles_remembered(u64 guild_id) noexcept {
     for (const u64 id : remembered)
-        if (id && id == guild_id)
+        if (id == guild_id)
             return true;
     return false;
 }

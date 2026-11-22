@@ -247,7 +247,7 @@ bool ui_theme_editor_update(UiThemeEditorScene* s, const BackgroundTheme& draft,
                             UiRect viewport, const UiThemeEditorStyle* override_style,
                             const BackgroundEffectSettings* profiles) noexcept {
     const auto style = override_style ? *override_style : ui_theme_editor_style();
-    if (!s || !background_theme_valid(draft) || selected >= draft.color_count || !ui_rect_valid(viewport) ||
+    if (!background_theme_valid(draft) || selected >= draft.color_count || !ui_rect_valid(viewport) ||
         !style_valid(style))
         return false;
     const bool opening = !s->active;
@@ -295,8 +295,6 @@ bool ui_theme_editor_update(UiThemeEditorScene* s, const BackgroundTheme& draft,
     return true;
 }
 void ui_theme_editor_close(UiThemeEditorScene* s) noexcept {
-    if (!s)
-        return;
     if (s->active)
         ++s->revision;
     s->active = false;
@@ -320,7 +318,7 @@ UiThemeEditorElement ui_theme_editor_hit_test(const UiThemeEditorScene& s, UiPoi
                                       : UiThemeEditorElement::count;
 }
 bool ui_theme_editor_focus(UiThemeEditorScene* s, UiThemeEditorElement e) noexcept {
-    if (!s || !ui_theme_editor_current(*s) || at(e) >= kUiThemeEditorElements)
+    if (!ui_theme_editor_current(*s) || at(e) >= kUiThemeEditorElements)
         return false;
     const auto* widget = ui_widget_manager_resolve(s->widgets, s->elements[at(e)]);
     if (!widget || (widget->flags & (ui_widget_enabled | ui_widget_focusable)) !=
@@ -332,7 +330,7 @@ bool ui_theme_editor_focus(UiThemeEditorScene* s, UiThemeEditorElement e) noexce
     return result.ok() && ui_widget_manager_focus(&s->widgets, s->elements[at(e)]);
 }
 bool ui_theme_editor_move_focus(UiThemeEditorScene* s, bool reverse) noexcept {
-    if (!s || !ui_theme_editor_current(*s))
+    if (!ui_theme_editor_current(*s))
         return false;
     const auto old = s->widgets.focused;
     static constexpr UiThemeEditorElement order[]{UiThemeEditorElement::close,
@@ -378,7 +376,7 @@ bool ui_theme_editor_move_focus(UiThemeEditorScene* s, bool reverse) noexcept {
     return false;
 }
 bool ui_theme_editor_scroll(UiThemeEditorScene* s, float delta) noexcept {
-    if (!s || !ui_theme_editor_current(*s) || !paint_coordinate_valid(delta))
+    if (!ui_theme_editor_current(*s) || !paint_coordinate_valid(delta))
         return false;
     UiWidgetScrollGeometry g{};
     const auto h = s->elements[at(UiThemeEditorElement::body)];
@@ -404,7 +402,7 @@ UiScrollbarGeometry ui_theme_editor_scrollbar(const UiThemeEditorScene& s) noexc
 }
 bool ui_theme_editor_pointer(UiThemeEditorScene* s, UiThemeEditorElement e, UiPoint p,
                              BackgroundTheme* out) noexcept {
-    if (!s || !out || !ui_theme_editor_current(*s) ||
+    if (!ui_theme_editor_current(*s) ||
         (!ui_theme_editor_range(e) && e != UiThemeEditorElement::gradient) || !paint_coordinate_valid(p.x) ||
         !paint_coordinate_valid(p.y))
         return false;
@@ -449,7 +447,7 @@ bool ui_theme_editor_pointer(UiThemeEditorScene* s, UiThemeEditorElement e, UiPo
 }
 bool ui_theme_editor_key(UiThemeEditorScene* s, UiThemeEditorElement e, u32 key,
                          BackgroundTheme* out) noexcept {
-    if (!s || !ui_theme_editor_range(e))
+    if (!ui_theme_editor_range(e))
         return false;
     const auto* n = ui_theme_editor_node(*s, e);
     if (!n)
@@ -497,7 +495,7 @@ bool ui_theme_editor_key(UiThemeEditorScene* s, UiThemeEditorElement e, u32 key,
 }
 bool ui_theme_editor_action(UiThemeEditorScene* s, UiThemeEditorElement e, u32 seed,
                             BackgroundTheme* out) noexcept {
-    if (!s || !ui_theme_editor_current(*s) || !out)
+    if (!ui_theme_editor_current(*s))
         return false;
     auto next = s->draft;
     bool profiles_reset = false;

@@ -291,21 +291,17 @@ UserAccountCoordinatorResult user_account_coordinator_stop(UserAccountCoordinato
     return coordinator->state;
 }
 
-u32 user_account_coordinator_notification_handles(const UserAccountCoordinator* coordinator, HANDLE* output,
-                                                  u32 capacity) noexcept {
-    if (capacity == 0) {
-        return 0;
-    }
+u32 user_account_coordinator_notification_handles(const UserAccountCoordinator* coordinator, HANDLE* output) noexcept {
     u32 count = 0;
     const HANDLE rest = rest_client_notification_handle(&coordinator->rest);
     if (rest) {
         output[count++] = rest;
     }
     const HANDLE details = rest_client_notification_handle(&coordinator->details);
-    if (details && count < capacity)
+    if (details)
         output[count++] = details;
     const HANDLE gateway = gateway_client_notification_handle(&coordinator->gateway);
-    if (gateway && count < capacity) {
+    if (gateway) {
         output[count++] = gateway;
     }
     return count;

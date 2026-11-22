@@ -4,6 +4,7 @@
 namespace maicord {
 // The module supplies its existing DETAILS REST owner. Admission copies caller
 // views synchronously; ordinary rest_take consumes the exact response later.
+// A fetch passes no patch; an update passes one.
 RestClientSubmitResult account_channel_overview_submit(RestClient*, ChannelOverviewOperation,
                                                        u64 channel_id, const ChannelOverviewPatch*,
                                                        u64 request_id) noexcept;

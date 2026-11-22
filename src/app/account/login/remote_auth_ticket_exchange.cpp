@@ -39,10 +39,6 @@ RemoteAuthTicketExchangeResult failure(RemoteAuthTicketExchangeError error, u32 
     return result;
 }
 
-inline bool locked_output(const SecureBuffer* output) noexcept {
-    return output && output->data && output->locked && output->capacity != 0 &&
-           output->bytes <= output->capacity;
-}
 bool cancelled(HANDLE cancel_event) noexcept {
     return wait_one(cancel_event, 0) == WAIT_OBJECT_0;
 }
@@ -401,7 +397,7 @@ SecureBufferResult remote_auth_ticket_exchange_submit_captcha(RemoteAuthTicketEx
 
 SecureBufferResult remote_auth_ticket_exchange_take_credential(RemoteAuthTicketExchange* exchange,
                                                                SecureBuffer* output) noexcept {
-    if (!locked_output(output) || exchange->credential.bytes == 0) {
+    if (exchange->credential.bytes == 0) {
         return SecureBufferResult{0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
     }
     const SecureBufferResult assigned =

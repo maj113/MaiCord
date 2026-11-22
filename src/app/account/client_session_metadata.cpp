@@ -160,7 +160,7 @@ GatewayUserProperties client_session_metadata_properties(
 
 bool client_session_metadata_use_session(ClientSessionMetadata* metadata, bool active, u64 now_ms,
                                          ClientHeartbeatSession* output) noexcept {
-    if (!metadata || !output)
+    if (!metadata)
         return false;
     ExclusiveLock guard(metadata->lock);
     ClientHeartbeatSession& session = metadata->session;

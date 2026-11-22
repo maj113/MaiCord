@@ -73,7 +73,7 @@ Utf8View guild_feature_name(u64 bit) noexcept {
 }
 
 bool guild_feature_name_next(ConstSlice<u8> names, u32* cursor, Utf8View* name) noexcept {
-    if (!cursor || !name || *cursor >= names.count || !names.data)
+    if (*cursor >= names.count || !names.data)
         return false;
     const u32 bytes = names[*cursor];
     if (!bytes || bytes > names.count - *cursor - 1)
@@ -84,14 +84,13 @@ bool guild_feature_name_next(ConstSlice<u8> names, u32* cursor, Utf8View* name) 
 }
 
 bool guild_detail_store_bind(GuildDetailStore* store, Slice<GuildDetailRecord> records, Slice<char> text) noexcept {
-    if (!store || !records.data || !records.count || !text.data || !text.count)
-        return false;
     *store = {records.data, text.data, records.count, 0, text.count, 0, 0};
     return true;
 }
 
+// The one caller, guild_detail_store_apply_gateway_event, tested the store and its records.
 void guild_detail_store_clear(GuildDetailStore* store) noexcept {
-    if (!store || (!store->count && !store->text_used))
+    if (!store->count && !store->text_used)
         return;
     store->count = 0;
     store->text_used = 0;
@@ -99,15 +98,12 @@ void guild_detail_store_clear(GuildDetailStore* store) noexcept {
 }
 
 bool guild_detail_store_apply(GuildDetailStore* store, const GuildDetailInput& input) noexcept {
-    if (!store || !store->records || !input.guild_id || (input.known & ~guild_detail_all) ||
+    if (!input.guild_id || (input.known & ~guild_detail_all) ||
         input.description.bytes > kGuildDetailDescriptionMaximumBytes ||
         input.vanity_url_code.bytes > kGuildDetailVanityMaximumBytes ||
-        input.splash.bytes > kGuildDetailHashBytes || (input.splash.bytes && !input.splash.data) ||
+        input.splash.bytes > kGuildDetailHashBytes ||
         input.preferred_locale.bytes > kGuildDetailLocaleBytes ||
-        (input.preferred_locale.bytes && !input.preferred_locale.data) ||
-        input.discovery_splash.bytes > kGuildDetailHashBytes ||
-        (input.discovery_splash.bytes && !input.discovery_splash.data) || input.feature_names.count > 0xFFFF ||
-        (input.feature_names.count && !input.feature_names.data))
+        input.discovery_splash.bytes > kGuildDetailHashBytes || input.feature_names.count > 0xFFFF)
         return false;
     u64 features = 0;
     if (input.known & guild_detail_features) {
@@ -262,7 +258,7 @@ bool guild_detail_store_apply(GuildDetailStore* store, const GuildDetailInput& i
 }
 
 bool guild_detail_store_remove(GuildDetailStore* store, u64 guild_id) noexcept {
-    GuildDetailRecord* record = store ? find(store, guild_id) : nullptr;
+    GuildDetailRecord* record = find(store, guild_id);
     if (!record)
         return false;
     *record = store->records[--store->count];

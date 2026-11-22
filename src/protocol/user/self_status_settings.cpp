@@ -1,7 +1,6 @@
 #include "maicord/protocol/user/self_status_settings.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
 #include "maicord/protocol/user/settings_proto.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "../encoding/proto_wire.hpp"
@@ -145,17 +144,9 @@ bool custom_message(const Wire& w, u32 p, u32 end, SelfCustomStatus& out) noexce
     return utf8_validate({out.text, out.text_bytes}).valid &&
            utf8_validate({out.emoji_name, out.emoji_name_bytes}).valid;
 }
-bool range_valid(const Slice<u8>& s) noexcept {
-    return byte_range_valid({s.data, s.count});
-}
-// The observed group, scratch and output of a patch writer are valid and disjoint.
-bool patch_buffers_valid(const ConstSlice<u8>& observed, const Slice<u8>& scratch,
-                         const Slice<u8>& output) noexcept {
-    return observed.count <= kSelfStatusSettingsMaximumGroupBytes && byte_range_valid(observed) &&
-           range_valid(scratch) && range_valid(output) &&
-           !byte_ranges_overlap(observed, {scratch.data, scratch.count}) &&
-           !byte_ranges_overlap(observed, {output.data, output.count}) &&
-           !byte_ranges_overlap({scratch.data, scratch.count}, {output.data, output.count});
+// The observed group is the Gateway client's copy of the server group; scratch and output are its own buffers.
+bool patch_buffers_valid(const ConstSlice<u8>& observed) noexcept {
+    return observed.count <= kSelfStatusSettingsMaximumGroupBytes;
 }
 // Copies the observed group's fields, except those `dropped` matches, byte for
 // byte to scratch after five bytes reserved for finish_patch; returns the end
@@ -194,9 +185,7 @@ GatewayCommandWriteResult finish_patch(Slice<u8> scratch, u32 at, Slice<u8> outp
 } // namespace
 E self_status_settings_decode_base64(Utf8View input, Slice<u8> output,
                                      SelfStatusSettingsProjection* result) noexcept {
-    if (input.bytes > base64_encoded_size(kUserSettingsProtoMaximumProtoBytes) || !range_valid(output) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(input.data), input.bytes},
-                            {output.data, output.count}))
+    if (input.bytes > base64_encoded_size(kUserSettingsProtoMaximumProtoBytes))
         return E::input;
     const auto valid = base64_decode(input, {});
     if (!valid.ok() && valid.error != Base64Error::output_too_small)
@@ -207,7 +196,7 @@ GatewayCommandWriteResult self_status_settings_write_patch(ConstSlice<u8> observ
                                                            GatewayUserStatus status, u64 unix_now_ms,
                                                            Slice<u8> scratch, Slice<u8> output) noexcept {
     const auto name = gateway_user_status_name(status);
-    if (!name.bytes || !unix_now_ms || !patch_buffers_valid(observed, scratch, output))
+    if (!name.bytes || !unix_now_ms || !patch_buffers_valid(observed))
         return {0, GatewayCommandError::invalid_input};
     if (scratch.count < observed.count + 64)
         return {0, GatewayCommandError::output_too_small};
@@ -271,8 +260,6 @@ GatewayCommandWriteResult self_status_settings_write_patch(ConstSlice<u8> observ
     return finish_patch(scratch, at, output);
 }
 bool self_status_settings_read_custom(const ConstSlice<u8>& group, SelfCustomStatus* output) noexcept {
-    if (!byte_range_valid(group))
-        return false;
     const Wire w{group, {}, group.count};
     u32 p = 0;
     // custom_message writes the whole output. The output is cleared here only when no message was read.
@@ -306,7 +293,7 @@ bool self_custom_status_equal(const SelfCustomStatus& a, const SelfCustomStatus&
 GatewayCommandWriteResult self_status_settings_write_custom_patch(ConstSlice<u8> observed,
                                                                   const SelfCustomStatus* custom,
                                                                   Slice<u8> scratch, Slice<u8> output) noexcept {
-    if (!patch_buffers_valid(observed, scratch, output) ||
+    if (!patch_buffers_valid(observed) ||
         (custom && (custom->text_bytes > kSelfCustomStatusTextBytes ||
                     custom->emoji_name_bytes > kSelfCustomStatusEmojiBytes ||
                     !utf8_validate({custom->text, custom->text_bytes}).valid ||
@@ -354,8 +341,6 @@ GatewayCommandWriteResult self_status_settings_write_custom_patch(ConstSlice<u8>
     return finish_patch(scratch, at, output);
 }
 bool self_status_settings_read_show_game(const ConstSlice<u8>& group, bool* share) noexcept {
-    if (!byte_range_valid(group))
-        return false;
     *share = true; // An absent BoolValue keeps the server default: shared.
     const Wire w{group, {}, group.count};
     u32 p = 0;
@@ -390,7 +375,7 @@ bool self_status_settings_read_show_game(const ConstSlice<u8>& group, bool* shar
 }
 GatewayCommandWriteResult self_status_settings_write_show_game_patch(ConstSlice<u8> observed, bool share,
                                                                      Slice<u8> scratch, Slice<u8> output) noexcept {
-    if (!patch_buffers_valid(observed, scratch, output))
+    if (!patch_buffers_valid(observed))
         return {0, GatewayCommandError::invalid_input};
     if (scratch.count < observed.count + 16)
         return {0, GatewayCommandError::output_too_small};

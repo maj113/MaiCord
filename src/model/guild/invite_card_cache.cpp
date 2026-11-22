@@ -24,7 +24,7 @@ const InviteCardEntry* invite_card_cache_find(const InviteCardCache& cache, Utf8
 }
 
 const InviteCardEntry* invite_card_cache_touch(InviteCardCache* cache, Utf8View code, u64 now_ms) noexcept {
-    if (!cache || !guild_invite_code_valid(code.data, code.bytes))
+    if (!guild_invite_code_valid(code.data, code.bytes))
         return nullptr;
     if (InviteCardEntry* entry = find(cache, code)) {
         entry->used_ms = now_ms;
@@ -64,7 +64,7 @@ const InviteCardEntry* invite_card_cache_next(const InviteCardCache& cache) noex
 }
 
 bool invite_card_cache_begin(InviteCardCache* cache, Utf8View code) noexcept {
-    InviteCardEntry* entry = cache ? find(cache, code) : nullptr;
+    InviteCardEntry* entry = find(cache, code);
     if (!entry || entry->state != InviteCardState::queued)
         return false;
     entry->state = InviteCardState::pending;
@@ -73,14 +73,12 @@ bool invite_card_cache_begin(InviteCardCache* cache, Utf8View code) noexcept {
 
 bool invite_card_cache_complete(InviteCardCache* cache, Utf8View code, GuildInviteOutcome outcome,
                                 const GuildInvite* invite, u64 now_ms) noexcept {
-    InviteCardEntry* entry = cache ? find(cache, code) : nullptr;
+    InviteCardEntry* entry = find(cache, code);
     if (!entry || entry->state != InviteCardState::pending)
         return false;
     entry->updated_ms = now_ms;
     switch (outcome) {
     case GuildInviteOutcome::resolved:
-        if (!invite)
-            return false;
         copy_value(&entry->invite, *invite);
         entry->state = InviteCardState::resolved;
         break;
@@ -98,15 +96,13 @@ bool invite_card_cache_complete(InviteCardCache* cache, Utf8View code, GuildInvi
 }
 
 void invite_card_cache_clear(InviteCardCache* cache) noexcept {
-    if (!cache)
-        return;
     const u32 revision = cache->revision + 1u;
     reset_value(cache);
     cache->revision = revision;
 }
 
 bool invite_card_cache_set_joined(InviteCardCache* cache, u32 index, bool joined) noexcept {
-    if (!cache || index >= kInviteCardCacheEntries || cache->entries[index].joined == joined)
+    if (index >= kInviteCardCacheEntries || cache->entries[index].joined == joined)
         return false;
     cache->entries[index].joined = joined;
     ++cache->revision;

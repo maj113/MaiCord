@@ -124,8 +124,7 @@ void add_permissions(StoreConsent& k, u64 permissions, u64 added) noexcept {
         if (!(permissions & (u64{1} << bit)))
             continue;
         StorePermission& p = k.permissions[k.permission_count];
-        if (!store_permission_text(bit, &p))
-            continue;
+        store_permission_text(bit, &p);
         p.added = (added >> bit) & 1;
         ++k.permission_count;
     }

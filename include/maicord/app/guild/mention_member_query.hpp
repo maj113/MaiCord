@@ -40,8 +40,7 @@ struct MentionMemberQueryOwner {
 // ASCII lower case (toLocaleLowerCase for the queries people type); false
 // when the query cannot be sent (too long or not UTF-8).
 inline bool mention_member_query_fold(Utf8View query, char* output, u32* bytes) noexcept {
-    if ((!query.data && query.bytes) || query.bytes > kGatewayGuildMemberQueryMaximumBytes ||
-        !utf8_validate(query).valid)
+    if (query.bytes > kGatewayGuildMemberQueryMaximumBytes || !utf8_validate(query).valid)
         return false;
     for (u32 i = 0; i < query.bytes; ++i)
         output[i] = static_cast<char>(ascii_lower(static_cast<u8>(query.data[i])));
@@ -68,12 +67,12 @@ inline void mention_member_query_cancel(MentionMemberQueryOwner* owner) noexcept
 
 // The autocomplete wants members matching `query` in this guild. Restarts the
 // shared trailing timer unless this query is already pending or was asked
-// within the minute. Returns true when a request is (still) scheduled.
+// within the minute. Returns true when a request is (still) scheduled. The guild and channel are nonzero.
 inline bool mention_member_query_note(MentionMemberQueryOwner* owner, u64 guild_id, u64 channel_id,
                                       Utf8View query, u64 now_ms) noexcept {
     char folded[kGatewayGuildMemberQueryMaximumBytes];
     u32 bytes = 0;
-    if (!owner || !guild_id || !channel_id || !mention_member_query_fold(query, folded, &bytes))
+    if (!mention_member_query_fold(query, folded, &bytes))
         return false;
     if (mention_member_query_recent(*owner, mention_member_query_key(guild_id, {folded, bytes}), now_ms)) {
         mention_member_query_cancel(owner);

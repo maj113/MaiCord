@@ -347,28 +347,17 @@ void choose(SettingsLayer*, u32 action) noexcept {
     auto& p = *owner;
     const Menu menu = p.menu;
     p.menu = Menu::none;
+    // Below kMenuChoiceBase: the menu closed without a choice. Each menu has a row for each of its choices, and its
+    // lists do not change while it is open.
     if (!editable() || action < kMenuChoiceBase)
         return;
     const u32 index = action - kMenuChoiceBase;
     switch (menu) {
-    case Menu::channel:
-        if (index < p.channel_count)
-            p.channel_index = index;
-        break;
-    case Menu::day:
-        if (index < kDayChoices)
-            p.day = index;
-        break;
-    case Menu::time:
-        if (index < kTimeChoices)
-            p.time_slot = index;
-        break;
-    case Menu::duration:
-        if (p.where == 2 && index + 1 < kDurationCount)
-            p.duration = index + 1;
-        else if (p.where != 2 && index < kDurationCount)
-            p.duration = index;
-        break;
+    case Menu::channel: p.channel_index = index; break;
+    case Menu::day: p.day = index; break;
+    case Menu::time: p.time_slot = index; break;
+    // An event somewhere else lists no "No end time".
+    case Menu::duration: p.duration = index + (p.where == 2); break;
     default: return;
     }
     repaint();
@@ -659,7 +648,7 @@ bool application_guild_community_can_create(u64 guild_id) noexcept {
 u32 application_guild_community_menu_items(u64 guild_id, u32 onboarding_action, u32 create_event_action,
                                            const Slice<PopupItem>& output) noexcept {
     const auto* g = guild(guild_id);
-    if (!g || g->unavailable || !output.data)
+    if (!g || g->unavailable)
         return 0;
     u32 used = 0;
     if (onboarding_action && used < output.count && (g->upload_features & guild_record_onboarding))
@@ -804,9 +793,9 @@ bool application_guild_community_submit(u64 now) noexcept {
     // The tag popout's join (its CAPTCHA retry) also advances per frame.
     application_guild_card_join_poll(now);
     channels_roles_tick(now);
-    if (!g_app.account_ui || !background || !ensure_background() || background->request_id ||
-        !background->queue_count || g_app.details_request_owner != MessageHistoryRequestOwner::none ||
-        !g_app.account.instance ||
+    // ensure_background also fails without the account's UI state.
+    if (!background || !ensure_background() || background->request_id || !background->queue_count ||
+        g_app.details_request_owner != MessageHistoryRequestOwner::none || !g_app.account.instance ||
         (background->retry_at && background->retry_at > now))
         return false;
     auto& b = *background;

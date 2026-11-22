@@ -500,8 +500,6 @@ GuildAdminResult decode_object(Utf8View body, Slice<u32> scratch, const ObjectSp
 // A root array (`array`) or object (`object`) of items counted in the result.
 GuildAdminResult decode_items(Utf8View body, Slice<u32> scratch, const ObjectSpec* spec, u8* rows, u32 capacity,
                               JsonArrayVisitor array, JsonMemberVisitor object) noexcept {
-    if (!rows && capacity)
-        return {0, 0, GuildAdminError::input};
     ItemReader p{{nullptr, 0}, spec, rows, capacity, 0};
     auto result = decode_scanned(body, scratch, p, &p, object, array);
     result.count = p.count;
@@ -516,8 +514,6 @@ GuildAdminResult decode_rows(Utf8View body, Slice<u32> scratch, const ObjectSpec
 } // namespace
 
 GuildAdminResult guild_admin_decode_widget(Utf8View body, Slice<u32> scratch, GuildAdminWidget* output) noexcept {
-    if (!output)
-        return {0, 0, GuildAdminError::input};
     GuildAdminWidget value{};
     const auto result = decode_object(body, scratch, kWidgetSpec, &value);
     if (result.ok())
@@ -527,8 +523,6 @@ GuildAdminResult guild_admin_decode_widget(Utf8View body, Slice<u32> scratch, Gu
 
 GuildAdminResult guild_admin_decode_profile(const Utf8View& body, const Slice<u32>& scratch,
                                             GuildAdminProfile* output) noexcept {
-    if (!output)
-        return {0, 0, GuildAdminError::input};
     GuildAdminProfile value{};
     const auto result = decode_object(body, scratch, kProfileSpec, &value);
     if (result.ok())
@@ -538,8 +532,6 @@ GuildAdminResult guild_admin_decode_profile(const Utf8View& body, const Slice<u3
 
 GuildAdminResult guild_admin_decode_vanity(const Utf8View& body, const Slice<u32>& scratch,
                                            GuildAdminVanity* output) noexcept {
-    if (!output)
-        return {0, 0, GuildAdminError::input};
     GuildAdminVanity value{};
     const auto result = decode_object(body, scratch, kVanitySpec, &value);
     if (result.ok())
@@ -548,8 +540,6 @@ GuildAdminResult guild_admin_decode_vanity(const Utf8View& body, const Slice<u32
 }
 
 GuildAdminResult guild_admin_decode_role(Utf8View body, Slice<u32> scratch, GuildAdminRole* output) noexcept {
-    if (!output)
-        return {0, 0, GuildAdminError::input};
     GuildAdminRole value{};
     const auto result = decode_object(body, scratch, kRoleSpec, &value);
     if (result.ok())
@@ -567,8 +557,6 @@ GuildAdminResult guild_admin_decode_bans(Utf8View body, Slice<u32> scratch, Slic
 }
 
 GuildAdminResult guild_admin_decode_audit_log(Utf8View body, Slice<u32> scratch, GuildAdminAuditPage* page) noexcept {
-    if (!page || (!page->entries.data && page->entries.count) || (!page->users.data && page->users.count))
-        return {0, 0, GuildAdminError::input};
     AuditReader p{{{nullptr, 0}, &kAuditSpec, nullptr, 0}, {page->entries, page->users, 0, 0}};
     auto result = decode_scanned(body, scratch, p, &p, read_member, nullptr);
     if (!result.ok() || !(p.seen & 1u))
@@ -585,8 +573,6 @@ GuildAdminResult guild_admin_decode_invites(Utf8View body, Slice<u32> scratch,
 
 GuildAdminResult guild_admin_decode_invite(const Utf8View& body, const Slice<u32>& scratch,
                                            GuildAdminInvite* output) noexcept {
-    if (!output)
-        return {0, 0, GuildAdminError::input};
     GuildAdminInvite value{};
     const auto result = decode_object(body, scratch, kInviteSpec, &value);
     if (result.ok())

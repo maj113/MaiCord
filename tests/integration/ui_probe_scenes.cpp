@@ -695,8 +695,8 @@ bool probe_ui_surface_motion() noexcept {
                                        utf8_literal("Original offline native page and choice popup."),
                                        {&control, 1},
                                        1};
-    if (!ui_page_registry_initialize(&registry, {&page, 1}) ||
-        !ui_page_registry_register(&registry, {{1, 7}, utf8_literal("Native choices"), &page_content})
+    ui_page_registry_initialize(&registry, {&page, 1});
+    if (!ui_page_registry_register(&registry, {{1, 7}, utf8_literal("Native choices"), &page_content})
              .ok() ||
         !ui_settings_scene_update(&settings, &registry, viewport))
         return false;
@@ -1939,8 +1939,8 @@ bool probe_friends_scene() noexcept {
                               true};
     UiSettingsPageContent settings_content{
         utf8_literal("Friends covered by Settings"), {}, {&control, 1}, 1};
-    if (!ui_page_registry_initialize(&registry, {pages, 1}) ||
-        !ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Appearance"), &settings_content})
+    ui_page_registry_initialize(&registry, {pages, 1});
+    if (!ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Appearance"), &settings_content})
              .ok() ||
         !ui_settings_scene_update(&settings, &registry, viewport))
         return false;
@@ -2699,8 +2699,8 @@ bool probe_account_settings_pages() noexcept {
     const UiPageKey account_key{1, 1}, device_key{1, 2}, content_key{1, 3}, chat_key{1, 4};
     const float scale = 96.0f / g_probe.renderer.dpi;
     const UiRect viewport{0, 0, g_probe.renderer.width * scale, g_probe.renderer.height * scale};
-    bool valid = ui_page_registry_initialize(&registry, {pages, 4}) &&
-                 ui_page_registry_register(&registry, {account_key, utf8_literal("My account"), &account_page}).ok() &&
+    ui_page_registry_initialize(&registry, {pages, 4});
+    bool valid = ui_page_registry_register(&registry, {account_key, utf8_literal("My account"), &account_page}).ok() &&
                  ui_page_registry_register(&registry, {device_key, utf8_literal("Devices"), &device_page}).ok() &&
                  ui_page_registry_register(&registry, {content_key, utf8_literal("Content & social"), &content_page})
                      .ok() &&
@@ -2795,8 +2795,8 @@ bool probe_settings_backdrop() noexcept {
         return {0, 0, g_probe.renderer.width * scale, g_probe.renderer.height * scale};
     };
     ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal);
-    if (!ui_page_registry_initialize(&registry, {pages, 1}) ||
-        !ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Backdrop"), &content}).ok() ||
+    ui_page_registry_initialize(&registry, {pages, 1});
+    if (!ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Backdrop"), &content}).ok() ||
         !ui_settings_scene_update(&scene, &registry, viewport()))
         return false;
     // The scrim area above the dialog and beside it, where the shell shows.
@@ -2983,8 +2983,8 @@ bool probe_settings_entrance(UiSettingsPresentation presentation, u32 stage) noe
     const float dips = 96.0f / renderer.dpi;
     const UiRect viewport{0, 0, renderer.width * dips, renderer.height * dips};
     ui_settings_scene_set_presentation(&scene, presentation);
-    if (!ui_page_registry_initialize(&registry, {pages, 1}) ||
-        !ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Entrance"), &content}).ok() ||
+    ui_page_registry_initialize(&registry, {pages, 1});
+    if (!ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Entrance"), &content}).ok() ||
         !ui_settings_scene_update(&scene, &registry, viewport))
         return false;
     const bool dialog = presentation != UiSettingsPresentation::layer;
@@ -3260,8 +3260,8 @@ bool probe_settings_scene() noexcept {
         }
         return probe_text_pixels({rectangles, 4});
     };
-    if (!ui_page_registry_initialize(&registry, {pages, 3}) ||
-        !ui_page_registry_register(&registry, {appearance_key, utf8_literal("Appearance"), &appearance})
+    ui_page_registry_initialize(&registry, {pages, 3});
+    if (!ui_page_registry_register(&registry, {appearance_key, utf8_literal("Appearance"), &appearance})
              .ok() ||
         !ui_page_registry_register(&registry,
                                    {accessibility_key, utf8_literal("Accessibility"), &accessibility})

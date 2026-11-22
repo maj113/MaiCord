@@ -109,13 +109,10 @@ void test_user_settings_proto(void (*check)(bool, const char*) noexcept) noexcep
     const u8 partial[]{106, 2, 72, 1};
     const u32 j0 = user_settings_proto_write_patch_json({partial, 4}, 0, {json, sizeof(json)});
     const u32 j1 = user_settings_proto_write_patch_json({partial, 4}, 42, {json + 128, 128});
-    const u8 status_group[]{90, 0}, versions_group[]{10, 0}, scalar[]{8, 1};
     check(text_equal({json, 128}, j0, utf8_literal("{\"settings\":\"agJIAQ==\"}")) &&
               text_equal({json + 128, 128}, j1, utf8_literal("{\"settings\":\"agJIAQ==\",\"required_data_version\":42}")) &&
-              !user_settings_proto_patch_valid({status_group, 2}) &&
-              !user_settings_proto_patch_valid({versions_group, 2}) && !user_settings_proto_patch_valid({scalar, 2}) &&
               !user_settings_proto_write_patch_json({partial, 4}, 0, {json, 20}),
-          "user settings: PATCH JSON envelope, data version and partial message validation");
+          "user settings: PATCH JSON envelope and data version");
     u8 pinned_json[96]{};
     const u32 pinned_bytes = user_settings_proto_write_patch_json({partial, 4}, 0, {pinned_json, 96}, true);
     check(text_equal({pinned_json, 96}, pinned_bytes,
@@ -156,10 +153,11 @@ void test_user_settings_proto(void (*check)(bool, const char*) noexcept) noexcep
     user_settings_store_set(store, explicit_guilds, user_settings_number(2), 500);
     u8 patch[1024]{};
     u32 required = 99;
-    const u32 sent = user_settings_store_begin(store, {patch, sizeof(patch)}, &required);
+    bool pin = false;
+    const u32 sent = user_settings_store_begin(store, {patch, sizeof(patch)}, &required, &pin);
     const ConstSlice<u8> sent_message{patch, sent};
     const auto sent_text = user_settings_proto_group(sent_message, 6);
-    check(sent && !required && user_settings_proto_patch_valid(sent_message) &&
+    check(sent && !required &&
               !user_settings_proto_group(sent_message, 8).count && !user_settings_proto_group(sent_message, 1).count &&
               user_settings_proto_read(sent_text, compact, &v) && v.number == 1 &&
               user_settings_proto_read(sent_text, explicit_guilds, &v) && v.number == 2 &&
@@ -184,19 +182,19 @@ void test_user_settings_proto(void (*check)(bool, const char*) noexcept) noexcep
               user_settings_store_read(*store, emoticons, &v) && v.number == 1 && store->dirty_count == 1 &&
               store->due_ms == 600,
           "user settings: a failed PATCH rolls back in-flight edits but keeps newer pending ones");
-    const u32 again = user_settings_store_begin(store, {patch, sizeof(patch)}, &required);
+    const u32 again = user_settings_store_begin(store, {patch, sizeof(patch)}, &required, &pin);
     completion = user_settings_store_complete(store, UserSettingsOutcome::rate_limited, {}, 5000);
     check(again && store->dirty_count == 1 && store->due_ms == 5000 &&
               user_settings_store_read(*store, emoticons, &v) && v.number == 1,
           "user settings: rate limiting re-queues the edits for the retry time");
-    user_settings_store_begin(store, {patch, sizeof(patch)}, &required);
+    user_settings_store_begin(store, {patch, sizeof(patch)}, &required, &pin);
     const u8 echo[]{10, 2, 24, 43, 50, 5, 0xAA, 0x01, 2, 8, 1};
     completion = user_settings_store_complete(store, UserSettingsOutcome::saved, {echo, sizeof(echo)}, 0);
     check(!completion.rolled_back && store->data_version == 43 && !store->dirty_count && !store->inflight_active &&
               user_settings_store_read(*store, emoticons, &v) && v.number == 1,
           "user settings: a saved PATCH adopts the returned settings and data version");
     user_settings_store_set(store, emoticons, user_settings_number(0), 0);
-    user_settings_store_begin(store, {patch, sizeof(patch)}, &required);
+    user_settings_store_begin(store, {patch, sizeof(patch)}, &required, &pin);
     completion = user_settings_store_complete(store, UserSettingsOutcome::out_of_date, {echo, sizeof(echo)}, 0);
     check(completion.rolled_back && user_settings_store_read(*store, emoticons, &v) && v.number == 1,
           "user settings: out_of_date discards the edit in favour of the newer server settings");
@@ -325,9 +323,10 @@ void test_user_settings_guild_lists(void (*check)(bool, const char*) noexcept) n
     store->due_ms = 60;
     u8 patch[512]{};
     u32 required = 0;
-    const u32 sent = user_settings_store_begin(store, {patch, sizeof(patch)}, &required);
+    bool pin = false;
+    const u32 sent = user_settings_store_begin(store, {patch, sizeof(patch)}, &required, &pin);
     const auto sent_privacy = user_settings_proto_group({patch, sent}, 8);
-    check(sent && user_settings_proto_patch_valid({patch, sent}) &&
+    check(sent &&
               user_settings_proto_contains(sent_privacy, restricted, a) &&
               user_settings_proto_contains(sent_privacy, restricted, b) &&
               user_settings_proto_contains(sent_privacy, restricted, d) &&

@@ -336,8 +336,8 @@ u32 store_menu_items(const StoreModel&, const StorePageState&, StoreMenu, u32 it
 StoreCommand store_menu_choose(const StoreModel&, StorePageState*, StoreMenu, u32 item, u32 row) noexcept;
 // Escape: closes a dialog, reverts a trial, leaves a detail view. handled false: the page has nothing to undo.
 StoreCommand store_page_escape(const StoreModel&, StorePageState*, bool* handled) noexcept;
-// The sentences and risk of a permission bit (the site's table); false past the known bits.
-bool store_permission_text(u32 bit, StorePermission*) noexcept;
+// The sentences and risk of a permission bit (the site's table); `bit` is below 11.
+void store_permission_text(u32 bit, StorePermission*) noexcept;
 u8 store_permission_risk(u64 permissions, bool has_hosts) noexcept;
 
 } // namespace maicord::app_detail

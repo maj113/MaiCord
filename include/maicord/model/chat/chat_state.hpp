@@ -598,13 +598,12 @@ bool chat_state_store_initialize(ChatStateStore* store, Slice<GuildRecord> guild
                                  Slice<u16> guild_order, Slice<ChannelRecord> channels,
                                  Slice<u16> channel_order, Slice<u8> double_buffered_names,
                                  bool zeroed = false) noexcept;
-// Logical slices are stable reserved ranges, initially with zero backed rows.
-// Context is opaque and may be null when the callback supports it. Success
+// Binds an empty store, once, to logical slices of at most 65,535 rows: stable reserved ranges, initially with zero
+// backed rows. Context is opaque and may be null when the callback supports it. Success of the callback
 // guarantees both requested prefixes writable/zeroed, without model mutation.
-bool chat_state_store_bind_permissions_reserved(ChatStateStore* store, Slice<RoleRecord> roles,
-                                                   Slice<PermissionOverwriteRecord> overwrites,
-                                                   PermissionReserve reserve,
-                                                   void* context) noexcept;
+void chat_state_store_bind_permissions_reserved(ChatStateStore* store, Slice<RoleRecord> roles,
+                                                Slice<PermissionOverwriteRecord> overwrites,
+                                                PermissionReserve reserve, void* context) noexcept;
 // Moves channel records, channel order and name banks (and emoji arrays bound
 // afterwards) to on-demand backing: nothing is backed until `reserve` commits
 // it, so the slices passed to initialization may be reserved address space.

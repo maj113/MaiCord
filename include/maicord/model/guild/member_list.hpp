@@ -72,7 +72,6 @@ struct MemberListPresenceResult {
 
 enum class MemberListViewError : u8 {
     none,
-    invalid_input,
     capacity,
 };
 

@@ -25,7 +25,7 @@ bool label_valid(const Utf8View& value) noexcept {
 
 bool ui_account_switcher_build(UiAccountSwitcherModel* model, u64 owner_id, UiAccountSwitcherPanel panel,
                                ConstSlice<UiAccountSwitcherAccount> accounts, bool can_add) noexcept {
-    if (!model || !owner_id || accounts.count > kUiAccountSwitcherAccounts || (!accounts.data && accounts.count))
+    if (!owner_id || accounts.count > kUiAccountSwitcherAccounts)
         return false;
     for (u32 i = 0; i < accounts.count; ++i)
         if (!accounts[i].user_id || !label_valid(accounts[i].display_name) || !label_valid(accounts[i].username))
@@ -86,7 +86,7 @@ bool ui_account_switcher_build(UiAccountSwitcherModel* model, u64 owner_id, UiAc
 }
 
 ConstSlice<PopupItem> ui_account_switcher_items(const UiAccountSwitcherModel& model) noexcept {
-    return {model.items, model.count <= kUiAccountSwitcherItemCapacity ? model.count : 0};
+    return {model.items, model.count};
 }
 
 bool ui_account_switcher_action_enabled(const UiAccountSwitcherModel& model, u32 value) noexcept {

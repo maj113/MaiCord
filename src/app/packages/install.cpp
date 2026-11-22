@@ -10,13 +10,10 @@
 namespace maicord {
 namespace {
 
-inline bool append_ascii(wchar_t* out, u32 capacity, u32* length, const char* text, u32 bytes) noexcept {
-    if (*length + bytes >= capacity)
-        return false;
+// The caller has checked the room.
+inline void append_ascii(wchar_t* out, u32* length, const char* text, u32 bytes) noexcept {
     for (u32 i = 0; i < bytes; ++i)
         out[(*length)++] = static_cast<wchar_t>(text[i]);
-    out[*length] = 0;
-    return true;
 }
 
 bool folder_path(const wchar_t* root, PackageLinkKind kind, wchar_t (&path)[512], u32* units) noexcept {
@@ -48,7 +45,7 @@ bool package_file_path(const wchar_t* root, PackageLinkKind kind, const Utf8View
     u32 at = length;
     copy_bytes(path.data, folder, length * sizeof(wchar_t));
     path[at++] = L'\\';
-    append_ascii(path.data, path.count, &at, slug.data, slug.bytes);
+    append_ascii(path.data, &at, slug.data, slug.bytes);
     if (kind == PackageLinkKind::effect) {
         path[at++] = L'-';
         for (u32 i = 0; i < 8; ++i) {

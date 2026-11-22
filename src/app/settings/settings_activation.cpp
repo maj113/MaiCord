@@ -64,15 +64,13 @@ const UiSettingsControl* choice_control(const ApplicationSettingsChoice& choice)
         !ui_page_key_equal(settings->scene.selected_page, choice.token.page) ||
         settings->registry.revision != choice.token.registry_revision)
         return nullptr;
+    // ui_settings_scene_update admitted the content: a choice row holds 1 to 1024 choices and a valid selection.
     const auto* content = &settings->scene.content;
-    if (content->revision != choice.token.content_revision || content->controls.count > 8192 ||
-        !content->controls.data || choice.control_index >= content->controls.count)
+    if (content->revision != choice.token.content_revision || choice.control_index >= content->controls.count)
         return nullptr;
     const auto& control = content->controls[choice.control_index];
     return control.id == choice.control_id && control.kind == UiSettingsControlKind::choice && control.enabled &&
-                   control.choices.count == choice.choice_count && control.choices.count &&
-                   control.choices.count <= kUiSettingsChoiceMaximum &&
-                   (control.selected_choice < control.choices.count || control.selected_choice == kUiSettingsNoChoice)
+                   control.choices.count == choice.choice_count
                ? &control
                : nullptr;
 }

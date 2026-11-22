@@ -32,7 +32,7 @@ u64 unix_seconds_of(u64 snowflake) noexcept {
 
 u32 hidden_channel_menu_build(const ChatStateStore& state, const UserStore& users, const ChannelRecord& channel,
                               u64 now_unix_seconds, TextBank* bank, Slice<PopupItem> output) noexcept {
-    if (!chat_state_store_channel_hidden(state, channel) || output.count < kHiddenChannelMenuRows)
+    if (!chat_state_store_channel_hidden(state, channel))
         return 0;
     u32 count = 0;
     PopupItem* items = output.data;

@@ -85,8 +85,9 @@ bool toast_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noe
         // Over an open settings page, where tooltips stay hidden.
         const bool failure_passed = valid;
         ui_toast_clear(&scene);
+        ui_page_registry_initialize(&registry, {pages, 1});
         valid =
-            valid && ui_page_registry_initialize(&registry, {pages, 1}) &&
+            valid &&
             ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Toast Over Settings"), &content})
                 .ok() &&
             ui_settings_scene_update(&modal, &registry, viewport);

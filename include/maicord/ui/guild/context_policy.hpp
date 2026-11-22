@@ -59,8 +59,8 @@ inline constexpr u32 kGuildHeaderMenuMaximumItems = 12;
 // event | Show all channels (community opt-in), Notification settings,
 // Privacy settings | Edit per-server profile, Hide muted channels (checked
 // while on) | Leave server (danger, not for the owner) | Copy server ID. Rows
-// whose permission or capability is missing are left out. Returns 0 and leaves
-// output unchanged when it cannot hold every row or the guild is not live.
+// whose permission or capability is missing are left out. Output holds kGuildHeaderMenuMaximumItems rows; returns
+// 0 and leaves it unchanged when the guild is not live.
 u32 guild_header_menu_build(const ChatStateStore&, u64 guild_id, u64 preferred_channel, const GuildMenuActions&,
                             u16 capabilities, Slice<PopupItem> output) noexcept;
 // "Create category" (Manage Channels on the server).

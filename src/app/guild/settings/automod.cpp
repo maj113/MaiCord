@@ -591,8 +591,9 @@ void send(Op_ op, u64 target) noexcept {
     queue(Op::automod, target);
 }
 
+// The page's forms open only once its state is made.
 bool form_saved(TextFormOwnerKey key, Utf8View text) noexcept {
-    if (!form_valid(key) || !am() || busy())
+    if (!form_valid(key) || busy())
         return false;
     auto& s = *am();
     if (key.collection == form_custom_message) {
@@ -879,9 +880,8 @@ void notice() noexcept {
 const PageOps kAutoModPage{load,    project,     activate, choose,  dirty,   can_save, next_save,
                            nullptr, ensure_data, notice,   invalid, nullptr};
 
+// Op::automod comes only from send, so the state exists in these three.
 bool automod_request(GuildAutomationRequest* request) noexcept {
-    if (!am())
-        return false;
     auto& s = *am();
     reset_value(request);
     request->operation = s.op;
@@ -906,12 +906,10 @@ bool automod_request(GuildAutomationRequest* request) noexcept {
 }
 
 bool automod_reading() noexcept {
-    return am() && am()->sent == Op_::automod_list;
+    return am()->sent == Op_::automod_list;
 }
 
 void automod_response(const RestClientResponse& response, const Utf8View& body) noexcept {
-    if (!am())
-        return;
     auto& s = *am();
     const bool ok = response.succeeded();
     if (s.sent == Op_::automod_list) {
@@ -943,8 +941,9 @@ void automod_response(const RestClientResponse& response, const Utf8View& body) 
     ensure_page_data();
 }
 
+// The one caller (application_guild_settings_release) has an owner.
 void automod_release() noexcept {
-    if (!owner || !am())
+    if (!am())
         return;
     pages_release(am());
     owner->automod = nullptr;

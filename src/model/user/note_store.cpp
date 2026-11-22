@@ -60,8 +60,6 @@ Utf8View user_note_text(const UserNoteStore& store, u64 user_id) noexcept {
 }
 
 bool user_note_request(UserNoteStore* store, u64 user_id) noexcept {
-    if (!store)
-        return false;
     auto* e = acquire(store, user_id);
     if (!e)
         return false;
@@ -72,7 +70,7 @@ bool user_note_request(UserNoteStore* store, u64 user_id) noexcept {
 
 bool user_note_edit(UserNoteStore* store, u64 user_id, const Utf8View& text_view, u64 now_ms) noexcept {
     const Utf8View text = text_view; // the store is written below
-    if (!store || !user_note_valid(text))
+    if (!user_note_valid(text))
         return false;
     auto* e = acquire(store, user_id);
     if (!e)
@@ -91,7 +89,7 @@ bool user_note_edit(UserNoteStore* store, u64 user_id, const Utf8View& text_view
 }
 
 void user_note_flush(UserNoteStore* store, u64 user_id, u64 now_ms) noexcept {
-    auto* e = store ? find(store, user_id) : nullptr;
+    auto* e = find(store, user_id);
     if (e && e->dirty && !e->save_failed && (!e->due_ms || e->due_ms > now_ms))
         e->due_ms = now_ms;
 }
@@ -118,8 +116,8 @@ UserNoteNext user_note_next(const UserNoteStore& store, u64 now_ms) noexcept {
 }
 
 bool user_note_save_begin(UserNoteStore* store, u64 user_id, Utf8View* output) noexcept {
-    auto* e = store ? find(store, user_id) : nullptr;
-    if (!e || !e->dirty || e->saving || !output)
+    auto* e = find(store, user_id);
+    if (!e || !e->dirty || e->saving)
         return false;
     copy_bytes(e->sent, e->draft, e->draft_bytes);
     e->sent_bytes = e->draft_bytes;
@@ -131,7 +129,7 @@ bool user_note_save_begin(UserNoteStore* store, u64 user_id, Utf8View* output) n
 }
 
 void user_note_save_finished(UserNoteStore* store, u64 user_id, bool ok, u64 now_ms) noexcept {
-    auto* e = store ? find(store, user_id) : nullptr;
+    auto* e = find(store, user_id);
     if (!e || !e->saving)
         return;
     e->saving = false;
@@ -166,7 +164,7 @@ void user_note_save_finished(UserNoteStore* store, u64 user_id, bool ok, u64 now
 }
 
 void user_note_load_begin(UserNoteStore* store, u64 user_id) noexcept {
-    auto* e = store ? find(store, user_id) : nullptr;
+    auto* e = find(store, user_id);
     if (!e)
         return;
     e->load_pending = false;
@@ -174,7 +172,7 @@ void user_note_load_begin(UserNoteStore* store, u64 user_id) noexcept {
 }
 
 void user_note_loaded(UserNoteStore* store, u64 user_id, bool ok, Utf8View text) noexcept {
-    auto* e = store ? find(store, user_id) : nullptr;
+    auto* e = find(store, user_id);
     if (!e || e->state != UserNoteState::loading)
         return;
     ++store->revision;
@@ -189,7 +187,7 @@ void user_note_loaded(UserNoteStore* store, u64 user_id, bool ok, Utf8View text)
 }
 
 void user_note_gateway(UserNoteStore* store, u64 user_id, Utf8View text) noexcept {
-    if (!store || !user_note_valid(text))
+    if (!user_note_valid(text))
         return;
     auto* e = find(store, user_id);
     if (!e)
@@ -205,8 +203,6 @@ void user_note_gateway(UserNoteStore* store, u64 user_id, Utf8View text) noexcep
 }
 
 void user_note_reset(UserNoteStore* store) noexcept {
-    if (!store)
-        return;
     const u32 revision = store->revision + 1;
     clear_bytes(store, static_cast<u32>(sizeof(*store)));
     store->revision = revision;

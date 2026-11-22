@@ -42,9 +42,6 @@ bool less(const ThreadMemberStore& threads, const GuildMemberStore& members, con
 MemberListViewResult member_list_view_thread(MemberListView* p,
     const ThreadMemberStore& threads, const GuildMemberStore& members,
     const UserStore& users, const ChatStateStore& state, u64 guild_id, u64 thread_id) noexcept {
-    if (!p || !p->rows.data || !p->rows.count || !p->member_scratch.data || !p->member_scratch.count ||
-        !members.records || !users.records || threads.active_bank > 1 || !threads.banks[threads.active_bank].data ||
-        threads.count > threads.banks[threads.active_bank].count || !thread_member_store_owns(threads, guild_id, thread_id)) return {MemberListViewError::invalid_input, 0, 0, false};
     if (p->thread_mode && !p->presence_regroup && p->guild_id == guild_id && p->list_id == thread_id && p->source_threads == &threads &&
         p->source_thread_revision == threads.revision && p->source_thread_generation == threads.generation &&
         p->source_member_revision == members.revision && p->source_user_revision == users.revision &&

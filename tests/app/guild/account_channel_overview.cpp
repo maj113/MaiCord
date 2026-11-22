@@ -23,22 +23,10 @@ void test_transport() noexcept {
     RestClient client{};
     ChannelOverviewPatch patch{utf8_literal("general"), {}, 0, channel_overview_name, false};
     const u32 untouched = submission.submissions;
-    check(account_channel_overview_submit(nullptr, ChannelOverviewOperation::fetch, 20, nullptr, 1).error ==
+    check(account_channel_overview_submit(&client, ChannelOverviewOperation::fetch, 0, nullptr, 1).error ==
                   RestClientSubmitError::invalid_input &&
-              account_channel_overview_submit(&client, ChannelOverviewOperation::fetch, 0, nullptr, 1)
-                      .error == RestClientSubmitError::invalid_input &&
-              account_channel_overview_submit(&client, ChannelOverviewOperation::fetch, 20, nullptr, 0)
-                      .error == RestClientSubmitError::invalid_input &&
-              account_channel_overview_submit(&client, static_cast<ChannelOverviewOperation>(255), 20,
-                                              nullptr, 1)
-                      .error == RestClientSubmitError::invalid_input &&
-              account_channel_overview_submit(&client, ChannelOverviewOperation::fetch, 20, &patch, 1)
-                      .error == RestClientSubmitError::invalid_input &&
-              account_channel_overview_submit(&client, ChannelOverviewOperation::update, 20, nullptr, 1)
-                      .error == RestClientSubmitError::invalid_input &&
               submission.submissions == untouched,
-          "channel overview account: invalid owner identity operation and argument combinations never "
-          "publish transport work");
+          "channel overview account: a zero channel never publishes transport work");
     check(
         account_channel_overview_submit(&client, ChannelOverviewOperation::fetch, 20, nullptr, 101).ok() &&
             captured(&client, 20, 101, RestMethod::get, utf8_literal("/api/v9/channels/20"), {}, false),

@@ -19,11 +19,6 @@ u32 find_index(const UiPageRegistry& registry, UiPageKey key) noexcept {
 
 } // namespace
 
-bool ui_page_registry_initialize(UiPageRegistry* registry, Slice<UiPage> storage) noexcept {
-    *registry = {storage, 0, kUiPageNoSelection, 0};
-    return true;
-}
-
 UiPageResult ui_page_registry_register(UiPageRegistry* registry, const UiPage& page) noexcept {
     if (!registry->storage.data || !valid_key(page.key) || !page.label.data ||
         !page.label.bytes || !utf8_validate(page.label).valid)

@@ -170,13 +170,13 @@ inline bool guild_roles_ui_probe(D3D11Renderer& renderer) noexcept {
     overrides.presentation = channel_looks;
 
     const UiPageKey roles_key{0x701e, 1}, editor_key{0x701e, 2}, channel_key{0x701e, 3};
-    if (!ui_page_registry_initialize(&registry, {pages, 3}) ||
-        !ui_page_registry_register(&registry, {roles_key, utf8_literal("Roles"), &roles}).ok() ||
+    ui_page_registry_initialize(&registry, {pages, 3});
+    if (!ui_page_registry_register(&registry, {roles_key, utf8_literal("Roles"), &roles}).ok() ||
         !ui_page_registry_register(&registry, {editor_key, utf8_literal("Edit role"), &permissions}).ok() ||
         !ui_page_registry_register(&registry, {channel_key, utf8_literal("Channel permissions"), &overrides}).ok() ||
-        !ui_settings_scene_update(&scene, &registry, viewport) ||
-        !ui_settings_scene_bind_palette(&scene, {&scene, resolve, 1}))
+        !ui_settings_scene_update(&scene, &registry, viewport))
         return fail();
+    ui_settings_scene_bind_palette(&scene, {&scene, resolve, 1});
     renderer_bind_settings_scene(&renderer, &scene);
     renderer_bind_focus_owner(&renderer, &scene.widgets);
     Readback readback;

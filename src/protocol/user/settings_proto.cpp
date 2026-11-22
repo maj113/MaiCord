@@ -1,7 +1,5 @@
 #include "maicord/protocol/user/settings_proto.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
-#include "maicord/protocol/guild/folders.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
@@ -114,10 +112,6 @@ void write_leaf(ProtoWriter& out, u32 field, K kind, const UserSettingsValue& va
     out.byte(8);
     out.varint(n);
 }
-bool field_valid(UserSettingsField f) noexcept {
-    return f.group && f.group < 32 && f.field && f.child < 128 && f.field < 128 &&
-           static_cast<u8>(f.kind) <= static_cast<u8>(K::id_member) && (f.kind != K::id_member || !f.child);
-}
 // Visits every ID of a repeated fixed64 field, packed (wire type 2) or not
 // (wire type 1), in wire order. False for malformed input or when visit
 // stops the walk.
@@ -187,9 +181,6 @@ UserSettingsExtractResult extract(const Wire& w, u32 mask, Utf8View hash, Slice<
     result.bytes = out.at;
     return result;
 }
-bool range_valid(const Slice<u8>& s) noexcept {
-    return byte_range_valid({s.data, s.count});
-}
 // Writes the tag and length of a length-delimited field into five bytes
 // reserved at start and shifts its contents down behind them. Returns the end
 // of the field, or ~0u.
@@ -216,8 +207,6 @@ UserSettingsValue user_settings_text(Utf8View text) noexcept {
 }
 bool user_settings_proto_read(const ConstSlice<u8>& group, UserSettingsField field,
                               UserSettingsValue* value) noexcept {
-    if (!field_valid(field) || field.kind == K::id_member || !byte_range_valid(group))
-        return false;
     UserSettingsValue result{};
     const Wire w = proto_source(group);
     u32 p = 0;
@@ -248,7 +237,7 @@ bool user_settings_proto_read(const ConstSlice<u8>& group, UserSettingsField fie
 }
 
 bool user_settings_proto_contains(ConstSlice<u8> group, UserSettingsField field, u64 id) noexcept {
-    if (!id || !field_valid(field) || field.kind != K::id_member || !byte_range_valid(group))
+    if (!id)
         return false;
     bool found = false;
     const bool walked = visit_ids(proto_source(group), field.field, [&](u64 n) noexcept {
@@ -260,9 +249,6 @@ bool user_settings_proto_contains(ConstSlice<u8> group, UserSettingsField field,
 
 u32 user_settings_proto_rewrite(ConstSlice<u8> group, UserSettingsField field, const UserSettingsValue& value,
                                 Slice<u8> output) noexcept {
-    if (!field_valid(field) || !byte_range_valid(group) || !range_valid(output) ||
-        byte_ranges_overlap(group, {output.data, output.count}) || value.text_bytes > kUserSettingsTextBytes)
-        return ~0u;
     const Wire w = proto_source(group);
     if (!valid(w, 0, w.size))
         return ~0u;
@@ -356,9 +342,8 @@ UserSettingsExtractResult user_settings_proto_extract_base64(const Utf8View& bas
                                                              const Utf8View& hash,
                                                              const Slice<u8>& output) noexcept {
     UserSettingsExtractResult result{0, 0, E::input};
-    if (base64.bytes > base64_encoded_size(kUserSettingsProtoMaximumProtoBytes) || !range_valid(output) ||
-        (base64.bytes && !base64.data) || hash.bytes > kUserSettingsSessionHashBytes ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(base64.data), base64.bytes}, {output.data, output.count}))
+    if (base64.bytes > base64_encoded_size(kUserSettingsProtoMaximumProtoBytes) ||
+        hash.bytes > kUserSettingsSessionHashBytes)
         return result;
     const auto measured = base64_decode(base64, {});
     if (!measured.ok() && measured.error != Base64Error::output_too_small) {
@@ -391,33 +376,8 @@ bool user_settings_proto_partial(ConstSlice<u8> extracted) noexcept {
     return false;
 }
 
-bool user_settings_proto_patch_valid(const ConstSlice<u8>& partial) noexcept {
-    if (!partial.count || partial.count > kUserSettingsPartialMaximumBytes || !byte_range_valid(partial))
-        return false;
-    const Wire w = proto_source(partial);
-    u32 p = 0;
-    Field f{};
-    u32 fields = 0;
-    bool folders = false;
-    while (p < w.size) {
-        if (!next(w, p, w.size, &f) || f.type != 2 || f.number < 2 || f.number > 31 ||
-            f.number == user_settings_status)
-            return false;
-        ++fields;
-        // The guild folders owner sends its group alone, as one valid message.
-        if (f.number == kGuildFoldersSettingsField) {
-            folders = true;
-            if (!valid(w, f.body, f.stop))
-                return false;
-        }
-    }
-    return !folders || fields == 1;
-}
-
 u32 user_settings_proto_write_patch_json(ConstSlice<u8> partial, u32 version, Slice<u8> output,
                                          bool required) noexcept {
-    if (byte_ranges_overlap(partial, {output.data, output.count}))
-        return 0;
     const u32 bytes = proto_settings_patch_bytes(partial.count, version, required);
     if (output.count < bytes || !proto_write_settings_patch(partial, version, output, required))
         return 0;
@@ -487,7 +447,7 @@ ConstSlice<u8> user_settings_store_server_group(const UserSettingsStore& store, 
 }
 
 bool user_settings_store_apply(UserSettingsStore* store, ConstSlice<u8> extracted, bool partial) noexcept {
-    if (extracted.count > kUserSettingsProtoArenaBytes || !byte_range_valid(extracted) ||
+    if (extracted.count > kUserSettingsProtoArenaBytes ||
         !valid(proto_source(extracted), 0, extracted.count))
         return false;
     ProtoWriter out{{store->scratch, kUserSettingsProtoArenaBytes}, 0, true};
@@ -560,7 +520,7 @@ bool base_value(const UserSettingsStore& store, UserSettingsField field, u64 key
 
 bool user_settings_store_read(const UserSettingsStore& store, UserSettingsField field,
                               UserSettingsValue* value) noexcept {
-    if (!field_valid(field) || field.kind == K::id_member)
+    if (field.kind == K::id_member)
         return false;
     if (const auto* edit = find(store.dirty, store.dirty_count, field, 0)) {
         *value = edit->value;
@@ -570,7 +530,7 @@ bool user_settings_store_read(const UserSettingsStore& store, UserSettingsField 
 }
 
 bool user_settings_store_contains(const UserSettingsStore& store, UserSettingsField field, u64 id) noexcept {
-    if (!id || !field_valid(field) || field.kind != K::id_member)
+    if (!id || field.kind != K::id_member)
         return false;
     if (const auto* edit = find(store.dirty, store.dirty_count, field, id))
         return edit->value.present;
@@ -580,9 +540,7 @@ bool user_settings_store_contains(const UserSettingsStore& store, UserSettingsFi
 
 bool user_settings_store_set(UserSettingsStore* store, UserSettingsField field, const UserSettingsValue& value,
                              u64 now_ms) noexcept {
-    if (!store->loaded || !field_valid(field) || !(kUserSettingsStoredGroups & (1u << field.group)) ||
-        field.group == user_settings_versions || value.text_bytes > kUserSettingsTextBytes ||
-        (field.kind == K::id_member && (!value.number || value.text_bytes)))
+    if (!store->loaded || (field.kind == K::id_member && !value.number))
         return false;
     const u64 key = field.kind == K::id_member ? value.number : 0;
     u32 index = store->dirty_count;
@@ -630,7 +588,7 @@ bool user_settings_store_due(const UserSettingsStore& store, u64 now_ms) noexcep
 }
 
 u32 user_settings_store_begin(UserSettingsStore* store, Slice<u8> partial, u32* version, bool* required) noexcept {
-    if (!store->dirty_count || store->inflight_active || !range_valid(partial))
+    if (!store->dirty_count || store->inflight_active)
         return 0;
     u32 groups = 0;
     for (u32 i = 0; i < store->dirty_count; ++i)
@@ -667,8 +625,7 @@ u32 user_settings_store_begin(UserSettingsStore* store, Slice<u8> partial, u32* 
     store->rate_limited = false;
     store->inflight_active = true;
     *version = store->offline_data_version;
-    if (required)
-        *required = store->offline_pinned;
+    *required = store->offline_pinned;
     store->offline_data_version = 0;
     store->offline_pinned = false;
     return out.at;

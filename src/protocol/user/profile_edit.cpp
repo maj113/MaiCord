@@ -405,7 +405,7 @@ u32 profile_edit_body_capacity(const ProfileEditRequest& r) noexcept {
 }
 
 ProfileEditWriteResult profile_edit_write_body(const ProfileEditRequest& r, Slice<u8> output) noexcept {
-    if (profile_edit_method(r.operation) == RestMethod::get || !output.data)
+    if (profile_edit_method(r.operation) == RestMethod::get)
         return {};
     JsonBody b{output};
     b.begin_object();

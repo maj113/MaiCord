@@ -39,8 +39,6 @@ AccountLoginStatus kept(AccountHost* host, const AccountLoginStatus& status) noe
 } // namespace
 
 AccountHostResult account_host_attach(AccountHost* host, HMODULE module) noexcept {
-    if (!module)
-        return failure(AccountHostError::invalid_input, ERROR_INVALID_PARAMETER);
     if (host->module) {
         return AccountHostResult{};
     }

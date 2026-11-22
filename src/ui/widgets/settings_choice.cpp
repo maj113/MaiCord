@@ -9,9 +9,7 @@ bool valid(const UiSettingsControl& control, u32 first) noexcept {
     return control.id && control.enabled && control.kind == UiSettingsControlKind::choice &&
         control.choices.count && control.choices.count <= kUiSettingsChoiceMaximum &&
         (control.selected_choice < control.choices.count || control.selected_choice == kUiSettingsNoChoice) &&
-        first < control.choices.count &&
-        first % kUiSettingsChoiceWindow == 0 && byte_range_valid({reinterpret_cast<const u8*>(control.choices.data),
-            control.choices.count * static_cast<u32>(sizeof(Utf8View))});
+        first < control.choices.count && first % kUiSettingsChoiceWindow == 0;
 }
 }
 u32 ui_settings_choice_items(const UiSettingsControl& control, u32 first, Slice<PopupItem> output) noexcept {
@@ -20,10 +18,6 @@ u32 ui_settings_choice_items(const UiSettingsControl& control, u32 first, Slice<
     const bool previous = first != 0, next = first + count < control.choices.count;
     const u32 total = count + static_cast<u32>(previous) + static_cast<u32>(next);
     const ConstSlice<u8> destination{reinterpret_cast<const u8*>(output.data), total * static_cast<u32>(sizeof(PopupItem))};
-    if (!output.data || output.count < total || !byte_range_valid(destination) ||
-        byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(&control), sizeof(control)}) ||
-        byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(control.choices.data),
-            control.choices.count * static_cast<u32>(sizeof(Utf8View))})) return 0;
     for (u32 index = first; index < first + count; ++index) {
         const auto label = control.choices[index];
         const ConstSlice<u8> text{reinterpret_cast<const u8*>(label.data), label.bytes};

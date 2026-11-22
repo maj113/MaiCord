@@ -115,7 +115,7 @@ void test_transport() noexcept {
     MemberPatch bad_role = atomic_role;
     invalid_role = request;
     invalid_role.member = &bad_role;
-    const ConstSlice<u64> invalid_roles[] = {{}, {nullptr, 1}, {role_ids, 2}};
+    const ConstSlice<u64> invalid_roles[] = {{}, {role_ids, 2}};
     for (const auto ids : invalid_roles) {
         bad_role.role_ids = ids;
         roles_rejected = rejected_role(invalid_role) && roles_rejected;
@@ -775,8 +775,7 @@ void test_reason_and_head() noexcept {
     };
     check(format(0, utf8_literal("1970-01-01T00:00:00+00:00")) &&
               format(951'782'400, utf8_literal("2000-02-29T00:00:00+00:00")) &&
-              format(4'107'542'399, utf8_literal("2100-02-28T23:59:59+00:00")) &&
-              !guild_admin_format_timestamp(0, {stamp, 24}),
+              format(4'107'542'399, utf8_literal("2100-02-28T23:59:59+00:00")),
           "timestamps: civil dates across leap rules use an explicit UTC offset");
     const auto iso = [&](u64 milliseconds, Utf8View expected) noexcept {
         const u32 bytes = guild_admin_format_timestamp_ms(milliseconds, {stamp, sizeof(stamp)});
@@ -787,8 +786,7 @@ void test_reason_and_head() noexcept {
               iso(1'700'000'000'007, utf8_literal("2023-11-14T22:13:20.007Z")) &&
               iso(4'107'542'399'999, utf8_literal("2100-02-28T23:59:59.999Z")) &&
               iso(253'402'300'799'999, utf8_literal("9999-12-31T23:59:59.999Z")) &&
-              !guild_admin_format_timestamp_ms(253'402'300'800'000, {stamp, sizeof(stamp)}) &&
-              !guild_admin_format_timestamp_ms(0, {stamp, 23}),
+              !guild_admin_format_timestamp_ms(253'402'300'800'000, {stamp, sizeof(stamp)}),
           "timestamps: the timeout form is toISOString's, .mmmZ with the real milliseconds");
     MemberPatch late{};
     late.fields = member_patch_timeout;
@@ -814,8 +812,7 @@ void test_role_toggle() noexcept {
     const bool empty = guild_admin_member_roles_toggle({}, 30, true, {roles, 8}) == 1 && roles[0] == 30 &&
                        guild_admin_member_roles_toggle({held, 1}, 31, false, {roles, 8}) == 0;
     const bool refused = guild_admin_member_roles_toggle({held, 3}, 0, true, {roles, 8}) == ~0u &&
-                         guild_admin_member_roles_toggle({held, 3}, 32, true, {roles, 3}) == ~0u &&
-                         guild_admin_member_roles_toggle({nullptr, 2}, 32, true, {roles, 8}) == ~0u;
+                         guild_admin_member_roles_toggle({held, 3}, 32, true, {roles, 3}) == ~0u;
     check(add_order && add_held && remove_order && remove_absent && empty && refused,
           "role toggle: current order kept, an added role appended once, a removed role filtered out");
 

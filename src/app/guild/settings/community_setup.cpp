@@ -223,7 +223,7 @@ void project(Bank& bank) noexcept {
 }
 
 bool disable_confirmed(TextFormOwnerKey key, Utf8View) noexcept {
-    if (!form_valid(key) || !owner->server_access)
+    if (!form_valid(key))
         return false;
     application_text_form_close(false, false);
     guild_community_overview_disable(&owner->server_access->overview_draft);
@@ -348,10 +348,9 @@ bool can_save() noexcept {
 }
 
 Op next_save() noexcept {
-    auto* s = owner->server_access;
-    if (!s || !can_save())
+    if (!can_save()) // false without the access state
         return Op::none;
-    s->step = AccessStep::overview_update;
+    owner->server_access->step = AccessStep::overview_update;
     return Op::server_access;
 }
 

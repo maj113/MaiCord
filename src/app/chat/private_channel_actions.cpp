@@ -16,7 +16,7 @@ const PrivateChannelRecord* metadata(const ChatStateStore& state, u64 channel_id
     return private_channel_store_find(*state.private_channels, channel_id);
 }
 bool startable(const PrivateChannelActionController* c, const ChatStateStore& state) noexcept {
-    return c && state.self_user_id &&
+    return state.self_user_id &&
            (c->phase == PrivateChannelActionPhase::idle || c->phase == PrivateChannelActionPhase::failed);
 }
 void start(PrivateChannelActionController* c, const ChatStateStore& state,
@@ -138,7 +138,7 @@ bool private_channel_begin_add(PrivateChannelActionController* c, const ChatStat
         u32 count = 0;
         for (u32 i = 0; i < recipients.count && count < kPrivateChannelRecipientMaximum; ++i)
             if (recipients[i] != state.self_user_id) people[count++] = recipients[i];
-        if (count + users.count > kPrivateChannelRecipientMaximum) return false;
+        // capacity_left keeps count + users.count within kPrivateChannelRecipientMaximum.
         copy_bytes(people + count, users.data, users.count * sizeof(u64));
         return private_channel_begin_create(c, state, {people, count + users.count});
     }
@@ -163,15 +163,13 @@ bool private_channel_begin_remove(PrivateChannelActionController* c, const ChatS
 }
 bool private_channel_begin_rename(PrivateChannelActionController* c, const ChatStateStore& state,
                                   u64 channel_id, Utf8View name) noexcept {
-    if (!startable(c, state) || !private_channel_is_group(state, channel_id) ||
-        name.bytes > kPrivateChannelNameMaximumBytes || (name.bytes && !name.data))
+    if (!startable(c, state) || !private_channel_is_group(state, channel_id) || !private_channel_name_valid(name))
         return false;
     PrivateChannelActionRequest request{};
     request.kind = PrivateChannelActionKind::rename;
     request.channel_id = channel_id;
     if (name.bytes) copy_bytes(request.name, name.data, name.bytes);
     request.name_bytes = static_cast<u16>(name.bytes);
-    if (!private_channel_action_valid(request)) return false;
     start(c, state, request);
     return true;
 }

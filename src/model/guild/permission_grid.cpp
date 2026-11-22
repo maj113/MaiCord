@@ -95,7 +95,7 @@ void permission_tri_set(PermissionSet* allow, PermissionSet* deny, PermissionSet
 
 bool permission_overwrite_draft_load(PermissionOverwriteDraft* draft,
                                      ConstSlice<PermissionOverwriteRecord> source) noexcept {
-    if (!draft || source.count > kPermissionOverwriteDraftMaximum || (source.count && !source.data))
+    if (source.count > kPermissionOverwriteDraftMaximum || (source.count && !source.data))
         return false;
     for (u32 i = 0; i < source.count; ++i)
         draft->entries[i] = source[i];
@@ -111,7 +111,7 @@ u32 permission_overwrite_draft_find(const PermissionOverwriteDraft& draft, u64 i
 }
 
 bool permission_overwrite_draft_add(PermissionOverwriteDraft* draft, u64 id, u8 type) noexcept {
-    if (!draft || !id || type > 1 || draft->count >= kPermissionOverwriteDraftMaximum ||
+    if (!id || type > 1 || draft->count >= kPermissionOverwriteDraftMaximum ||
         permission_overwrite_draft_find(*draft, id) != ~0u)
         return false;
     draft->entries[draft->count++] = {id, 0, 0, type};
@@ -119,7 +119,7 @@ bool permission_overwrite_draft_add(PermissionOverwriteDraft* draft, u64 id, u8 
 }
 
 bool permission_overwrite_draft_remove(PermissionOverwriteDraft* draft, u64 id) noexcept {
-    const u32 index = draft ? permission_overwrite_draft_find(*draft, id) : ~0u;
+    const u32 index = permission_overwrite_draft_find(*draft, id);
     if (index == ~0u)
         return false;
     sorted_erase_gap(draft->entries, draft->count, index);
@@ -129,8 +129,8 @@ bool permission_overwrite_draft_remove(PermissionOverwriteDraft* draft, u64 id) 
 
 bool permission_overwrite_draft_set(PermissionOverwriteDraft* draft, u64 id, PermissionSet bit,
                                     PermissionTriState state) noexcept {
-    const u32 index = draft ? permission_overwrite_draft_find(*draft, id) : ~0u;
-    if (index == ~0u || !bit || state > PermissionTriState::allow)
+    const u32 index = permission_overwrite_draft_find(*draft, id);
+    if (index == ~0u)
         return false;
     // Packed records are copied out and back to avoid unaligned references.
     auto entry = draft->entries[index];
@@ -159,8 +159,6 @@ bool permission_overwrite_draft_equal(const PermissionOverwriteDraft& draft,
 
 u32 permission_overwrite_draft_write(const PermissionOverwriteDraft& draft,
                                      Slice<PermissionOverwriteWrite> output) noexcept {
-    if (draft.count > output.count || (draft.count && !output.data))
-        return ~0u;
     for (u32 i = 0; i < draft.count; ++i) {
         const auto entry = draft.entries[i];
         output[i] = {entry.id, entry.allow, entry.deny, entry.type};

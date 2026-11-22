@@ -140,8 +140,6 @@ const UserAppearanceRecord* user_appearance_find_activity(const UserAppearanceSt
     return nullptr;
 }
 void user_appearance_expand(const UserAppearanceRecord& r, UserAppearance* output) noexcept {
-    if (!output)
-        return;
     UserAppearance& a = *output;
     reset_value(&a);
     a.user_id = r.user_id;
@@ -170,7 +168,7 @@ void user_appearance_expand(const UserAppearanceRecord& r, UserAppearance* outpu
     get(a.status_emoji, r.status_emoji);
 }
 bool user_appearance_upsert(UserAppearanceStore* s, const UserAppearance& v) noexcept {
-    if (!s || !v.user_id || (v.fields & ~1023u))
+    if (!v.user_id || (v.fields & ~1023u))
         return false;
     if (!v.fields)
         return true;
@@ -462,8 +460,6 @@ bool user_appearance_read(const ConstSlice<u8>& input, u64 user, u64 guild, User
 }
 bool user_appearance_read_prefix(ConstSlice<u8> input, u64 user, u64 guild, UserAppearance* output,
                                  u32* consumed) noexcept {
-    if (!consumed)
-        return false;
     *consumed = 0;
     return read_appearance(input, user, guild, output, consumed);
 }

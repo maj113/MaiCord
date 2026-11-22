@@ -139,8 +139,6 @@ GuildEmojiCounts guild_emoji_counts(const ChatStateStore& store, u64 guild_id) n
 }
 
 u32 guild_emoji_name_from_filename(Utf8View filename, Slice<char> output) noexcept {
-    if (!output.data || output.count < kGuildEmojiNameMaximum)
-        return 0;
     u32 start = 0, end = filename.bytes;
     for (u32 i = 0; i < filename.bytes; ++i)
         if (filename.data[i] == '\\' || filename.data[i] == '/')
@@ -181,7 +179,7 @@ bool guild_safety_equal(const GuildSafetyDraft& a, const GuildSafetyDraft& b) no
 
 bool guild_safety_patch(const GuildSafetyDraft& baseline, const GuildSafetyDraft& draft,
                         GuildSettingsPatch* patch) noexcept {
-    if (!patch || draft.verification_level > 4 || draft.explicit_content_filter > 2)
+    if (draft.verification_level > 4 || draft.explicit_content_filter > 2)
         return false;
     GuildSettingsPatch value{};
     if (baseline.verification_level != draft.verification_level) {
@@ -260,8 +258,6 @@ PermissionSet guild_settings_grantable(const GuildSettingsAccess& access) noexce
 
 u32 guild_settings_sorted_roles(const ChatStateStore& store, u64 guild_id,
                                 Slice<const RoleRecord*> output) noexcept {
-    if (!output.data || !output.count)
-        return 0;
     const auto roles = chat_state_store_guild_roles(store, guild_id);
     u32 count = 0;
     const RoleRecord* everyone = nullptr;
@@ -383,8 +379,6 @@ bool guild_server_profile_private(const GuildServerProfileDraft& draft) noexcept
 }
 
 void guild_server_profile_set_private(GuildServerProfileDraft* draft, const GuildAdminProfile& stored, bool on) noexcept {
-    if (!draft)
-        return;
     draft->profile.visibility_known = true;
     draft->profile.visibility =
         on ? kVisibilityRestricted
@@ -407,7 +401,7 @@ u32 guild_server_profile_banner_choice(const GuildServerProfileDraft& draft) noe
 }
 
 void guild_server_profile_set_banner_choice(GuildServerProfileDraft* draft, u32 choice) noexcept {
-    if (!draft || choice > kGuildProfileBannerColorCount)
+    if (choice > kGuildProfileBannerColorCount)
         return;
     auto& p = draft->profile;
     const Utf8View color =
@@ -420,15 +414,13 @@ void guild_server_profile_set_banner_choice(GuildServerProfileDraft* draft, u32 
 }
 
 void guild_server_profile_set_custom_banner(GuildServerProfileDraft* draft) noexcept {
-    if (!draft)
-        return;
     draft->custom_banner = GuildProfileImageEdit::replace;
     draft->profile.custom_banner_bytes = 0;
     draft->profile.custom_banner_known = true;
 }
 
 bool guild_server_profile_set_trait_label(GuildServerProfileDraft* draft, u32 slot, Utf8View label) noexcept {
-    if (!draft || slot >= kGuildAdminProfileTraits || !utf8_validate(label).valid)
+    if (!utf8_validate(label).valid)
         return false;
     auto& t = draft->profile.traits[slot];
     u32 bytes = 0, codepoints = 0;
@@ -445,8 +437,7 @@ bool guild_server_profile_set_trait_label(GuildServerProfileDraft* draft, u32 sl
 }
 
 bool guild_server_profile_set_trait_emoji(GuildServerProfileDraft* draft, u32 slot, Utf8View name) noexcept {
-    if (!draft || slot >= kGuildAdminProfileTraits || name.bytes > kGuildAdminProfileEmojiNameBytes ||
-        !utf8_validate(name).valid)
+    if (name.bytes > kGuildAdminProfileEmojiNameBytes || !utf8_validate(name).valid)
         return false;
     auto& t = draft->profile.traits[slot];
     copy_bytes(t.emoji_name, name.data, name.bytes);
@@ -457,8 +448,7 @@ bool guild_server_profile_set_trait_emoji(GuildServerProfileDraft* draft, u32 sl
 }
 
 void guild_server_profile_clear_trait(GuildServerProfileDraft* draft, u32 slot) noexcept {
-    if (draft && slot < kGuildAdminProfileTraits)
-        reset_value(&draft->profile.traits[slot]);
+    reset_value(&draft->profile.traits[slot]);
 }
 
 bool guild_server_profile_has_game(const GuildServerProfileDraft& draft, u64 application_id) noexcept {
@@ -469,7 +459,7 @@ bool guild_server_profile_has_game(const GuildServerProfileDraft& draft, u64 app
 }
 
 bool guild_server_profile_toggle_game(GuildServerProfileDraft* draft, u64 application_id) noexcept {
-    if (!draft || !application_id)
+    if (!application_id)
         return false;
     auto& p = draft->profile;
     for (u32 i = 0; i < p.game_count; ++i) {
@@ -490,8 +480,7 @@ bool guild_server_profile_write(const GuildServerProfileDraft& draft, Utf8View i
                                 const ChatStateStore& state, u64 guild_id, Slice<GuildServerProfileTraitWrite> traits,
                                 GuildServerProfileWrite* write) noexcept {
     const auto& p = draft.profile;
-    if (!write || !traits.data || traits.count < kGuildAdminProfileTraits ||
-        (draft.icon == GuildProfileImageEdit::replace && !icon_uri.bytes) ||
+    if ((draft.icon == GuildProfileImageEdit::replace && !icon_uri.bytes) ||
         (draft.custom_banner == GuildProfileImageEdit::replace && !custom_banner_uri.bytes) ||
         (p.name_known && !guild_server_name_valid({p.name, p.name_bytes})) ||
         !guild_server_description_valid({p.description, p.description_bytes}))
@@ -556,7 +545,7 @@ bool guild_boost_equal(const GuildBoostDraft& a, const GuildBoostDraft& b) noexc
 
 bool guild_boost_patch(const GuildBoostDraft& draft, Utf8View banner_hash, Utf8View splash_hash, Utf8View banner_uri,
                        Utf8View splash_uri, GuildSettingsPatch* patch) noexcept {
-    if (!patch || (draft.banner == GuildProfileImageEdit::replace && !banner_uri.bytes) ||
+    if ((draft.banner == GuildProfileImageEdit::replace && !banner_uri.bytes) ||
         (draft.splash == GuildProfileImageEdit::replace && !splash_uri.bytes))
         return false;
     const auto image = [](GuildProfileImageEdit edit, Utf8View hash, Utf8View uri) noexcept {
@@ -572,8 +561,6 @@ bool guild_boost_patch(const GuildBoostDraft& draft, Utf8View banner_hash, Utf8V
 }
 
 u32 guild_vanity_code_input(Utf8View typed, Slice<char> output) noexcept {
-    if (!output.data)
-        return 0;
     u32 bytes = 0, units = 0;
     for (u32 i = 0; i < typed.bytes;) {
         const u8 lead = static_cast<u8>(typed.data[i]);
@@ -670,14 +657,14 @@ void guild_engagement_set_message(GuildEngagementDraft* draft, u32 suppress_bit,
 }
 
 void guild_engagement_add_feature(GuildEngagementDraft* draft, u64 bit) noexcept {
-    if (!draft || !bit || (draft->features & bit) || draft->appended_count >= 4)
+    if ((draft->features & bit) || draft->appended_count >= 4)
         return;
     draft->features |= bit;
     draft->appended[draft->appended_count++] = bit;
 }
 
 void guild_engagement_remove_feature(GuildEngagementDraft* draft, u64 bit) noexcept {
-    if (!draft || !bit || !(draft->features & bit))
+    if (!(draft->features & bit))
         return;
     draft->features &= ~bit;
     u32 kept = 0;
@@ -708,7 +695,7 @@ bool guild_engagement_patch(const GuildEngagementDraft& baseline, const GuildEng
     bool timeout = false;
     for (const u32 value : kGuildAfkTimeouts)
         timeout = timeout || value == draft.afk_timeout_seconds;
-    if (!patch || draft.default_notifications > 1 || !timeout)
+    if (draft.default_notifications > 1 || !timeout)
         return false;
     GuildSettingsPatch value{};
     value.fields = guild_settings_patch_afk_channel | guild_settings_patch_afk_timeout |
@@ -760,8 +747,6 @@ bool guild_engagement_patch(const GuildEngagementDraft& baseline, const GuildEng
 }
 
 void guild_engagement_widget_patch(const GuildEngagementDraft& draft, GuildSettingsPatch* patch) noexcept {
-    if (!patch)
-        return;
     reset_value(patch);
     patch->fields = guild_settings_patch_widget;
     patch->widget_enabled = draft.widget_enabled;
@@ -796,7 +781,7 @@ bool guild_role_name_valid(Utf8View text) noexcept {
 }
 
 bool guild_role_patch(const GuildRoleDraft& baseline, const GuildRoleDraft& draft, RolePatch* patch) noexcept {
-    if (!patch || baseline.role_id != draft.role_id || !draft.role_id)
+    if (baseline.role_id != draft.role_id || !draft.role_id)
         return false;
     RolePatch value{};
     if (!same_bytes(baseline.name, baseline.name_bytes, draft.name, draft.name_bytes)) {
@@ -829,8 +814,6 @@ bool guild_role_patch(const GuildRoleDraft& baseline, const GuildRoleDraft& draf
 
 bool guild_role_toggle(GuildRoleDraft* draft, const GuildSettingsAccess& access, PermissionSet bit,
                        bool enabled) noexcept {
-    if (!draft || !bit || (bit & ~kPermissionKnownMask))
-        return false;
     // Removing is always allowed on an editable role; granting needs the bit.
     if (enabled && (guild_settings_grantable(access) & bit) != bit)
         return false;

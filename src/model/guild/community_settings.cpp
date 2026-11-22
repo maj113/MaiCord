@@ -54,8 +54,6 @@ constexpr auto kDefaultQuestion = utf8_literal("Why do you want to join our serv
 
 bool guild_features_edit(ConstSlice<u8> stored_names, u16 stored_count, u64 remove, ConstSlice<u64> add,
                          Slice<u8> names, GuildSettingsPatch* patch) noexcept {
-    if (!patch || !names.data || (stored_names.count && !stored_names.data) || (add.count && !add.data))
-        return false;
     u32 used = 0, count = 0, cursor = 0, stored = 0;
     u64 kept = 0;
     const auto append = [&](Utf8View text) noexcept {
@@ -115,8 +113,6 @@ GuildDiscoveryStanding guild_discovery_standing(u64 features, const GuildDiscove
 }
 
 void guild_access_form_read(const GuildVerificationForm* form, GuildAccessForm* output) noexcept {
-    if (!output)
-        return;
     reset_value(output);
     output->terms_position = kGuildAccessNoTerms;
     set_text(&output->terms_label, kTermsLabel);
@@ -170,7 +166,7 @@ u32 guild_access_field_count(const GuildAccessForm& form) noexcept {
 }
 
 bool guild_access_set_rule(GuildAccessForm* form, u32 index, Utf8View text) noexcept {
-    if (!form || index > form->rule_count || index >= kGuildVerificationRuleMaximum ||
+    if (index > form->rule_count || index >= kGuildVerificationRuleMaximum ||
         !line_valid(text, kGuildVerificationLabelCodepoints))
         return false;
     // The rules field takes a place of its own among the five.
@@ -186,7 +182,7 @@ bool guild_access_set_rule(GuildAccessForm* form, u32 index, Utf8View text) noex
 }
 
 bool guild_access_remove_rule(GuildAccessForm* form, u32 index) noexcept {
-    if (!form || index >= form->rule_count)
+    if (index >= form->rule_count)
         return false;
     for (u32 i = index; i + 1 < form->rule_count; ++i)
         copy_value(&form->rules[i], form->rules[i + 1]);
@@ -197,7 +193,7 @@ bool guild_access_remove_rule(GuildAccessForm* form, u32 index) noexcept {
 bool guild_access_set_question(GuildAccessForm* form, u32 index, GuildVerificationFieldType type, Utf8View label,
                                ConstSlice<Utf8View> choices) noexcept {
     const bool choice = type == GuildVerificationFieldType::multiple_choice;
-    if (!form || index > form->question_count ||
+    if (index > form->question_count ||
         (type != GuildVerificationFieldType::text_input && type != GuildVerificationFieldType::paragraph && !choice) ||
         !line_valid(label, kGuildVerificationLabelCodepoints) ||
         (choice ? !choices.count || choices.count > kGuildVerificationChoiceMaximum || !choices.data
@@ -223,7 +219,7 @@ bool guild_access_set_question(GuildAccessForm* form, u32 index, GuildVerificati
 }
 
 bool guild_access_remove_question(GuildAccessForm* form, u32 index) noexcept {
-    if (!form || index >= form->question_count)
+    if (index >= form->question_count)
         return false;
     for (u32 i = index; i + 1 < form->question_count; ++i)
         copy_value(&form->questions[i], form->questions[i + 1]);
@@ -234,7 +230,7 @@ bool guild_access_remove_question(GuildAccessForm* form, u32 index) noexcept {
 }
 
 void guild_access_apply_defaults(GuildAccessForm* form) noexcept {
-    if (!form || form->question_count)
+    if (form->question_count)
         return;
     guild_access_set_question(form, 0, GuildVerificationFieldType::text_input, kDefaultQuestion, {});
 }
@@ -258,8 +254,6 @@ bool guild_access_verification_dirty(u64 features, const GuildAccessForm& stored
 
 u32 guild_access_fields(const GuildAccessForm& form, GuildJoinType type, Slice<GuildVerificationFieldWrite> output,
                         Slice<Utf8View> values) noexcept {
-    if (!output.data || !values.data)
-        return ~0u;
     u32 count = 0, used = 0;
     const auto terms = [&](Utf8View label) noexcept {
         if (!form.rule_count)
@@ -309,7 +303,7 @@ bool guild_community_safety_met(u8 verification_level, u8 explicit_content_filte
 
 bool guild_community_enable_patch(const GuildCommunitySetup& setup, ConstSlice<u8> stored_names, u16 stored_count,
                                   Slice<u8> names, GuildSettingsPatch* patch) noexcept {
-    if (!patch || !setup.public_updates_channel_id)
+    if (!setup.public_updates_channel_id)
         return false;
     GuildSettingsPatch value{};
     const u64 community = guild_feature_community;
@@ -355,16 +349,12 @@ bool guild_community_overview_equal(const GuildCommunityOverview& a, const Guild
 }
 
 void guild_community_overview_disable(GuildCommunityOverview* overview) noexcept {
-    if (!overview)
-        return;
     overview->community = false;
     overview->rules_channel_id = overview->public_updates_channel_id = 0;
 }
 
 bool guild_community_overview_patch(const GuildCommunityOverview& draft, ConstSlice<u8> stored_names,
                                     u16 stored_count, Slice<u8> names, GuildSettingsPatch* patch) noexcept {
-    if (!patch)
-        return false;
     GuildSettingsPatch value{};
     const u64 remove =
         draft.community ? 0 : guild_feature_community | guild_feature_discoverable | guild_feature_preview_enabled;

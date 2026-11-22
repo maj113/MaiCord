@@ -8,10 +8,6 @@ namespace {
 u32 lower_bound(const PrivateChannelStore& store, u64 id) noexcept {
     return sorted_lower_bound(store.count, [&](u32 at) noexcept { return store.records[at].id < id; });
 }
-bool valid(const PrivateChannelStore& store) noexcept {
-    return store.records.data && store.recipients.data && store.count <= store.records.count &&
-        store.recipient_count <= store.recipients.count;
-}
 bool icon_valid(Utf8View icon) noexcept {
     if (!icon.bytes) return true;
     if (!icon.data || (icon.bytes != 32 && icon.bytes != 34)) return false;
@@ -34,8 +30,6 @@ void erase_recipients(PrivateChannelStore* store, u32 index) noexcept {
 } // namespace
 
 bool private_channel_store_initialize_owned(PrivateChannelStore* store, u32 records, u32 recipients) noexcept {
-    if (!store || !records || !recipients || records > 65'535 || recipients > 1'000'000 ||
-        store->record_backing.base || store->recipient_backing.base || store->nickname_backing.base) return false;
     reset_value(store);
     if (!arena_initialize(&store->record_backing, static_cast<usize>(records) * sizeof(PrivateChannelRecord), 0, 4096,
                           ArenaTag::model) ||
@@ -58,7 +52,6 @@ void private_channel_store_release(PrivateChannelStore* store) noexcept {
     reset_value(store);
 }
 void private_channel_store_clear(PrivateChannelStore* store) noexcept {
-    if (!store) return;
     store->count = store->recipient_count = 0;
     store->nickname_count = 0;
     store->sort_sequence = 0;
@@ -75,18 +68,15 @@ bool private_channel_store_touch_sort(PrivateChannelStore* store, u64 id) noexce
     return true;
 }
 const PrivateChannelRecord* private_channel_store_find(const PrivateChannelStore& store, u64 id) noexcept {
-    if (!valid(store) || !id) return nullptr;
+    if (!id) return nullptr;
     const u32 index = lower_bound(store, id);
     return index < store.count && store.records[index].id == id ? &store.records[index] : nullptr;
 }
 static bool private_channel_store_can_replace(const PrivateChannelStore& store,
                                               const PrivateChannelInput& input) noexcept {
-    if (!valid(store) || !input.id || (input.icon_known && !icon_valid(input.icon)) ||
-        input.recipients.count > kPrivateRecipientMaximum ||
-        (input.recipients.count && !input.recipients.data)) return false;
+    if (!input.id || (input.icon_known && !icon_valid(input.icon)) ||
+        input.recipients.count > kPrivateRecipientMaximum) return false;
     const auto* old = private_channel_store_find(store, input.id);
-    if (old && (old->recipient_offset > store.recipient_count ||
-        old->recipient_count > store.recipient_count - old->recipient_offset)) return false;
     if (!old && store.count == store.records.count) return false;
     if (!input.recipients_known) return true;
     if (input.recipients.count > store.recipients.count - (store.recipient_count - (old ? old->recipient_count : 0))) return false;
@@ -97,7 +87,7 @@ static bool private_channel_store_can_replace(const PrivateChannelStore& store,
     return true;
 }
 bool private_channel_store_prepare(PrivateChannelStore* store, const PrivateChannelInput& input) noexcept {
-    if (!store || !private_channel_store_can_replace(*store, input)) return false;
+    if (!private_channel_store_can_replace(*store, input)) return false;
     const auto* old = private_channel_store_find(*store, input.id);
     const usize record_bytes = static_cast<usize>(store->count + (old ? 0 : 1)) * sizeof(PrivateChannelRecord);
     const usize recipient_bytes = static_cast<usize>(store->recipient_count +
@@ -166,7 +156,7 @@ bool private_channel_store_replace(PrivateChannelStore* store, const PrivateChan
     return true;
 }
 bool private_channel_store_set_request(PrivateChannelStore* store, u64 id, u8 request_flags) noexcept {
-    const auto* found = store ? private_channel_store_find(*store, id) : nullptr;
+    const auto* found = private_channel_store_find(*store, id);
     if (!found) return false;
     auto& record = store->records[static_cast<u32>(found - store->records.data)];
     if (record.request_flags == request_flags) return true;
@@ -176,7 +166,7 @@ bool private_channel_store_set_request(PrivateChannelStore* store, u64 id, u8 re
     return true;
 }
 bool private_channel_store_clear_safety_warning(PrivateChannelStore* store, u64 id, u64 warning_id) noexcept {
-    const auto* found = store ? private_channel_store_find(*store, id) : nullptr;
+    const auto* found = private_channel_store_find(*store, id);
     if (!found) return false;
     auto& record = store->records[static_cast<u32>(found - store->records.data)];
     if (!record.safety_warning_id || (warning_id && record.safety_warning_id != warning_id)) return true;
@@ -188,7 +178,6 @@ bool private_channel_store_clear_safety_warning(PrivateChannelStore* store, u64 
 }
 PrivateRequestCounts private_channel_store_request_counts(const PrivateChannelStore& store) noexcept {
     PrivateRequestCounts counts{};
-    if (!valid(store)) return counts;
     for (u32 i = 0; i < store.count; ++i) {
         const u8 flags = store.records[i].request_flags;
         counts.spam += (flags & private_request_spam) != 0;
@@ -197,7 +186,7 @@ PrivateRequestCounts private_channel_store_request_counts(const PrivateChannelSt
     return counts;
 }
 bool private_channel_store_remove(PrivateChannelStore* store, u64 id) noexcept {
-    const auto* found = store ? private_channel_store_find(*store, id) : nullptr;
+    const auto* found = private_channel_store_find(*store, id);
     if (!found) return false;
     const u32 index = static_cast<u32>(found - store->records.data);
     if (store->nickname_count && !private_channel_store_replace_nicknames(store, id, {})) return false;
@@ -209,8 +198,6 @@ bool private_channel_store_remove(PrivateChannelStore* store, u64 id) noexcept {
 }
 ConstSlice<u64> private_channel_store_recipients(const PrivateChannelStore& store,
     const PrivateChannelRecord& record) noexcept {
-    if (!valid(store) || record.recipient_offset > store.recipient_count ||
-        record.recipient_count > store.recipient_count - record.recipient_offset) return {};
     return {store.recipients.data + record.recipient_offset, record.recipient_count};
 }
 namespace {
@@ -222,8 +209,7 @@ u32 nickname_first(const PrivateChannelStore& store, u64 channel_id, u64 user_id
 }
 }
 Utf8View private_channel_store_nickname(const PrivateChannelStore& store, u64 channel_id, u64 user_id) noexcept {
-    if (!channel_id || !user_id || store.nickname_count > store.nicknames.count ||
-        (store.nickname_count && !store.nicknames.data)) return {};
+    if (!channel_id || !user_id) return {};
     const u32 index = nickname_first(store, channel_id, user_id);
     if (index == store.nickname_count) return {};
     const auto& record = store.nicknames[index];
@@ -231,9 +217,7 @@ Utf8View private_channel_store_nickname(const PrivateChannelStore& store, u64 ch
 }
 bool private_channel_store_prepare_nicknames(PrivateChannelStore* store, u64 channel_id,
     ConstSlice<PrivateNicknameInput> names) noexcept {
-    if (!store || !valid(*store) || !channel_id || names.count > kPrivateRecipientMaximum ||
-        (!names.data && names.count) || store->nickname_count > store->nicknames.count ||
-        (!store->nicknames.data && (names.count || store->nickname_count))) return false;
+    if (!channel_id || names.count > kPrivateRecipientMaximum) return false;
     for (u32 i = 0; i < names.count; ++i) {
         if (!names[i].user_id || !names[i].name.data || !names[i].name.bytes || names[i].name.bytes > 128 ||
             !utf8_validate(names[i].name).valid) return false;
@@ -249,11 +233,10 @@ bool private_channel_store_prepare_nicknames(PrivateChannelStore* store, u64 cha
 }
 bool private_channel_store_nicknames(const PrivateChannelStore& store, u64 channel_id,
     Slice<PrivateNicknameInput> output, u32* count) noexcept {
-    if (!count || !channel_id || store.nickname_count > store.nicknames.count ||
-        (store.nickname_count && !store.nicknames.data)) return false;
+    if (!channel_id) return false;
     *count = 0;
     for (u32 i = nickname_first(store, channel_id); i < store.nickname_count && store.nicknames[i].channel_id == channel_id; ++i) {
-        if (!output.data || *count == output.count) return false;
+        if (*count == output.count) return false;
         const auto& item = store.nicknames[i];
         output[(*count)++] = {item.user_id, {item.name, item.bytes}};
     }

@@ -158,12 +158,13 @@ inline bool loop_fail(StorePreviews* p, u32 slot) noexcept {
     return false;
 }
 
-// Starts, fetches or advances the loop of `in.loop_slot`. Returns when its next frame is due, 0 for none.
+// Starts, fetches or advances the loop of `in.loop_slot`. Returns when its next frame is due, 0 for none. Its one
+// caller, store_previews_pump, runs only with an atlas.
 u64 pump_loop(StorePreviews* p, const StorePreviewPump& in) noexcept {
     const u32 wanted = in.loop_slot;
     if (p->loop && p->loop->slot != wanted)
         loop_stop(p);
-    if (!wanted || !atlas()) {
+    if (!wanted) {
         p->failed_loop_slot = 0;
         return 0;
     }

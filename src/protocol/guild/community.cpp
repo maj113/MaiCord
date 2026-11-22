@@ -63,7 +63,7 @@ struct Scan {
     bool ok;
 };
 Scan scan(const Utf8View& body, const Slice<u32>& scratch) noexcept {
-    if (!body.data || !body.bytes || body.bytes > kGuildCommunityMaximumResponseBytes || !scratch.data ||
+    if (!body.bytes || body.bytes > kGuildCommunityMaximumResponseBytes || !scratch.data ||
         !scratch.count)
         return {{}, false};
     const auto scanned = json_scan_structurals_avx1(body, scratch);
@@ -510,7 +510,7 @@ bool guild_community_request_valid(const GuildCommunityRequest& request) noexcep
                        op == GuildCommunityOperation::template_delete;
     if (op == GuildCommunityOperation::space_hydrate) {
         // Widget ids joined by "&widget_ids=": letters, digits and that separator only.
-        if (!request.code.data || !request.code.bytes)
+        if (!request.code.bytes)
             return false;
         for (u32 i = 0; i < request.code.bytes; ++i)
             if (!ascii_is_alnum(request.code.data[i]) && request.code.data[i] != '&' && request.code.data[i] != '=' &&
@@ -601,8 +601,7 @@ static_assert(sizeof(kCommunityRoutes) / sizeof(kCommunityRoutes[0]) ==
 GuildCommunityWriteResult guild_community_write_target(const GuildCommunityRequest& request,
                                                        Slice<u8> target, Utf8View session_id) noexcept {
     GuildCommunityWriteResult result{};
-    if (!guild_community_request_valid(request) || !target.data || (session_id.bytes && !session_id.data) ||
-        session_id.bytes > 64) {
+    if (!guild_community_request_valid(request) || session_id.bytes > 64) {
         result.error = GuildCommunityWriteError::invalid_input;
         return result;
     }
@@ -683,8 +682,6 @@ GuildCommunityOutcome guild_community_classify(u16 status) noexcept {
 // Verification decoding
 
 bool guild_verification_decode(Utf8View body, Slice<u32> scratch, GuildVerificationForm* output) noexcept {
-    if (!output)
-        return false;
     const auto s = scan(body, scratch);
     if (!s.ok)
         return false;
@@ -766,7 +763,7 @@ bool response_key(void* opaque, JsonString name, JsonValue) noexcept {
 u32 guild_verification_write_submit(Utf8View form_body, ConstSlice<GuildVerificationAnswer> answers,
                                     Slice<u32> scratch, Slice<u8> output) noexcept {
     const auto s = scan(form_body, scratch);
-    if (!s.ok || !output.data)
+    if (!s.ok)
         return 0;
     GuildVerificationForm form;
     if (!decode_form(s.document, &form) || !guild_verification_supported(form) ||
@@ -878,8 +875,6 @@ GuildApplicationStatus guild_verification_decode_status(Utf8View body, Slice<u32
 // Onboarding decoding
 
 bool guild_onboarding_decode(Utf8View body, Slice<u32> scratch, GuildOnboarding* output) noexcept {
-    if (!output)
-        return false;
     const auto s = scan(body, scratch);
     if (!s.ok)
         return false;
@@ -917,7 +912,7 @@ u32 guild_onboarding_flow_prompts(const GuildOnboarding& onboarding, Slice<u16> 
 }
 
 bool guild_onboarding_toggle(GuildOnboarding* onboarding, u32 prompt_index, u32 option_index) noexcept {
-    if (!onboarding || prompt_index >= onboarding->prompt_count)
+    if (prompt_index >= onboarding->prompt_count)
         return false;
     const auto& prompt = onboarding->prompts[prompt_index];
     if (option_index >= prompt.option_count)
@@ -943,7 +938,7 @@ bool guild_onboarding_prompt_answered(const GuildOnboarding& onboarding, u32 pro
 
 u32 guild_onboarding_write_responses(const GuildOnboarding& onboarding, u64 seen_ms, Slice<u8> output,
                                      bool editing) noexcept {
-    if (!output.data || onboarding.truncated)
+    if (onboarding.truncated)
         return 0;
     ProtocolWriter w{output, 0};
     bool ok = protocol_write(&w, "{\"onboarding_responses\":[");
@@ -990,7 +985,7 @@ u32 guild_onboarding_write_responses(const GuildOnboarding& onboarding, u64 seen
 bool scheduled_event_decode(const Utf8View& object, const Slice<u32>& scratch,
                             ScheduledEvent* output) noexcept {
     const auto s = scan(object, scratch);
-    if (!s.ok || !output)
+    if (!s.ok)
         return false;
     ScheduledEvent decoded{};
     ObjectReader r{{&s.document, 0}, &kEventSpec, reinterpret_cast<u8*>(&decoded), 0};
@@ -1029,7 +1024,7 @@ u32 scheduled_event_decode_list(Utf8View array, Slice<u32> scratch, ScheduledEve
 
 bool scheduled_event_decode_user(Utf8View object, Slice<u32> scratch, ScheduledEventUser* output) noexcept {
     const auto s = scan(object, scratch);
-    if (!s.ok || !output)
+    if (!s.ok)
         return false;
     ScheduledEventUser decoded{};
     UserPass pass{&decoded};
@@ -1094,7 +1089,7 @@ ScheduledEventCreateError scheduled_event_create_validate(const ScheduledEventCr
 }
 
 u32 scheduled_event_write_create(const ScheduledEventCreate& create, Slice<u8> output) noexcept {
-    if (!output.data || scheduled_event_create_validate(create, 0) != ScheduledEventCreateError::none)
+    if (scheduled_event_create_validate(create, 0) != ScheduledEventCreateError::none)
         return 0;
     ProtocolWriter w{output, 0};
     bool ok = protocol_write(&w, "{\"name\":", json_text(create.name), ",\"description\":",
@@ -1115,7 +1110,7 @@ u32 scheduled_event_write_create(const ScheduledEventCreate& create, Slice<u8> o
 }
 
 u32 scheduled_event_write_link(u64 guild_id, u64 event_id, Slice<char> output) noexcept {
-    if (!guild_id || !event_id || !output.data)
+    if (!guild_id || !event_id)
         return 0;
     ProtocolWriter w{{reinterpret_cast<u8*>(output.data), output.count}, 0};
     const bool ok = protocol_write(&w, "https://discord.com/events/", guild_id, '/', event_id);
@@ -1289,8 +1284,6 @@ MAICORD_FIELD_TABLE(kProfileSpec, kProfileDefs, profile_hook, kLenientCodes, kDe
 } // namespace
 
 bool guild_profile_decode(Utf8View body, Slice<u32> scratch, GuildProfile* output) noexcept {
-    if (!output)
-        return false;
     reset_value(output);
     const auto scanned = scan(body, scratch);
     if (!scanned.ok)
@@ -1467,14 +1460,13 @@ bool space_root(void* context, JsonString name, JsonValue value) noexcept {
 bool space_read(Utf8View body, Slice<u32> scratch, GuildSpace* space, bool hydrate) noexcept {
     const auto scanned = scan(body, scratch);
     SpaceRead s{&scanned.document, space, hydrate, false};
-    return space && scanned.ok &&
+    return scanned.ok &&
            json_visit_root_object(body, scanned.document.structurals, kDepth, space_root, &s).ok() && s.widgets;
 }
 } // namespace
 
 bool guild_space_decode(Utf8View body, Slice<u32> scratch, GuildSpace* output) noexcept {
-    if (output)
-        reset_value(output);
+    reset_value(output);
     if (!space_read(body, scratch, output, false))
         return false;
     auto& w = output->widgets;

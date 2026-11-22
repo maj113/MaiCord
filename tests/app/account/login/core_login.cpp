@@ -509,8 +509,7 @@ void test_login_scene() noexcept {
                           diagnostics[index].kind == UiLayoutDiagnosticKind::text_overflow;
     }
     expect(narrow_overflow, "login_scene_reports_unresolved_extreme_narrow_overflow");
-    expect(!login_scene_layout(nullptr, 1.0f, 1.0f) && !login_scene_layout(&scene, 0.0f, 1.0f),
-           "login_scene_reject_invalid_extent");
+    expect(!login_scene_layout(&scene, 0.0f, 1.0f), "login_scene_reject_invalid_extent");
     const u32 widget_capacity = scene.widgets.storage.count;
     scene.widgets.storage.count = 1;
     expect(!login_scene_layout(&scene, 1280.0f, 800.0f) && !scene.widgets.count &&

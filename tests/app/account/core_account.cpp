@@ -489,9 +489,6 @@ void test_account_host_contract() noexcept {
     const HMODULE first_module = host.module;
     const AccountHostResult reused = account_host_load(&host);
     const bool reused_same_module = host.module == first_module;
-    AccountHost unattached{};
-    const bool attach_refuses_missing =
-        account_host_attach(&unattached, nullptr).error == AccountHostError::invalid_input && !unattached.module;
     HANDLE handles[kAccountHostNotificationHandleCapacity] = {
         reinterpret_cast<HANDLE>(1), reinterpret_cast<HANDLE>(2), reinterpret_cast<HANDLE>(3)};
     const u32 empty_handles = account_host_notification_handles(&host, handles);
@@ -515,8 +512,7 @@ void test_account_host_contract() noexcept {
     const AccountLoginStatus invalid_login_stop = account_host_login_stop(&host, 1'000);
     const AccountHostStopResult stopped = account_host_stop(&host, 1'000);
 
-    expect(attach_refuses_missing &&
-               loaded.ok() && first_module == GetModuleHandleW(nullptr) && reused.ok() &&
+    expect(loaded.ok() && first_module == GetModuleHandleW(nullptr) && reused.ok() &&
                reused_same_module && host.module == nullptr && empty_handles == 0 &&
                handles[0] == reinterpret_cast<HANDLE>(1) &&
                first_observations == (account_host_observation_phase | account_host_observation_ready |
