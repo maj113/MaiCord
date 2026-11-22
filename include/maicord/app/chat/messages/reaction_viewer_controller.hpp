@@ -83,8 +83,7 @@ ReactionViewerControllerResult reaction_viewer_controller_submit_failed(
 ReactionViewerControllerResult reaction_viewer_controller_accept_response(
     ReactionViewerController* controller,
     const RestClientResponse& response, ConstSlice<u8> body,
-    Slice<u32> page_structural_scratch,
-    Slice<u32> object_structural_scratch) noexcept;
+    Slice<u32> page_structural_scratch) noexcept;
 ReactionViewerControllerResult reaction_viewer_controller_request_more(
     ReactionViewerController* controller) noexcept;
 u64 reaction_viewer_controller_next_wake_at(

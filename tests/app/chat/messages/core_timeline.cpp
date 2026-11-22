@@ -1695,9 +1695,7 @@ void test_message_history_sync() noexcept {
                 utf8_literal("RestUser")),
         "message_history_rest_bridge_decode_apply_complete");
 
-    const MessageStoreResult refresh_found = message_store_find(catchup_store, 50);
-    const MessageRecord* refresh_before =
-        refresh_found.ok() ? message_store_resolve(catchup_store, refresh_found.handle) : nullptr;
+    const MessageRecord* refresh_before = message_store_find_record(catchup_store, 50);
     const u32 refresh_revision = refresh_before ? refresh_before->revision : 0;
     GatewayMessageAttachment refreshed_attachment{};
     refreshed_attachment.id = 8'008;

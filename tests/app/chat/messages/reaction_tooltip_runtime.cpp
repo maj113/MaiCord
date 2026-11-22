@@ -74,7 +74,7 @@ void test_reaction_tooltip_owner(void (*check)(bool, const char*) noexcept) noex
     rejected.rate_limited = true;
     rejected.retry_at_ms = 9000;
     rejected.rejection.captcha = true;
-    application_reaction_tooltip_response(rejected, {}, {}, {});
+    application_reaction_tooltip_response(rejected, {}, {});
     application_reaction_tooltip_pump();
     check(tooltip_requests == 1 && hovered.phase == Phase::idle && !hovered.name_count,
           "late retired response drains without publication or another read");
@@ -89,7 +89,7 @@ void test_reaction_tooltip_owner(void (*check)(bool, const char*) noexcept) noex
         response.retry_at_ms = kind == 2 ? 0 : 9000;
         if (kind == 3)
             response.status_code = 403;
-        application_reaction_tooltip_response(response, {}, {}, {});
+        application_reaction_tooltip_response(response, {}, {});
         application_reaction_tooltip_pump();
         check(!reaction_pending() && !application_reaction_tooltip_query(&query) &&
                   tooltip_requests == before && hovered.phase == Phase::failed,

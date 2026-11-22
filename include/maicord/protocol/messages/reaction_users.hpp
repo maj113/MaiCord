@@ -53,9 +53,9 @@ ReactionUsersWriteResult write_reaction_users_target(
     MessageReactionType type, u64 after_user_id, u32 limit,
     Slice<u8> output) noexcept;
 
+// The page index serves the visits of every user object: no object is scanned again.
 ReactionUsersDecodeResult decode_reaction_users(
-    Utf8View input, Slice<u32> page_structural_scratch,
-    Slice<u32> object_structural_scratch, u32 maximum_depth,
+    Utf8View input, Slice<u32> page_structural_scratch, u32 maximum_depth,
     Slice<ReactionUser> users, Slice<char> text_output) noexcept;
 
 } // namespace maicord

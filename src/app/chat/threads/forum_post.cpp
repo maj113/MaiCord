@@ -310,13 +310,10 @@ bool forum_publish_starter(ForumOwner& owner) noexcept {
     const auto& receipt = owner.candidate;
     if (owner.starter_stale)
         return true; // Normal navigation/history owns the fresher observation.
-    const auto found = message_store_find(g_app.message_view.store, receipt.message_id);
-    if (found.ok()) {
-        const auto* message = message_store_resolve(g_app.message_view.store, found.handle);
-        return message && message->occupied && message->delivery == MessageDeliveryState::authoritative &&
+    if (const auto* message = message_store_find_record(g_app.message_view.store, receipt.message_id))
+        return message->delivery == MessageDeliveryState::authoritative &&
                message->channel_id == receipt.message_channel_id &&
                message->author_id == receipt.message_author_id;
-    }
     GatewayMessageEvent message{};
     message.id = receipt.message_id;
     message.channel_id = receipt.message_channel_id;

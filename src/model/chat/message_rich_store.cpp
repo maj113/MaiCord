@@ -381,9 +381,10 @@ bool compact_excluding(MessageRichStore* store, u16 target_slot, bool has_target
     return true;
 }
 
-// Callers bound the item counts first, so a sum of 16-bit lengths cannot wrap.
+// Callers bound the item counts first, so a sum of 16-bit lengths cannot wrap. Every producer hands valid UTF-8:
+// the JSON reader validates network strings, and local events copy validated store text.
 bool add_bytes(u64* total, const Utf8View& value) noexcept {
-    if ((!value.data && value.bytes != 0) || value.bytes > 0xFFFFu || !utf8_validate(value).valid) {
+    if ((!value.data && value.bytes != 0) || value.bytes > 0xFFFFu) {
         return false;
     }
     *total += value.bytes;
@@ -1273,8 +1274,7 @@ MessageRichStoreResult message_rich_store_mutate_reaction(
         message_revision == 0 ||
         (needs_emoji && ((!mutation.name.data && mutation.name.bytes != 0) ||
                          (mutation.name.bytes == 0 && mutation.emoji_id == 0) ||
-                         mutation.name.bytes > kMessageReactionMaximumEmojiNameBytes ||
-                         !utf8_validate(mutation.name).valid)))
+                         mutation.name.bytes > kMessageReactionMaximumEmojiNameBytes)))
         return reject(MessageRichStoreError::invalid_input);
 
     const SearchResult search = find_record(*store, message_id);

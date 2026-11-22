@@ -89,7 +89,7 @@ inline bool capture_audio_metadata(ApplicationVideo& video) noexcept {
     } else
         rich = video.source.snapshot ? message_rich_store_snapshot(*store, video.source.message_id)
                                      : message_rich_store_find(*store, video.source.message_id);
-    if (!store || !rich || rich->message_revision != video.source.revision ||
+    if (!rich || rich->message_revision != video.source.revision ||
         video.source.index >= rich->attachment_count)
         return false;
     const auto& attachment = rich->attachments[video.source.index];
@@ -357,17 +357,15 @@ bool inline_media_activation_consumed(const InlineMediaSource& source, InlineMed
         message = searched.message;
         store = searched.rich_store;
     } else {
-        const auto found = message_store_find(g_app.message_view.store, source.message_id);
-        message = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+        message = message_store_find_record(g_app.message_view.store, source.message_id);
     }
     auto* searched_scene = search ? application_search_scene() : nullptr;
     auto* scene = search ? (searched_scene && searched_scene == g_app.renderer.search_scene
                                ? ui_search_scene_message_scene(searched_scene)
                                : nullptr)
                         : &g_app.message_scene;
-    const auto* outer = message && store ? message_rich_store_find(*store, message->id) : nullptr;
-    const auto* rich =
-        source.snapshot && store ? message_rich_store_snapshot(*store, source.message_id) : outer;
+    const auto* outer = message ? message_rich_store_find(*store, message->id) : nullptr;
+    const auto* rich = source.snapshot ? message_rich_store_snapshot(*store, source.message_id) : outer;
     if (!scene || !message || !rich || message->revision != source.revision ||
         rich->message_revision != source.revision)
         return use != InlineMediaPolicyUse::retain;
@@ -742,13 +740,12 @@ bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed
         rich = searched.rich;
         store = searched.rich_store;
     } else {
-        const auto found = message_store_find(g_app.message_view.store, message_id);
-        message = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+        message = message_store_find_record(g_app.message_view.store, message_id);
         rich = message ? (snapshot ? message_rich_store_snapshot(*store, message_id)
                                    : message_rich_store_find(*store, message_id))
                        : nullptr;
     }
-    if (!message || !rich || !store || message->id != message_id || message->revision != revision ||
+    if (!message || !rich || message->id != message_id || message->revision != revision ||
         rich->message_revision != revision || !application_channel_readable(g_app, message->channel_id))
         return false;
     MediaAssetKey selected{};

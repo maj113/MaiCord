@@ -57,7 +57,8 @@ bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
         context->error_offset = value.source_offset;
         return false;
     }
-    GatewayMessageEvent message;
+    // Decoded in its page slot: it counts only once the visitor accepts it, and a failed page publishes nothing.
+    GatewayMessageEvent& message = context->messages[index];
     const Slice<char> content = remaining(context->content, context->transient_bytes);
     const Slice<GatewayMessageNamedUser> mentions = remaining(context->mention_users, context->mention_user_count);
     u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
@@ -115,7 +116,6 @@ bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
     // Role IDs were validated during decoding; this temporary role array
     // cannot escape the per-message visitor as a borrowed page view.
     reset_value(&message.mention_roles);
-    copy_value(&context->messages[index], message);
     context->page.oldest_id = message.id;
     context->page.count = index + 1;
     context->page.content_bytes += message.content.bytes;

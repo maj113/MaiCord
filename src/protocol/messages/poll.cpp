@@ -157,7 +157,7 @@ PollMessageDecodeResult decode_poll_message(Utf8View input,
     return result;
 }
 PollVotersDecodeResult decode_poll_voters(Utf8View input,Slice<u32> page_scratch,
-    Slice<u32> object_scratch,u32 depth,Slice<ReactionUser> users,Slice<char> text) noexcept {
+    u32 depth,Slice<ReactionUser> users,Slice<char> text) noexcept {
     PollVotersDecodeResult result{};
     if (!input.data || !input.bytes || input.bytes>kPollMaximumResponseBytes || !depth ||
         !page_scratch.data || !page_scratch.count || !users.data || !users.count) {
@@ -174,7 +174,7 @@ PollVotersDecodeResult decode_poll_voters(Utf8View input,Slice<u32> page_scratch
         result.error=PollDecodeError::json; result.read_error=read.error;
         result.error_offset=read.ok()?0:read.error_offset; return result;
     }
-    result.users=decode_reaction_users(members.users.source,page_scratch,object_scratch,depth,
+    result.users=decode_reaction_users(members.users.source,page_scratch,depth,
         {users.data,minimum(users.count,kReactionUsersMaximumPage)},text);
     if (!result.users.ok()) {
         result.error=PollDecodeError::users;

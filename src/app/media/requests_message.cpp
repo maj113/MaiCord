@@ -368,9 +368,7 @@ bool ApplicationMediaPump::message_image_source_is_current(const MediaAssetKey& 
         !application.account_ui || source_message_id == 0 || source_message_revision == 0) {
         return key.kind != MediaAssetKind::attachment && key.kind != MediaAssetKind::embed;
     }
-    const MessageStoreResult found = message_store_find(application.message_view.store, source_message_id);
-    const MessageRecord* message =
-        found.ok() ? message_store_resolve(application.message_view.store, found.handle) : nullptr;
+    const MessageRecord* message = message_store_find_record(application.message_view.store, source_message_id);
     if (!message || !application_channel_readable(application, message->channel_id) ||
         message->revision != source_message_revision ||
         message->channel_id != application.account_ui->active_channel_id) {
@@ -977,7 +975,7 @@ struct PathBuilder {
 
 Utf8View application_notification_avatar_uri(u64 user_id, Utf8View avatar_hash, Slice<char> storage) noexcept {
     const u32 variant = user_avatar_variant(avatar_hash);
-    if (!user_id || !variant || !storage.data || storage.count < 64 || !g_app.renderer.media_atlas)
+    if (!variant || !g_app.renderer.media_atlas)
         return {};
     const MediaAssetKey key = media_asset_user_avatar(user_id, variant, asset_hash_animated(avatar_hash));
     const MediaAtlasResult resident = media_atlas_peek(g_app.renderer.media_atlas, key);

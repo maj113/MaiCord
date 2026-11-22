@@ -306,8 +306,7 @@ bool store_create(LegacyFixture& f, Utf8View payload) noexcept {
         !gateway_client_event_as_message(routed, packed, scratch, &message) ||
         !message_reconcile_create(&f.store, message).ok())
         return false;
-    const auto found = message_store_find(f.store, message.id);
-    const auto* record = found.ok() ? message_store_resolve(f.store, found.handle) : nullptr;
+    const auto* record = message_store_find_record(f.store, message.id);
     return record && message_rich_store_apply(&f.rich, message.id, record->revision, message).ok();
 }
 bool legacy_command(const LegacyFixture& f, u64 message_id, Utf8View text,

@@ -14,6 +14,7 @@ namespace {
 
 inline constexpr u64 kWindowsToUnixSeconds = 11'644'473'600ull;
 HourCycle g_hour_cycle = HourCycle::automatic;
+u32 g_format_revision;
 inline constexpr u64 kFileTimeTicksPerSecond = 10'000'000ull;
 
 bool append_ascii(Slice<char> output, u32* used, const char* value, u32 bytes) noexcept {
@@ -115,10 +116,17 @@ bool timestamp_set_hour_cycle(HourCycle cycle) noexcept {
     if (static_cast<u8>(cycle) > static_cast<u8>(HourCycle::h23) || cycle == g_hour_cycle)
         return false;
     g_hour_cycle = cycle;
+    ++g_format_revision;
     return true;
 }
 HourCycle timestamp_hour_cycle() noexcept {
     return g_hour_cycle;
+}
+u32 timestamp_format_revision() noexcept {
+    return g_format_revision;
+}
+void timestamp_format_settings_changed() noexcept {
+    ++g_format_revision;
 }
 
 TimestampFormatResult format_profile_date(u64 seconds, Slice<char> output) noexcept {

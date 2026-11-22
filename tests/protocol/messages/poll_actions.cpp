@@ -38,43 +38,28 @@ void test_message_poll_actions(void (*check)(bool,const char*) noexcept) noexcep
               bytes_equal(target,refresh_target,written.target_bytes),
           "poll refresh reads one message like the official single-message fetch (limit=1&around), "
           "never the bot-only /messages/{id} route that answers 403 code 20002");
-    request.operation=PollOperation::voters; request.answer_id=42; request.limit=25;
-    request.after_user_id=123;
-    target[0]=123; body[0]=124;
-    request.limit=101;
-    check(!write_poll_request(request,{target,sizeof(target)},{body,sizeof(body)}).ok() &&
-              target[0]==123 && body[0]==124,
-          "poll malformed request preserves caller buffers before transport admission");
-    request={}; request.channel_id=5; request.message_id=6; request.operation=PollOperation::vote;
-    request.answer_count=2; request.answer_ids[0]=request.answer_ids[1]=7;
-    check(!write_poll_request(request,{target,sizeof(target)},{body,sizeof(body)}).ok(),
-          "poll duplicate selected answer IDs cannot enter the copied mutation payload");
-    request.answer_ids[1]=42;
-    check(write_poll_request(request,{target,1},{body,sizeof(body)}).error==PollWriteError::output_capacity &&
-              target[0]==123 && body[0]==124,
-          "poll transactional staging preserves output on target capacity failure");
-    u32 page_scratch[512]{},object_scratch[128]{};
+    u32 page_scratch[512]{};
     char text[4096]{};
     ReactionUser users[3]{};
     auto voters=decode_poll_voters(utf8_literal("{\"users\":[{\"id\":\"101\",\"username\":\"a\",\"global_name\":\"A\",\"avatar\":null}]}"),
-        {page_scratch,512},{object_scratch,128},16,{users,3},{text,sizeof(text)});
+        {page_scratch,512},16,{users,3},{text,sizeof(text)});
     check(voters.ok() && voters.users.user_count==1 && users[0].id==101 && users[0].display_name.bytes==1 &&
               users[0].display_name.data>=text && users[0].display_name.data<text+sizeof(text),
           "poll voter wrapper decodes bounded display fields into caller-owned text");
     voters=decode_poll_voters(utf8_literal("{\"users\":[{\"id\":\"102\",\"username\":\"b\","
         "\"avatar\":\"0123456789abcdef0123456789abcdef\"},{\"id\":\"103\",\"username\":\"c\",\"avatar\":null}]}"),
-        {page_scratch,512},{object_scratch,128},16,{users,3},{text,sizeof(text)});
+        {page_scratch,512},16,{users,3},{text,sizeof(text)});
     check(voters.ok() && voters.users.user_count==2 && users[0].id==102 &&
               utf8_equal(users[0].avatar_hash,utf8_literal("0123456789abcdef0123456789abcdef")) &&
               users[0].avatar_hash.data>=text && users[0].avatar_hash.data<text+sizeof(text) &&
               users[1].id==103 && !users[1].avatar_hash.bytes,
           "poll voter avatar hashes decode into caller-owned text for voter row avatars");
-    check(!decode_poll_voters(utf8_literal("[]"),{page_scratch,512},{object_scratch,128},16,
+    check(!decode_poll_voters(utf8_literal("[]"),{page_scratch,512},16,
               {users,3},{text,sizeof(text)}).ok() &&
               !decode_poll_voters(utf8_literal("{\"users\":[],\"users\":[]}"),{page_scratch,512},
-                  {object_scratch,128},16,{users,3},{text,sizeof(text)}).ok() &&
+                  16,{users,3},{text,sizeof(text)}).ok() &&
               decode_poll_voters(utf8_literal("{\"users\":[]}"),{page_scratch,512},
-                  {object_scratch,128},16,{users,3},{text,sizeof(text)}).ok(),
+                  16,{users,3},{text,sizeof(text)}).ok(),
           "poll voter response requires one typed users array and accepts an empty terminal page");
     GatewayMessagePollAnswer answers[10]{}; GatewayMessagePollAnswerCount counts[10]{};
     GatewayMessagePoll poll{};

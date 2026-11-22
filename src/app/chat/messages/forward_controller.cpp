@@ -56,13 +56,10 @@ bool message_forward_current(const MessageForwardController& c, QuickSwitcherSco
         !sources.state || sources.state->self_user_id != scope.self_user_id || !valid_source_channel(sources, c.source)) return false;
     // A loaded identity must still be the captured generation. Absence is
     // expected when another history window replaces the source timeline.
-    if (c.source.store) {
-        const auto found = message_store_find(*c.source.store, c.source.reference.message_id);
-        if (found.ok()) {
-            const auto* record = message_store_resolve(*c.source.store, c.source.handle);
-            if (!record || record->id != c.source.reference.message_id || record->channel_id != c.source.reference.channel_id ||
-                record->author_id != c.source.author_id || !message_forward_source_available(sources, *c.source.store, c.source.handle)) return false;
-        }
+    if (c.source.store && message_store_find_record(*c.source.store, c.source.reference.message_id)) {
+        const auto* record = message_store_resolve(*c.source.store, c.source.handle);
+        if (!record || record->id != c.source.reference.message_id || record->channel_id != c.source.reference.channel_id ||
+            record->author_id != c.source.author_id || !message_forward_source_available(sources, *c.source.store, c.source.handle)) return false;
     }
     return true;
 }

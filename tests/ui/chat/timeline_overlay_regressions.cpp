@@ -193,8 +193,7 @@ bool timeline_ready(TimelineFixture& f, UiRect viewport) noexcept {
 
 bool open_bar(TimelineFixture& f, MessageActionBar* bar, u32 row) noexcept {
     const auto& widget = f.scene.rows[row];
-    const auto found = message_store_find(f.store, widget.message_id);
-    const auto* record = found.ok() ? message_store_resolve(f.store, found.handle) : nullptr;
+    const auto* record = message_store_find_record(f.store, widget.message_id);
     return record && message_action_bar_open(bar, f.scene, {widget.message_id, widget.widget, widget.source_index},
                                              *record, &f.preferences)
                          .ok();
@@ -373,6 +372,56 @@ void test_add_reaction_picker(Check check) noexcept {
           "without the GIF/Sticker/Emoji selector");
     ui_media_picker_scene_release(&popout);
 }
+
+// The banner's "since" text with a fake clock zone and locale: `offset` minutes east of UTC and a one-letter format.
+struct SinceFake {
+    i64 offset;
+    char style;
+    u32 days, formats;
+};
+u64 since_fake_day(void* context, u64 now) noexcept {
+    auto& fake = *static_cast<SinceFake*>(context);
+    ++fake.days;
+    return (static_cast<u64>(static_cast<i64>(now) + fake.offset * 60) / 86'400) * 2048 + static_cast<u64>(fake.offset);
+}
+// "HH:MMs", then " on N" (the local day number) when `since` is on an earlier local day than `now`.
+u32 since_fake_format(void* context, u64 since, u64 now, Slice<char> output) noexcept {
+    auto& fake = *static_cast<SinceFake*>(context);
+    ++fake.formats;
+    const u64 local = static_cast<u64>(static_cast<i64>(since) + fake.offset * 60);
+    const u64 day = local / 86'400, today = static_cast<u64>(static_cast<i64>(now) + fake.offset * 60) / 86'400;
+    const u64 hour = local / 3600 % 24, minute = local / 60 % 60;
+    const char text[]{static_cast<char>('0' + hour / 10), static_cast<char>('0' + hour % 10), ':',
+                      static_cast<char>('0' + minute / 10), static_cast<char>('0' + minute % 10), fake.style,
+                      ' ', 'o', 'n', ' ', static_cast<char>('0' + day % 10)};
+    const u32 bytes = day == today ? 6u : 11u;
+    copy_bytes(output.data, text, bytes);
+    return bytes;
+}
+void test_unread_banner_since(Check check) noexcept {
+    SinceFake fake{0, 'a', 0, 0};
+    const UiUnreadBannerSinceSource source{&fake, since_fake_day, since_fake_format};
+    UiUnreadBannerSince cache{};
+    constexpr u64 since = 10 * 3600, midnight = 86'400;
+    u32 revision = 1;
+    const auto text = [&](u64 now) noexcept { return ui_unread_banner_since_text(&cache, since, now, revision, source); };
+    check(utf8_equal(text(midnight - 60), utf8_literal("10:00a")) && fake.formats == 1,
+          "unread banner since: the first frame formats the text");
+    check(utf8_equal(text(midnight - 30), utf8_literal("10:00a")) && fake.days == 1 && fake.formats == 1,
+          "unread banner since: frames in the same minute read no clock zone and format nothing");
+    check(utf8_equal(text(midnight), utf8_literal("10:00a on 0")) && fake.formats == 2,
+          "unread banner since: local midnight adds the date");
+    fake.offset = 60;
+    check(utf8_equal(text(midnight + 60), utf8_literal("11:00a on 0")) && fake.formats == 3,
+          "unread banner since: a UTC offset change formats the text again");
+    const u32 days = fake.days;
+    fake.style = 'b';
+    ++revision;
+    check(utf8_equal(text(midnight + 90), utf8_literal("11:00b on 0")) && fake.formats == 4 && fake.days == days,
+          "unread banner since: a format revision formats the text again in the same minute");
+    check(!ui_unread_banner_since_text(&cache, 0, midnight + 90, revision, source).bytes && fake.formats == 4,
+          "unread banner since: no first unread time gives no text");
+}
 } // namespace
 
 void test_timeline_overlay_regressions(void (*check)(bool, const char*) noexcept) noexcept {
@@ -382,5 +431,6 @@ void test_timeline_overlay_regressions(void (*check)(bool, const char*) noexcept
     test_action_bar_occlusion(check);
     test_hover_scroll_gate(check);
     test_add_reaction_picker(check);
+    test_unread_banner_since(check);
 }
 } // namespace maicord

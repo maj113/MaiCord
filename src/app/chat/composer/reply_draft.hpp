@@ -91,8 +91,7 @@ inline Utf8View application_reply_draft_label(Slice<char> storage) noexcept {
     if (!reply.message_id || !storage.data || storage.count < prefix.bytes) return {};
     Utf8View name = utf8_literal("a message");
     if (application_channel_readable(g_app, reply.channel_id)) {
-        const auto found = message_store_find(g_app.message_view.store, reply.message_id);
-        const auto* message = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+        const auto* message = message_store_find_record(g_app.message_view.store, reply.message_id);
         const auto* user = message && message->channel_id == reply.channel_id
             ? user_store_find(g_app.account_ui->user_store, message->author_id) : nullptr;
         if (user) {

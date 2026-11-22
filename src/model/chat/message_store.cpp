@@ -303,6 +303,13 @@ MessageStoreSlot message_store_locate(const MessageStore& store, u64 id) noexcep
     return at;
 }
 
+// An uninitialized store holds no records, and the store refuses id 0, so neither needs a check.
+const MessageRecord* message_store_find_record(const MessageStore& store, u64 id) noexcept {
+    bool found = false;
+    const u32 order_index = find_order_index(store, id, &found);
+    return found ? &store.records[store.order[order_index]] : nullptr;
+}
+
 MessageStoreResult message_store_find(const MessageStore& store, u64 id) noexcept {
     if (!store.records || !store.order || id == 0) {
         return store_error(MessageStoreError::invalid_input);

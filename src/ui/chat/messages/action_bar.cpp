@@ -262,11 +262,9 @@ bool message_action_bar_reconfigure(MessageActionBar* bar, const MessageScene& s
         return false;
     if (!bar->active)
         return true;
-    const MessageStoreResult found = scene.timeline && scene.timeline->store
-                                         ? message_store_find(*scene.timeline->store, bar->message_id)
-                                         : MessageStoreResult{};
-    const MessageRecord* record =
-        found.ok() ? message_store_resolve(*scene.timeline->store, found.handle) : nullptr;
+    const MessageRecord* record = scene.timeline && scene.timeline->store
+                                      ? message_store_find_record(*scene.timeline->store, bar->message_id)
+                                      : nullptr;
     const MessageSceneRowWidget* row = owner_row(scene, *bar);
     const u32 revision = bar->revision;
     if (!record || !row ||
@@ -290,11 +288,9 @@ bool message_action_bar_synchronize(MessageActionBar* bar, const MessageScene& s
     if (!bar->active) {
         return true;
     }
-    const MessageStoreResult found = scene.timeline && scene.timeline->store
-                                         ? message_store_find(*scene.timeline->store, bar->message_id)
-                                         : MessageStoreResult{};
-    const MessageRecord* message =
-        found.ok() ? message_store_resolve(*scene.timeline->store, found.handle) : nullptr;
+    const MessageRecord* message = scene.timeline && scene.timeline->store
+                                       ? message_store_find_record(*scene.timeline->store, bar->message_id)
+                                       : nullptr;
     const MessageSceneRowWidget* row = nullptr;
     for (u32 index = 0; message && index < scene.count; ++index) {
         if (scene.rows[index].message_id == bar->message_id) {
@@ -443,8 +439,7 @@ MessageActionBarPointerResult message_action_bar_track_pointer(
     if (retained.inside && policy) {
         // Authority (and Shift expansion) may change while the pointer stays inside.
         const u16 capabilities = policy(policy_context, bar->message_id);
-        const auto found = message_store_find(*scene->timeline->store, bar->message_id);
-        const auto* record = found.ok() ? message_store_resolve(*scene->timeline->store, found.handle) : nullptr;
+        const auto* record = message_store_find_record(*scene->timeline->store, bar->message_id);
         if (!record || effective_capabilities(*record, capabilities) != bar->capabilities) {
             message_action_bar_reconfigure(bar, *scene, preferences, MessageActionBarOptions{capabilities});
             retained = message_action_bar_hit_test(*bar, x, y);
@@ -459,11 +454,8 @@ MessageActionBarPointerResult message_action_bar_track_pointer(
     } else {
         message = message_scene_hit_test(*scene, x, y);
         next = message.message_id != 0 ? message.widget : ui_widget_invalid_handle();
-        const MessageStoreResult found =
-            message.message_id != 0 ? message_store_find(*scene->timeline->store, message.message_id)
-                                    : MessageStoreResult{};
-        const MessageRecord* record =
-            found.ok() ? message_store_resolve(*scene->timeline->store, found.handle) : nullptr;
+        // No stored message has id 0, so a miss finds no record.
+        const MessageRecord* record = message_store_find_record(*scene->timeline->store, message.message_id);
         if (record && supported_delivery(*record)) {
             const MessageActionBarResult opened = message_action_bar_open(
                 bar, *scene, message, *record, preferences,

@@ -84,9 +84,7 @@ MessageMediaObscure message_scene_media_obscure(const MessageScene& scene, Messa
         return obscure;
     // Plugin media verdicts: hide replaces the preview like blocked media,
     // blur obscures it like explicit content until clicked.
-    const MessageStoreResult found = message_store_find(*scene.timeline->store, message_id);
-    const MessageRecord* record =
-        found.ok() ? message_store_resolve(*scene.timeline->store, found.handle) : nullptr;
+    const MessageRecord* record = message_store_find_record(*scene.timeline->store, message_id);
     const auto* decoration =
         record ? message_scene_plugin_decoration(scene, record->id, record->revision) : nullptr;
     if (!decoration)

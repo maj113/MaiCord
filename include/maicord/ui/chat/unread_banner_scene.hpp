@@ -65,6 +65,25 @@ struct UiUnreadBannerScene {
 // since is preformatted ("3:04 PM" or "3:04 PM on October 5, 2026").
 // Writes nothing and returns zero when output is too small.
 u32 ui_unread_banner_format_label(u32 count, bool estimated, Utf8View since, Slice<char> output) noexcept;
+// The retained "since" text of the bar. The host formats it again only when an input changes: the first
+// unread second, the format revision (locale and hour cycle), or the local day and UTC offset. The day key
+// is read at most once a minute: local days start on a UTC minute, so the text changes at local midnight.
+struct UiUnreadBannerSince {
+    u64 since_seconds, minute, day;
+    u32 revision;
+    u8 bytes;
+    bool valid;
+    char text[96];
+};
+struct UiUnreadBannerSinceSource {
+    void* context;
+    // The local day and UTC offset at `now_seconds` as one key.
+    u64 (*day)(void* context, u64 now_seconds) noexcept;
+    u32 (*format)(void* context, u64 since_seconds, u64 now_seconds, Slice<char> output) noexcept;
+};
+// Zero `since_seconds` gives no text.
+Utf8View ui_unread_banner_since_text(UiUnreadBannerSince* cache, u64 since_seconds, u64 now_seconds, u32 revision,
+                                     const UiUnreadBannerSinceSource& source) noexcept;
 // Copies the view and label, ticks both 150 ms slide/fade transitions and
 // projects geometry against the message viewport. Returns paint change.
 __declspec(noinline) bool ui_unread_banner_update(UiUnreadBannerScene*, const UiUnreadBannerView&,

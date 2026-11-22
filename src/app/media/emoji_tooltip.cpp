@@ -165,7 +165,7 @@ bool application_message_expression_same(const MessageExpression& a, const Messa
 bool application_emoji_tooltip_target(UiPoint point, u64 scope, UiTooltipTarget* target,
                                       UiTooltipStyle* style) noexcept {
     MessageExpression e{};
-    if (!target || !style || application_expression_card_contains(point) ||
+    if (application_expression_card_contains(point) ||
         !application_message_expression_at(point, &e) || application_expression_card_shows(e))
         return false;
     const u32 bytes = application_message_expression_name(e, {label, sizeof(label)});

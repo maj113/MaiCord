@@ -60,8 +60,7 @@ void test_composer_attachments(void (*check)(bool, const char*) noexcept) noexce
         store.count == 2 && controller.queued == enqueued && !controller.inflight_nonce,
         "channel return restores only matching local sends without enqueueing or submitting again");
     local = message_rich_store_find(rich, first.nonce);
-    const auto restored_base = message_store_find(store, first.nonce);
-    const auto* restored_record = restored_base.ok() ? message_store_resolve(store, restored_base.handle) : nullptr;
+    const auto* restored_record = message_store_find_record(store, first.nonce);
     check(local && local->attachments[0].size == file_size && restored_record && restored_record->author_id == 11 &&
         restored_record->timestamp_ms == 1725012296789ull &&
         message_rich_store_string(rich, local->attachments[0].filename).data[0] == 'a',
@@ -108,8 +107,7 @@ void test_composer_attachments(void (*check)(bool, const char*) noexcept) noexce
         message_composer_controller_observe_http(&controller, 400, MessageSendHttpDisposition::terminal_failure, 104).ok(),
         "attachment send failure changes local delivery state");
     local = message_rich_store_find(rich, first.nonce);
-    const auto base = message_store_find(store, first.nonce);
-    const auto* failed = base.ok() ? message_store_resolve(store, base.handle) : nullptr;
+    const auto* failed = message_store_find_record(store, first.nonce);
     check(local && failed && failed->delivery == MessageDeliveryState::failed && local->message_revision == failed->revision &&
         local->attachment_count == 1 && !message_rich_store_advance_revision(&rich, first.nonce, failed->revision + 1, failed->revision + 2),
         "failed local attachment stays visible and stale rich revisions cannot be revived");

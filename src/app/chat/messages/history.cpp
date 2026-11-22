@@ -969,9 +969,7 @@ static bool pump_message_history_main(bool admit) noexcept {
                     &g_app.reaction_viewer_controller, response,
                     ConstSlice<u8>{body_output.data, response.body_bytes},
                     Slice<u32>{g_app.account_ui->message_history_page_structurals,
-                               kMessageHistoryPageStructuralCount},
-                    Slice<u32>{g_app.account_ui->message_history_object_structurals,
-                               kMessageHistoryObjectStructuralCount});
+                               kMessageHistoryPageStructuralCount});
                 if (!accepted.ok()) {
                     const ReactionViewerController& controller = g_app.reaction_viewer_controller;
                     const u64 failed[] = {static_cast<u64>(accepted.error), controller.last_http_status,
@@ -991,9 +989,7 @@ static bool pump_message_history_main(bool admit) noexcept {
                 // The tooltip shows the names at its next synchronize.
                 application_reaction_tooltip_response(
                     response, ConstSlice<u8>{body_output.data, response.body_bytes},
-                    Slice<u32>{g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount},
-                    Slice<u32>{g_app.account_ui->message_history_object_structurals,
-                               kMessageHistoryObjectStructuralCount});
+                    Slice<u32>{g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount});
                 if (g_app.window && !application_request_frame())
                     return false;
             } else {

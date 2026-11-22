@@ -50,9 +50,7 @@ bool begin_message_reply(u64 message_id) noexcept {
     if (!g_app.account_ui || message_id == 0) {
         return false;
     }
-    const MessageStoreResult found = message_store_find(g_app.message_view.store, message_id);
-    const MessageRecord* record =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const MessageRecord* record = message_store_find_record(g_app.message_view.store, message_id);
     if (!record || record->delivery != MessageDeliveryState::authoritative ||
         record->content_availability != MessageContentAvailability::available ||
         (record->type != 0 && record->type != 19 && record->type != 20 && record->type != 23) ||

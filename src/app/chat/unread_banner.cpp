@@ -17,6 +17,7 @@
 #include "maicord/app/chat/unread_banner_projection.hpp"
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
+#include "maicord/os/local_time.hpp"
 #include "maicord/app/plugins/ui.hpp"
 #include "../account/account_ui_runtime.hpp"
 
@@ -85,10 +86,7 @@ inline bool pointer_available() noexcept {
            !g_app.text_form && g_app.scrollbar_drag == ScrollbarDragKind::none &&
            g_app.pane_resize == PaneResizeKind::none;
 }
-u32 format_since(u64 since_ms, Slice<char> output) noexcept {
-    if (!since_ms)
-        return 0;
-    const u64 now = clock_unix_milliseconds() / 1000, since = since_ms / 1000;
+u32 format_since(void*, u64 since, u64 now, Slice<char> output) noexcept {
     char time[48], day[48], today[48];
     const auto t = format_timestamp_local(since, 't', now, {time, sizeof(time)});
     const auto d = format_timestamp_local(since, 'D', now, {day, sizeof(day)});
@@ -105,6 +103,16 @@ u32 format_since(u64 since_ms, Slice<char> output) noexcept {
     }
     return used;
 }
+// The local date and UTC offset (in minutes, modulo a day) at `now` as one key.
+u64 local_day(void*, u64 now) noexcept {
+    CalendarTime local{};
+    if (!local_time_from_unix(static_cast<i64>(now), &local))
+        return 0;
+    const u64 offset = (local.wHour * 60u + local.wMinute + 1440u - now / 60 % 1440) % 1440;
+    return ((u64{local.wYear} * 16 + local.wMonth) * 32 + local.wDay) * 2048 + offset;
+}
+// The "since" text formats again only when its inputs change (ui_unread_banner_since_text).
+UiUnreadBannerSince g_since{};
 bool jump_to_unread() noexcept {
     UnreadBannerInput in{};
     if (!input(&in))
@@ -235,12 +243,15 @@ void application_unread_banner_synchronize(u64 now_ms) noexcept {
     if (notice.id && !projection.view.channel_id)
         projection.view.channel_id = in.channel_id;
     const bool notice_changed = ui_unread_banner_set_notice(&g_banner, &notice);
-    char label[kUiUnreadBannerLabelBytes], since[96];
-    const u32 since_bytes = format_since(projection.view.since_unix_ms, {since, sizeof(since)});
-    const u32 label_bytes = projection.view.banner
-                                ? ui_unread_banner_format_label(projection.view.count, projection.view.count_estimated,
-                                                                {since, since_bytes}, {label, sizeof(label)})
-                                : 0;
+    char label[kUiUnreadBannerLabelBytes];
+    u32 label_bytes = 0;
+    if (projection.view.banner) {
+        const Utf8View since = ui_unread_banner_since_text(
+            &g_since, projection.view.since_unix_ms / 1000, clock_unix_milliseconds() / 1000,
+            timestamp_format_revision(), {nullptr, local_day, format_since});
+        label_bytes = ui_unread_banner_format_label(projection.view.count, projection.view.count_estimated, since,
+                                                    {label, sizeof(label)});
+    }
     const UiWidgetReference owner{&g_app.message_scene.widgets, g_app.message_scene.root};
     const bool changed = ui_unread_banner_update(&g_banner, projection.view, {label, label_bytes},
                                                  timeline_presented() ? g_app.message_scene.viewport : UiRect{},

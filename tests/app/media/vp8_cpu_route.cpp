@@ -57,10 +57,9 @@ void run() noexcept {
     check(!vp8_gpu, "a 128-invocation device has no GPU VP8 path");
 
     check(encoded_media_cache_initialize(&g_cache, {g_entries, 4}, {g_page_owners, 8}, {g_storage, sizeof(g_storage)},
-                                         {g_buckets, 8}) &&
-              cdn_media_pipeline_initialize(&g_pipeline, &g_cache, {g_scanlines, sizeof(g_scanlines)},
-                                            sizeof(g_scanlines)),
+                                         {g_buckets, 8}),
           "pipeline");
+    cdn_media_pipeline_initialize(&g_pipeline, &g_cache, {g_scanlines, sizeof(g_scanlines)}, sizeof(g_scanlines));
     g_pipeline.webp_workspace = &g_vp8l;
     g_pipeline.lossy_webp_workspace = &g_lossy;
     g_pipeline.animated_webp_workspace = &g_animated;

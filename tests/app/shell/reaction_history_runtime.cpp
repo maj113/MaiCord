@@ -1164,8 +1164,7 @@ bool application_reaction_tooltip_query(ReactionTooltipQuery*) noexcept {
 }
 void application_reaction_tooltip_submitted(u64) noexcept {}
 void application_reaction_tooltip_failed() noexcept {}
-void application_reaction_tooltip_response(const RestClientResponse&, ConstSlice<u8>, Slice<u32>,
-                                           Slice<u32>) noexcept {}
+void application_reaction_tooltip_response(const RestClientResponse&, ConstSlice<u8>, Slice<u32>) noexcept {}
 u64 application_read_state_next_wake() noexcept {
     return 0;
 }

@@ -144,8 +144,7 @@ bool source_current(const ApplicationReadState& o, const ReadActionSource& s) no
         return false;
     if (!s.message_target)
         return true;
-    const auto found = message_store_find(g_app.message_view.store, s.message_id);
-    if (found.ok()) {
+    if (message_store_find_record(g_app.message_view.store, s.message_id)) {
         const auto* record = message_store_resolve(g_app.message_view.store, s.handle);
         return record && record->id == s.message_id && record->channel_id == s.channel_id &&
                record->revision == s.message_revision &&

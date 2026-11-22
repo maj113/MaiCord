@@ -133,6 +133,8 @@ MessageStoreError message_store_validate_input(
 MessageStoreResult message_store_upsert(MessageStore* store,
                                         const MessageInput& input) noexcept;
 MessageStoreResult message_store_find(const MessageStore& store, u64 id) noexcept;
+// The record of a resident id, or null: message_store_resolve of message_store_find's handle in one step.
+const MessageRecord* message_store_find_record(const MessageStore& store, u64 id) noexcept;
 bool message_store_delete(MessageStore* store, u64 id) noexcept;
 // Where an id sits in the order (found), or where it would insert. A caller
 // that already located an id passes the position back so the store does not

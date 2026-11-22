@@ -27,6 +27,7 @@
 #include "maicord/ui/chat/messages/action_bar.hpp"
 #include "maicord/ui/text/secure_edit.hpp"
 #include "maicord/ui/text/secure_text_store.hpp"
+#include "maicord/ui/text/timestamp_format.hpp"
 
 #include "state.hpp"
 #include "../account/profile.hpp"
@@ -391,6 +392,8 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
     switch (type) {
     case EventType::settings_changed:
         application_surface_motion_refresh_system_preference();
+        // Locale formats can change: retained times format again.
+        timestamp_format_settings_changed();
         // Windows' app mode switched between light and dark: an effect's appearance input glides to it.
         if (event.settings.areas & settings_scheme)
             application_effects_set_system_dark(platform_settings_read().dark_scheme);

@@ -66,8 +66,7 @@ static bool resolve_target(const UnreadContextSource& source, UnreadContextKind 
     const ChannelRecord* channel = nullptr;
     if (kind == UnreadContextKind::message) {
         if (!source.messages) return false;
-        const auto found = message_store_find(*source.messages, id);
-        const auto* message = found.ok() ? message_store_resolve(*source.messages, found.handle) : nullptr;
+        const auto* message = message_store_find_record(*source.messages, id);
         if (!message || message->delivery != MessageDeliveryState::authoritative ||
             source.state->selected_channel_id != message->channel_id) return false;
         const auto* row = message_row(source, *message);

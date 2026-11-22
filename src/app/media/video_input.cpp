@@ -33,15 +33,12 @@ bool application_video_pump(bool* repaint) noexcept {
     }
     if (!page) [[likely]] {
         ApplicationSearchSourceView search_source{};
-        const auto found = searched ? MessageStoreResult{}
-                                    : message_store_find(g_app.message_view.store, video->source.message_id);
         const auto* message = searched
                                   ? (application_search_source_resolve(video->source.search_source,
                                                                        video->source.snapshot, &search_source)
                                          ? search_source.message
                                          : nullptr)
-                              : found.ok() ? message_store_resolve(g_app.message_view.store, found.handle)
-                                           : nullptr;
+                                  : message_store_find_record(g_app.message_view.store, video->source.message_id);
         if (!message || !application_channel_readable(g_app, message->channel_id) ||
             message->revision != video->source.revision ||
             inline_media_activation_consumed(video->source, InlineMediaPolicyUse::retain)) {
@@ -619,7 +616,7 @@ bool application_video_discard_character(const WindowEvent& event) noexcept {
 bool application_video_tooltip_target(UiPoint point, bool keyboard, u64 scope,
                                       UiTooltipTarget* target) noexcept {
     const auto* video = g_app.video;
-    if (target && video && video->source.audio && video_surface_available() && video->ui.audio.active &&
+    if (video && video->source.audio && video_surface_available() && video->ui.audio.active &&
         video->ui.audio.capture == UiAudioControl::none) {
         const auto& scene = video->ui.audio;
         InlineMediaSource current{};
@@ -649,7 +646,7 @@ bool application_video_tooltip_target(UiPoint point, bool keyboard, u64 scope,
                    UiTooltipPlacement::above};
         return true;
     }
-    if (!target || !video || video->source.audio || !video_surface_available() || !video->selected ||
+    if (!video || video->source.audio || !video_surface_available() || !video->selected ||
         !video->status.selected || !video->ui.video.active ||
         video->ui.video.capture != UiVideoControl::none ||
         video->status.playback.identity.session_epoch != video->session_epoch)

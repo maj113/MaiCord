@@ -58,8 +58,7 @@ struct PollVotersDecodeResult {
 };
 // Poll voter responses are an object with a required users array, unlike the
 // reaction endpoint's bare array. Shared user decoding retains bounded fields.
-PollVotersDecodeResult decode_poll_voters(Utf8View input,
-    Slice<u32> page_structural_scratch, Slice<u32> object_structural_scratch,
+PollVotersDecodeResult decode_poll_voters(Utf8View input, Slice<u32> page_structural_scratch,
     u32 maximum_depth, Slice<ReactionUser>, Slice<char> text_output) noexcept;
 static_assert(sizeof(PollRequest)==80);
 } // namespace maicord

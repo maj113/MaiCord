@@ -26,5 +26,5 @@ bool application_reaction_tooltip_query(ReactionTooltipQuery* query) noexcept;
 void application_reaction_tooltip_submitted(u64 epoch) noexcept;
 void application_reaction_tooltip_failed() noexcept;
 void application_reaction_tooltip_response(const RestClientResponse& response, ConstSlice<u8> body,
-                                           Slice<u32> page_scratch, Slice<u32> object_scratch) noexcept;
+                                           Slice<u32> page_scratch) noexcept;
 } // namespace maicord::app_detail

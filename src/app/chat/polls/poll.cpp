@@ -1069,10 +1069,9 @@ static __declspec(noinline) bool decode_voter_page(PollOwner& value, Utf8View bo
     if (!page_storage(bank))
         return false;
     auto& page = *value.pages[bank];
-    u32 object_scratch[256];
     const auto decoded = decode_poll_voters(
         body, {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount},
-        {object_scratch, 256}, 64, {page.users, page_limit}, {page.text, page_text_bytes});
+        64, {page.users, page_limit}, {page.text, page_text_bytes});
     if (!decoded.ok())
         return false;
     *users = {page.users, decoded.users.user_count};

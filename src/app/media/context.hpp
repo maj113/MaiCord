@@ -26,8 +26,7 @@ inline ApplicationMediaContext application_media_context_resolve(
         for (const auto* messages : stores) {
             if (!messages)
                 continue;
-            const auto found = message_store_find(*messages, media.source_message_id);
-            const auto* source = found.ok() ? message_store_resolve(*messages, found.handle) : nullptr;
+            const auto* source = message_store_find_record(*messages, media.source_message_id);
             if (source && source->channel_id == media.source_channel_id) {
                 author_id = source->author_id;
                 break;

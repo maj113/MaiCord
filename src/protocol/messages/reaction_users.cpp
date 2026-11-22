@@ -26,7 +26,7 @@ struct UserObject {
 };
 
 struct PageContext {
-    Slice<u32> object_scratch;
+    JsonIndexedDocument document;
     Slice<ReactionUser> users;
     Slice<char> text;
     u32 maximum_depth;
@@ -134,23 +134,14 @@ bool visit_user(void* opaque, u32, JsonValue value) noexcept {
         page->error_offset = value.source_offset;
         return false;
     }
-    const JsonScanResult scan =
-        json_scan_structurals_avx1(value.source, page->object_scratch);
-    if (!scan.ok()) {
-        page->error = ReactionUsersDecodeError::scan;
-        page->error_offset = value.source_offset + scan.error_offset;
-        return false;
-    }
     UserObject user{};
-    const JsonReadResult read = json_visit_value_object(
-        value,
-        ConstSlice<u32>{page->object_scratch.data, scan.count},
-        page->maximum_depth, visit_user_member, &user);
+    const JsonReadResult read =
+        json_visit_indexed_object(page->document, value, page->maximum_depth, visit_user_member, &user);
     if (!read.ok()) {
         page->error = user.error != ReactionUsersDecodeError::none
                           ? user.error
                           : ReactionUsersDecodeError::json;
-        page->error_offset = value.source_offset + read.error_offset;
+        page->error_offset = read.error_offset;
         return false;
     }
     if (!user.id_seen || !user.username_seen) {
@@ -219,15 +210,10 @@ ReactionUsersWriteResult write_reaction_users_target(
 }
 
 ReactionUsersDecodeResult decode_reaction_users(
-    Utf8View input, Slice<u32> page_structural_scratch,
-    Slice<u32> object_structural_scratch, u32 maximum_depth,
+    Utf8View input, Slice<u32> page_structural_scratch, u32 maximum_depth,
     Slice<ReactionUser> users, Slice<char> text_output) noexcept {
-    if (!input.data || input.bytes == 0 || !page_structural_scratch.data ||
-        page_structural_scratch.count == 0 ||
-        !object_structural_scratch.data ||
-        object_structural_scratch.count == 0 || maximum_depth == 0 ||
-        !users.data || users.count == 0 || !text_output.data ||
-        text_output.count == 0) {
+    // A full viewer text bank gives an empty text slice: the page fails as before.
+    if (!input.data || input.bytes == 0 || users.count == 0 || text_output.count == 0) {
         return decode_error(nullptr,
                             ReactionUsersDecodeError::invalid_input);
     }
@@ -237,12 +223,11 @@ ReactionUsersDecodeResult decode_reaction_users(
         return decode_error(nullptr, ReactionUsersDecodeError::scan,
                             scan.error_offset);
     }
-    PageContext page{object_structural_scratch, users, text_output,
+    PageContext page{{input, {page_structural_scratch.data, scan.count}}, users, text_output,
                      maximum_depth, 0, 0, 0,
                      ReactionUsersDecodeError::none};
     const JsonReadResult read = json_visit_root_array(
-        input, ConstSlice<u32>{page_structural_scratch.data, scan.count},
-        maximum_depth, visit_user, &page);
+        input, page.document.structurals, maximum_depth, visit_user, &page);
     if (!read.ok()) {
         return decode_error(&page, ReactionUsersDecodeError::json,
                             read.error_offset);

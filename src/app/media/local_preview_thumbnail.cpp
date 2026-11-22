@@ -27,12 +27,12 @@ u8 sample_bits(const u8* row, u32 index, u32 depth) noexcept {
 
 bool local_thumbnail_begin(LocalThumbnailSink* sink, u32 source_width, u32 source_height, u32 extent,
                            Slice<u8> output, Slice<u32> sums) noexcept {
-    if (!sink || !source_width || !source_height || !extent)
+    if (!source_width || !source_height || !extent)
         return false;
     const u32 scale = local_thumbnail_scale(source_width, source_height, extent);
     const u32 width = local_thumbnail_extent(source_width, scale);
     const u32 height = local_thumbnail_extent(source_height, scale);
-    if (!output.data || !sums.data || static_cast<u64>(width) * height * 4u > output.count ||
+    if (static_cast<u64>(width) * height * 4u > output.count ||
         static_cast<u64>(width) * 5u > sums.count || scale > 200)
         return false;
     *sink = {output.data, sums.data, source_width, source_height, scale, width, height, 0};
@@ -41,7 +41,7 @@ bool local_thumbnail_begin(LocalThumbnailSink* sink, u32 source_width, u32 sourc
 }
 
 bool local_thumbnail_push_row(LocalThumbnailSink* sink, const u8* rgba) noexcept {
-    if (!sink || !sink->output || !rgba || sink->row >= sink->source_height)
+    if (sink->row >= sink->source_height)
         return false;
     if (sink->scale == 1) {
         u8* target = sink->output + static_cast<usize>(sink->row) * sink->width * 4u;
@@ -80,8 +80,6 @@ bool local_thumbnail_push_row(LocalThumbnailSink* sink, const u8* rgba) noexcept
 }
 
 bool local_thumbnail_png_row(const PngImage& image, const u8* row, u8* rgba) noexcept {
-    if (!row || !rgba || !image.width)
-        return false;
     const u32 depth = image.bit_depth;
     const bool wide = depth == 16;
     for (u32 x = 0; x < image.width; ++x) {
@@ -150,8 +148,6 @@ bool local_thumbnail_png_row(const PngImage& image, const u8* row, u8* rgba) noe
 
 bool local_thumbnail_gif_row(const GifFrame& frame, const GifPalette& palette, ConstSlice<u8> indices, u32 canvas_width,
                              u32 y, u8* rgba) noexcept {
-    if (!rgba || !canvas_width || (!indices.data && indices.count))
-        return false;
     clear_bytes(rgba, canvas_width * 4u);
     if (y < frame.y_offset || y - frame.y_offset >= frame.height)
         return true;
@@ -180,7 +176,7 @@ bool local_thumbnail_orient(Slice<u8> pixels, u32* width, u32* height, u8 orient
     const u64 bytes = static_cast<u64>(w) * h * 4u;
     if (orientation == 1)
         return bytes <= pixels.count;
-    if (!pixels.data || !scratch.data || bytes > pixels.count || bytes > scratch.count)
+    if (bytes > pixels.count || bytes > scratch.count)
         return false;
     copy_bytes(scratch.data, pixels.data, static_cast<u32>(bytes));
     const bool swap = orientation >= 5;
@@ -247,7 +243,7 @@ void fit_add(u64* sum, const u8* pixel, u64 weight) noexcept {
 } // namespace
 
 bool media_fit_plan(u32 source_width, u32 source_height, u32 box_width, u32 box_height, MediaFit* fit) noexcept {
-    if (!fit || !source_width || !source_height || !box_width || !box_height ||
+    if (!source_width || !source_height || !box_width || !box_height ||
         (source_width <= box_width && source_height <= box_height))
         return false;
     u32 width = box_width, height = box_height;
@@ -269,13 +265,13 @@ MediaFitRegion media_fit_region(const MediaFit& fit, u32 x, u32 y, u32 width, u3
 
 bool media_fit_begin(MediaFitSink* sink, const MediaFit& fit, MediaFitRegion source, u8* output, u32 stride, u32 lead,
                      Slice<u8> scratch) noexcept {
-    if (!output || !fit.width || !fit.height || fit.width > fit.source_width ||
+    if (!fit.width || !fit.height || fit.width > fit.source_width ||
         fit.height > fit.source_height || !source.width || !source.height || source.x >= fit.source_width ||
         source.width > fit.source_width - source.x || source.y >= fit.source_height ||
         source.height > fit.source_height - source.y)
         return false;
     const MediaFitRegion region = media_fit_region(fit, source.x, source.y, source.width, source.height);
-    if (u64{lead} + u64{region.width} * 4u > stride || !scratch.data ||
+    if (u64{lead} + u64{region.width} * 4u > stride ||
         (reinterpret_cast<usize>(scratch.data) & 7u) != 0 ||
         media_fit_scratch_bytes(source.width, region.width) > scratch.count)
         return false;
@@ -293,7 +289,7 @@ bool media_fit_begin(MediaFitSink* sink, const MediaFit& fit, MediaFitRegion sou
 }
 
 bool media_fit_push_row(MediaFitSink* s, const u8* rgba) noexcept {
-    if (!s->output || !rgba || s->row >= s->source.height)
+    if (s->row >= s->source.height)
         return false;
     const u32 y = s->source.y + s->row;
     if (fit_cell(y, s->fit.source_height, s->fit.height) != s->cell_row)

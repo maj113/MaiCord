@@ -2345,11 +2345,10 @@ void test_reaction_users_and_viewer() noexcept {
                      "\"global_name\":null,\"avatar\":null,\"bot\":true,"
                      "\"primary_guild\":{\"tag\":\"APP\"}}]");
     u32 page_scratch[256]{};
-    u32 object_scratch[128]{};
     ReactionUser decoded_users[4]{};
     char decoded_text[256]{};
     const ReactionUsersDecodeResult decoded = decode_reaction_users(
-        response_body, Slice<u32>{page_scratch, 256}, Slice<u32>{object_scratch, 128}, 16,
+        response_body, Slice<u32>{page_scratch, 256}, 16,
         Slice<ReactionUser>{decoded_users, 4}, Slice<char>{decoded_text, 256});
     expect(decoded.ok() && decoded.user_count == 2 && decoded.text_bytes != 0 && decoded_users[0].id == 1 &&
                !decoded_users[0].bot &&
@@ -2362,12 +2361,12 @@ void test_reaction_users_and_viewer() noexcept {
            "reaction_users_stream_decode_rich_unknown_fields");
     char short_text[2]{};
     const ReactionUsersDecodeResult text_capacity = decode_reaction_users(
-        response_body, Slice<u32>{page_scratch, 256}, Slice<u32>{object_scratch, 128}, 16,
+        response_body, Slice<u32>{page_scratch, 256}, 16,
         Slice<ReactionUser>{decoded_users, 4}, Slice<char>{short_text, 2});
     expect(text_capacity.error == ReactionUsersDecodeError::text_capacity,
            "reaction_users_decode_text_capacity_is_precise");
     const ReactionUsersDecodeResult user_capacity = decode_reaction_users(
-        response_body, Slice<u32>{page_scratch, 256}, Slice<u32>{object_scratch, 128}, 16,
+        response_body, Slice<u32>{page_scratch, 256}, 16,
         Slice<ReactionUser>{decoded_users, 1}, Slice<char>{decoded_text, 256});
     expect(user_capacity.error == ReactionUsersDecodeError::user_capacity,
            "reaction_users_decode_user_capacity_is_bounded");
@@ -2414,7 +2413,7 @@ void test_reaction_users_and_viewer() noexcept {
            "reaction_viewer_measured_retained_geometry");
 
     const ReactionUsersDecodeResult viewer_page = decode_reaction_users(
-        response_body, Slice<u32>{page_scratch, 256}, Slice<u32>{object_scratch, 128}, 16,
+        response_body, Slice<u32>{page_scratch, 256}, 16,
         Slice<ReactionUser>{decoded_users, 4}, reaction_viewer_page_text_output(viewer));
     const ReactionViewerResult accepted =
         viewer_page.ok()
@@ -2498,8 +2497,7 @@ void test_reaction_users_and_viewer() noexcept {
     response.status_code = 200;
     const ReactionViewerControllerResult stale =
         selected.ok() ? reaction_viewer_controller_accept_response(&controller, response, ConstSlice<u8>{},
-                                                                   Slice<u32>{page_scratch, 256},
-                                                                   Slice<u32>{object_scratch, 128})
+                                                                   Slice<u32>{page_scratch, 256})
                       : ReactionViewerControllerResult{};
     expect(query_ready && marked.ok() && selected.ok() && selected.changed &&
                submitted_epoch != controller.epoch && stale.ok() && stale.stale &&
@@ -2516,7 +2514,7 @@ void test_reaction_users_and_viewer() noexcept {
             ? reaction_viewer_controller_accept_response(
                   &controller, response,
                   ConstSlice<u8>{reinterpret_cast<const u8*>(response_body.data), response_body.bytes},
-                  Slice<u32>{page_scratch, 256}, Slice<u32>{object_scratch, 128})
+                  Slice<u32>{page_scratch, 256})
             : ReactionViewerControllerResult{};
     viewer.complete = false;
     viewer.loading = false;
@@ -2542,8 +2540,7 @@ void test_reaction_users_and_viewer() noexcept {
     const ReactionViewerControllerResult retry =
         retry_marked.ok()
             ? reaction_viewer_controller_accept_response(&controller, limited, ConstSlice<u8>{},
-                                                         Slice<u32>{page_scratch, 256},
-                                                         Slice<u32>{object_scratch, 128})
+                                                         Slice<u32>{page_scratch, 256})
             : ReactionViewerControllerResult{};
     expect(retry.ok() && controller.phase == ReactionViewerRequestPhase::retry_wait &&
                reaction_viewer_controller_next_wake_at(controller) == limited.retry_at_ms,

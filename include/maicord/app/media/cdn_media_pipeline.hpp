@@ -285,9 +285,9 @@ struct CdnEncodedAudioResult {
     }
 };
 
-// `scanline_storage` is the lane's reserved scanline storage, of which the first `scanline_committed` bytes are
-// committed.
-bool cdn_media_pipeline_initialize(CdnMediaPipeline* pipeline, EncodedMediaCache* cache,
+// `cache` is initialized; `scanline_storage` is the lane's reserved scanline storage, of which the first
+// `scanline_committed` bytes are committed.
+void cdn_media_pipeline_initialize(CdnMediaPipeline* pipeline, EncodedMediaCache* cache,
                                    Slice<u8> scanline_storage, u32 scanline_committed) noexcept;
 // Makes the first `required` bytes of scanline storage usable, committing reserved storage in place (64 KiB
 // steps); false when they lie past the reservation or the system refuses. The storage never moves. The

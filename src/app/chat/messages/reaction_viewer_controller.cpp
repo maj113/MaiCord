@@ -199,7 +199,7 @@ ReactionViewerControllerResult reaction_viewer_controller_submit_failed(
 
 ReactionViewerControllerResult reaction_viewer_controller_accept_response(
     ReactionViewerController* controller, const RestClientResponse& response, ConstSlice<u8> body,
-    Slice<u32> page_structural_scratch, Slice<u32> object_structural_scratch) noexcept {
+    Slice<u32> page_structural_scratch) noexcept {
     if (!controller->initialized || !controller->viewer ||
         controller->phase != ReactionViewerRequestPhase::submitted) {
         return failure(ReactionViewerControllerError::state);
@@ -226,8 +226,7 @@ ReactionViewerControllerResult reaction_viewer_controller_accept_response(
     }
     Slice<char> text_output = reaction_viewer_page_text_output(*controller->viewer);
     const ReactionUsersDecodeResult decoded = decode_reaction_users(
-        Utf8View{reinterpret_cast<const char*>(body.data), body.count}, page_structural_scratch,
-        object_structural_scratch, 16,
+        Utf8View{reinterpret_cast<const char*>(body.data), body.count}, page_structural_scratch, 16,
         Slice<ReactionUser>{controller->page_users, controller->page_user_capacity}, text_output);
     controller->last_decode_error = decoded.error;
     controller->last_decode_offset = decoded.error_offset;

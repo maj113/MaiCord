@@ -587,8 +587,7 @@ bool message_timeline_set_local_reply(MessageTimeline* timeline, u64 message_id,
     if (validate_timeline(timeline) != MessageTimelineError::none || !message_id || !reply_message_id ||
         message_id == reply_message_id)
         return false;
-    const MessageStoreResult found = message_store_find(*timeline->store, message_id);
-    const MessageRecord* record = found.ok() ? message_store_resolve(*timeline->store, found.handle) : nullptr;
+    const MessageRecord* record = message_store_find_record(*timeline->store, message_id);
     if (!record || record->delivery == MessageDeliveryState::authoritative)
         return false;
     if (!timeline->rich_store)
@@ -610,8 +609,7 @@ bool message_timeline_set_local_interaction(MessageTimeline* timeline, u64 messa
     if (validate_timeline(timeline) != MessageTimelineError::none || !message_id || !interaction.user_id ||
         !interaction.command_name.bytes)
         return false;
-    const MessageStoreResult found = message_store_find(*timeline->store, message_id);
-    const MessageRecord* record = found.ok() ? message_store_resolve(*timeline->store, found.handle) : nullptr;
+    const MessageRecord* record = message_store_find_record(*timeline->store, message_id);
     if (!record || record->delivery == MessageDeliveryState::authoritative)
         return false;
     if (!timeline->rich_store)

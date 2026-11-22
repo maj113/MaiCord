@@ -115,6 +115,24 @@ u32 ui_unread_banner_format_label(u32 count, bool estimated, Utf8View since, Sli
     return used;
 }
 
+Utf8View ui_unread_banner_since_text(UiUnreadBannerSince* cache, u64 since_seconds, u64 now_seconds, u32 revision,
+                                     const UiUnreadBannerSinceSource& source) noexcept {
+    if (!since_seconds)
+        return {};
+    const u64 minute = now_seconds / 60;
+    const u64 day = cache->valid && cache->minute == minute ? cache->day : source.day(source.context, now_seconds);
+    cache->minute = minute;
+    if (cache->valid && cache->since_seconds == since_seconds && cache->revision == revision && cache->day == day)
+        return {cache->text, cache->bytes};
+    cache->since_seconds = since_seconds;
+    cache->revision = revision;
+    cache->day = day;
+    cache->bytes = static_cast<u8>(source.format(source.context, since_seconds, now_seconds,
+                                                 {cache->text, sizeof(cache->text)}));
+    cache->valid = true;
+    return {cache->text, cache->bytes};
+}
+
 bool ui_unread_banner_set_notice(UiUnreadBannerScene* scene, const UiBannerNotice* notice) noexcept {
     if (!scene)
         return false;

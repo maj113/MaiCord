@@ -1057,8 +1057,8 @@ void test_cdn_reduced_jpeg_pipeline() noexcept {
         build_marked_jpeg_fixture({encoded, sizeof(encoded)}, 640, 480, &fixture) &&
         build_jpeg_exif_orientation_fixture({encoded, fixture.encoded_bytes}, {oriented, sizeof(oriented)}, 6,
                                             false, &oriented_bytes) &&
-        encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 8}, {storage, sizeof(storage)}, {buckets, 8}) &&
-        cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)}, sizeof(scanlines));
+        encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 8}, {storage, sizeof(storage)}, {buckets, 8});
+    cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)}, sizeof(scanlines));
     pipeline.jpeg_workspace = &g_jpeg_workspace;
     pipeline.jpeg_committed = sizeof(g_jpeg_workspace);
     const auto policy = [](u32 bytes) noexcept {
@@ -1221,8 +1221,8 @@ void test_cdn_reduced_webp_pipeline() noexcept {
     EncodedMediaCache cache{};
     CdnMediaPipeline pipeline{};
     const bool ready =
-        encoded_media_cache_initialize(&cache, {entries, 8}, {owners, 64}, {storage, sizeof(storage)}, {buckets, 16}) &&
-        cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)}, sizeof(scanlines));
+        encoded_media_cache_initialize(&cache, {entries, 8}, {owners, 64}, {storage, sizeof(storage)}, {buckets, 16});
+    cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)}, sizeof(scanlines));
     pipeline.webp_workspace = &g_vp8l_workspace;
     const auto policy = [](u32 bytes) noexcept {
         return accepted_cdn_response(byte_literal("\"webp-1\""), 2'100, bytes);
@@ -1286,11 +1286,10 @@ void test_cdn_static_png_pipeline() noexcept {
     AnimatedWebpWorkspace animated_webp_workspace{};
     expect(encoded_media_cache_initialize(&cache, Slice<EncodedMediaCacheEntry>{entries, 3},
                                           Slice<u16>{page_owners, 5},
-                                          Slice<u8>{storage, sizeof(storage)}, Slice<u32>{buckets, 8}) &&
-               cdn_media_pipeline_initialize(&pipeline, &cache,
-                                             Slice<u8>{g_png_scanlines, sizeof(g_png_scanlines)},
-                                             sizeof(g_png_scanlines)),
+                                          Slice<u8>{storage, sizeof(storage)}, Slice<u32>{buckets, 8}),
            "cdn_pipeline_caller_owned_initialize");
+    cdn_media_pipeline_initialize(&pipeline, &cache, Slice<u8>{g_png_scanlines, sizeof(g_png_scanlines)},
+                                  sizeof(g_png_scanlines));
     pipeline.webp_workspace = &g_vp8l_workspace;
     pipeline.animated_webp_workspace = &animated_webp_workspace;
     pipeline.apng_workspace = &apng_workspace;
@@ -1776,10 +1775,10 @@ void test_cdn_gif_metadata_reuse() noexcept {
     u8 storage[4 * kEncodedMediaCachePageBytes]{}, output[64]{};
     u32 buckets[8]{};
     EncodedMediaCache cache{}; CdnMediaPipeline pipeline{}; GifWorkspace workspace{};
-    if (!encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 4}, {storage, sizeof(storage)}, {buckets, 8}) ||
-        !cdn_media_pipeline_initialize(&pipeline, &cache, {output, sizeof(output)}, sizeof(output))) {
+    if (!encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 4}, {storage, sizeof(storage)}, {buckets, 8})) {
         expect(false, "gif_metadata_initialize"); return;
     }
+    cdn_media_pipeline_initialize(&pipeline, &cache, {output, sizeof(output)}, sizeof(output));
     pipeline.gif_workspace = &workspace;
     const auto a = media_asset_sticker(88001, 4), b = media_asset_sticker(88002, 4);
     const auto alias = media_asset_sticker(88003, 4);

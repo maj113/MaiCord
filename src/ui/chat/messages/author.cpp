@@ -35,8 +35,7 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
         command.measurement_slot != 0 || !scene.timeline || !scene.timeline->store ||
         command.owner.manager != &scene.widgets)
         return false;
-    const auto found = message_store_find(*scene.timeline->store, command.message_id);
-    const auto* record = found.ok() ? message_store_resolve(*scene.timeline->store, found.handle) : nullptr;
+    const auto* record = message_store_find_record(*scene.timeline->store, command.message_id);
     if (!record)
         return false;
     // Only the row's author widget carries the name header. Every other

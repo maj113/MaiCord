@@ -39,8 +39,7 @@ struct TextFixture {
 } text_fixture;
 
 bool set_reply(Fixture& f, u64 id, GatewayMessageReferenceState state) noexcept {
-    const auto found = message_store_find(f.store, id);
-    const MessageRecord* record = found.ok() ? message_store_resolve(f.store, found.handle) : nullptr;
+    const MessageRecord* record = message_store_find_record(f.store, id);
     if (!record) return false;
     GatewayMessageEvent event{};
     event.id = id;

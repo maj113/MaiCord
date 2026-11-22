@@ -238,9 +238,7 @@ bool application_downloads_context_action(u32 action) noexcept {
         return false;
     const Utf8View url{source.url, source.url_bytes};
     if (q->menu_kind == ReceivedAttachmentKind::sticker) {
-        const auto found = message_store_find(g_app.message_view.store, source.message);
-        const auto* message =
-            found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+        const auto* message = message_store_find_record(g_app.message_view.store, source.message);
         if (!message || message->revision != source.revision)
             return true;
         if (action == kReceivedAttachmentActionCopyLink)

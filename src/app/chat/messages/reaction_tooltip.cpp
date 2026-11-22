@@ -42,9 +42,7 @@ bool source_current() noexcept {
         return false;
     const auto& ui = *g_app.account_ui;
     const u64 scope = application_account_scope();
-    const auto found = message_store_find(g_app.message_view.store, hovered.message_id);
-    const auto* message =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* message = message_store_find_record(g_app.message_view.store, hovered.message_id);
     return hovered.scope == scope && hovered.channel_epoch == g_app.load_trace.channel_epoch &&
            hovered.channel_id == ui.active_channel_id &&
            hovered.channel_id == ui.chat_state.selected_channel_id &&
@@ -119,8 +117,7 @@ bool application_reaction_tooltip_target(UiPoint point, u64 scope, UiTooltipTarg
     u32 index = 0;
     if (!message_scene_reaction_index(g_app.message_scene, hit, &index))
         return false;
-    const auto found = message_store_find(g_app.message_view.store, hit.message_id);
-    const auto* record = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* record = message_store_find_record(g_app.message_view.store, hit.message_id);
     const auto* rich = message_rich_store_find(ui.message_rich_store, hit.message_id);
     if (!record || record->channel_id != ui.active_channel_id || !rich ||
         rich->message_revision != record->revision || index >= rich->reaction_count)
@@ -198,7 +195,7 @@ void application_reaction_tooltip_failed() noexcept {
 }
 
 void application_reaction_tooltip_response(const RestClientResponse& response, ConstSlice<u8> body,
-                                           Slice<u32> page_scratch, Slice<u32> object_scratch) noexcept {
+                                           Slice<u32> page_scratch) noexcept {
     auto& s = hovered;
     // A response for a reaction no longer hovered: the new one is required.
     synchronize_source();
@@ -211,8 +208,8 @@ void application_reaction_tooltip_response(const RestClientResponse& response, C
     ReactionUser users[kReactionTooltipNames]{};
     char text[1024];
     const auto decoded =
-        decode_reaction_users({reinterpret_cast<const char*>(body.data), body.count}, page_scratch,
-                              object_scratch, 16, {users, kReactionTooltipNames}, {text, sizeof(text)});
+        decode_reaction_users({reinterpret_cast<const char*>(body.data), body.count}, page_scratch, 16,
+                              {users, kReactionTooltipNames}, {text, sizeof(text)});
     if (!decoded.ok())
         return;
     // In a server, members are named as the member list names them.

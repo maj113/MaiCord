@@ -47,11 +47,10 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
         return false;
     const auto& scene = g_app.message_scene;
     const auto& store = g_app.account_ui->message_rich_store;
-    const auto hit = [&](UiWidgetHandle widget, const UiLayoutNode& node, UiRect star) noexcept {
-        if (owner.generation)
-            return ui_widget_handle_equal(widget, owner);
-        const UiRect visible = ui_rect_intersection(star, ui_rect_intersection(node.clip_rectangle, scene.viewport));
-        return ui_rect_contains(visible, x, y);
+    const auto hit = [&](const UiLayoutNode& node, UiRect star) noexcept {
+        return owner.generation ||
+               ui_rect_contains(ui_rect_intersection(star, ui_rect_intersection(node.clip_rectangle, scene.viewport)),
+                                x, y);
     };
     for (u32 row_index = 0; row_index < scene.count; ++row_index) {
         for (u32 content_scope = 0; content_scope < 2; ++content_scope) {
@@ -72,11 +71,12 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                 const auto& attachment = rich->attachments[i];
                 const auto widget =
                     message_scene_rich_item_widget(*row, MessageSceneRichItemKind::attachment, i);
-                const auto* node = message_scene_rich_item_layout_node(
-                    scene, *row, MessageSceneRichItemKind::attachment, i);
+                // The hovered widget names one item: the others need no layout lookup.
+                if (owner.generation && !ui_widget_handle_equal(widget, owner))
+                    continue;
+                const auto* node = message_scene_layout_node(scene, widget);
                 float width = 0, height = 0;
-                if (!node || (owner.generation && !ui_widget_handle_equal(widget, owner)) ||
-                    !message_rich_attachment_gif_favorite(store, attachment) ||
+                if (!node || !message_rich_attachment_gif_favorite(store, attachment) ||
                     message_scene_media_obscure(
                         scene, message_media_owner(*message, outer_rich), rich->message_id,
                         message_media_reveal_key(rich->message_id, MessageMediaSource::attachment, i,
@@ -90,7 +90,7 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                                      node->rectangle.top + height};
                 const UiRect star = ui_gif_favorite_rectangle(preview, application_theme());
                 const Utf8View url = message_rich_store_string(store, attachment.url);
-                if (!ui_rect_has_area(star) || !url.bytes || !hit(widget, *node, star))
+                if (!ui_rect_has_area(star) || !url.bytes || !hit(*node, star))
                     continue;
                 out->owner = widget;
                 out->url = url;
@@ -103,11 +103,12 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
             for (u32 i = 0; i < rich->embed_count; ++i) {
                 const auto& embed = rich->embeds[i];
                 const auto widget = message_scene_rich_item_widget(*row, MessageSceneRichItemKind::embed, i);
-                const auto* node = message_scene_rich_item_layout_node(scene, *row, MessageSceneRichItemKind::embed, i);
+                if (owner.generation && !ui_widget_handle_equal(widget, owner))
+                    continue;
+                const auto* node = message_scene_layout_node(scene, widget);
                 MessageRichEmbedGalleryPlace place{};
                 MessageRichEmbedMediaSelection selected{};
-                if (!node || (owner.generation && !ui_widget_handle_equal(widget, owner)) ||
-                    message_rich_embed_gallery_place(store, *rich, i, &place) ||
+                if (!node || message_rich_embed_gallery_place(store, *rich, i, &place) ||
                     !message_rich_embed_media_select(store, embed, &selected) || !selected.media ||
                     !message_rich_embed_gif_favorite(store, embed, selected) ||
                     message_scene_media_obscure(
@@ -135,7 +136,7 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                                    : media_url;
                 if (!url.bytes)
                     url = src;
-                if (!ui_rect_has_area(star) || !url.bytes || !src.bytes || !hit(widget, *node, star))
+                if (!ui_rect_has_area(star) || !url.bytes || !src.bytes || !hit(*node, star))
                     continue;
                 out->owner = widget;
                 out->url = url;

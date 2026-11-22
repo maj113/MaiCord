@@ -11,6 +11,10 @@ enum class HourCycle : u8 { automatic, h12, h23 };
 // Process-wide; returns true when the cycle changed (retained text is stale).
 bool timestamp_set_hour_cycle(HourCycle) noexcept;
 HourCycle timestamp_hour_cycle() noexcept;
+// Increases when formatted times can read differently: an hour cycle change or a system settings change
+// (locale formats). Retained text keyed on it formats again.
+u32 timestamp_format_revision() noexcept;
+void timestamp_format_settings_changed() noexcept;
 
 TimestampFormatResult format_timestamp_local(u64 unix_seconds, char style, u64 now_unix_seconds,
                                              Slice<char> output) noexcept;

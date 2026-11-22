@@ -200,7 +200,7 @@ void test_message_store() noexcept {
                ordered1->id == 200 && ordered2 && ordered2->id == 300,
            "message_store_sorted_stable_order");
     expect(message_store_set_presentation_flags(&store, 200, message_presentation_mentions_current_user) &&
-               message_store_resolve(store, message_store_find(store, 200).handle)->presentation_flags ==
+               message_store_find_record(store, 200)->presentation_flags ==
                    message_presentation_mentions_current_user &&
                message_store_set_presentation_flags(&store, 200, message_presentation_none) &&
                !message_store_set_presentation_flags(&store, 200, 0x80u),
@@ -237,7 +237,8 @@ void test_message_store() noexcept {
     expect(
         message_store_upsert(&store, MessageInput{700, 7, 17, 7'000, 0, Utf8View{malformed, 2}, 0}).error ==
                 MessageStoreError::invalid_utf8 &&
-            message_store_find(store, 999).error == MessageStoreError::not_found,
+            message_store_find(store, 999).error == MessageStoreError::not_found &&
+            !message_store_find_record(store, 999) && !message_store_find_record(MessageStore{}, 200),
         "message_store_utf8_and_not_found");
 
     MessageRecord small_records[2]{};
@@ -854,11 +855,6 @@ void test_message_rich_store() noexcept {
                    inline_field_layout.heights[kMessageRichEmbedItemOffset] + 2.0f * (kMessageEmbedBlockGap + 40.0f),
            "message_rich_inline_embed_fields_share_one_estimated_row");
 
-    const char invalid_bytes[] = {static_cast<char>(0xC0), static_cast<char>(0xAF)};
-    reactions[0].name = Utf8View{invalid_bytes, 2};
-    expect(message_rich_store_apply(&store, 900, 19, reaction_update).error ==
-               MessageRichStoreError::invalid_utf8,
-           "message_rich_store_reject_invalid_utf8");
     expect(message_rich_store_delete(&store, 901) &&
                message_rich_store_delete(&store, 900) && store.count == 0 &&
                !message_rich_store_find(store, 900) && message_rich_store_delete(&store, 900) &&

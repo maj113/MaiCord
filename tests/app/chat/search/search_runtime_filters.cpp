@@ -459,8 +459,7 @@ void poll_publication() noexcept {
         return;
     for (auto& byte : borrowed)
         byte = '!';
-    const auto found = message_store_find(bank->store, 700);
-    const auto* message = found.ok() ? message_store_resolve(bank->store, found.handle) : nullptr;
+    const auto* message = message_store_find_record(bank->store, 700);
     check(message && (message->presentation_flags & message_presentation_has_poll) &&
               utf8_equal(message_poll_store_string(store, poll->question),
                          utf8_literal("Original poll question")) &&

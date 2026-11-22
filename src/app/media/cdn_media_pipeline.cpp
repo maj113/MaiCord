@@ -1132,18 +1132,13 @@ __forceinline void admit_response(Result* out, CdnMediaPipeline* pipeline, const
 
 } // namespace
 
-bool cdn_media_pipeline_initialize(CdnMediaPipeline* pipeline, EncodedMediaCache* cache,
+void cdn_media_pipeline_initialize(CdnMediaPipeline* pipeline, EncodedMediaCache* cache,
                                    Slice<u8> scanline_storage, u32 scanline_committed) noexcept {
-    if (!cache || !cache->entries || !cache->storage || !scanline_storage.data ||
-        scanline_storage.count == 0 || scanline_committed > scanline_storage.count) {
-        return false;
-    }
     reset_value<CdnMediaPipeline>(pipeline);
     pipeline->cache = cache;
     pipeline->scanline_storage = scanline_storage.data;
     pipeline->scanline_capacity = scanline_committed;
     pipeline->scanline_reserved = scanline_storage.count;
-    return true;
 }
 
 bool cdn_media_pipeline_commit_reserved_scanlines(CdnMediaPipeline* pipeline, u64 required) noexcept {

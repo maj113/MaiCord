@@ -514,8 +514,7 @@ float row_required_height(const MessageScene& scene, const MessageSceneRowWidget
 
 const MessageRichRecord* snapshot_rich(const MessageScene& scene, u64 message_id) noexcept {
     if (scene.plugin_decorations && g_ui_plugin_render_query) {
-        const MessageStoreResult found = message_store_find(*scene.timeline->store, message_id);
-        const MessageRecord* record = found.ok() ? message_store_resolve(*scene.timeline->store, found.handle) : nullptr;
+        const MessageRecord* record = message_store_find_record(*scene.timeline->store, message_id);
         if (record && plugin_folded(scene, *record))
             return nullptr;
     }
@@ -612,6 +611,9 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
     const float default_content = content_height(*scene), default_reply = reply_height(*scene);
     const float snapshot_width = maximum(1.f, width - 2 * snapshot_padding(*scene));
     constexpr float divider_height = kUiUnreadDividerStyle.height;
+    // The part of each row's measurement key that is the same for the whole pass.
+    const u64 pass_key = hash_mix(hash_mix(hash_mix(kHash64Seed, timeline.reset_generation), width_units),
+                                  scene->theme_geometry_revision);
     // A timeline's sources run in ascending id order, so each rich search starts where the last one ended. Another
     // order gets the same answers.
     u32 rich_cursor = 0;
@@ -645,13 +647,10 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
         auto* cached = message_scene_detail::measurement(scene, handle.slot);
         if (!cached)
             return false;
-        u64 key = hash_mix(kHash64Seed, record->id);
-        key = hash_mix(key, timeline.reset_generation);
+        u64 key = hash_mix(pass_key, record->id);
         key = hash_mix(key, handle.generation);
         key = hash_mix(key, record->revision);
         key = hash_mix(key, rich_layout_signature(rich));
-        key = hash_mix(key, width_units);
-        key = hash_mix(key, scene->theme_geometry_revision);
         // Compact group starts carry the author name inside the body text.
         if (scene->display.compact)
             key = hash_mix(key, grouped ? 2 : 1);

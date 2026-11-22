@@ -802,12 +802,7 @@ AccountMediaRequestResult account_media_initialize(AccountMedia* media, EncodedM
         cache = &media->cache;
         media->owns_cache = true;
     }
-    if (!cdn_media_pipeline_initialize(&media->pipeline, cache, Slice<u8>{scanlines, kScanlineStorageBytes},
-                                       0)) {
-        pages_release(media->allocation);
-        SecureZeroMemory(media, sizeof(*media));
-        return result(AccountMediaRequestState::failed, AccountMediaError::cache);
-    }
+    cdn_media_pipeline_initialize(&media->pipeline, cache, Slice<u8>{scanlines, kScanlineStorageBytes}, 0);
     media->pipeline.scanline_owner = media;
     media->pipeline.grow_scanlines = grow_scanlines;
     media->started = true;

@@ -28,8 +28,7 @@ struct Fixture {
 Fixture fixture;
 
 bool attach(Fixture& f, u64 id, u32 height) noexcept {
-    const auto found = message_store_find(f.store, id);
-    const auto* record = found.ok() ? message_store_resolve(f.store, found.handle) : nullptr;
+    const auto* record = message_store_find_record(f.store, id);
     if (!record) return false;
     GatewayMessageAttachment attachment{};
     attachment.id = 50'000 + id;

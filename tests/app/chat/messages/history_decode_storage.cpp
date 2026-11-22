@@ -480,8 +480,7 @@ void long_history(AccountUiRuntime& ui) noexcept {
         reinterpret_cast<const u8*>(scratch.content.data) == text &&
         scratch.page_structurals.count >= w.used / 2 + 1 && scratch.content.count >= w.used,
         "the long page decodes in the large index and text");
-    const auto newest = message_store_find(view.store, 9000);
-    const auto* stored = newest.ok() ? message_store_resolve(view.store, newest.handle) : nullptr;
+    const auto* stored = message_store_find_record(view.store, 9000);
     check(view.store.count == kMessageHistoryRequestLimit && stored && message_rich_store_find(ui.message_rich_store, 9000),
         "the timeline holds all 25 long messages and their rich records");
     const usize large = usize{storage.committed[index_pool]} + storage.committed[text_pool];
